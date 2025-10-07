@@ -60,7 +60,7 @@ def create_loan():
     
     # Calculate total amount
     principal = Decimal(str(data['principal_amount']))
-    interest_rate = Decimal(str(data.get('interest_rate', 10)))
+    interest_rate = Decimal(str(data.get('interest_rate', 30)))
     interest = principal * (interest_rate / 100)
     total_amount = principal + interest
     
@@ -125,6 +125,8 @@ def apply_for_loan():
     """Public endpoint for loan applications"""
     data = request.json
     
+    print("Received loan application data:", data)  # Debug log
+    
     # Validate required fields
     required_fields = ['full_name', 'phone_number', 'id_number', 'loan_amount', 'livestock_type']
     for field in required_fields:
@@ -135,38 +137,45 @@ def apply_for_loan():
     client = Client.query.filter_by(id_number=data['id_number']).first()
     
     if not client:
-        # Create new client
+        # Create new client - FIXED: Make sure location is saved
         client = Client(
             full_name=data['full_name'],
             phone_number=data['phone_number'],
             id_number=data['id_number'],
-            email=data.get('email'),
-            location=data.get('location')
+            email=data.get('email', ''),
+            location=data.get('location', '')  # FIXED: Save location
         )
         db.session.add(client)
-        db.session.flush()  # Get the client ID without committing
+        db.session.flush()
+    else:
+        # Update existing client's location if provided
+        if data.get('location'):
+            client.location = data.get('location')
+        db.session.add(client)
+        db.session.flush()
     
-    # Create livestock record
+    # Create livestock record - FIXED: Save photos and location
     livestock = Livestock(
         client_id=client.id,
         livestock_type=data['livestock_type'],
         count=data.get('count', 1),
         estimated_value=Decimal(str(data.get('estimated_value', 0))),
-        location=data.get('location')
+        location=data.get('location', ''),  # FIXED: Save location to livestock too
+        photos=data.get('photos', [])  # FIXED: Save photos
     )
     db.session.add(livestock)
     db.session.flush()
     
-    # Calculate loan details
+    # Calculate loan details with 30% interest
     principal_amount = Decimal(str(data['loan_amount']))
-    interest_rate = Decimal('10.0')  # Default 10% interest
+    interest_rate = Decimal('30.0')  # 30% interest
     interest_amount = principal_amount * (interest_rate / 100)
     total_amount = principal_amount + interest_amount
     
-    # Set due date (default 30 days from now)
-    due_date = datetime.now() + timedelta(days=30)
+    # Set due date to 7 days from now
+    due_date = datetime.now() + timedelta(days=7)
     
-    # Create loan application
+    # Create loan application - FIXED: Save notes properly
     loan = Loan(
         client_id=client.id,
         livestock_id=livestock.id,
@@ -175,17 +184,24 @@ def apply_for_loan():
         total_amount=total_amount,
         balance=total_amount,
         due_date=due_date,
-        status='pending',  # Important: set as pending for admin approval
-        notes=data.get('notes')
+        status='pending',
+        notes=data.get('notes', '')  # FIXED: Save notes
     )
     
     db.session.add(loan)
     db.session.commit()
     
+    print(f"Loan application created: ID {loan.id}")  # Debug log
+    print(f"Client location: {client.location}")  # Debug log
+    print(f"Livestock photos: {livestock.photos}")  # Debug log
+    print(f"Loan notes: {loan.notes}")  # Debug log
+    
     return jsonify({
         'success': True,
         'message': 'Loan application submitted successfully',
-        'application_id': loan.id
+        'application_id': loan.id,
+        'total_amount': float(total_amount),
+        'interest_rate': float(interest_rate)
     }), 201
 
 @loans_bp.route('/<int:loan_id>/approve', methods=['POST'])
@@ -253,3 +269,66 @@ def reject_loan(loan_id):
         'success': True,
         'message': 'Loan application rejected'
     }), 200
+
+@loans_bp.route('/livestock/gallery', methods=['GET'])
+def get_livestock_gallery():
+    """Get active livestock for public gallery"""
+    try:
+        from datetime import datetime
+        
+        # Get all active livestock
+        livestock = Livestock.query.filter_by(status='active').all()
+        livestock_data = []
+        
+        for item in livestock:
+            # Admin-added livestock (always available)
+            if item.client_id is None:
+                available = True
+                available_info = 'Available now'
+                description = item.location or 'Available for purchase'
+            else:
+                # Client livestock - only available if loan is overdue
+                client_loan = Loan.query.filter_by(
+                    livestock_id=item.id, 
+                    status='active'
+                ).first()
+                
+                if client_loan and client_loan.due_date:
+                    today = datetime.now().date()
+                    due_date = client_loan.due_date
+                    
+                    if isinstance(due_date, str):
+                        due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
+                    elif hasattr(due_date, 'date'):
+                        due_date = due_date.date()
+                    
+                    # Only show if due date has passed (overdue)
+                    days_overdue = (today - due_date).days
+                    available = days_overdue > 0
+                    available_info = 'Available now' if available else f'Available in {abs(days_overdue)} days'
+                    
+                    client_name = item.client.full_name if item.client else 'Unknown'
+                    description = f"Collateral for {client_name}'s loan"
+                else:
+                    available = False
+                    available_info = 'Not available'
+                    description = item.location or 'Not available'
+            
+            # Only include available livestock in public gallery
+            if item.client_id is None or available:
+                livestock_data.append({
+                    'id': item.id,
+                    'title': f"{item.livestock_type.capitalize()} - {item.count} head",
+                    'type': item.livestock_type,
+                    'count': item.count,
+                    'price': float(item.estimated_value) if item.estimated_value else 0,
+                    'description': description,
+                    'images': item.photos if item.photos else [],
+                    'availableInfo': available_info,
+                    'isAvailable': available or item.client_id is None
+                })
+        
+        return jsonify(livestock_data), 200
+    except Exception as e:
+        print(f"Public livestock gallery error: {str(e)}")
+        return jsonify({'error': str(e)}), 500    

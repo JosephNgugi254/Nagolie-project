@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from app import db
 from app.models import Client, Loan, Livestock, Transaction, User
@@ -62,7 +62,13 @@ def get_applications():
             client_name = app.client.full_name if app.client else 'Unknown'
             phone_number = app.client.phone_number if app.client else 'N/A'
             id_number = app.client.id_number if app.client else 'N/A'
-            location = app.client.location if app.client else 'N/A'
+            
+            # FIXED: Better location handling
+            location = 'N/A'
+            if app.client and app.client.location:
+                location = app.client.location
+            elif app.livestock and app.livestock.location:
+                location = app.livestock.location
             
             livestock_type = 'N/A'
             livestock_count = 0
@@ -70,10 +76,17 @@ def get_applications():
             photos = []
             
             if app.livestock:
-                livestock_type = app.livestock.livestock_type
-                livestock_count = app.livestock.count
-                estimated_value = float(app.livestock.estimated_value)
+                livestock_type = app.livestock.livestock_type or 'N/A'
+                livestock_count = app.livestock.count or 0
+                estimated_value = float(app.livestock.estimated_value) if app.livestock.estimated_value else 0
                 photos = app.livestock.photos if app.livestock.photos else []
+            
+            # FIXED: Better notes handling
+            additional_info = "None"
+            if app.notes:
+                additional_info = app.notes
+            elif app.notes == "":
+                additional_info = "None provided"
             
             applications_data.append({
                 'id': app.id,
@@ -86,9 +99,9 @@ def get_applications():
                 'livestockType': livestock_type,
                 'livestockCount': livestock_count,
                 'estimatedValue': estimated_value,
-                'location': location,
-                'additionalInfo': app.notes or 'None',
-                'photos': photos,
+                'location': location,  # FIXED: Now uses proper location
+                'additionalInfo': additional_info,  # FIXED: Better notes display
+                'photos': photos,  # FIXED: Should now show uploaded photos
                 'status': app.status
             })
         
@@ -113,9 +126,16 @@ def approve_application(loan_id):
         if loan.status != 'pending':
             return jsonify({'error': 'Loan application already processed'}), 400
         
-        # Update loan status
+        # ENFORCE 30% INTEREST RATE - regardless of what was stored
+        loan.interest_rate = Decimal('30.0')
+        interest_amount = loan.principal_amount * (loan.interest_rate / 100)
+        loan.total_amount = loan.principal_amount + interest_amount
+        loan.balance = loan.total_amount
+        
+        # Update loan status and set due date to 7 days from now
         loan.status = 'active'
         loan.disbursement_date = datetime.utcnow()
+        loan.due_date = datetime.utcnow() + timedelta(days=7)
         
         # Create disbursement transaction
         transaction = Transaction(
@@ -131,7 +151,9 @@ def approve_application(loan_id):
         
         log_audit('loan_approved', 'loan', loan.id, {
             'client': loan.client.full_name if loan.client else 'Unknown',
-            'amount': float(loan.principal_amount)
+            'amount': float(loan.principal_amount),
+            'interest_rate': float(loan.interest_rate),
+            'total_amount': float(loan.total_amount)
         })
         
         return jsonify({
@@ -143,7 +165,7 @@ def approve_application(loan_id):
         db.session.rollback()
         print(f"Error approving application: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
+    
 @admin_bp.route('/applications/<int:loan_id>/reject', methods=['POST', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -186,8 +208,10 @@ def get_dashboard_stats():
         return jsonify({'status': 'OK'}), 200
         
     try:
-        # Total clients
-        total_clients = Client.query.count()
+        # FIX: Count only approved clients (clients with active/completed loans)
+        total_clients = db.session.query(Client).join(Loan).filter(
+            Loan.status.in_(['active', 'completed'])
+        ).distinct().count()
         
         # Total amount lent (sum of all active and completed loans)
         total_lent = db.session.query(
@@ -257,10 +281,14 @@ def get_all_clients():
         return jsonify({'status': 'OK'}), 200
         
     try:
-        clients = Client.query.all()
+        # FIX: Only show clients with active loans
+        clients_with_loans = db.session.query(Client).join(Loan).filter(
+            Loan.status == 'active'
+        ).distinct().all()
+        
         clients_data = []
         
-        for client in clients:
+        for client in clients_with_loans:
             # Get active loan for this client
             active_loan = Loan.query.filter_by(
                 client_id=client.id,
@@ -268,7 +296,12 @@ def get_all_clients():
             ).first()
             
             if active_loan:
-                days_left = (active_loan.due_date.date() - datetime.now().date()).days
+                 # Calculate days left (7 days from disbursement)
+                if active_loan.disbursement_date:
+                    due_date = active_loan.disbursement_date + timedelta(days=7)
+                    days_left = (due_date.date() - datetime.now().date()).days
+                else:
+                    days_left = 7  # Default if no disbursement date
                 
                 clients_data.append({
                     'id': client.id,
@@ -289,6 +322,7 @@ def get_all_clients():
         print(f"Clients error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# In admin.py - update the get_all_livestock function
 @admin_bp.route('/livestock', methods=['GET', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -298,27 +332,77 @@ def get_all_livestock():
         return jsonify({'status': 'OK'}), 200
         
     try:
+        from datetime import datetime
+        
+        # Only show active livestock (both admin-added and client livestock with active loans)
         livestock = Livestock.query.filter_by(status='active').all()
         livestock_data = []
         
         for item in livestock:
+            # Determine if it's admin-added or client livestock
+            if item.client_id is None:
+                # Admin-added livestock
+                description = item.location or 'Available for purchase'
+                available_info = 'Available now'
+                livestock_type = item.livestock_type or 'Unknown'
+                days_remaining = 0  # Available immediately
+            else:
+                # Client livestock - only show if loan is active
+                client_loan = Loan.query.filter_by(
+                    livestock_id=item.id, 
+                    status='active'
+                ).first()
+                
+                if client_loan:
+                    client_name = item.client.full_name if item.client else 'Unknown'
+                    description = f"Collateral for {client_name}'s loan"
+                    livestock_type = item.livestock_type or 'Unknown'
+                    
+                    # Calculate days remaining until repayment
+                    if client_loan.due_date:
+                        today = datetime.now().date()
+                        due_date = client_loan.due_date
+                        
+                        if isinstance(due_date, str):
+                            due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
+                        elif hasattr(due_date, 'date'):
+                            due_date = due_date.date()
+                        
+                        days_remaining = (due_date - today).days
+                        
+                        if days_remaining > 0:
+                            available_info = f'Available in {days_remaining} days'
+                        elif days_remaining == 0:
+                            available_info = 'Available today'
+                        else:
+                            available_info = 'Available (overdue)'
+                            days_remaining = 0  # Overdue, so available now
+                    else:
+                        available_info = 'Available after loan repayment'
+                        days_remaining = 7  # Default 7 days
+                else:
+                    continue  # Skip client livestock without active loans
+            
+            # Use the correct field names from your Livestock model
             livestock_data.append({
                 'id': item.id,
-                'title': f"{item.livestock_type.capitalize()} - {item.count} head",
-                'type': item.livestock_type,
+                'title': f"{livestock_type.capitalize()} - {item.count} head",
+                'type': livestock_type,
                 'count': item.count,
                 'price': float(item.estimated_value) if item.estimated_value else 0,
-                'description': item.location or 'No description available',
+                'description': description,
                 'images': item.photos if item.photos else [],
-                'daysRemaining': 0,  # You can calculate this based on availability date
-                'status': item.status
+                'availableInfo': available_info,
+                'daysRemaining': days_remaining,  # Add this field for frontend
+                'status': item.status,
+                'isAdminAdded': item.client_id is None
             })
         
         return jsonify(livestock_data), 200
     except Exception as e:
         print(f"Livestock error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
+    
 @admin_bp.route('/transactions', methods=['GET', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -350,4 +434,191 @@ def get_all_transactions():
         return jsonify(transactions_data), 200
     except Exception as e:
         print(f"Transactions error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+@admin_bp.route('/livestock', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def add_livestock():
+    """Add livestock to gallery - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        data = request.json
+        
+        # Create livestock record (admin-added livestock has no client_id)
+        livestock = Livestock(
+            client_id=None,  # Admin-added livestock don't belong to specific clients
+            livestock_type=data['type'],
+            count=data['count'],
+            estimated_value=Decimal(str(data['price'])),
+            location=data.get('description', ''),
+            photos=data.get('images', []),
+            status='active'
+        )
+        
+        db.session.add(livestock)
+        db.session.commit()
+        
+        log_audit('livestock_added', 'livestock', livestock.id, {
+            'type': livestock.livestock_type,
+            'count': livestock.count
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Livestock added successfully',
+            'livestock': livestock.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error adding livestock: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+@admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def update_livestock(livestock_id):
+    """Update livestock in gallery - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        livestock = db.session.get(Livestock, livestock_id)
+        if not livestock:
+            return jsonify({'error': 'Livestock not found'}), 404
+        
+        data = request.json
+        
+        # Update fields
+        if 'type' in data:
+            livestock.livestock_type = data['type']
+        if 'count' in data:
+            livestock.count = data['count']
+        if 'price' in data:
+            livestock.estimated_value = Decimal(str(data['price']))
+        if 'description' in data:
+            livestock.location = data['description']
+        if 'images' in data:
+            livestock.photos = data['images']
+        
+        db.session.commit()
+        
+        log_audit('livestock_updated', 'livestock', livestock.id, {
+            'type': livestock.livestock_type,
+            'count': livestock.count
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Livestock updated successfully',
+            'livestock': livestock.to_dict()
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating livestock: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/livestock/<int:livestock_id>', methods=['DELETE', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def delete_livestock(livestock_id):
+    """Delete livestock from gallery - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        livestock = db.session.get(Livestock, livestock_id)
+        if not livestock:
+            return jsonify({'error': 'Livestock not found'}), 404
+        
+        db.session.delete(livestock)
+        db.session.commit()
+        
+        log_audit('livestock_deleted', 'livestock', livestock_id, {
+            'type': livestock.livestock_type,
+            'count': livestock.count
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Livestock deleted successfully'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error deleting livestock: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+
+# Add this route to admin.py for public access to livestock gallery
+@admin_bp.route('/livestock/gallery', methods=['GET'])
+def get_public_livestock_gallery():
+    """Get all livestock for public gallery - NO AUTH REQUIRED"""
+    try:
+        from datetime import datetime
+        
+        # Only show active livestock (both admin-added and client livestock with active loans)
+        livestock = Livestock.query.filter_by(status='active').all()
+        livestock_data = []
+        
+        for item in livestock:
+            # Determine if it's admin-added or client livestock
+            if item.client_id is None:
+                # Admin-added livestock
+                description = item.location or 'Available for purchase'
+                available_info = 'Available now'
+                livestock_type = item.livestock_type or 'Unknown'
+                days_remaining = 0
+            else:
+                # Client livestock - only show if loan is active
+                client_loan = Loan.query.filter_by(
+                    livestock_id=item.id, 
+                    status='active'
+                ).first()
+                
+                if client_loan:
+                    client_name = item.client.full_name if item.client else 'Unknown'
+                    description = f"Collateral livestock"
+                    livestock_type = item.livestock_type or 'Unknown'
+                    
+                    # Calculate days remaining until repayment
+                    if client_loan.due_date:
+                        today = datetime.now().date()
+                        due_date = client_loan.due_date
+                        
+                        if isinstance(due_date, str):
+                            due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
+                        elif hasattr(due_date, 'date'):
+                            due_date = due_date.date()
+                        
+                        days_remaining = (due_date - today).days
+                        
+                        if days_remaining > 0:
+                            available_info = f'Available in {days_remaining} days'
+                        elif days_remaining == 0:
+                            available_info = 'Available today'
+                        else:
+                            available_info = 'Available (overdue)'
+                            days_remaining = 0
+                    else:
+                        available_info = 'Available after loan repayment'
+                        days_remaining = 7
+                else:
+                    continue
+            
+            livestock_data.append({
+                'id': item.id,
+                'title': f"{livestock_type.capitalize()} - {item.count} head",
+                'type': livestock_type,
+                'count': item.count,
+                'price': float(item.estimated_value) if item.estimated_value else 0,
+                'description': description,
+                'images': item.photos if item.photos else [],
+                'availableInfo': available_info,
+                'daysRemaining': days_remaining
+            })
+        
+        return jsonify(livestock_data), 200
+    except Exception as e:
+        print(f"Public livestock gallery error: {str(e)}")
         return jsonify({'error': str(e)}), 500

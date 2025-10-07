@@ -59,7 +59,7 @@ class Livestock(db.Model):
     __tablename__ = 'livestock'
     
     id = db.Column(db.Integer, primary_key=True)
-    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
     livestock_type = db.Column(db.String(50), nullable=False)  # cattle, goats, sheep, chickens
     count = db.Column(db.Integer, nullable=False)
     estimated_value = db.Column(db.Numeric(10, 2), nullable=False)
@@ -68,6 +68,7 @@ class Livestock(db.Model):
     photos = db.Column(db.JSON)  # Array of photo URLs
     status = db.Column(db.String(20), default='active')  # active, collateral, sold
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
     
     def to_dict(self):
         return {
@@ -91,17 +92,18 @@ class Loan(db.Model):
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
     livestock_id = db.Column(db.Integer, db.ForeignKey('livestock.id'))
     principal_amount = db.Column(db.Numeric(10, 2), nullable=False)
-    interest_rate = db.Column(db.Numeric(5, 2), default=10.0)  # Percentage
+    interest_rate = db.Column(db.Numeric(5, 2), default=30.0)  # Percentage
     total_amount = db.Column(db.Numeric(10, 2), nullable=False)  # Principal + Interest
     amount_paid = db.Column(db.Numeric(10, 2), default=0)
     balance = db.Column(db.Numeric(10, 2), nullable=False)
-    disbursement_date = db.Column(db.DateTime, default=datetime.utcnow)
+    disbursement_date = db.Column(db.DateTime)
     due_date = db.Column(db.DateTime, nullable=False)
-    status = db.Column(db.String(20), default='active')  # pending, active, completed, defaulted
+    status = db.Column(db.String(20), default='pending')  # pending, active, completed, defaulted
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Relationships
+    # Relationships - FIXED: Add proper relationship with Livestock
+    livestock = db.relationship('Livestock', backref='loan', lazy='joined')
     transactions = db.relationship('Transaction', backref='loan', lazy='dynamic', cascade='all, delete-orphan')
     payments = db.relationship('Payment', backref='loan', lazy='dynamic', cascade='all, delete-orphan')
     
@@ -116,8 +118,8 @@ class Loan(db.Model):
             'total_amount': float(self.total_amount),
             'amount_paid': float(self.amount_paid),
             'balance': float(self.balance),
-            'disbursement_date': self.disbursement_date.isoformat(),
-            'due_date': self.due_date.isoformat(),
+            'disbursement_date': self.disbursement_date.isoformat() if self.disbursement_date else None,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
             'status': self.status,
             'notes': self.notes,
             'created_at': self.created_at.isoformat()

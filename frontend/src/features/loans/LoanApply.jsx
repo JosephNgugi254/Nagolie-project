@@ -10,17 +10,20 @@ function LoanApply({ onSubmit }) {
     fullName: "",
     phoneNumber: "",
     idNumber: "",
+    email: "", // ADDED: Missing email field
     loanAmount: "",
     livestockType: "",
-    livestockCount: "",
+    count: "", // CHANGED: from livestockCount to count (matches backend)
     estimatedValue: "",
-    livestockLocation: "",
-    additionalInfo: "",
+    location: "", // CHANGED: from livestockLocation to location (matches backend)
+    notes: "", // CHANGED: from additionalInfo to notes (matches backend)
     agreeTerms: false,
   })
 
-  const [livestockPhotos, setLivestockPhotos] = useState([])
+  const [photos, setPhotos] = useState([]) // CHANGED: from livestockPhotos to photos
+
   const [showTermsModal, setShowTermsModal] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -30,28 +33,96 @@ function LoanApply({ onSubmit }) {
     })
   }
 
-  const handleFileChange = (e) => {
+  // FIXED: Convert files to base64 for backend
+  const handleFileChange = async (e) => {
     const files = Array.from(e.target.files)
-    setLivestockPhotos(files)
+    setUploading(true)
+    
+    try {
+      const photoPromises = files.map(file => {
+        return new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (e) => resolve(e.target.result)
+          reader.readAsDataURL(file)
+        })
+      })
+      
+      const base64Photos = await Promise.all(photoPromises)
+      setPhotos(base64Photos)
+      console.log("Converted photos to base64:", base64Photos.length)
+    } catch (error) {
+      console.error("Error converting photos:", error)
+      alert("Error uploading photos. Please try again.")
+    } finally {
+      setUploading(false)
+    }
   }
 
   const handleSubmit = (e) => {
-    e.preventDefault()
+    e.preventDefault();
 
     if (!formData.agreeTerms) {
-      alert("Please agree to the terms and conditions before submitting your application.")
-      return
+      alert("Please agree to the terms and conditions before submitting your application.");
+      return;
     }
 
-    onSubmit({ ...formData, livestockPhotos })
-  }
+    if (photos.length === 0) {
+      alert("Please upload at least one photo of your livestock.");
+      return;
+    }
+
+    const submissionData = {
+      fullName: formData.fullName,
+      phoneNumber: formData.phoneNumber,
+      idNumber: formData.idNumber,
+      email: formData.email,
+      loanAmount: formData.loanAmount,
+      livestockType: formData.livestockType,
+      count: formData.count,
+      estimatedValue: formData.estimatedValue,
+      location: formData.location,
+      notes: formData.notes,
+      photos: photos,
+    };
+
+    console.log("Submitting data:", submissionData);
+
+    // Call parent submit function
+    onSubmit(submissionData);
+
+    // ✅ Reset the form after successful submission
+    setFormData({
+      fullName: "",
+      phoneNumber: "",
+      idNumber: "",
+      email: "",
+      loanAmount: "",
+      livestockType: "",
+      count: "",
+      estimatedValue: "",
+      location: "",
+      notes: "",
+      agreeTerms: false,
+    });
+
+    // Clear photo uploads
+    setPhotos([]);  
+    window.location.reload(); 
+  };
+
 
   return (
     <>
       <form onSubmit={handleSubmit}>
         <div className="row">
           <div className="col-md-6">
-            <FormInput label="Full Name" name="fullName" value={formData.fullName} onChange={handleChange} required />
+            <FormInput 
+              label="Full Name" 
+              name="fullName" 
+              value={formData.fullName} 
+              onChange={handleChange} 
+              required 
+            />
           </div>
           <div className="col-md-6">
             <FormInput
@@ -67,8 +138,28 @@ function LoanApply({ onSubmit }) {
 
         <div className="row">
           <div className="col-md-6">
-            <FormInput label="ID Number" name="idNumber" value={formData.idNumber} onChange={handleChange} required />
+            <FormInput 
+              label="ID Number" 
+              name="idNumber" 
+              value={formData.idNumber} 
+              onChange={handleChange} 
+              required 
+            />
           </div>
+          <div className="col-md-6">
+            {/* ADDED: Email field */}
+            <FormInput
+              label="Email Address"
+              name="email"
+              type="email"
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="your@email.com"
+            />
+          </div>
+        </div>
+
+        <div className="row">
           <div className="col-md-6">
             <FormInput
               label="Loan Amount (KSh)"
@@ -81,36 +172,36 @@ function LoanApply({ onSubmit }) {
               required
             />
           </div>
-        </div>
-
-        <div className="mb-3">
-          <label htmlFor="livestockType" className="form-label">
-            Livestock Type <span className="text-danger">*</span>
-          </label>
-          <select
-            className="form-control"
-            id="livestockType"
-            name="livestockType"
-            value={formData.livestockType}
-            onChange={handleChange}
-            required
-          >
-            <option value="">Select livestock type</option>
-            <option value="cattle">Cattle</option>
-            <option value="goats">Goats</option>
-            <option value="sheep">Sheep</option>
-            <option value="chickens">Chickens</option>
-            <option value="other">Other</option>
-          </select>
+          <div className="col-md-6">
+            <label htmlFor="livestockType" className="form-label">
+              Livestock Type <span className="text-danger">*</span>
+            </label>
+            <select
+              className="form-control"
+              id="livestockType"
+              name="livestockType"
+              value={formData.livestockType}
+              onChange={handleChange}
+              required
+            >
+              <option value="">Select livestock type</option>
+              <option value="cattle">Cattle</option>
+              <option value="goats">Goats</option>
+              <option value="sheep">Sheep</option>
+              <option value="chickens">Chickens</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
         </div>
 
         <div className="row">
           <div className="col-md-6">
+            {/* CHANGED: name from livestockCount to count */}
             <FormInput
               label="Number of Livestock"
-              name="livestockCount"
+              name="count"
               type="number"
-              value={formData.livestockCount}
+              value={formData.count}
               onChange={handleChange}
               min="1"
               required
@@ -129,15 +220,16 @@ function LoanApply({ onSubmit }) {
         </div>
 
         <div className="mb-3">
-          <label htmlFor="livestockLocation" className="form-label">
-            Livestock Location <span className="text-danger">*</span>
+          {/* CHANGED: name from livestockLocation to location */}
+          <label htmlFor="location" className="form-label">
+            Location <span className="text-danger">*</span>
           </label>
           <textarea
             className="form-control"
-            id="livestockLocation"
-            name="livestockLocation"
+            id="location"
+            name="location"
             rows="2"
-            value={formData.livestockLocation}
+            value={formData.location}
             onChange={handleChange}
             placeholder="Provide detailed location for valuation visit"
             required
@@ -145,34 +237,43 @@ function LoanApply({ onSubmit }) {
         </div>
 
         <div className="mb-3">
-          <label htmlFor="livestockPhotos" className="form-label">
+          <label htmlFor="photos" className="form-label">
             Livestock Photos <span className="text-danger">*</span>
           </label>
           <input
             type="file"
             className="form-control"
-            id="livestockPhotos"
-            name="livestockPhotos"
+            id="photos"
+            name="photos"
             multiple
             accept="image/*"
             onChange={handleFileChange}
             required
           />
           <small className="form-text text-muted">
-            Upload clear photos of your livestock (multiple photos allowed)
+            {uploading ? "Uploading photos..." : `Upload clear photos of your livestock (${photos.length} photos selected)`}
           </small>
+          {photos.length > 0 && (
+            <div className="mt-2">
+              <small className="text-success">
+                <i className="fas fa-check me-1"></i>
+                {photos.length} photo(s) ready for upload
+              </small>
+            </div>
+          )}
         </div>
 
         <div className="mb-3">
-          <label htmlFor="additionalInfo" className="form-label">
+          {/* CHANGED: name from additionalInfo to notes */}
+          <label htmlFor="notes" className="form-label">
             Additional Information
           </label>
           <textarea
             className="form-control"
-            id="additionalInfo"
-            name="additionalInfo"
+            id="notes"
+            name="notes"
             rows="3"
-            value={formData.additionalInfo}
+            value={formData.notes}
             onChange={handleChange}
             placeholder="Any additional information about your livestock or loan request"
           ></textarea>
@@ -205,8 +306,13 @@ function LoanApply({ onSubmit }) {
         </div>
 
         <div className="text-center">
-          <Button type="submit" size="lg" className="px-5">
-            Submit Application
+          <Button 
+            type="submit" 
+            size="lg" 
+            className="px-5"
+            disabled={uploading}
+          >
+            {uploading ? "Uploading..." : "Submit Application"}
           </Button>
         </div>
       </form>

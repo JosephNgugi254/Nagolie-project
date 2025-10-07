@@ -1,7 +1,7 @@
 "use client"
 
 import { Link } from "react-router-dom"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import LoanApply from "../features/loans/LoanApply"
@@ -13,32 +13,34 @@ function Home() {
   const currentIndexRef = useRef(0)
   const autoSlideIntervalRef = useRef(null)
 
-  // ✅ UPDATED: Fixed loan submission function
   const handleLoanSubmit = async (formData) => {
     try {
       console.log("Loan application submitted:", formData)
-      
-      // Format the data for the backend
+
+      // Format the data for the backend - NOW MATCHES BACKEND EXPECTATIONS
       const applicationData = {
         full_name: formData.fullName,
         phone_number: formData.phoneNumber,
         id_number: formData.idNumber,
-        loan_amount: formData.loanAmount,
-        livestock_type: formData.livestockType,
         email: formData.email || '',
-        location: formData.location || '',
-        count: formData.count || 1,
-        estimated_value: formData.estimatedValue || 0,
-        notes: formData.notes || ''
+        loan_amount: parseFloat(formData.loanAmount),
+        livestock_type: formData.livestockType,
+        count: parseInt(formData.count) || 1,
+        estimated_value: parseFloat(formData.estimatedValue) || 0,
+        location: formData.location || '', // Now matches
+        notes: formData.notes || '', // Now matches
+        photos: formData.photos || [] // Now matches and contains base64 data
       }
+
+      console.log("Sending to backend:", applicationData)
 
       // Send to backend using the new API endpoint
       const response = await loanAPI.apply(applicationData)
-      
+
       if (response.data.success) {
         alert("Thank you for your application! We will contact you shortly.")
         console.log("Application submitted successfully:", response.data)
-        
+
         // Optional: Reset form or redirect
         return { success: true, data: response.data }
       } else {
@@ -188,6 +190,40 @@ function Home() {
       })
     }
   }
+
+  // Add state for livestock
+const [livestock, setLivestock] = useState([])
+
+// Fetch livestock for gallery
+useEffect(() => {  
+  const fetchLivestock = async () => {
+    try {
+      console.log('Fetching livestock gallery...');
+      const response = await fetch('http://localhost:5000/api/admin/livestock/gallery');
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Livestock data received:', data);
+        setLivestock(data);
+      } else {
+        console.error('Failed to fetch livestock:', response.status);
+        setLivestock([]);
+      }
+    } catch (error) {
+      console.error('Error fetching livestock:', error);
+      setLivestock([]);
+    }
+  };
+
+  fetchLivestock();
+}, []);
+
+const formatCurrency = (amount) => {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "KES",
+  }).format(Number(amount) || 0);
+};
 
   return (
     <div>
@@ -583,19 +619,54 @@ function Home() {
         <div className="container">
           <div className="text-center mb-5">
             <h2 className="display-5 fw-bold">Available Livestock</h2>
-            <p className="lead text-muted">Livestock available for purchase, if interested reach out</p>
+            <p className="lead text-muted">Quality livestock available for purchase</p>
           </div>
           <div className="row" id="livestock-gallery">
-            <div className="col-12 text-center">
-              <div className="alert alert-info">
-                <i className="fas fa-info-circle me-2"></i>
-                No livestock available for now. Please check back later.
+            {livestock.length === 0 ? (
+              <div className="col-12 text-center">
+                <div className="alert alert-info">
+                  <i className="fas fa-info-circle me-2"></i>
+                  No livestock available at the moment. Please check back later.
+                </div>
               </div>
-            </div>
+            ) : (
+              livestock.map((item) => (
+                <div key={item.id} className="col-md-4 mb-4">
+                  <div className="card h-100">
+                    <img 
+                      src={item.images?.[0] || "/placeholder.svg"} 
+                      className="card-img-top" 
+                      alt={item.title}
+                      style={{height: "200px", objectFit: "cover"}}
+                    />
+                    <div className="card-body">
+                      <h5 className="card-title">{item.title}</h5>
+                      <p className="card-text">{item.description}</p>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <span className="h5 text-primary">{formatCurrency(item.price)}</span>
+                        <span className={`badge ${
+                          item.daysRemaining > 1 ? 'bg-warning' : 
+                          item.daysRemaining === 1 ? 'bg-info' : 
+                          'bg-success'
+                        }`}>
+                          {item.availableInfo}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="card-footer">
+                      <small className="text-muted">
+                        <i className="fas fa-map-marker-alt me-1"></i>
+                        Isinya, Kajiado
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </section>
-
+          
       {/* Loan Application Form */}
       <section id="loan-application" className="py-5">
         <div className="container">

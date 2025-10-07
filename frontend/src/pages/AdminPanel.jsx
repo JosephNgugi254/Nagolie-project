@@ -38,6 +38,86 @@ function AdminPanel() {
   const [loading, setLoading] = useState(true)
   const [apiErrors, setApiErrors] = useState({})
 
+  //search filters state variables
+  const [clientSearch, setClientSearch] = useState("")
+  const [clientFilter, setClientFilter] = useState("")
+  const [clientDate, setClientDate] = useState("")
+  const [transactionSearch, setTransactionSearch] = useState("")
+  const [transactionDate, setTransactionDate] = useState("")
+
+  const filterClients = useCallback(() => {
+    let filtered = [...clients]
+
+    // Search filter (name, phone, ID number)
+    if (clientSearch) {
+      const searchTerm = clientSearch.toLowerCase()
+      filtered = filtered.filter(client => 
+        client.name?.toLowerCase().includes(searchTerm) ||
+        client.phone?.toLowerCase().includes(searchTerm) ||
+        client.idNumber?.toLowerCase().includes(searchTerm)
+      )
+    }
+
+    // Status filter
+    if (clientFilter) {
+      switch (clientFilter) {
+        case "due-today":
+          filtered = filtered.filter(client => client.daysLeft === 0)
+          break
+        case "overdue":
+          filtered = filtered.filter(client => client.daysLeft < 0)
+          break
+        case "completed":
+          filtered = filtered.filter(client => client.balance <= 0)
+          break
+        case "active":
+          filtered = filtered.filter(client => client.balance > 0)
+          break
+        default:
+          // "all" - no additional filtering
+          break
+      }
+    }
+
+    // Date filter (expected return date)
+    if (clientDate) {
+      filtered = filtered.filter(client => {
+        if (!client.expectedReturnDate) return false
+        const clientDate = new Date(client.expectedReturnDate).toISOString().split('T')[0]
+        return clientDate === clientDate
+      })
+    }
+
+    return filtered
+  },   [clients, clientSearch, clientFilter, clientDate])
+
+  const filterTransactions = useCallback(() => {
+    let filtered = [...transactions]
+
+    // Search filter (client name)
+    if (transactionSearch) {
+      const searchTerm = transactionSearch.toLowerCase()
+      filtered = filtered.filter(transaction => 
+        transaction.clientName?.toLowerCase().includes(searchTerm)
+      )
+    }
+
+    // Date filter
+    if (transactionDate) {
+      filtered = filtered.filter(transaction => {
+        if (!transaction.date) return false
+        const transDate = new Date(transaction.date).toISOString().split('T')[0]
+        return transDate === transactionDate
+      })
+    }
+
+    return filtered
+  }, [transactions, transactionSearch, transactionDate])
+
+  // Get filtered data
+  const filteredClients = filterClients()
+  const filteredTransactions = filterTransactions()
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!isAuthenticated && !authLoading) {
@@ -338,10 +418,98 @@ function AdminPanel() {
   }
 
   const handleAddLivestock = async (livestockData) => {
-    console.log("Adding livestock:", livestockData)
-    setShowAddLivestockModal(false)
-    fetchLivestock()
-  }
+    try {
+      console.log('Adding livestock:', livestockData);
+
+      const response = await fetch('http://localhost:5000/api/admin/livestock', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          type: livestockData.type,
+          count: parseInt(livestockData.count),
+          price: parseFloat(livestockData.price),
+          description: livestockData.description,
+          images: livestockData.images || []
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      }
+
+      console.log('Livestock added successfully:', data);
+      alert('Livestock added successfully!');
+      setShowAddLivestockModal(false);
+      fetchLivestock(); // Refresh the list
+      return data;
+
+    } catch (error) {
+      console.error('Error adding livestock:', error);
+      alert(`Failed to add livestock: ${error.message}`);
+      throw error;
+    }
+  };
+
+  const handleEditLivestock = async (livestockItem) => {
+    try {
+      const updatedData = {
+        type: livestockItem.type,
+        count: livestockItem.count,
+        price: livestockItem.price,
+        description: livestockItem.description,
+        images: livestockItem.images || []
+      };
+
+      const response = await fetch(`http://localhost:5000/api/admin/livestock/${livestockItem.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify(updatedData)
+      });
+    
+      if (response.ok) {
+        alert('Livestock updated successfully!');
+        fetchLivestock();
+      } else {
+        const error = await response.json();
+        alert(`Failed to update livestock: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error updating livestock:', error);
+      alert('Failed to update livestock');
+    }
+  };
+  
+  const handleDeleteLivestock = async (livestockId) => {
+    if (window.confirm('Are you sure you want to delete this livestock? This action cannot be undone.')) {
+      try {
+        const response = await fetch(`http://localhost:5000/api/admin/livestock/${livestockId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+      
+        if (response.ok) {
+          alert('Livestock deleted successfully!');
+          fetchLivestock();
+        } else {
+          const error = await response.json();
+          alert(`Failed to delete livestock: ${error.error}`);
+        }
+      } catch (error) {
+        console.error('Error deleting livestock:', error);
+        alert('Failed to delete livestock');
+      }
+    }
+  };  
 
   const pendingApplicationsCount = applications.filter(app => app.status === "pending").length
 
@@ -544,18 +712,34 @@ function AdminPanel() {
                 <div className="d-flex justify-content-between align-items-center mb-4">
                   <h2>Client Management</h2>
                   <div className="d-flex gap-2">
-                    <input type="text" className="form-control" placeholder="Search clients..." />
-                    <select className="form-select">
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="Search clients..." 
+                      value={clientSearch}
+                      onChange={(e) => setClientSearch(e.target.value)}
+                    />
+                    <select 
+                      className="form-select"
+                      value={clientFilter}
+                      onChange={(e) => setClientFilter(e.target.value)}
+                    >
                       <option value="">All Clients</option>
                       <option value="active">Active Loans</option>
                       <option value="due-today">Due Today</option>
                       <option value="overdue">Overdue</option>
                       <option value="completed">Completed</option>
                     </select>
-                    <input type="date" className="form-control" placeholder="Due Date" />
+                    <input 
+                      type="date" 
+                      className="form-control" 
+                      placeholder="Due Date"
+                      value={clientDate}
+                      onChange={(e) => setClientDate(e.target.value)}
+                    />
                   </div>
                 </div>
-
+            
                 {apiErrors.clients && (
                   <div className="alert alert-warning">
                     <i className="fas fa-exclamation-circle me-2"></i>
@@ -565,11 +749,17 @@ function AdminPanel() {
 
                 <div className="card">
                   <div className="card-body">
-                    {clients.length === 0 ? (
+                    {filteredClients.length === 0 ? (
                       <div className="text-center py-5">
                         <i className="fas fa-users fa-3x text-muted mb-3"></i>
-                        <h5 className="text-muted">No Clients Found</h5>
-                        <p className="text-muted">No active clients in the system yet.</p>
+                        <h5 className="text-muted">
+                          {clients.length === 0 ? "No Clients Found" : "No Clients Match Your Filters"}
+                        </h5>
+                        <p className="text-muted">
+                          {clients.length === 0 
+                            ? "No active clients in the system yet." 
+                            : "Try adjusting your search or filter criteria."}
+                        </p>
                       </div>
                     ) : (
                       <AdminTable
@@ -591,12 +781,12 @@ function AdminPanel() {
                               if (days > 0) className += "positive"
                               else if (days === 0) className += "zero"
                               else className += "negative"
-                              
+
                               let text = ""
                               if (days > 0) text = `${days} days left`
                               else if (days === 0) text = "Due today"
                               else text = `${Math.abs(days)} days overdue`
-                              
+
                               return <span className={className}>{text}</span>
                             }
                           },
@@ -621,7 +811,7 @@ function AdminPanel() {
                             ),
                           },
                         ]}
-                        data={clients}
+                        data={filteredClients}
                       />
                     )}
                   </div>
@@ -635,11 +825,22 @@ function AdminPanel() {
                 <div className="d-flex justify-content-between align-items-center mb-4">
                   <h2>Transaction Monitoring</h2>
                   <div className="d-flex gap-2">
-                    <input type="date" className="form-control" />
-                    <input type="text" className="form-control" placeholder="Search transactions..." />
+                    <input 
+                      type="date" 
+                      className="form-control" 
+                      value={transactionDate}
+                      onChange={(e) => setTransactionDate(e.target.value)}
+                    />
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="Search transactions..." 
+                      value={transactionSearch}
+                      onChange={(e) => setTransactionSearch(e.target.value)}
+                    />
                   </div>
                 </div>
-
+            
                 {apiErrors.transactions && (
                   <div className="alert alert-warning">
                     <i className="fas fa-exclamation-circle me-2"></i>
@@ -649,11 +850,17 @@ function AdminPanel() {
 
                 <div className="card">
                   <div className="card-body">
-                    {transactions.length === 0 ? (
+                    {filteredTransactions.length === 0 ? (
                       <div className="text-center py-5">
                         <i className="fas fa-exchange-alt fa-3x text-muted mb-3"></i>
-                        <h5 className="text-muted">No Transactions</h5>
-                        <p className="text-muted">Transactions will appear here when payments are processed.</p>
+                        <h5 className="text-muted">
+                          {transactions.length === 0 ? "No Transactions" : "No Transactions Match Your Filters"}
+                        </h5>
+                        <p className="text-muted">
+                          {transactions.length === 0 
+                            ? "Transactions will appear here when payments are processed." 
+                            : "Try adjusting your search or date criteria."}
+                        </p>
                       </div>
                     ) : (
                       <AdminTable
@@ -695,7 +902,7 @@ function AdminPanel() {
                             ),
                           },
                         ]}
-                        data={transactions}
+                        data={filteredTransactions}
                       />
                     )}
                   </div>
@@ -712,7 +919,7 @@ function AdminPanel() {
                     <i className="fas fa-plus me-1"></i>Add Livestock
                   </button>
                 </div>
-
+            
                 {apiErrors.livestock && (
                   <div className="alert alert-warning">
                     <i className="fas fa-exclamation-circle me-2"></i>
@@ -734,24 +941,48 @@ function AdminPanel() {
                 ) : (
                   <div className="row" id="adminGallery">
                     {livestock.map((item) => (
-                      <div key={item.id} className="col-md-6 col-lg-4 gallery-item">
-                        <div className="card gallery-card">
-                          <img src={item.images?.[0] || "/placeholder.svg"} className="card-img-top" alt={item.title} style={{height: "200px", objectFit: "cover"}} />
-                          <div className="card-body">
+                      <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4">
+                        <div className="card gallery-card h-100">
+                          <img 
+                            src={item.images?.[0] || "/placeholder.svg"} 
+                            className="card-img-top" 
+                            alt={item.title} 
+                            style={{height: "200px", objectFit: "cover"}} 
+                          />
+                          <div className="card-body d-flex flex-column">
                             <h5 className="card-title">{item.title}</h5>
-                            <p className="card-text">{item.description}</p>
-                            <div className="d-flex justify-content-between align-items-center">
+                            <p className="card-text flex-grow-1">{item.description}</p>
+                            <div className="d-flex justify-content-between align-items-center mb-2">
                               <span className="h6 text-primary">{formatCurrency(item.price)}</span>
-                              <span className={`badge ${item.daysRemaining <= 1 ? 'bg-danger' : 'bg-warning'}`}>
-                                {item.daysRemaining > 1 ? `Available in ${item.daysRemaining} days` : 
-                                 item.daysRemaining === 1 ? 'Available in 1 day' : 'Available today'}
+                              <span className={`badge ${
+                                item.daysRemaining > 1 ? 'bg-warning' : 
+                                item.daysRemaining === 1 ? 'bg-info' : 
+                                'bg-success'
+                              }`}>
+                                {item.availableInfo}
                               </span>
                             </div>
-                            <div className="mt-2">
-                              <button className="btn btn-sm btn-outline-primary me-2">
+                            {item.isAdminAdded && (
+                              <small className="text-muted mb-2">
+                                <i className="fas fa-user-tie me-1"></i>Admin Added
+                              </small>
+                            )}
+                            {!item.isAdminAdded && (
+                              <small className="text-muted mb-2">
+                                <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral
+                              </small>
+                            )}
+                            <div className="mt-auto">
+                              <button 
+                                className="btn btn-sm btn-outline-primary me-2"
+                                onClick={() => handleEditLivestock(item)}
+                              >
                                 <i className="fas fa-edit"></i> Edit
                               </button>
-                              <button className="btn btn-sm btn-outline-danger">
+                              <button 
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => handleDeleteLivestock(item.id)}
+                              >
                                 <i className="fas fa-trash"></i> Delete
                               </button>
                             </div>
@@ -911,25 +1142,25 @@ function AdminPanel() {
           title="Add Livestock to Gallery"
           size="lg"
         >
-          <form onSubmit={(e) => {
-            e.preventDefault()
-            const formData = new FormData(e.target)
-            handleAddLivestock({
-              title: formData.get('title'),
-              type: formData.get('type'),
-              price: formData.get('price'),
-              availableDate: formData.get('availableDate'),
-              description: formData.get('description'),
-              images: []
-            })
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            
+            try {
+              await handleAddLivestock({
+                type: formData.get('type'),
+                count: formData.get('count'),
+                price: formData.get('price'),
+                description: formData.get('description'),
+                images: [] // You can add image handling here if needed
+              });
+            } catch (error) {
+              console.error('Error in form submission:', error);
+            }
           }}>
             <div className="row">
               <div className="col-md-6 mb-3">
-                <label htmlFor="livestockTitle" className="form-label">Title</label>
-                <input type="text" className="form-control" id="livestockTitle" name="title" required />
-              </div>
-              <div className="col-md-6 mb-3">
-                <label htmlFor="livestockType" className="form-label">Type</label>
+                <label htmlFor="livestockType" className="form-label">Livestock Type *</label>
                 <select className="form-control" id="livestockType" name="type" required>
                   <option value="cattle">Cattle</option>
                   <option value="goats">Goats</option>
@@ -937,24 +1168,45 @@ function AdminPanel() {
                   <option value="poultry">Poultry</option>
                 </select>
               </div>
+              <div className="col-md-6 mb-3">
+                <label htmlFor="livestockCount" className="form-label">Count *</label>
+                <input 
+                  type="number" 
+                  className="form-control" 
+                  id="livestockCount" 
+                  name="count" 
+                  min="1"
+                  required 
+                />
+              </div>
             </div>
             <div className="row">
               <div className="col-md-6 mb-3">
-                <label htmlFor="livestockPrice" className="form-label">Price (KSh)</label>
-                <input type="number" className="form-control" id="livestockPrice" name="price" required />
+                <label htmlFor="livestockPrice" className="form-label">Price (KSh) *</label>
+                <input 
+                  type="number" 
+                  className="form-control" 
+                  id="livestockPrice" 
+                  name="price" 
+                  min="1"
+                  step="0.01"
+                  required 
+                />
               </div>
               <div className="col-md-6 mb-3">
-                <label htmlFor="availableDate" className="form-label">Available Date</label>
-                <input type="date" className="form-control" id="availableDate" name="availableDate" required />
+                <label htmlFor="livestockDescription" className="form-label">Description</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  id="livestockDescription" 
+                  name="description" 
+                  placeholder="Brief description of the livestock"
+                />
               </div>
             </div>
-            <div className="mb-3">
-              <label htmlFor="livestockDescription" className="form-label">Description</label>
-              <textarea className="form-control" id="livestockDescription" name="description" rows="3" required></textarea>
-            </div>
-            <div className="mb-3">
-              <label htmlFor="livestockImages" className="form-label">Images</label>
-              <input type="file" className="form-control" id="livestockImages" multiple accept="image/*" required />
+            <div className="alert alert-info">
+              <i className="fas fa-info-circle me-2"></i>
+              This livestock will be added to the public gallery and marked as available immediately.
             </div>
             <div className="d-flex gap-2">
               <button type="submit" className="btn btn-primary">

@@ -1350,3 +1350,16 @@ section {
     font-size: 0.75rem;
   }
 }
+
+
+@media (min-width: 768px) and (max-width: 1024px) {
+  .card-body .d-flex {
+    flex-direction: column;
+    align-items: flex-start !important; 
+    gap: 0.5rem; /* space between price and badge */
+  }
+
+  .card-body .badge {
+    align-self: flex-start; /* keeps badge aligned nicely */
+  }
+}

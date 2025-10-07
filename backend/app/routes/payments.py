@@ -42,9 +42,12 @@ def process_cash_payment():
         loan.amount_paid += payment_amount
         loan.balance -= payment_amount
         
-        # Mark loan as completed if fully paid
+        # Mark loan as completed if fully paid and update livestock status
         if loan.balance <= 0:
             loan.status = 'completed'
+            # Remove livestock from gallery when loan is fully paid
+            if loan.livestock:
+                db.session.delete(loan.livestock)  #  delete the livestock from gallery after its fully paid
         
         # Create transaction record
         transaction = Transaction(
@@ -83,7 +86,8 @@ def process_cash_payment():
         db.session.rollback()
         print(f"Cash payment error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
+    
+#mpesa stk push- coming soon
 @payments_bp.route('/stkpush', methods=['POST'])
 @jwt_required()
 @limiter.limit("10 per minute")
