@@ -1,0 +1,353 @@
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from datetime import datetime
+from decimal import Decimal
+from app import db
+from app.models import Client, Loan, Livestock, Transaction, User
+from app.utils.security import admin_required, log_audit
+
+admin_bp = Blueprint('admin', __name__)
+
+# Add this to handle OPTIONS requests for all admin routes
+@admin_bp.before_request
+def handle_options_request():
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'OK'})
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+        return response
+
+
+@admin_bp.route('/test', methods=['GET', 'OPTIONS'])
+@jwt_required()
+def test_endpoint():
+    """Test endpoint to verify API is working"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        # FIX: Test JWT identity retrieval
+        user_id_str = get_jwt_identity()
+        user_id = int(user_id_str)
+        user = db.session.get(User, user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Admin API is working',
+            'user': user.to_dict() if user else None,
+            'timestamp': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 500
+
+@admin_bp.route('/applications', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_applications():
+    """Get all loan applications (pending loans) - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        applications = Loan.query.filter_by(status='pending').order_by(Loan.created_at.desc()).all()
+        
+        applications_data = []
+        for app in applications:
+            # Safely get client and livestock data
+            client_name = app.client.full_name if app.client else 'Unknown'
+            phone_number = app.client.phone_number if app.client else 'N/A'
+            id_number = app.client.id_number if app.client else 'N/A'
+            location = app.client.location if app.client else 'N/A'
+            
+            livestock_type = 'N/A'
+            livestock_count = 0
+            estimated_value = 0
+            photos = []
+            
+            if app.livestock:
+                livestock_type = app.livestock.livestock_type
+                livestock_count = app.livestock.count
+                estimated_value = float(app.livestock.estimated_value)
+                photos = app.livestock.photos if app.livestock.photos else []
+            
+            applications_data.append({
+                'id': app.id,
+                'date': app.created_at.isoformat() if app.created_at else None,
+                'name': client_name,
+                'phone': phone_number,
+                'idNumber': id_number,
+                'loanAmount': float(app.principal_amount),
+                'livestock': livestock_type,
+                'livestockType': livestock_type,
+                'livestockCount': livestock_count,
+                'estimatedValue': estimated_value,
+                'location': location,
+                'additionalInfo': app.notes or 'None',
+                'photos': photos,
+                'status': app.status
+            })
+        
+        return jsonify(applications_data), 200
+    except Exception as e:
+        print(f"Error fetching applications: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def approve_application(loan_id):
+    """Approve a loan application - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        loan = db.session.get(Loan, loan_id)
+        if not loan:
+            return jsonify({'error': 'Loan application not found'}), 404
+        
+        if loan.status != 'pending':
+            return jsonify({'error': 'Loan application already processed'}), 400
+        
+        # Update loan status
+        loan.status = 'active'
+        loan.disbursement_date = datetime.utcnow()
+        
+        # Create disbursement transaction
+        transaction = Transaction(
+            loan_id=loan.id,
+            transaction_type='disbursement',
+            amount=loan.principal_amount,
+            payment_method='cash',
+            notes='Loan approved and disbursed'
+        )
+        
+        db.session.add(transaction)
+        db.session.commit()
+        
+        log_audit('loan_approved', 'loan', loan.id, {
+            'client': loan.client.full_name if loan.client else 'Unknown',
+            'amount': float(loan.principal_amount)
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Loan approved successfully',
+            'loan': loan.to_dict()
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error approving application: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/applications/<int:loan_id>/reject', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def reject_application(loan_id):
+    """Reject a loan application - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        loan = db.session.get(Loan, loan_id)
+        if not loan:
+            return jsonify({'error': 'Loan application not found'}), 404
+        
+        if loan.status != 'pending':
+            return jsonify({'error': 'Loan application already processed'}), 400
+        
+        loan.status = 'rejected'
+        db.session.commit()
+        
+        log_audit('loan_rejected', 'loan', loan.id, {
+            'client': loan.client.full_name if loan.client else 'Unknown',
+            'amount': float(loan.principal_amount)
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Loan application rejected'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error rejecting application: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/dashboard', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_dashboard_stats():
+    """Get dashboard statistics - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        # Total clients
+        total_clients = Client.query.count()
+        
+        # Total amount lent (sum of all active and completed loans)
+        total_lent = db.session.query(
+            db.func.sum(Loan.principal_amount)
+        ).filter(
+            Loan.status.in_(['active', 'completed'])
+        ).scalar() or 0
+        
+        # Total amount received (sum of all payments)
+        total_received = db.session.query(
+            db.func.sum(Loan.amount_paid)
+        ).scalar() or 0
+        
+        # Total revenue (interest earned)
+        total_revenue = db.session.query(
+            db.func.sum(Loan.total_amount - Loan.principal_amount)
+        ).filter(
+            Loan.status == 'completed'
+        ).scalar() or 0
+        
+        # Loans due today
+        today = datetime.now().date()
+        due_today = Loan.query.filter(
+            Loan.status == 'active',
+            db.func.date(Loan.due_date) == today
+        ).all()
+        
+        due_today_data = [{
+            'id': loan.id,
+            'client_name': loan.client.full_name if loan.client else 'Unknown',
+            'balance': float(loan.balance),
+            'phone': loan.client.phone_number if loan.client else 'N/A'
+        } for loan in due_today]
+        
+        # Overdue loans
+        overdue = Loan.query.filter(
+            Loan.status == 'active',
+            Loan.due_date < datetime.now()
+        ).all()
+        
+        overdue_data = [{
+            'id': loan.id,
+            'client_name': loan.client.full_name if loan.client else 'Unknown',
+            'balance': float(loan.balance),
+            'days_overdue': (datetime.now().date() - loan.due_date.date()).days,
+            'phone': loan.client.phone_number if loan.client else 'N/A'
+        } for loan in overdue]
+        
+        return jsonify({
+            'total_clients': total_clients,
+            'total_lent': float(total_lent),
+            'total_received': float(total_received),
+            'total_revenue': float(total_revenue),
+            'due_today': due_today_data,
+            'overdue': overdue_data
+        }), 200
+    except Exception as e:
+        print(f"Dashboard error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/clients', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_all_clients():
+    """Get all clients with their loan details - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        clients = Client.query.all()
+        clients_data = []
+        
+        for client in clients:
+            # Get active loan for this client
+            active_loan = Loan.query.filter_by(
+                client_id=client.id,
+                status='active'
+            ).first()
+            
+            if active_loan:
+                days_left = (active_loan.due_date.date() - datetime.now().date()).days
+                
+                clients_data.append({
+                    'id': client.id,
+                    'loan_id': active_loan.id,  # Add loan_id for payments
+                    'name': client.full_name,
+                    'phone': client.phone_number,
+                    'idNumber': client.id_number,
+                    'borrowedDate': active_loan.disbursement_date.isoformat() if active_loan.disbursement_date else None,
+                    'borrowedAmount': float(active_loan.principal_amount),
+                    'expectedReturnDate': active_loan.due_date.isoformat(),
+                    'amountPaid': float(active_loan.amount_paid),
+                    'balance': float(active_loan.balance),
+                    'daysLeft': days_left
+                })
+        
+        return jsonify(clients_data), 200
+    except Exception as e:
+        print(f"Clients error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/livestock', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_all_livestock():
+    """Get all livestock for gallery - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        livestock = Livestock.query.filter_by(status='active').all()
+        livestock_data = []
+        
+        for item in livestock:
+            livestock_data.append({
+                'id': item.id,
+                'title': f"{item.livestock_type.capitalize()} - {item.count} head",
+                'type': item.livestock_type,
+                'count': item.count,
+                'price': float(item.estimated_value) if item.estimated_value else 0,
+                'description': item.location or 'No description available',
+                'images': item.photos if item.photos else [],
+                'daysRemaining': 0,  # You can calculate this based on availability date
+                'status': item.status
+            })
+        
+        return jsonify(livestock_data), 200
+    except Exception as e:
+        print(f"Livestock error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/transactions', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_all_transactions():
+    """Get all transactions - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        transactions = Transaction.query.order_by(Transaction.created_at.desc()).all()
+        transactions_data = []
+        
+        for txn in transactions:
+            loan = txn.loan
+            client_name = loan.client.full_name if loan and loan.client else 'Unknown'
+            
+            transactions_data.append({
+                'id': txn.id,
+                'date': txn.created_at.isoformat() if txn.created_at else None,
+                'clientName': client_name,
+                'type': txn.transaction_type,
+                'amount': float(txn.amount),
+                'method': txn.payment_method or 'cash',
+                'status': 'completed',
+                'receipt': txn.mpesa_receipt or 'N/A',
+                'notes': txn.notes or ''
+            })
+        
+        return jsonify(transactions_data), 200
+    except Exception as e:
+        print(f"Transactions error: {str(e)}")
+        return jsonify({'error': str(e)}), 500

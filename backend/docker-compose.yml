@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: nagolie
+      POSTGRES_PASSWORD: nagolie123
+      POSTGRES_DB: nagolie_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    command: flask run --host=0.0.0.0
+    volumes:
+      - .:/app
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_APP=manage.py
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://nagolie:nagolie123@db:5432/nagolie_db
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
