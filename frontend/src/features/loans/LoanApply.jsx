@@ -107,7 +107,7 @@ function LoanApply({ onSubmit }) {
 
     // Clear photo uploads
     setPhotos([]);  
-    window.location.reload(); 
+   
   };
 
 

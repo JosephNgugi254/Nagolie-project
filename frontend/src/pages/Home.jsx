@@ -6,6 +6,8 @@ import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import LoanApply from "../features/loans/LoanApply"
 import { loanAPI } from "../services/api" 
+import ImageCarousel from "../components/common/ImageCarousel"
+import Toast, { showToast } from "../components/common/Toast"
 
 function Home() {
   const sliderRef = useRef(null)
@@ -38,19 +40,19 @@ function Home() {
       const response = await loanAPI.apply(applicationData)
 
       if (response.data.success) {
-        alert("Thank you for your application! We will contact you shortly.")
+        showToast.success("Thank you for your application! We will contact you shortly.")
         console.log("Application submitted successfully:", response.data)
 
         // Optional: Reset form or redirect
         return { success: true, data: response.data }
       } else {
-        alert("There was an error submitting your application. Please try again.")
+        showToast.error("There was an error submitting your application. Please try again.")
         return { success: false, error: response.data.error }
       }
     } catch (error) {
       console.error("Error submitting application:", error)
       const errorMessage = error.response?.data?.error || "There was an error submitting your application. Please try again."
-      alert(errorMessage)
+      showToast.error(errorMessage)
       return { success: false, error: errorMessage }
     }
   }
@@ -228,6 +230,7 @@ const formatCurrency = (amount) => {
   return (
     <div>
       <Navbar />
+      <Toast />
 
       {/* Hero Section */}
       <section id="home" className="hero-section">
@@ -614,7 +617,7 @@ const formatCurrency = (amount) => {
         </div>
       </section>
 
-      {/* Livestock Gallery */}
+      {/* Livestock Gallery in */}
       <section id="gallery" className="py-5 bg-light">
         <div className="container">
           <div className="text-center mb-5">
@@ -633,16 +636,17 @@ const formatCurrency = (amount) => {
               livestock.map((item) => (
                 <div key={item.id} className="col-md-4 mb-4">
                   <div className="card h-100">
-                    <img 
-                      src={item.images?.[0] || "/placeholder.svg"} 
-                      className="card-img-top" 
-                      alt={item.title}
-                      style={{height: "200px", objectFit: "cover"}}
+                    {/* Replace the static image with carousel */}
+                    <ImageCarousel 
+                      images={item.images} 
+                      title={item.title}
+                      height="200px"
                     />
-                    <div className="card-body">
+
+                    <div className="card-body d-flex flex-column">
                       <h5 className="card-title">{item.title}</h5>
-                      <p className="card-text">{item.description}</p>
-                      <div className="d-flex justify-content-between align-items-center">
+                      <p className="card-text flex-grow-1">{item.description}</p>
+                      <div className="d-flex justify-content-between align-items-center mb-2">
                         <span className="h5 text-primary">{formatCurrency(item.price)}</span>
                         <span className={`badge ${
                           item.daysRemaining > 1 ? 'bg-warning' : 
@@ -652,6 +656,17 @@ const formatCurrency = (amount) => {
                           {item.availableInfo}
                         </span>
                       </div>
+                      {/* Inquire Button */}
+                      <button 
+                        className="btn btn-primary mt-auto"
+                        onClick={() => {
+                          const message = `Hello team, I am interested in the ${item.title} going for ${formatCurrency(item.price)}. Could you kindly provide more information regarding its availability and purchase process?`
+                          const encodedMessage = encodeURIComponent(message)
+                          window.open(`https://wa.me/254721451707?text=${encodedMessage}`, '_blank')
+                        }}
+                      >
+                        <i className="fab fa-whatsapp me-2"></i>Inquire on WhatsApp
+                      </button>
                     </div>
                     <div className="card-footer">
                       <small className="text-muted">

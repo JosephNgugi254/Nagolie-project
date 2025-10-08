@@ -8,6 +8,9 @@ import AdminSidebar from "../components/admin/AdminSidebar"
 import AdminCard from "../components/admin/AdminCard"
 import AdminTable from "../components/admin/AdminTable"
 import Modal from "../components/common/Modal"
+import ConfirmationDialog from "../components/common/ConfirmationDialog"
+import ImageCarousel from "../components/common/ImageCarousel"
+import Toast, { showToast } from "../components/common/Toast"
 
 function AdminPanel() {
   const { isAuthenticated, logout, loading: authLoading } = useAuth()
@@ -37,6 +40,15 @@ function AdminPanel() {
   const [selectedClient, setSelectedClient] = useState(null)
   const [loading, setLoading] = useState(true)
   const [apiErrors, setApiErrors] = useState({})
+
+  // edit livestock in gallery state variables
+  const [showEditLivestockModal, setShowEditLivestockModal] = useState(false)
+  const [editingLivestock, setEditingLivestock] = useState(null)
+  const [selectedImages, setSelectedImages] = useState([])
+
+  // confirmation dialog state
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
+  const [livestockToDelete, setLivestockToDelete] = useState(null)
 
   //search filters state variables
   const [clientSearch, setClientSearch] = useState("")
@@ -79,12 +91,12 @@ function AdminPanel() {
       }
     }
 
-    // Date filter (expected return date)
+    // Date filter (expected return date) - FIXED
     if (clientDate) {
       filtered = filtered.filter(client => {
         if (!client.expectedReturnDate) return false
-        const clientDate = new Date(client.expectedReturnDate).toISOString().split('T')[0]
-        return clientDate === clientDate
+        const clientDateFormatted = new Date(client.expectedReturnDate).toISOString().split('T')[0]
+        return clientDateFormatted === clientDate
       })
     }
 
@@ -343,10 +355,12 @@ function AdminPanel() {
     try {
       const result = await logout()
       if (result.success) {
+        showToast.success("Logged out successfully")
         navigate("/")
       }
     } catch (error) {
       console.error("Logout error:", error)
+      showToast.error("Logout failed")
       navigate("/")
     }
   }, [logout, navigate])
@@ -355,10 +369,10 @@ function AdminPanel() {
     try {
       if (action === "approve") {
         await adminAPI.approveApplication(applicationId)
-        alert("Loan application approved successfully!")
+        showToast.success("Loan application approved successfully!")
       } else if (action === "reject") {
         await adminAPI.rejectApplication(applicationId)
-        alert("Loan application rejected.")
+        showToast.info("Loan application rejected.")
       }
       
       // Refresh data
@@ -371,7 +385,7 @@ function AdminPanel() {
       setShowApplicationModal(false)
     } catch (error) {
       console.error(`Failed to ${action} application:`, error)
-      alert(`Failed to ${action} application: ${error.response?.data?.error || error.message}`)
+      showToast.error(`Failed to ${action} application: ${error.response?.data?.error || error.message}`)
     }
   }
 
@@ -386,7 +400,7 @@ function AdminPanel() {
       console.log("Processing payment with data:", paymentData)
       
       if (!selectedClient?.loan_id) {
-        alert("Error: No active loan found for this client")
+        showToast.error("Error: No active loan found for this client")
         return
       }
       
@@ -399,7 +413,7 @@ function AdminPanel() {
       console.log("Payment response:", response.data)
       
       if (response.data.success) {
-        alert(`Payment processed successfully!\nNew balance: ${formatCurrency(response.data.loan.balance)}`)
+        showToast.success(`Payment processed successfully!\nNew balance: ${formatCurrency(response.data.loan.balance)}`)
         setShowPaymentModal(false)
         setSelectedClient(null)
         
@@ -413,7 +427,7 @@ function AdminPanel() {
     } catch (error) {
       console.error('Payment processing error:', error)
       const errorMsg = error.response?.data?.error || error.message
-      alert(`Failed to process payment: ${errorMsg}`)
+      showToast.error(`Failed to process payment: ${errorMsg}`)
     }
   }
 
@@ -443,71 +457,116 @@ function AdminPanel() {
       }
 
       console.log('Livestock added successfully:', data);
-      alert('Livestock added successfully!');
+      showToast.success('Livestock added successfully!');
       setShowAddLivestockModal(false);
       fetchLivestock(); // Refresh the list
       return data;
 
     } catch (error) {
       console.error('Error adding livestock:', error);
-      alert(`Failed to add livestock: ${error.message}`);
+      showToast.error(`Failed to add livestock: ${error.message}`);
       throw error;
     }
   };
 
-  const handleEditLivestock = async (livestockItem) => {
-    try {
-      const updatedData = {
-        type: livestockItem.type,
-        count: livestockItem.count,
-        price: livestockItem.price,
-        description: livestockItem.description,
-        images: livestockItem.images || []
-      };
+  const handleEditLivestock = (livestockItem) => {
+    console.log('Editing livestock:', livestockItem)
+    setEditingLivestock(livestockItem)
+    setSelectedImages(livestockItem.images || [])
+    setShowEditLivestockModal(true)
+  }
 
-      const response = await fetch(`http://localhost:5000/api/admin/livestock/${livestockItem.id}`, {
+  const handleUpdateLivestock = async (e) => {
+    e.preventDefault()
+    if (!editingLivestock) return
+
+    try {
+      const formData = new FormData(e.target)
+      const updatedData = {
+        type: formData.get('editType'),
+        count: parseInt(formData.get('editCount')),
+        price: parseFloat(formData.get('editPrice')),
+        description: formData.get('editDescription'),
+        images: selectedImages
+      }
+
+      console.log('Updating livestock with data:', updatedData)
+
+      const response = await fetch(`http://localhost:5000/api/admin/livestock/${editingLivestock.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify(updatedData)
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        showToast.success('Livestock updated successfully!')
+        setShowEditLivestockModal(false)
+        setEditingLivestock(null)
+        setSelectedImages([])
+        fetchLivestock()
+      } else {
+        const error = await response.json()
+        showToast.error(`Failed to update livestock: ${error.error}`)
+      }
+    } catch (error) {
+      console.error('Error updating livestock:', error)
+      showToast.error('Failed to update livestock')
+    }
+  }
+
+  const handleImageUpload = (event) => {
+    const files = Array.from(event.target.files)
+    if (files.length === 0) return
+
+    const newImages = []
+    files.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        newImages.push(e.target.result)
+        if (newImages.length === files.length) {
+          setSelectedImages(prev => [...prev, ...newImages])
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const removeImage = (index) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index))
+  }
+  
+  const confirmDeleteLivestock = (livestockId) => {
+    setLivestockToDelete(livestockId)
+    setShowDeleteConfirmation(true)
+  }
+
+  const handleDeleteLivestock = async () => {
+    if (!livestockToDelete) return
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/admin/livestock/${livestockToDelete}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
       });
     
       if (response.ok) {
-        alert('Livestock updated successfully!');
+        showToast.success('Livestock deleted successfully!');
         fetchLivestock();
       } else {
         const error = await response.json();
-        alert(`Failed to update livestock: ${error.error}`);
+        showToast.error(`Failed to delete livestock: ${error.error}`);
       }
     } catch (error) {
-      console.error('Error updating livestock:', error);
-      alert('Failed to update livestock');
-    }
-  };
-  
-  const handleDeleteLivestock = async (livestockId) => {
-    if (window.confirm('Are you sure you want to delete this livestock? This action cannot be undone.')) {
-      try {
-        const response = await fetch(`http://localhost:5000/api/admin/livestock/${livestockId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-      
-        if (response.ok) {
-          alert('Livestock deleted successfully!');
-          fetchLivestock();
-        } else {
-          const error = await response.json();
-          alert(`Failed to delete livestock: ${error.error}`);
-        }
-      } catch (error) {
-        console.error('Error deleting livestock:', error);
-        alert('Failed to delete livestock');
-      }
+      console.error('Error deleting livestock:', error);
+      showToast.error('Failed to delete livestock');
+    } finally {
+      setLivestockToDelete(null)
     }
   };  
 
@@ -535,6 +594,8 @@ function AdminPanel() {
 
   return (
     <div>
+      <Toast />
+      
       {/* Navigation */}
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
@@ -926,7 +987,7 @@ function AdminPanel() {
                     {apiErrors.livestock}
                   </div>
                 )}
-
+            
                 {livestock.length === 0 ? (
                   <div className="card">
                     <div className="card-body text-center py-5">
@@ -943,12 +1004,9 @@ function AdminPanel() {
                     {livestock.map((item) => (
                       <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4">
                         <div className="card gallery-card h-100">
-                          <img 
-                            src={item.images?.[0] || "/placeholder.svg"} 
-                            className="card-img-top" 
-                            alt={item.title} 
-                            style={{height: "200px", objectFit: "cover"}} 
-                          />
+                          {/* Image Carousel */}
+                          <ImageCarousel images={item.images} title={item.title} />
+                          
                           <div className="card-body d-flex flex-column">
                             <h5 className="card-title">{item.title}</h5>
                             <p className="card-text flex-grow-1">{item.description}</p>
@@ -981,7 +1039,7 @@ function AdminPanel() {
                               </button>
                               <button 
                                 className="btn btn-sm btn-outline-danger"
-                                onClick={() => handleDeleteLivestock(item.id)}
+                                onClick={() => confirmDeleteLivestock(item.id)}
                               >
                                 <i className="fas fa-trash"></i> Delete
                               </button>
@@ -1145,15 +1203,16 @@ function AdminPanel() {
           <form onSubmit={async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            
+
             try {
               await handleAddLivestock({
                 type: formData.get('type'),
-                count: formData.get('count'),
-                price: formData.get('price'),
+                count: parseInt(formData.get('count')),
+                price: parseFloat(formData.get('price')),
                 description: formData.get('description'),
-                images: [] // You can add image handling here if needed
+                images: selectedImages
               });
+              setSelectedImages([]) // Reset images after successful submission
             } catch (error) {
               console.error('Error in form submission:', error);
             }
@@ -1204,6 +1263,48 @@ function AdminPanel() {
                 />
               </div>
             </div>
+
+            {/* Image Upload Section */}
+            <div className="mb-3">
+              <label htmlFor="livestockImages" className="form-label">Upload Images</label>
+              <input 
+                type="file" 
+                className="form-control" 
+                id="livestockImages" 
+                multiple 
+                accept="image/*"
+                onChange={handleImageUpload}
+              />
+              <small className="text-muted">You can select multiple images</small>
+
+              {/* Image Preview */}
+              {selectedImages.length > 0 && (
+                <div className="mt-3">
+                  <label className="form-label">Image Previews:</label>
+                  <div className="row">
+                    {selectedImages.map((image, index) => (
+                      <div key={index} className="col-3 mb-2 position-relative">
+                        <img 
+                          src={image} 
+                          alt={`Preview ${index + 1}`} 
+                          className="img-thumbnail"
+                          style={{ width: '100%', height: '80px', objectFit: 'cover' }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm position-absolute top-0 end-0"
+                          onClick={() => removeImage(index)}
+                          style={{ transform: 'translate(50%, -50%)' }}
+                        >
+                          <i className="fas fa-times"></i>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
             <div className="alert alert-info">
               <i className="fas fa-info-circle me-2"></i>
               This livestock will be added to the public gallery and marked as available immediately.
@@ -1212,7 +1313,140 @@ function AdminPanel() {
               <button type="submit" className="btn btn-primary">
                 Add to Gallery
               </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setShowAddLivestockModal(false)}>
+              <button type="button" className="btn btn-secondary" onClick={() => {
+                setShowAddLivestockModal(false)
+                setSelectedImages([])
+              }}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Edit Livestock Modal */}
+      {showEditLivestockModal && editingLivestock && (
+        <Modal
+          isOpen={showEditLivestockModal}
+          onClose={() => {
+            setShowEditLivestockModal(false)
+            setEditingLivestock(null)
+            setSelectedImages([])
+          }}
+          title="Edit Livestock"
+          size="lg"
+        >
+          <form onSubmit={handleUpdateLivestock}>
+            <div className="row">
+              <div className="col-md-6 mb-3">
+                <label htmlFor="editType" className="form-label">Livestock Type *</label>
+                <select 
+                  className="form-control" 
+                  id="editType" 
+                  name="editType" 
+                  defaultValue={editingLivestock.type}
+                  required
+                >
+                  <option value="cattle">Cattle</option>
+                  <option value="goats">Goats</option>
+                  <option value="sheep">Sheep</option>
+                  <option value="poultry">Poultry</option>
+                </select>
+              </div>
+              <div className="col-md-6 mb-3">
+                <label htmlFor="editCount" className="form-label">Count *</label>
+                <input 
+                  type="number" 
+                  className="form-control" 
+                  id="editCount" 
+                  name="editCount" 
+                  min="1"
+                  defaultValue={editingLivestock.count}
+                  required 
+                />
+              </div>
+            </div>
+            <div className="row">
+              <div className="col-md-6 mb-3">
+                <label htmlFor="editPrice" className="form-label">Price (KSh) *</label>
+                <input 
+                  type="number" 
+                  className="form-control" 
+                  id="editPrice" 
+                  name="editPrice" 
+                  min="1"
+                  step="0.01"
+                  defaultValue={editingLivestock.price}
+                  required 
+                />
+              </div>
+              <div className="col-md-6 mb-3">
+                <label htmlFor="editDescription" className="form-label">Description</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  id="editDescription" 
+                  name="editDescription" 
+                  placeholder="Brief description of the livestock"
+                  defaultValue={editingLivestock.description}
+                />
+              </div>
+            </div>
+
+            {/* Image Upload Section for Edit */}
+            <div className="mb-3">
+              <label htmlFor="editLivestockImages" className="form-label">Update Images</label>
+              <input 
+                type="file" 
+                className="form-control" 
+                id="editLivestockImages" 
+                multiple 
+                accept="image/*"
+                onChange={handleImageUpload}
+              />
+              <small className="text-muted">Select new images to add to existing ones</small>
+
+              {/* Current Images */}
+              {selectedImages.length > 0 && (
+                <div className="mt-3">
+                  <label className="form-label">Current Images:</label>
+                  <div className="row">
+                    {selectedImages.map((image, index) => (
+                      <div key={index} className="col-3 mb-2 position-relative">
+                        <img 
+                          src={image} 
+                          alt={`Preview ${index + 1}`} 
+                          className="img-thumbnail"
+                          style={{ width: '100%', height: '80px', objectFit: 'cover' }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm position-absolute top-0 end-0"
+                          onClick={() => removeImage(index)}
+                          style={{ transform: 'translate(50%, -50%)' }}
+                        >
+                          <i className="fas fa-times"></i>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="d-flex gap-2">
+              <button type="submit" className="btn btn-primary">
+                Update Livestock
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => {
+                  setShowEditLivestockModal(false)
+                  setEditingLivestock(null)
+                  setSelectedImages([])
+                }}
+              >
                 Cancel
               </button>
             </div>
@@ -1343,6 +1577,21 @@ function AdminPanel() {
           </form>
         </Modal>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={showDeleteConfirmation}
+        onClose={() => {
+          setShowDeleteConfirmation(false)
+          setLivestockToDelete(null)
+        }}
+        onConfirm={handleDeleteLivestock}
+        title="Delete Livestock"
+        message="Are you sure you want to delete this livestock? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        confirmColor="danger"
+      />
     </div>
   )
 }
