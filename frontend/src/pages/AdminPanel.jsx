@@ -11,6 +11,7 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
+import { generateTransactionReceipt, generateClientStatement } from "../components/admin/ReceiptPDF";
 
 function AdminPanel() {
   const { isAuthenticated, logout, loading: authLoading } = useAuth()
@@ -857,12 +858,28 @@ function AdminPanel() {
                               <div className="btn-group btn-group-sm">
                                 <button 
                                   className="btn btn-outline-primary" 
-                                  onClick={() => openPaymentModal(row)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openPaymentModal(row);
+                                  }}
                                   title="Process Payment"
                                 >
                                   <i className="fas fa-money-bill-wave"></i>
                                 </button>
-                                <button className="btn btn-outline-info" title="Download Receipt">
+                                <button 
+                                  className="btn btn-outline-info" 
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await generateClientStatement(row, transactions);
+                                      showToast.success("Client statement downloaded!");
+                                    } catch (error) {
+                                      console.error("Error generating client statement:", error);
+                                      showToast.error("Failed to download client statement");
+                                    }
+                                  }}
+                                  title="Download Receipt"
+                                >
                                   <i className="fas fa-download"></i>
                                 </button>
                                 <button className="btn btn-outline-success" title="Send SMS">
@@ -957,7 +974,20 @@ function AdminPanel() {
                           {
                             header: "Actions",
                             render: (row) => (
-                              <button className="btn btn-sm btn-outline-info">
+                              <button 
+                                className="btn btn-sm btn-outline-info"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await generateTransactionReceipt(row);
+                                    showToast.success(`Transaction receipt for ${row.clientName} downloaded!`);
+                                  } catch (error) {
+                                    console.error("Error generating transaction receipt:", error);
+                                    showToast.error("Failed to download transaction receipt");
+                                  }
+                                }}
+                                title="Download Receipt"
+                              >
                                 <i className="fas fa-download"></i>
                               </button>
                             ),
@@ -1098,7 +1128,10 @@ function AdminPanel() {
                               <div className="btn-group btn-group-sm">
                                 <button 
                                   className="btn btn-outline-success" 
-                                  onClick={() => handleApplicationAction(row.id, "approve")}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleApplicationAction(row.id, "approve");
+                                  }}
                                   disabled={row.status !== 'pending'}
                                   title="Approve"
                                 >
@@ -1106,7 +1139,10 @@ function AdminPanel() {
                                 </button>
                                 <button 
                                   className="btn btn-outline-danger" 
-                                  onClick={() => handleApplicationAction(row.id, "reject")}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleApplicationAction(row.id, "reject");
+                                  }}
                                   disabled={row.status !== 'pending'}
                                   title="Reject"
                                 >
@@ -1114,7 +1150,8 @@ function AdminPanel() {
                                 </button>
                                 <button 
                                   className="btn btn-outline-info" 
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setSelectedApplication(row)
                                     setShowApplicationModal(true)
                                   }}

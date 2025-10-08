@@ -7,6 +7,7 @@ React + Vite frontend for livestock-backed lending platform.
 \`\`\`bash
 npm install
 npm install react-toastify
+npm install jspdf
 npm run dev
 \`\`\`
 
