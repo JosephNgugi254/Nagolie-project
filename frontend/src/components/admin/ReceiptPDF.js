@@ -241,25 +241,51 @@ export const generateClientStatement = async (client, allTransactions) => {
   yPos += 10;
   
   // Transaction History Section
-  if (clientTransactions.length > 0) {
+  let displayTransactions = [...clientTransactions]; // Start with real transactions
+  
+  // Fallback: If no transactions found but payments have been made, derive basic history
+  if (displayTransactions.length === 0 && client.amountPaid > 0) {
+    // Add initial disbursement as first "transaction"
+    displayTransactions.push({
+      date: client.borrowedDate,
+      type: 'disbursement',
+      amount: client.borrowedAmount,
+      method: 'loan',
+      id: `DISB-${client.loan_id || client.idNumber}`
+    });
+    // Add a payment entry based on total paid (note: this is aggregated; for multiple payments, rely on real transactions)
+    displayTransactions.push({
+      date: new Date().toISOString(), // Use current date as fallback
+      type: 'payment',
+      amount: client.amountPaid,
+      method: 'cash',
+      id: `PAY-${client.loan_id || client.idNumber}`
+    });
+  } else if (displayTransactions.length === 0) {
+    // Only show "no transactions" if truly nothing (no payments made)
+    doc.setFont('helvetica', 'italic');
+    doc.text('No transactions recorded yet.', 20, yPos);
+    yPos += 7;
+  }
+  
+  if (displayTransactions.length > 0) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('Transaction History:', 20, yPos);
     yPos += 8;
     
-    clientTransactions.forEach((t) => {
-      const typeText = t.type === 'disbursement' ? 'LOAN' : 'PAYMENT';
-      const methodText = (t.method || '').toUpperCase();
+    // Sort by date ascending
+    displayTransactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    displayTransactions.forEach((t) => {
+      const typeText = t.type === 'disbursement' ? 'LOAN DISBURSED' : 'PAYMENT RECEIVED';
+      const methodText = (t.method || 'N/A').toUpperCase();
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10);
       const transText = `- ${new Date(t.date).toLocaleDateString()}: ${typeText} - KES ${Number(t.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} (${methodText})`;
       doc.text(transText, 20, yPos);
       yPos += 6;
     });
-  } else {
-    doc.setFont('helvetica', 'italic');
-    doc.text('No transactions recorded yet.', 20, yPos);
-    yPos += 7;
   }
   
   yPos += 10;

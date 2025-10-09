@@ -25,6 +25,23 @@ function LoanApply({ onSubmit }) {
   const [showTermsModal, setShowTermsModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
+  // Mobile-responsive select style helper
+  const getSelectStyle = () => ({
+    width: '100%',
+    fontSize: window.innerWidth < 768 ? '14px' : '16px', // Smaller font on mobile
+    padding: window.innerWidth < 768 ? '8px 36px 8px 8px' : '12px 40px 12px 12px', // Reduced padding on mobile
+    borderRadius: '8px',
+    backgroundColor: 'white',
+    border: '1px solid #ddd',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    MozAppearance: 'none',
+    backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: window.innerWidth < 768 ? 'right 8px center' : 'right 12px center', // Adjust arrow position
+    backgroundSize: window.innerWidth < 768 ? '12px' : '16px', // Smaller arrow on mobile
+  });
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
     setFormData({
@@ -183,7 +200,8 @@ function LoanApply({ onSubmit }) {
               value={formData.livestockType}
               onChange={handleChange}
               required
-            >
+              style={getSelectStyle()}
+              >         
               <option value="">Select livestock type</option>
               <option value="cattle">Cattle</option>
               <option value="goats">Goats</option>
@@ -233,7 +251,7 @@ function LoanApply({ onSubmit }) {
             onChange={handleChange}
             placeholder="Provide detailed location for valuation visit"
             required
-          ></textarea>
+          ></textarea>          
         </div>
 
         <div className="mb-3">
@@ -264,7 +282,6 @@ function LoanApply({ onSubmit }) {
         </div>
 
         <div className="mb-3">
-          {/* CHANGED: name from additionalInfo to notes */}
           <label htmlFor="notes" className="form-label">
             Additional Information
           </label>

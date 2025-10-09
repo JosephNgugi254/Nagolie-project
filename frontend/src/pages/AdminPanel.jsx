@@ -856,6 +856,7 @@ function AdminPanel() {
                             header: "Actions",
                             render: (row) => (
                               <div className="btn-group btn-group-sm">
+                                {/* Process Payment(cash)*/}
                                 <button 
                                   className="btn btn-outline-primary" 
                                   onClick={(e) => {
@@ -866,6 +867,7 @@ function AdminPanel() {
                                 >
                                   <i className="fas fa-money-bill-wave"></i>
                                 </button>
+                                 {/* Download Receipt */}
                                 <button 
                                   className="btn btn-outline-info" 
                                   onClick={async (e) => {
@@ -882,6 +884,7 @@ function AdminPanel() {
                                 >
                                   <i className="fas fa-download"></i>
                                 </button>
+                                {/* Send Mpesa STK push prompt*/}
                                 <button className="btn btn-outline-success" title="Send SMS">
                                   <i className="fas fa-mobile-alt"></i>
                                 </button>
@@ -1257,7 +1260,28 @@ function AdminPanel() {
             <div className="row">
               <div className="col-md-6 mb-3">
                 <label htmlFor="livestockType" className="form-label">Livestock Type *</label>
-                <select className="form-control" id="livestockType" name="type" required>
+                <select 
+                  className="form-control" 
+                  id="livestockType" 
+                  name="type" 
+                  required
+                  style={{
+                    width: '100%',
+                    fontSize: '16px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    border: '1px solid #ddd',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 12px center',
+                    backgroundSize: '16px',
+                    paddingRight: '40px'
+                  }}
+                  >           
                   <option value="cattle">Cattle</option>
                   <option value="goats">Goats</option>
                   <option value="sheep">Sheep</option>
@@ -1383,6 +1407,22 @@ function AdminPanel() {
                   name="editType" 
                   defaultValue={editingLivestock.type}
                   required
+                  style={{
+                    width: '100%',
+                    fontSize: '16px',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'white',
+                    border: '1px solid #ddd',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 12px center',
+                    backgroundSize: '16px',
+                    paddingRight: '40px'
+                  }}
                 >
                   <option value="cattle">Cattle</option>
                   <option value="goats">Goats</option>

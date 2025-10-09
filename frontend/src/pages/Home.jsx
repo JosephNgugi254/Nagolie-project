@@ -709,24 +709,37 @@ const formatCurrency = (amount) => {
               <div className="contact-info">
                 <div className="contact-item mb-3">
                   <i className="fas fa-map-marker-alt me-3"></i>
-                  <span>Target - Isinya, Kajiado County, Kenya</span>
+                  <a 
+                    href="https://www.google.com/maps/search/?api=1&query=8R7W%2B39M%2C%20Isinya" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-white text-decoration-none"
+                  >
+                    Target Isinya Town 
+                  </a>
                 </div>
                 <div className="contact-item mb-3">
                   <i className="fas fa-phone me-3"></i>
-                  <span>+254 721 451 707</span>
+                  <a href="tel:+254721451707" className="text-white text-decoration-none">
+                    +254 721 451 707
+                  </a>
                 </div>
                 <div className="contact-item mb-3">
-                  <span className="second-number">+254 763 003 182</span>
+                  <a href="tel:+254763003182" className="text-white text-decoration-none second-number">
+                    +254 763 003 182
+                  </a>
                 </div>
                 <div className="contact-item mb-3">
                   <i className="fas fa-envelope me-3"></i>
-                  <span>nagolie7@gmail.com</span>
+                  <a href="mailto:nagolie7@gmail.com" className="text-white text-decoration-none">
+                    nagolie7@gmail.com
+                  </a>
                 </div>
                 <div className="contact-item mb-3">
                   <i className="fas fa-clock me-3"></i>
                   <span>Everyday : 8:00 AM - 6:00 PM</span>
                 </div>
-              </div>
+              </div>              
             </div>
             <div className="col-lg-6">
               <form id="contactForm">
