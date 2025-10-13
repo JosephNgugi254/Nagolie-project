@@ -232,7 +232,7 @@ def get_dashboard_stats():
             Loan.status == 'completed'
         ).scalar() or 0
         
-        # Loans due today
+        # Loans due today - FIXED: Include client_id and loan_id
         today = datetime.now().date()
         due_today = Loan.query.filter(
             Loan.status == 'active',
@@ -240,20 +240,24 @@ def get_dashboard_stats():
         ).all()
         
         due_today_data = [{
-            'id': loan.id,
+            'id': loan.id,  # This is loan_id
+            'client_id': loan.client_id,  # Add client_id
+            'loan_id': loan.id,  # Explicit loan_id
             'client_name': loan.client.full_name if loan.client else 'Unknown',
             'balance': float(loan.balance),
             'phone': loan.client.phone_number if loan.client else 'N/A'
         } for loan in due_today]
         
-        # Overdue loans
+        # Overdue loans - FIXED: Include client_id and loan_id
         overdue = Loan.query.filter(
             Loan.status == 'active',
             Loan.due_date < datetime.now()
         ).all()
         
         overdue_data = [{
-            'id': loan.id,
+            'id': loan.id,  # This is loan_id
+            'client_id': loan.client_id,  # Add client_id
+            'loan_id': loan.id,  # Explicit loan_id
             'client_name': loan.client.full_name if loan.client else 'Unknown',
             'balance': float(loan.balance),
             'days_overdue': (datetime.now().date() - loan.due_date.date()).days,
@@ -271,7 +275,7 @@ def get_dashboard_stats():
     except Exception as e:
         print(f"Dashboard error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
+    
 @admin_bp.route('/clients', methods=['GET', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -281,9 +285,9 @@ def get_all_clients():
         return jsonify({'status': 'OK'}), 200
         
     try:
-        # FIX: Only show clients with active loans
+        # FIX: Only show clients with active loans (exclude claimed loans)
         clients_with_loans = db.session.query(Client).join(Loan).filter(
-            Loan.status == 'active'
+            Loan.status == 'active'  # Only active loans, not claimed ones
         ).distinct().all()
         
         clients_data = []
@@ -321,7 +325,7 @@ def get_all_clients():
     except Exception as e:
         print(f"Clients error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
+    
 # In admin.py - update the get_all_livestock function
 @admin_bp.route('/livestock', methods=['GET', 'OPTIONS'])
 @jwt_required()
@@ -373,7 +377,7 @@ def get_all_livestock():
                         if days_remaining > 0:
                             available_info = f'Available in {days_remaining} days'
                         elif days_remaining == 0:
-                            available_info = 'Available today'
+                            available_info = 'Available now'
                         else:
                             available_info = 'Available (overdue)'
                             days_remaining = 0  # Overdue, so available now
@@ -419,6 +423,13 @@ def get_all_transactions():
             loan = txn.loan
             client_name = loan.client.full_name if loan and loan.client else 'Unknown'
             
+            # Format receipt number for M-Pesa transactions
+            receipt = 'N/A'
+            if txn.payment_method == 'mpesa' and txn.mpesa_receipt:
+                receipt = txn.mpesa_receipt
+            elif txn.payment_method == 'cash':
+                receipt = 'Cash'
+            
             transactions_data.append({
                 'id': txn.id,
                 'date': txn.created_at.isoformat() if txn.created_at else None,
@@ -426,16 +437,17 @@ def get_all_transactions():
                 'type': txn.transaction_type,
                 'amount': float(txn.amount),
                 'method': txn.payment_method or 'cash',
-                'status': 'completed',
-                'receipt': txn.mpesa_receipt or 'N/A',
-                'notes': txn.notes or ''
+                'status': txn.status or 'completed',
+                'receipt': receipt,
+                'notes': txn.notes or '',
+                'mpesa_receipt': txn.mpesa_receipt  # Include this for receipts
             })
         
         return jsonify(transactions_data), 200
     except Exception as e:
         print(f"Transactions error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
+        
 @admin_bp.route('/livestock', methods=['POST', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -475,6 +487,7 @@ def add_livestock():
         db.session.rollback()
         print(f"Error adding livestock: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -548,8 +561,7 @@ def delete_livestock(livestock_id):
         db.session.rollback()
         print(f"Error deleting livestock: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
-
+  
 # Add this route to admin.py for public access to livestock gallery
 @admin_bp.route('/livestock/gallery', methods=['GET'])
 def get_public_livestock_gallery():
@@ -596,7 +608,7 @@ def get_public_livestock_gallery():
                         if days_remaining > 0:
                             available_info = f'Available in {days_remaining} days'
                         elif days_remaining == 0:
-                            available_info = 'Available today'
+                            available_info = 'Available now'
                         else:
                             available_info = 'Available (overdue)'
                             days_remaining = 0
@@ -621,4 +633,103 @@ def get_public_livestock_gallery():
         return jsonify(livestock_data), 200
     except Exception as e:
         print(f"Public livestock gallery error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+
+@admin_bp.route('/send-reminder', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def send_reminder():
+    """Send SMS reminder to client - PLACEHOLDER FOR SMS INTEGRATION"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        data = request.json
+        client_id = data.get('client_id')
+        phone = data.get('phone')
+        message = data.get('message')
+        
+        print(f"TODO: Integrate SMS API for phone: {phone}")
+        print(f"Message: {message}")
+        
+        # TODO: Integrate with your SMS provider (Africa's Talking, etc.)
+        # For now, just log and return success
+        
+        log_audit('reminder_sent', 'client', client_id, {
+            'phone': phone,
+            'message_length': len(message)
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Reminder sent successfully (SMS integration pending)'
+        }), 200
+    except Exception as e:
+        print(f"Error sending reminder: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/claim-ownership', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def claim_ownership():
+    """Claim livestock ownership for overdue loans - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'OK'})
+        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response, 200
+        
+    try:
+        data = request.json
+        client_id = data.get('client_id')
+        loan_id = data.get('loan_id')
+        
+        print(f"Claiming ownership for client {client_id}, loan {loan_id}")
+        
+        # Get the loan
+        loan = db.session.get(Loan, loan_id)
+        if not loan:
+            return jsonify({'error': 'Loan not found'}), 404
+        
+        # Verify the loan belongs to the client
+        if loan.client_id != client_id:
+            return jsonify({'error': 'Loan does not belong to the specified client'}), 400
+        
+        # Get the livestock associated with the loan
+        livestock = db.session.get(Livestock, loan.livestock_id)
+        if not livestock:
+            return jsonify({'error': 'Livestock not found'}), 404
+        
+        # Update the loan status to 'claimed' (defaulted)
+        loan.status = 'claimed'
+        loan.balance = Decimal('0')
+        loan.amount_paid = Decimal('0')
+        
+        # Update the livestock: set client_id to None and status to 'available'
+        livestock.client_id = None
+        livestock.status = 'available'
+        
+        db.session.commit()
+        
+        log_audit('ownership_claimed', 'client', client_id, {
+            'loan_id': loan_id,
+            'livestock_id': livestock.id,
+            'livestock_type': livestock.livestock_type,
+            'action': 'livestock_claimed'
+        })
+        
+        jsonify({
+            'success': True,
+            'toast': {
+                'type': 'success',
+                'message': f'Ownership claimed successfully. {livestock.livestock_type} is now available for sale.'
+            },
+            'livestock_id': livestock.id
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error claiming ownership: {str(e)}")
         return jsonify({'error': str(e)}), 500

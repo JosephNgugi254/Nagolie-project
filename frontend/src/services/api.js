@@ -86,6 +86,8 @@ export const adminAPI = {
   getTransactions: () => api.get("/admin/transactions"),
   approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
+  sendReminder: (data) => api.post("/admin/send-reminder", data),
+  claimOwnership: (data) => api.post("/admin/claim-ownership", data), 
 }
 
 export const clientAPI = {
@@ -99,6 +101,8 @@ export const paymentAPI = {
   initiateStkPush: (paymentData) => api.post("/payments/stkpush", paymentData),
   getStatus: (id) => api.get(`/payments/${id}/status`),
   processCashPayment: (paymentData) => api.post("/payments/cash", paymentData),
+  processMpesaPayment: (paymentData) => api.post('/payments/mpesa/stk-push', paymentData),
+  checkMpesaStatus: (statusData) => api.post('/payments/mpesa/check-status', statusData),
 }
 
 export default api

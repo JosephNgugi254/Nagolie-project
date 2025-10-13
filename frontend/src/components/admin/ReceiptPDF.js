@@ -108,6 +108,12 @@ export const generateTransactionReceipt = async (transaction) => {
     { label: 'Method:', value: (transaction.method || '').toUpperCase() },
     { label: 'Status:', value: (transaction.status || '').toUpperCase() }
   ];
+
+  // Add M-Pesa reference if method is MPESA
+  if (transaction.method === 'mpesa' && transaction.mpesa_receipt) {
+  doc.text(`M-Pesa Receipt: ${transaction.mpesa_receipt}`, 14, currentY);
+  currentY += 7;
+  }
   
   details.forEach(({ label, value }) => {
     doc.setFont('helvetica', 'bold');

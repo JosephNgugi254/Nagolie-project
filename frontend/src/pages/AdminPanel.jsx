@@ -7,6 +7,7 @@ import { adminAPI, paymentAPI } from "../services/api"
 import AdminSidebar from "../components/admin/AdminSidebar"
 import AdminCard from "../components/admin/AdminCard"
 import AdminTable from "../components/admin/AdminTable"
+import TakeActionModal from "../components/admin/TakeActionModal"
 import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
@@ -29,6 +30,191 @@ function AdminPanel() {
     overdue: []
   })
 
+  const [showActionModal, setShowActionModal] = useState(false)
+
+  // MPESA stk state variable 
+  const [showMpesaModal, setShowMpesaModal] = useState(false)
+  const [mpesaAmount, setMpesaAmount] = useState("")
+  const [sendingStk, setSendingStk] = useState(false)
+  const [paymentStatus, setPaymentStatus] = useState('');
+
+
+  const openMpesaModal = (client) => {
+    console.log("Opening M-Pesa modal for client:", client)
+    setSelectedClient(client)
+    setMpesaAmount("")
+    setShowMpesaModal(true)
+  }
+
+  const formatPhoneNumber = (phone) => {
+    // Convert 07..., 01..., or 7.../1... to 2547.../2541...
+    let cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      // Handles 07... and 01...
+      cleaned = '254' + cleaned.substring(1);
+    } else if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
+      // Handles 7... and 1...
+      cleaned = '254' + cleaned;
+    }
+    return cleaned;
+  };
+
+  // Improved M-Pesa payment handler
+  const handleMpesaPayment = async () => {
+    if (!selectedClient?.loan_id || !mpesaAmount) {
+      showToast.error("Please enter a valid payment amount")
+      return
+    }
+
+    const paymentAmount = parseInt(mpesaAmount, 10)
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
+      showToast.error("Please enter a valid whole number amount")
+      return
+    }
+
+    if (paymentAmount > (selectedClient.balance || 0)) {
+      showToast.error("Payment amount cannot exceed the current balance")
+      return
+    }
+
+    setSendingStk(true)
+
+    try {
+      const formattedPhone = formatPhoneNumber(selectedClient.phone);
+      console.log("Formatted phone:", formattedPhone);
+
+      console.log("Sending STK push for:", {
+        loan_id: selectedClient.loan_id,
+        amount: paymentAmount,
+        phone_number: formattedPhone
+      })
+
+      const response = await paymentAPI.processMpesaPayment({
+        loan_id: selectedClient.loan_id,
+        amount: paymentAmount,
+        phone_number: formattedPhone
+      })
+
+      console.log("STK Push response:", response.data)
+
+      if (response.data.success) {
+        showToast.success(`Payment prompt sent to ${selectedClient.name}. Waiting for payment confirmation...`, 5000)
+
+        const checkoutRequestId = response.data.checkout_request_id;
+
+        // Start enhanced status checking
+        checkPaymentStatus(checkoutRequestId);
+
+      } else {
+        showToast.error("Failed to send payment prompt. Please try again.")
+        setSendingStk(false)
+      }
+    } catch (error) {
+      console.error('STK Push error:', error)
+      const errorMsg = error.response?.data?.error || error.message
+      showToast.error(`Failed to process M-Pesa payment: ${errorMsg}`)
+      setSendingStk(false)
+    }
+  }
+
+  // Enhanced payment status checker
+  const checkPaymentStatus = async (checkoutRequestId, maxAttempts = 10) => {
+    let attempts = 0;
+    let isCompleted = false;
+
+    // Show loading state
+    setSendingStk(false); // STK sent, now we're checking status
+
+    const pollStatus = async () => {
+      if (isCompleted) return { completed: true, success: true };
+
+      attempts++;
+      console.log(`Checking payment status (attempt ${attempts})`);
+
+      try {
+        const statusResponse = await paymentAPI.checkMpesaStatus({
+          checkout_request_id: checkoutRequestId
+        });
+
+        if (statusResponse.data.success) {
+          const statusData = statusResponse.data.status;
+          const resultCode = statusData?.ResultCode;
+
+          console.log('Payment status result code:', resultCode);
+
+          if (resultCode === '0') {
+            // Payment successful
+            showToast.success('Payment completed successfully!');
+            isCompleted = true;
+
+            // Refresh all relevant data
+            await Promise.all([
+              fetchDashboardData(),
+              fetchClients(),
+              fetchTransactions()
+            ]);
+
+            return { completed: true, success: true };
+          } else if (['1032', '1', '17', '26', '1031'].includes(resultCode)) {
+            // Payment cancelled, failed, or timed out
+            const errorMsg = statusData?.ResultDesc || 'Payment was cancelled or failed';
+            showToast.error(`Payment failed: ${errorMsg}`);
+            isCompleted = true;
+            return { completed: true, success: false };
+          } else {
+            // Still processing - show progress to admin
+            if (attempts % 3 === 0) { // Show progress every 3 attempts
+              showToast.info(`Still waiting for payment confirmation... (${attempts}/${maxAttempts})`, 3000);
+            }
+            return { completed: false, success: false };
+          }
+        } else {
+          // API error but keep trying
+          console.log('Status check API error, but continuing:', statusResponse.data.error);
+          return { completed: false, success: false };
+        }
+      } catch (error) {
+        console.error('Error checking status:', error);
+        // Network errors are temporary, keep trying
+        return { completed: false, success: false };
+      }
+    };
+
+    // Wait 10 seconds before starting to check (give user time to enter PIN)
+    await new Promise(resolve => setTimeout(resolve, 10000));
+
+    // Poll every 5 seconds
+    const pollInterval = setInterval(async () => {
+      const result = await pollStatus();
+
+      if (result.completed || attempts >= maxAttempts) {
+        clearInterval(pollInterval);
+
+        if (attempts >= maxAttempts && !result.completed) {
+          showToast.info('Payment status check completed. If payment was made, it will be reflected shortly.');
+        }
+
+        // Close modal if payment completed or max attempts reached
+        if (result.completed || attempts >= maxAttempts) {
+          setShowMpesaModal(false);
+          setSelectedClient(null);
+          setMpesaAmount("");
+
+          // Final refresh to ensure data is current
+          setTimeout(() => {
+            Promise.all([
+              fetchDashboardData(),
+              fetchClients(),
+              fetchTransactions()
+            ]);
+          }, 1000);
+        }
+      }
+    }, 5000);
+  };
+
+  
+
   const [livestock, setLivestock] = useState([])
   const [applications, setApplications] = useState([])
   const [clients, setClients] = useState([])
@@ -40,7 +226,6 @@ function AdminPanel() {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedClient, setSelectedClient] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [apiErrors, setApiErrors] = useState({})
 
   // edit livestock in gallery state variables
   const [showEditLivestockModal, setShowEditLivestockModal] = useState(false)
@@ -204,11 +389,11 @@ function AdminPanel() {
             ])
           } catch (error) {
             console.error("Error fetching data:", error)
-            setApiErrors({ general: "Failed to load data from server" })
+            showToast.error("Failed to load data from server")
           }
         } else {
           console.error("API connection failed, data not loaded")
-          setApiErrors({ general: "Unable to connect to server. Please check if the backend is running." })
+          showToast.error("Unable to connect to server. Please check if the backend is running.")
         }
       }
     }
@@ -224,7 +409,6 @@ function AdminPanel() {
       
       if (response.data) {
         setDashboardData(response.data)
-        setApiErrors(prev => ({ ...prev, dashboard: null }))
       } else {
         throw new Error('No data received from server')
       }
@@ -244,7 +428,7 @@ function AdminPanel() {
         due_today: [],
         overdue: []
       })
-      setApiErrors(prev => ({ ...prev, dashboard: "Failed to load dashboard data: " + (error.response?.data?.error || error.message) }))
+      showToast.error("Failed to load dashboard data: " + (error.response?.data?.error || error.message))
     } finally {
       setLoading(false)
     }
@@ -256,7 +440,6 @@ function AdminPanel() {
       const response = await adminAPI.getLivestock()
       console.log("Livestock response:", response.data)
       setLivestock(response.data || [])
-      setApiErrors(prev => ({ ...prev, livestock: null }))
     } catch (error) {
       console.error("Failed to fetch livestock:", error)
       if (error.response?.status === 401) {
@@ -264,7 +447,7 @@ function AdminPanel() {
         return
       }
       setLivestock([])
-      setApiErrors(prev => ({ ...prev, livestock: "Failed to load livestock data: " + (error.response?.data?.error || error.message) }))
+      showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message))
     }
   }, [navigate])
 
@@ -274,7 +457,6 @@ function AdminPanel() {
       const response = await adminAPI.getApplications()
       console.log("Applications response:", response.data)
       setApplications(response.data || [])
-      setApiErrors(prev => ({ ...prev, applications: null }))
     } catch (error) {
       console.error("Failed to fetch applications:", error)
       if (error.response?.status === 401) {
@@ -282,7 +464,7 @@ function AdminPanel() {
         return
       }
       setApplications([])
-      setApiErrors(prev => ({ ...prev, applications: "Failed to load applications: " + (error.response?.data?.error || error.message) }))
+      showToast.error("Failed to load applications: " + (error.response?.data?.error || error.message))
     }
   }, [navigate])
 
@@ -292,7 +474,6 @@ function AdminPanel() {
       const response = await adminAPI.getClients()
       console.log("Clients response:", response.data)
       setClients(response.data || [])
-      setApiErrors(prev => ({ ...prev, clients: null }))
     } catch (error) {
       console.error("Failed to fetch clients:", error)
       if (error.response?.status === 401) {
@@ -300,7 +481,7 @@ function AdminPanel() {
         return
       }
       setClients([])
-      setApiErrors(prev => ({ ...prev, clients: "Failed to load clients: " + (error.response?.data?.error || error.message) }))
+      showToast.error("Failed to load clients: " + (error.response?.data?.error || error.message))
     }
   }, [navigate])
 
@@ -309,8 +490,14 @@ function AdminPanel() {
       console.log("Fetching transactions...")
       const response = await adminAPI.getTransactions()
       console.log("Transactions response:", response.data)
-      setTransactions(response.data || [])
-      setApiErrors(prev => ({ ...prev, transactions: null }))
+      
+      const sortedTransactions = (response.data || []).sort((a, b) => {
+        const dateA = new Date(a.createdAt || a.date || a.created_at || 0);
+        const dateB = new Date(b.createdAt || b.date || b.created_at || 0);
+        return dateB - dateA;
+      });
+      
+      setTransactions(sortedTransactions)
     } catch (error) {
       console.error("Failed to fetch transactions:", error)
       if (error.response?.status === 401) {
@@ -318,7 +505,7 @@ function AdminPanel() {
         return
       }
       setTransactions([])
-      setApiErrors(prev => ({ ...prev, transactions: "Failed to load transactions: " + (error.response?.data?.error || error.message) }))
+      showToast.error("Failed to load transactions: " + (error.response?.data?.error || error.message))
     }
   }, [navigate])
 
@@ -330,12 +517,31 @@ function AdminPanel() {
   }
 
   const formatDate = (date) => {
-    if (!date) return 'N/A'
-    return new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }).format(new Date(date))
+    // Handle null/undefined dates and multiple date field names
+    const dateToFormat = date || null;
+    
+    if (!dateToFormat) {
+      return 'N/A';
+    }
+    
+    try {
+      // Handle both string dates and Date objects
+      const dateObj = new Date(dateToFormat);
+      
+      // Check if date is valid
+      if (isNaN(dateObj.getTime())) {
+        return 'N/A';
+      }
+      
+      return new Intl.DateTimeFormat("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }).format(dateObj);
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'N/A';
+    }
   }
 
   const toggleSidebar = () => {
@@ -404,11 +610,22 @@ function AdminPanel() {
         showToast.error("Error: No active loan found for this client")
         return
       }
+
+      const paymentAmount = parseFloat(paymentData.amount)
+      if (isNaN(paymentAmount) || paymentAmount <= 0) {
+        showToast.error("Invalid payment amount")
+        return
+      }
+
+      if (paymentAmount > (selectedClient.balance || 0)) {
+        showToast.error("Payment amount cannot exceed the current balance")
+        return
+      }
       
       const response = await paymentAPI.processCashPayment({
         loan_id: selectedClient.loan_id,
-        amount: parseFloat(paymentData.amount),
-        notes: paymentData.notes || `Cash payment of KSh ${paymentData.amount}`
+        amount: paymentAmount,
+        notes: paymentData.notes || `Cash payment of KSh ${paymentAmount}`
       })
       
       console.log("Payment response:", response.data)
@@ -431,6 +648,74 @@ function AdminPanel() {
       showToast.error(`Failed to process payment: ${errorMsg}`)
     }
   }
+
+  const handleTakeAction = (client) => {
+    setSelectedClient(client);
+    setShowActionModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowActionModal(false);
+    setSelectedClient(null);
+  };
+
+  const handleSendReminder = async (client, message) => {
+    try {
+      console.log('Sending reminder to:', client.client_name || client.name);
+      console.log('Message:', message);
+      console.log('Phone:', client.phone);
+      
+      // TODO: Integrate with SMS API
+      // For now, we'll simulate the API call
+      const response = await fetch('http://localhost:5000/api/admin/send-reminder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          client_id: client.id,
+          phone: client.phone,
+          message: message
+        })
+      });
+
+      if (response.ok) {
+        showToast.success('Reminder sent successfully!');
+        handleCloseModal();
+      } else {
+        throw new Error('Failed to send reminder');
+      }
+    } catch (error) {
+      console.error('Error sending reminder:', error);
+      showToast.error('Error sending reminder. Please try again.');
+    }
+  };
+
+  const handleClaimOwnership = async (client) => {
+    try {
+      console.log('Claiming ownership for:', client.client_name);
+
+      const response = await adminAPI.claimOwnership({
+        client_id: client.client_id || client.id, // Use client_id if available, fallback to id
+        loan_id: client.loan_id || client.id // Use loan_id if available, fallback to id
+      });
+
+      if (response.data.success) {
+        alert(response.data.message);
+        handleCloseModal();
+        // Refresh dashboard data to reflect changes
+        fetchDashboardData();
+        // Also refresh clients list if you have one
+        fetchClients();
+      } else {
+        throw new Error(response.data.error || 'Failed to claim ownership');
+      }
+    } catch (error) {
+      console.error('Error claiming ownership:', error);
+      showToast.error('Error claiming ownership. Please try again.');
+    }
+  };
 
   const handleAddLivestock = async (livestockData) => {
     try {
@@ -634,18 +919,6 @@ function AdminPanel() {
           </div>
 
           <div className="col-md-9 col-lg-10 main-content">
-            {/* API Error Banner */}
-            {apiErrors.general && (
-              <div className="alert alert-danger alert-dismissible fade show" role="alert">
-                <i className="fas fa-exclamation-triangle me-2"></i>
-                {apiErrors.general}
-                <button 
-                  type="button" 
-                  className="btn-close" 
-                  onClick={() => setApiErrors(prev => ({ ...prev, general: null }))}
-                ></button>
-              </div>
-            )}
 
             {/* Overview Section */}
             {activeSection === "overview" && (
@@ -667,12 +940,6 @@ function AdminPanel() {
                   </div>
                 ) : (
                   <>
-                    {apiErrors.dashboard && (
-                      <div className="alert alert-warning">
-                        <i className="fas fa-exclamation-circle me-2"></i>
-                        {apiErrors.dashboard}
-                      </div>
-                    )}
                     
                     <div className="row mb-4">
                       <div className="col-md-3 mb-3">
@@ -709,55 +976,89 @@ function AdminPanel() {
                       </div>
                     </div>
 
-                    <div className="row">
-                      <div className="col-md-6">
-                        <div className="card">
-                          <div className="card-header">
-                            <h5 className="mb-0">Due Today</h5>
+                    {/* Due Today Section */}
+                    <div className="row mb-4">
+                      <div className="col-12">
+                        <div className="card shadow">
+                          <div className="card-header bg-warning text-white">
+                            <h6 className="m-0 font-weight-bold">
+                              <i className="fas fa-clock me-2"></i>
+                              Due Today ({dashboardData.due_today.length})
+                            </h6>
                           </div>
                           <div className="card-body">
-                            {dashboardData.due_today && dashboardData.due_today.length === 0 ? (
+                            {dashboardData.due_today.length === 0 ? (
                               <p className="text-muted">No loans due today</p>
                             ) : (
-                              <div id="dueToday">
-                                {dashboardData.due_today && dashboardData.due_today.map((loan) => (
-                                  <div key={loan.id} className="d-flex justify-content-between align-items-center mb-2 p-2 bg-light rounded">
-                                    <div>
-                                      <strong>{loan.client_name}</strong><br />
-                                      <small className="text-muted">{formatCurrency(loan.balance)} remaining</small>
-                                    </div>
-                                    <button className="btn btn-sm btn-primary" onClick={() => openPaymentModal(loan)}>
-                                      Process Payment
+                              dashboardData.due_today.map((client) => (
+                                <div key={client.id} className="due-client-card alert alert-warning">
+                                  <div className="client-info">
+                                    <h6 className="fw-bold mb-1">{client.client_name}</h6>
+                                    <p className="mb-1">
+                                      <strong>KES {client.balance?.toLocaleString()}</strong> remaining
+                                    </p>
+                                    <small className="text-muted">
+                                      <i className="fas fa-phone me-1"></i>
+                                      {client.phone}
+                                    </small>
+                                  </div>
+                                  <div className="client-actions">
+                                    <button
+                                      className="btn btn-primary btn-sm btn-action"
+                                      onClick={() => handleTakeAction(client)}
+                                    >
+                                      <i className="fas fa-bolt"></i>
+                                      Take Action
                                     </button>
                                   </div>
-                                ))}
-                              </div>
+                                </div>
+                              ))
                             )}
                           </div>
                         </div>
                       </div>
-                      <div className="col-md-6">
-                        <div className="card">
-                          <div className="card-header">
-                            <h5 className="mb-0">Overdue Loans</h5>
+                    </div>
+                          
+                    {/* Overdue Section */}
+                    <div className="row">
+                      <div className="col-12">
+                        <div className="card shadow">
+                          <div className="card-header bg-danger text-white">
+                            <h6 className="m-0 font-weight-bold">
+                              <i className="fas fa-exclamation-triangle me-2"></i>
+                              Overdue ({dashboardData.overdue.length})
+                            </h6>
                           </div>
                           <div className="card-body">
-                            {dashboardData.overdue && dashboardData.overdue.length === 0 ? (
+                            {dashboardData.overdue.length === 0 ? (
                               <p className="text-muted">No overdue loans</p>
                             ) : (
-                              <div id="overdueLoans">
-                                {dashboardData.overdue && dashboardData.overdue.map((loan) => (
-                                  <div key={loan.id} className="d-flex justify-content-between align-items-center mb-2 p-2 bg-danger bg-opacity-10 rounded">
-                                    <div>
-                                      <strong>{loan.client_name}</strong><br />
-                                      <small className="text-danger">{loan.days_overdue} days overdue</small>
-                                    </div>
-                                    <button className="btn btn-sm btn-danger">
+                              dashboardData.overdue.map((client) => (
+                                <div key={client.id} className="overdue-client-card alert alert-danger">
+                                  <div className="client-info">
+                                    <h6 className="fw-bold mb-1">{client.client_name}</h6>
+                                    <p className="mb-1">
+                                      <strong>KES {client.balance?.toLocaleString()}</strong> remaining
+                                    </p>
+                                    <small className="text-muted">
+                                      <i className="fas fa-phone me-1"></i>
+                                      {client.phone}
+                                      <span className="ms-2 badge bg-dark">
+                                        {client.days_overdue} days overdue
+                                      </span>
+                                    </small>
+                                  </div>
+                                  <div className="client-actions">
+                                    <button
+                                      className="btn btn-primary btn-sm btn-action"
+                                      onClick={() => handleTakeAction(client)}
+                                    >
+                                      <i className="fas fa-bolt"></i>
                                       Take Action
                                     </button>
                                   </div>
-                                ))}
-                              </div>
+                                </div>
+                              ))
                             )}
                           </div>
                         </div>
@@ -802,12 +1103,6 @@ function AdminPanel() {
                   </div>
                 </div>
             
-                {apiErrors.clients && (
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-circle me-2"></i>
-                    {apiErrors.clients}
-                  </div>
-                )}
 
                 <div className="card">
                   <div className="card-body">
@@ -856,18 +1151,29 @@ function AdminPanel() {
                             header: "Actions",
                             render: (row) => (
                               <div className="btn-group btn-group-sm">
-                                {/* Process Payment(cash)*/}
+                                {/* Process Payment (cash) */}
                                 <button 
                                   className="btn btn-outline-primary" 
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     openPaymentModal(row);
                                   }}
-                                  title="Process Payment"
+                                  title="Process Cash Payment"
                                 >
                                   <i className="fas fa-money-bill-wave"></i>
                                 </button>
-                                 {/* Download Receipt */}
+                                {/* Process M-Pesa Payment */}
+                                <button 
+                                  className="btn btn-outline-success" 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openMpesaModal(row);
+                                  }}
+                                  title="Process M-Pesa Payment"
+                                >
+                                  <i className="fas fa-mobile-alt"></i>
+                                </button>
+                                {/* Download Receipt */}
                                 <button 
                                   className="btn btn-outline-info" 
                                   onClick={async (e) => {
@@ -883,10 +1189,6 @@ function AdminPanel() {
                                   title="Download Receipt"
                                 >
                                   <i className="fas fa-download"></i>
-                                </button>
-                                {/* Send Mpesa STK push prompt*/}
-                                <button className="btn btn-outline-success" title="Send SMS">
-                                  <i className="fas fa-mobile-alt"></i>
                                 </button>
                               </div>
                             ),
@@ -922,12 +1224,6 @@ function AdminPanel() {
                   </div>
                 </div>
             
-                {apiErrors.transactions && (
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-circle me-2"></i>
-                    {apiErrors.transactions}
-                  </div>
-                )}
 
                 <div className="card">
                   <div className="card-body">
@@ -946,7 +1242,7 @@ function AdminPanel() {
                     ) : (
                       <AdminTable
                         columns={[
-                          { header: "Date", field: "date", render: (row) => formatDate(row.date) },
+                          { header: "Date", field: "date", render: (row) => formatDate(row.createdAt || row.date || row.created_at) },
                           { header: "Client", field: "clientName" },
                           { 
                             header: "Type", 
@@ -1014,12 +1310,7 @@ function AdminPanel() {
                   </button>
                 </div>
             
-                {apiErrors.livestock && (
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-circle me-2"></i>
-                    {apiErrors.livestock}
-                  </div>
-                )}
+                
             
                 {livestock.length === 0 ? (
                   <div className="card">
@@ -1093,12 +1384,7 @@ function AdminPanel() {
                   <h2>Loan Applications</h2>
                 </div>
 
-                {apiErrors.applications && (
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-circle me-2"></i>
-                    {apiErrors.applications}
-                  </div>
-                )}
+                
 
                 <div className="card">
                   <div className="card-body">
@@ -1176,6 +1462,16 @@ function AdminPanel() {
           </div>
         </div>
       </div>
+
+      {/* Take Action Modal */}
+      {showActionModal && selectedClient && (
+        <TakeActionModal
+          client={selectedClient}
+          onClose={handleCloseModal}
+          onSendReminder={handleSendReminder}
+          onClaimOwnership={handleClaimOwnership}
+        />
+      )}
 
       {/* Application Details Modal */}
       {showApplicationModal && selectedApplication && (
@@ -1531,7 +1827,7 @@ function AdminPanel() {
         </Modal>
       )}
 
-      {/* Payment Modal */}
+      {/* Payment Modal(CASH) */}
       {showPaymentModal && selectedClient && (
         <Modal
           isOpen={showPaymentModal}
@@ -1611,13 +1907,13 @@ function AdminPanel() {
                 id="paymentAmount" 
                 name="amount" 
                 min="1"
-                max={selectedClient.balance || 0}
+                max={Math.floor(selectedClient.balance || 0)}
                 step="0.01"
                 placeholder="Enter amount"
                 required 
               />
               <small className="text-muted">
-                Maximum: {formatCurrency(selectedClient.balance || 0)}
+                Maximum: {formatCurrency(Math.floor(selectedClient.balance || 0))} (whole numbers only for M-Pesa)
               </small>
             </div>
             
@@ -1654,6 +1950,117 @@ function AdminPanel() {
           </form>
         </Modal>
       )}
+
+      {/* M-Pesa Payment Modal */}
+      {showMpesaModal && selectedClient && (
+      <Modal
+        isOpen={showMpesaModal}
+        onClose={() => {
+          setShowMpesaModal(false)
+          setSelectedClient(null)
+          setMpesaAmount("")
+          setPaymentStatus('')
+        }}
+        title="Process M-Pesa Payment"
+        size="md"
+      >
+        <div className="mb-3">
+          <label className="form-label">Client Name</label>
+          <input 
+            type="text" 
+            className="form-control" 
+            value={selectedClient.name || 'N/A'} 
+            readOnly 
+          />
+        </div>
+      
+        <div className="mb-3">
+          <label className="form-label">Phone Number</label>
+          <input 
+            type="text" 
+            className="form-control" 
+            value={selectedClient.phone || 'N/A'} 
+            readOnly 
+          />
+        </div>
+      
+        <div className="mb-3">
+          <label className="form-label">Current Balance</label>
+          <input 
+            type="text" 
+            className="form-control fw-bold text-danger" 
+            value={formatCurrency(selectedClient.balance || 0)} 
+            readOnly 
+          />
+        </div>
+      
+        <div className="mb-3">
+          <label htmlFor="mpesaAmount" className="form-label">
+            Payment Amount (KSh) <span className="text-danger">*</span>
+          </label>
+          <input 
+            type="number" 
+            className="form-control" 
+            id="mpesaAmount" 
+            value={mpesaAmount}
+            onChange={(e) => setMpesaAmount(e.target.value)}
+            min="1"
+            max={selectedClient.balance || 0}
+            step="1"
+            placeholder="Enter amount"
+            required 
+          />
+          <small className="text-muted">
+            Maximum: {formatCurrency(selectedClient.balance || 0)}
+          </small>
+        </div>
+      
+        {/* Payment Status Display */}
+        {paymentStatus && (
+          <div className="alert alert-info d-flex align-items-center">
+            <i className="fas fa-info-circle me-2"></i>
+            <span>{paymentStatus}</span>
+          </div>
+        )}
+
+        <div className="alert alert-info">
+          <i className="fas fa-info-circle me-2"></i>
+          This will send an STK push prompt to the client's phone. The client needs to enter their M-Pesa PIN to complete the payment.
+        </div>
+      
+        <div className="d-flex gap-2">
+          <button 
+            type="button" 
+            className="btn btn-success"
+            onClick={handleMpesaPayment}
+            disabled={sendingStk || !mpesaAmount}
+          >
+            {sendingStk ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                Sending Prompt...
+              </>
+            ) : (
+              <>
+                <i className="fas fa-mobile-alt me-2"></i>Send STK Push
+              </>
+            )}
+          </button>
+          <button 
+            type="button" 
+            className="btn btn-secondary" 
+            onClick={() => {
+              setShowMpesaModal(false)
+              setSelectedClient(null)
+              setMpesaAmount("")
+              setPaymentStatus('')
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </Modal>
+      )}    
 
       {/* Delete Confirmation Dialog */}
       <ConfirmationDialog

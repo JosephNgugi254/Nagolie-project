@@ -25,8 +25,8 @@ class Config:
     DARAJA_CONSUMER_SECRET = os.getenv('DARAJA_CONSUMER_SECRET', '')
     DARAJA_SHORTCODE = os.getenv('DARAJA_SHORTCODE', '')
     DARAJA_PASSKEY = os.getenv('DARAJA_PASSKEY', '')
-    DARAJA_ENV = os.getenv('DARAJA_ENV', 'sandbox')  # sandbox or production
-    DARAJA_CALLBACK_URL = os.getenv('DARAJA_CALLBACK_URL', 'https://your-domain.com/api/payments/callback')
+    DARAJA_ENV = os.getenv('DARAJA_ENV', 'sandbox') 
+    DARAJA_CALLBACK_URL = os.getenv('DARAJA_CALLBACK_URL', 'http://localhost:5000/api/payments/callback')
     
     # Callback Security
     CALLBACK_SECRET_TOKEN = os.getenv('CALLBACK_SECRET_TOKEN', 'change-this-secret-token')

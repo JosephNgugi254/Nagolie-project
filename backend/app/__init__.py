@@ -1,4 +1,5 @@
-from flask import Flask
+# app/__init__.py
+from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
@@ -34,11 +35,22 @@ def create_app(config_class=Config):
     from app.routes.clients import clients_bp
     from app.routes.payments import payments_bp
     from app.routes.admin import admin_bp
+    from app.routes.test_daraja import test_bp  # Add test routes
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(loans_bp, url_prefix='/api/loans')
     app.register_blueprint(clients_bp, url_prefix='/api/clients')
     app.register_blueprint(payments_bp, url_prefix='/api/payments')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
+    app.register_blueprint(test_bp, url_prefix='/api/test')  # Register test routes
+
+    @app.before_request
+    def before_request():
+        if request.method == "OPTIONS":
+            response = jsonify({"status": "success"})
+            response.headers.add("Access-Control-Allow-Origin", "*")
+            response.headers.add("Access-Control-Allow-Headers", "*")
+            response.headers.add("Access-Control-Allow-Methods", "*")
+            return response
 
     return app

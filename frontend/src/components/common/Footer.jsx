@@ -9,7 +9,7 @@ function Footer() {
             </div>
           </div>
           <div className="col-md-6 text-md-end">
-            <span className="text-light">Developed by SolitaryWebWorks</span>
+            <span className="text-light">Developed by <a href="solitarywebworks.netlify.app" id="solitary">SolitaryWebWorks</a></span>
           </div>
         </div>
       </div>

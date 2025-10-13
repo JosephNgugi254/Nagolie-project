@@ -104,7 +104,6 @@ class Loan(db.Model):
     
     # Relationships - FIXED: Add proper relationship with Livestock
     livestock = db.relationship('Livestock', backref='loan', lazy='joined')
-    transactions = db.relationship('Transaction', backref='loan', lazy='dynamic', cascade='all, delete-orphan')
     payments = db.relationship('Payment', backref='loan', lazy='dynamic', cascade='all, delete-orphan')
     
     def to_dict(self):
@@ -138,8 +137,19 @@ class Transaction(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    status = db.Column(db.String(20), default='pending')  # 'pending', 'completed', 'failed'
+    mpesa_reference = db.Column(db.String(50))
+    merchant_request_id = db.Column(db.String(50))
+    checkout_request_id = db.Column(db.String(50))
+    phone_number = db.Column(db.String(20))
+    
+    # Relationship
+    loan = db.relationship('Loan', backref=db.backref('transactions', lazy=True))
     
     def to_dict(self):
+        # Handle date formatting safely
+        created_at_iso = self.created_at.isoformat() if self.created_at else datetime.utcnow().isoformat()
+        
         return {
             'id': self.id,
             'loan_id': self.loan_id,
@@ -148,7 +158,15 @@ class Transaction(db.Model):
             'payment_method': self.payment_method,
             'mpesa_receipt': self.mpesa_receipt,
             'notes': self.notes,
-            'created_at': self.created_at.isoformat()
+            'created_at': created_at_iso,
+            'created_by': self.created_by,
+            'status': self.status,
+            'mpesa_reference': self.mpesa_reference,
+            'merchant_request_id': self.merchant_request_id,
+            'checkout_request_id': self.checkout_request_id,
+            'phone_number': self.phone_number,
+            # FIX: Ensure date is never null and matches frontend expectation
+            'date': created_at_iso
         }
 
 
