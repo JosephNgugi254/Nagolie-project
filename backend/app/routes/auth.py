@@ -80,3 +80,49 @@ def get_current_user():
         return jsonify({'error': 'User not found'}), 404
     
     return jsonify(user.to_dict()), 200
+
+@bp.route('/setup-admin', methods=['POST'])
+def setup_admin():
+    """Temporary route to create first admin - REMOVE AFTER USE!"""
+    try:
+        # Check if any admin already exists
+        existing_admin = User.query.filter_by(role='admin').first()
+        if existing_admin:
+            return jsonify({
+                'success': False,
+                'error': 'Admin user already exists. Remove this route.'
+            }), 400
+        
+        data = request.get_json()
+        
+        if not data or not data.get('email') or not data.get('password'):
+            return jsonify({
+                'success': False,
+                'error': 'Email and password required'
+            }), 400
+        
+        # Create admin user
+        admin_user = User(
+            email=data['email'],
+            password_hash=generate_password_hash(data['password']),
+            first_name=data.get('first_name', 'Admin'),
+            last_name=data.get('last_name', 'User'),
+            role='admin',
+            is_active=True
+        )
+        
+        db.session.add(admin_user)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Admin user created successfully!',
+            'email': admin_user.email
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to create admin: {str(e)}'
+        }), 500
