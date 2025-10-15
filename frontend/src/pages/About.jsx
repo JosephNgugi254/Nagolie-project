@@ -137,13 +137,10 @@ function About() {
                   <img src="/Shaddy CEO.png" alt="CEO - Nagolie Enterprises" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
-                      <a href="#" className="social-link">
-                        <i className="fab fa-linkedin"></i>
+                      <a href="https://wa.me/254721451707" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
                       </a>
-                      <a href="#" className="social-link">
-                        <i className="fab fa-twitter"></i>
-                      </a>
-                      <a href="#" className="social-link">
+                      <a href="mailto:kesumetshadrack@gmail.com" className="social-link">
                         <i className="fas fa-envelope"></i>
                       </a>
                     </div>
@@ -164,16 +161,13 @@ function About() {
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="/user-image.png" alt="livestock Valuer" className="img-fluid" />
+                  <img src="/george1.jpeg" alt="livestock Valuer" className="img-fluid" />
                   <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="#" className="social-link">
-                        <i className="fab fa-linkedin"></i>
+                    <div className="team-social">                      
+                      <a href="https://wa.me/254703994290" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
                       </a>
-                      <a href="#" className="social-link">
-                        <i className="fab fa-twitter"></i>
-                      </a>
-                      <a href="#" className="social-link">
+                      <a href="mailto:georgemarite@gmail.com" className="social-link">
                         <i className="fas fa-envelope"></i>
                       </a>
                     </div>
@@ -197,13 +191,10 @@ function About() {
                   <img src="/user-image.png" alt="Head Accountant" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
-                      <a href="#" className="social-link">
-                        <i className="fab fa-linkedin"></i>
+                      <a href="https://wa.me/" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
                       </a>
-                      <a href="#" className="social-link">
-                        <i className="fab fa-twitter"></i>
-                      </a>
-                      <a href="#" className="social-link">
+                      <a href="mailto:" className="social-link">
                         <i className="fas fa-envelope"></i>
                       </a>
                     </div>
@@ -230,8 +221,8 @@ function About() {
                       <a href="www.linkedin.com/in/joseph-ngugi-2a78991b7" className="social-link">
                         <i className="fab fa-linkedin"></i>
                       </a>
-                      <a href="https://x.com/JoeSolitary" className="social-link">
-                        <i className="fab fa-twitter"></i>
+                      <a href="https://wa.me/254797644034" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
                       </a>
                       <a href="mailto:solitaryjoe069@gmail.com" className="social-link">
                         <i className="fas fa-envelope"></i>
@@ -257,13 +248,10 @@ function About() {
                   <img src="/Timothy.png" alt="Legal consultant" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
-                      <a href="#" className="social-link">
-                        <i className="fab fa-linkedin"></i>
+                      <a href="https://wa.me/" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
                       </a>
-                      <a href="#" className="social-link">
-                        <i className="fab fa-twitter"></i>
-                      </a>
-                      <a href="#" className="social-link">
+                      <a href="" className="social-link">
                         <i className="fas fa-envelope"></i>
                       </a>
                     </div>
