@@ -81,7 +81,7 @@ def get_current_user():
     
     return jsonify(user.to_dict()), 200
 
-@bp.route('/setup-admin', methods=['POST'])
+@auth_bp.route('/setup-admin', methods=['POST'])
 def setup_admin():
     """Temporary route to create first admin - REMOVE AFTER USE!"""
     try:
