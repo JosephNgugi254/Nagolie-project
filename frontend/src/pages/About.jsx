@@ -258,7 +258,7 @@ function About() {
                   </div>
                 </div>
                 <div className="team-info">
-                  <h4 className="team-name">Timothy Lesiamon</h4>
+                  <h4 className="team-name">Tait Lesiamon</h4>
                   <p className="team-role">Legal Consultant</p>
                   <p className="team-bio">
                     Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises and its clients in every transaction.
