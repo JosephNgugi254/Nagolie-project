@@ -426,9 +426,8 @@ const formatCurrency = (amount) => {
                 <i className="fas fa-mobile-alt fa-2x text-primary mb-3"></i>
                 <h4>Mobile Money Services</h4>
                 <p className="text-muted">
-                  Enjoy seamless financial transactions directly from your phone. Instantly receive loan disbursements
-                  and conveniently make repayments through M-Pesa and other mobile money platforms.
-                  Enjoy seamless transactions directly from your phone. Instantly receive purchase payments and manage your sales through M-Pesa and other mobile money platforms
+                  Enjoy seamless transactions directly from your phone. 
+                  Instantly receive purchase disbursement funds and handle your sales through M-Pesa.
                 </p>
                 <ul className="list-unstyled">
                   <li>
