@@ -188,13 +188,13 @@ function About() {
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="/user-image.png" alt="Head Accountant" className="img-fluid" />
+                  <img src="/gideon.jpeg" alt="Head Accountant" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
-                      <a href="https://wa.me/" className="social-link">
+                      <a href="https://wa.me/254720916093" className="social-link">
                         <i className="fab fa-whatsapp"></i>
                       </a>
-                      <a href="mailto:" className="social-link">
+                      <a href="mailto:gmatunta2015@gmail.com" className="social-link">
                         <i className="fas fa-envelope"></i>
                       </a>
                     </div>
