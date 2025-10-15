@@ -118,7 +118,7 @@ function Navbar() {
                   }
                 }}
               >
-                Apply for Loan
+                Submit Livestock Offer
               </Link>
             </li>
             <li className="nav-item ms-2">
