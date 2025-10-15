@@ -14,7 +14,7 @@ function About() {
           <div className="row align-items-center">
             <div className="col-lg-8 mx-auto text-center">
               <h1 className="display-4 fw-bold mb-4 text-primary">About Nagolie Enterprises</h1>
-              <p className="lead mb-4">Pioneering livestock-backed financial solutions in Kajiado County</p>
+              <p className="lead mb-4">Revolutionizing direct livestock acquisitions in Kajiado County</p>
             </div>
           </div>
         </div>
@@ -28,20 +28,17 @@ function About() {
             <div className="col-lg-6 mb-5">
               <h2 className="display-5 fw-bold mb-4">Our Story</h2>
               <p className="lead mb-4">
-                A trusted financial partner in Isinya, Kajiado County, specializing exclusively in innovative
-                livestock-backed lending solutions.
+                Your local partner for turning livestock into cash in Isinya, Kajiado County,
+                through fair and innovative buying solutions
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our
-                community. We provide quick, reliable financial services that recognize and respect the true value of
-                your livestock. Our professional valuation process ensures fair and transparent lending terms, while our
-                streamlined approach guarantees you access to funds when you need them most.
+                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
+                while our streamlined approach guarantees you access to funds when you need them most.
               </p>
               <p className="mb-4">
-                Built on the pillars of <strong>integrity, transparency, and efficiency</strong>, we are committed to
-                empowering livestock owners with financial solutions that inspire trust and deliver results. With
-                Nagolie, you don't just get a loan — you gain a dependable partner dedicated to supporting your growth
-                and stability.
+                Built on the pillars of <strong>integrity, transparency, and efficiency</strong>, 
+                we are committed to empowering livestock owners with purchase opportunities that inspire trust and deliver results.
+                With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
               </p>
 
               {/* Stats */}
@@ -55,7 +52,7 @@ function About() {
                 <div className="col-4">
                   <div className="stat-item text-center">
                     <h3 className="text-primary fw-bold">KSh 10M+</h3>
-                    <p className="text-muted">Loans Disbursed</p>
+                    <p className="text-muted">Disbursed funds</p>
                   </div>
                 </div>
                 <div className="col-4">
@@ -93,7 +90,7 @@ function About() {
                 <i className="fas fa-bullseye fa-3x mb-3"></i>
                 <h4>Our Mission</h4>
                 <p>
-                  To provide accessible, livestock-backed financial solutions that empower rural communities, strengthen
+                  To provide accessible, financial solutions that empower rural communities, strengthen
                   livelihoods, and drive agricultural growth across Kenya.
                 </p>
               </div>
@@ -104,7 +101,7 @@ function About() {
                 <i className="fas fa-eye fa-3x mb-3"></i>
                 <h4>Our Vision</h4>
                 <p>
-                  To be the most trusted livestock-collateral lending institution, fostering sustainable economic
+                  To become the premier livestock acquisition partner, driving sustainable economic
                   development through innovation and reliability.
                 </p>
               </div>
@@ -137,7 +134,7 @@ function About() {
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="/user-image.png" alt="CEO - Nagolie Enterprises" className="img-fluid" />
+                  <img src="/Shaddy CEO.png" alt="CEO - Nagolie Enterprises" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
                       <a href="#" className="social-link">
@@ -187,17 +184,17 @@ function About() {
                   <p className="team-role">Senior Livestock Valuer</p>
                   <p className="team-bio">
                     Expert in livestock valuation and local market dynamics, ensuring accurate assessments and fair
-                    lending terms for all clients.
+                    purchase terms for all clients.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Technical Operations Manager */}
+            {/* Head Accountant */}
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="/user-image.png" alt="Head of IT" className="img-fluid" />
+                  <img src="/user-image.png" alt="Head Accountant" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
                       <a href="#" className="social-link">
@@ -213,8 +210,38 @@ function About() {
                   </div>
                 </div>
                 <div className="team-info">
+                  <h4 className="team-name">Gideon Pashile</h4>
+                  <p className="team-role">Head Accountant</p>
+                  <p className="team-bio">
+                    Oversees all financial operations, ensures accurate record-keeping,
+                     and supports sound financial decision-making for Nagolie Enterprises.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Technical Operation Manager */}
+            <div className="col-lg-4 col-md-6 mb-5">
+              <div className="team-card">
+                <div className="team-image">
+                  <img src="/JOSEPH NGUGI.jpg" alt="Head of IT" className="img-fluid" />
+                  <div className="team-overlay">
+                    <div className="team-social">
+                      <a href="www.linkedin.com/in/joseph-ngugi-2a78991b7" className="social-link">
+                        <i className="fab fa-linkedin"></i>
+                      </a>
+                      <a href="https://x.com/JoeSolitary" className="social-link">
+                        <i className="fab fa-twitter"></i>
+                      </a>
+                      <a href="mailto:solitaryjoe069@gmail.com" className="social-link">
+                        <i className="fas fa-envelope"></i>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div className="team-info">
                   <h4 className="team-name">Joseph Ngugi</h4>
-                  <p className="team-role">Technical Operation Manager</p>
+                  <p className="team-role">Technical Operations Manager</p>
                   <p className="team-bio">
                     Head of IT Operations, responsible for managing the Company's systems, ensuring smooth performance,
                     and fulfilling all company IT needs.
@@ -222,66 +249,39 @@ function About() {
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Support Team */}
-          <div className="row justify-content-center">
-            {/* Finance Officer */}
-            <div className="col-lg-3 col-md-6 mb-4">
-              <div className="team-card team-card-sm">
+            {/* Legal Consultant */}
+            <div className="col-lg-4 col-md-6 mb-5">
+              <div className="team-card">
                 <div className="team-image">
-                  <img src="/user-image.png" alt="Finance Officer" className="img-fluid" />
+                  <img src="/Timothy.png" alt="Legal consultant" className="img-fluid" />
+                  <div className="team-overlay">
+                    <div className="team-social">
+                      <a href="#" className="social-link">
+                        <i className="fab fa-linkedin"></i>
+                      </a>
+                      <a href="#" className="social-link">
+                        <i className="fab fa-twitter"></i>
+                      </a>
+                      <a href="#" className="social-link">
+                        <i className="fas fa-envelope"></i>
+                      </a>
+                    </div>
+                  </div>
                 </div>
                 <div className="team-info">
-                  <h5 className="team-name">Beatrice Ivy</h5>
-                  <p className="team-role">Finance Officer</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Customer Relations */}
-            <div className="col-lg-3 col-md-6 mb-4">
-              <div className="team-card team-card-sm">
-                <div className="team-image">
-                  <img src="/user-image.png" alt="Customer Relations" className="img-fluid" />
-                </div>
-                <div className="team-info">
-                  <h5 className="team-name">Michael Davies</h5>
-                  <p className="team-role">Customer Relations</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Field Agent */}
-            <div className="col-lg-3 col-md-6 mb-4">
-              <div className="team-card team-card-sm">
-                <div className="team-image">
-                  <img src="/user-image.png" alt="Field Agent" className="img-fluid" />
-                </div>
-                <div className="team-info">
-                  <h5 className="team-name">James Lemayian</h5>
-                  <p className="team-role">Field Agent</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Marketing */}
-            <div className="col-lg-3 col-md-6 mb-4">
-              <div className="team-card team-card-sm">
-                <div className="team-image">
-                  <img src="/user-image.png" alt="Marketing Officer" className="img-fluid" />
-                </div>
-                <div className="team-info">
-                  <h5 className="team-name">Lucy Akinyi</h5>
-                  <p className="team-role">Marketing Officer</p>
+                  <h4 className="team-name">Timothy Lesiamon</h4>
+                  <p className="team-role">Legal Consultant</p>
+                  <p className="team-bio">
+                    Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises and its clients in every transaction.
+                  </p>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </section>
-
-      {/* CTA Section */}
+      {/* Call to Action Section */}
       <section className="py-5 bg-primary text-white">
         <div className="container">
           <div className="row justify-content-center text-center">
@@ -292,7 +292,7 @@ function About() {
               </p>
               <div className="d-flex justify-content-center gap-3 flex-wrap">
                 <a href="/#loan-application" className="btn btn-light btn-lg px-4">
-                  Apply for Loan
+                  Submit Livestock Offer
                 </a>
                 <a href="/#contact" className="btn btn-outline-light btn-lg px-4">
                   Contact Us

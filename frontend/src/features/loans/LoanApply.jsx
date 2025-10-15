@@ -179,7 +179,7 @@ function LoanApply({ onSubmit }) {
         <div className="row">
           <div className="col-md-6">
             <FormInput
-              label="Loan Amount (KSh)"
+              label="Cash Offer Amount (KSh)"
               name="loanAmount"
               type="number"
               value={formData.loanAmount}
@@ -292,7 +292,7 @@ function LoanApply({ onSubmit }) {
             rows="3"
             value={formData.notes}
             onChange={handleChange}
-            placeholder="Any additional information about your livestock or loan request"
+            placeholder="Any additional information about your livestock"
           ></textarea>
         </div>
 

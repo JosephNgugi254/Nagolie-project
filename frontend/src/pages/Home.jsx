@@ -239,14 +239,14 @@ const formatCurrency = (amount) => {
           <div className="row align-items-center min-vh-100">
             <div className="col-lg-8 mx-auto text-center text-white">
               <div className="hero-content">
-                <h1 className="display-3 fw-bold mb-4">Livestock-Backed Lending Solutions</h1>
+                <h1 className="display-3 fw-bold mb-4">Unlock Cash from Your Livestock</h1>
                 <p className="lead mb-5">
-                  Transform your livestock into immediate financial opportunities. Quick, secure, and reliable lending
+                  Transform your livestock into immediate financial opportunities. Quick, secure, reliable and trusted
                   services in Isinya, Kajiado County.
                 </p>
                 <div className="hero-buttons">
                   <a href="#loan-application" className="btn btn-primary btn-lg me-3">
-                    Apply for Loan
+                    Submit Livestock Offer
                   </a>
                   <Link to="/about" className="btn btn-outline-light btn-lg">
                     Learn More
@@ -269,8 +269,8 @@ const formatCurrency = (amount) => {
                 </div>
                 <h4>Quick Processing</h4>
                 <p className="text-muted">
-                  Get your loan approved within hours. Our streamlined process ensures fast access to funds when you
-                  need them most.
+                  Get cash for your livestock in hours. Our streamlined process ensures
+                  fast access to cash when you need them most.
                 </p>
               </div>
             </div>
@@ -281,8 +281,8 @@ const formatCurrency = (amount) => {
                 </div>
                 <h4>Secure & Reliable</h4>
                 <p className="text-muted">
-                  Your livestock serves as collateral, ensuring secure transactions with transparent terms and
-                  professional valuation services.
+                  We secure your livestock sale with transparent terms, professional valuations,
+                  and reliable handling every step of the way.
                 </p>
               </div>
             </div>
@@ -293,7 +293,7 @@ const formatCurrency = (amount) => {
                 </div>
                 <h4>M-Pesa Integration</h4>
                 <p className="text-muted">
-                  Convenient payment options through M-Pesa. Receive funds and make payments directly through your
+                  Convenient payment options through M-Pesa. Receive funds directly through your
                   mobile phone.
                 </p>
               </div>
@@ -306,26 +306,24 @@ const formatCurrency = (amount) => {
       <section id="about" className="py-5">
         <div className="container">
           <div className="row align-items-center">
-            <div className="col-lg-12 mb-4">
-              <h2 className="display-5 fw-bold mb-4">About Nagolie Enterprises</h2>
+            <div className="col-lg-6 mb-5">
+              <h2 className="display-5 fw-bold mb-4">About us</h2>
               <p className="lead mb-4">
-                A trusted financial partner in Isinya, Kajiado County, specializing exclusively in innovative
-                livestock-backed lending solutions.
+                Your local partner for turning livestock into cash in Isinya, Kajiado County,
+                through fair and innovative buying solutions
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our
-                community. We provide quick, reliable financial services that recognize and respect the true value of
-                your livestock. Our professional valuation process ensures fair and transparent lending terms, while our
-                streamlined approach guarantees you access to funds when you need them most.
+                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
+                while our streamlined approach guarantees you access to funds when you need them most.
               </p>
               <p className="mb-4">
-                Built on the pillars of <strong>integrity, transparency, and efficiency</strong>, we are committed to
-                empowering livestock owners with financial solutions that inspire trust and deliver results. With
-                Nagolie, you don't just get a loan — you gain a dependable partner dedicated to supporting your growth
-                and stability.
+                Built on the pillars of <strong>integrity, transparency, and efficiency</strong>, 
+                we are committed to empowering livestock owners with purchase opportunities that inspire trust and deliver results.
+                With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
               </p>
+
               {/* Stats */}
-              <div className="row">
+              <div className="row mt-5">
                 <div className="col-4">
                   <div className="stat-item text-center">
                     <h3 className="text-primary fw-bold">2500+</h3>
@@ -335,7 +333,7 @@ const formatCurrency = (amount) => {
                 <div className="col-4">
                   <div className="stat-item text-center">
                     <h3 className="text-primary fw-bold">KSh 10M+</h3>
-                    <p className="text-muted">Loans Disbursed</p>
+                    <p className="text-muted">Disbursed funds</p>
                   </div>
                 </div>
                 <div className="col-4">
@@ -344,12 +342,6 @@ const formatCurrency = (amount) => {
                     <p className="text-muted">Trusted Service</p>
                   </div>
                 </div>
-              </div>
-
-              <div className="text-center mt-4">
-                <Link to="/about" className="btn btn-primary btn-lg">
-                  Read More About Us
-                </Link>
               </div>
             </div>
           </div>
@@ -366,7 +358,7 @@ const formatCurrency = (amount) => {
                 <i className="fas fa-bullseye fa-3x mb-3"></i>
                 <h4>Our Mission</h4>
                 <p>
-                  To provide accessible, livestock-backed financial solutions that empower rural communities, strengthen
+                  To provide accessible, financial solutions that empower rural communities, strengthen
                   livelihoods, and drive agricultural growth across Kenya.
                 </p>
               </div>
@@ -377,7 +369,7 @@ const formatCurrency = (amount) => {
                 <i className="fas fa-eye fa-3x mb-3"></i>
                 <h4>Our Vision</h4>
                 <p>
-                  To be the most trusted livestock-collateral lending institution, fostering sustainable economic
+                  To become the premier livestock acquisition partner, driving sustainable economic
                   development through innovation and reliability.
                 </p>
               </div>
@@ -402,26 +394,26 @@ const formatCurrency = (amount) => {
         <div className="container">
           <div className="text-center mb-5">
             <h2 className="display-5 fw-bold">Our Services</h2>
-            <p className="lead text-muted">Comprehensive livestock-backed lending solutions</p>
+            <p className="lead text-muted">Comprehensive livestock purchase solutions</p>
           </div>
           <div className="row">
             <div className="col-lg-4 mb-4">
               <div className="service-card p-4 h-100">
                 <i className="fas fa-coins fa-2x text-primary mb-3"></i>
-                <h4>Quick Loans</h4>
+                <h4>Quick Purchases</h4>
                 <p className="text-muted">
-                  Get loans from as low as KSh 1,000 up to KSh 1,000,000 using your livestock as collateral.
+                  Get cash offers from as low as KSh 1,000 up to KSh 1,000,000 for your livestock .
                   Professional valuation ensures fair terms.
                 </p>
                 <ul className="list-unstyled">
                   <li>
-                    <i className="fas fa-check text-success me-2"></i>Loans processed within 24 to 48 hours
+                    <i className="fas fa-check text-success me-2"></i>Purchases processed within 24 to 48 hours
                   </li>
                   <li>
-                    <i className="fas fa-check text-success me-2"></i>Negotiable interest rate
+                    <i className="fas fa-check text-success me-2"></i>Competitive market rates
                   </li>
                   <li>
-                    <i className="fas fa-check text-success me-2"></i>Flexible repayment period
+                    <i className="fas fa-check text-success me-2"></i>Flexible sale terms
                   </li>
                   <li>
                     <i className="fas fa-check text-success me-2"></i>Professional livestock valuation
@@ -436,16 +428,17 @@ const formatCurrency = (amount) => {
                 <p className="text-muted">
                   Enjoy seamless financial transactions directly from your phone. Instantly receive loan disbursements
                   and conveniently make repayments through M-Pesa and other mobile money platforms.
+                  Enjoy seamless transactions directly from your phone. Instantly receive purchase payments and manage your sales through M-Pesa and other mobile money platforms
                 </p>
                 <ul className="list-unstyled">
                   <li>
-                    <i className="fas fa-check text-success me-2"></i>Instant loan disbursement
+                    <i className="fas fa-check text-success me-2"></i>Instant fund disbursement
                   </li>
                   <li>
                     <i className="fas fa-check text-success me-2"></i>Secure, reliable transactions
                   </li>
                   <li>
-                    <i className="fas fa-check text-success me-2"></i>Convenient repayment reminders
+                    <i className="fas fa-check text-success me-2"></i>Convenient sale confirmations
                   </li>
                 </ul>
               </div>
@@ -476,8 +469,8 @@ const formatCurrency = (amount) => {
       <section id="testimonials" className="py-5 bg-light">
         <div className="container">
           <div className="text-center mb-5">
-            <h2 className="display-5 fw-bold">What Our Clients Say</h2>
-            <p className="lead text-muted">Hear from livestock owners who have transformed their lives with Nagolie</p>
+            <h2 className="display-5 fw-bold">What Our clients Say</h2>
+            <p className="lead text-muted">Hear from livestock owners who have transformed their lives through Nagolie</p>
           </div>
 
           <div className="testimonials-container position-relative">
@@ -496,9 +489,7 @@ const formatCurrency = (amount) => {
                       </div>
                       <div className="testimonial-text">
                         <p className="quote">
-                          "Nagolie helped me pay my children's school fees when I had no other options. Their quick
-                          processing meant my kids didn't miss a single day of school. The M-Pesa disbursement was so
-                          convenient!"
+                          "Nagolie bought my livestock when I needed cash fast for my children's school fees. Their quick processing meant my kids didn't miss a single day of school. The M-Pesa payment was so convenient!"
                         </p>
                         <div className="client-info">
                           <h5 className="client-name">Terry Nashipai</h5>
@@ -516,9 +507,7 @@ const formatCurrency = (amount) => {
                       </div>
                       <div className="testimonial-text">
                         <p className="quote">
-                          "When my mother was hospitalized, I used my goats as collateral to clear the medical bills.
-                          Nagolie's valuation was fair, and I got the funds the same day. They truly understand
-                          emergencies."
+                          "When my mother was hospitalized, I sold my goats to Nagolie to clear the medical bills. Their valuation was fair, and I got the cash the same day. They truly understand emergencies."
                         </p>
                         <div className="client-info">
                           <h5 className="client-name">Ivy Akinyi</h5>
@@ -536,8 +525,7 @@ const formatCurrency = (amount) => {
                       </div>
                       <div className="testimonial-text">
                         <p className="quote">
-                          "My small shop was running out of stock, and I needed quick cash to restock. Nagolie's
-                          livestock-backed loan saved my business. The repayment terms were flexible and reasonable."
+                          "My small shop was running out of stock, and I needed quick cash to restock. Selling to Nagolie saved my business. The terms were flexible and fair."
                         </p>
                         <div className="client-info">
                           <h5 className="client-name">Kelvin Lemayian</h5>
@@ -555,8 +543,7 @@ const formatCurrency = (amount) => {
                       </div>
                       <div className="testimonial-text">
                         <p className="quote">
-                          "I needed to expand my poultry farming but lacked capital. Nagolie provided the funds using my
-                          existing chickens as collateral. Now my business has doubled in size!"
+                          "I needed capital to expand my poultry farming, so I sold some chickens to Nagolie. Now my business has doubled in size thanks to that quick cash!"
                         </p>
                         <div className="client-info">
                           <h5 className="client-name">Francis Katei</h5>
@@ -574,8 +561,7 @@ const formatCurrency = (amount) => {
                       </div>
                       <div className="testimonial-text">
                         <p className="quote">
-                          "During the drought season, I needed money to buy feed for my cattle. Nagolie's quick loan
-                          process helped me save my herd. Their service is a lifeline for livestock farmers."
+                          "During the drought season, I needed money to buy feed for my cattle, so I sold a few to Nagolie. Their quick process helped me save my herd. Their service is a lifeline for livestock farmers."
                         </p>
                         <div className="client-info">
                           <h5 className="client-name">Beatrice Nayian</h5>
@@ -593,8 +579,7 @@ const formatCurrency = (amount) => {
                       </div>
                       <div className="testimonial-text">
                         <p className="quote">
-                          "I was able to pay for my daughter's university fees thanks to Nagolie. Using my sheep as
-                          collateral was straightforward, and the entire process was transparent and respectful."
+                          "I was able to pay for my daughter's university fees after selling my sheep to Nagolie. The process was straightforward, transparent, and respectful."
                         </p>
                         <div className="client-info">
                           <h5 className="client-name">Elijah Matura</h5>
@@ -689,7 +674,7 @@ const formatCurrency = (amount) => {
             <div className="col-lg-8">
               <div className="card shadow">
                 <div className="card-header bg-primary text-white text-center">
-                  <h3 className="mb-0">Loan Application Form</h3>
+                  <h3 className="mb-0">Livestock Sales Proposal Form</h3>
                 </div>
                 <div className="card-body p-4">
                   <LoanApply onSubmit={handleLoanSubmit} />

@@ -664,9 +664,13 @@ function AdminPanel() {
       console.log('Sending reminder to:', client.client_name || client.name);
       console.log('Message:', message);
       console.log('Phone:', client.phone);
-      
-      // TODO: Integrate with SMS API
-      // For now, we'll simulate the API call
+
+      // Add "+" at the beginning of the phone number if not present
+      let phoneWithPlus = client.phone;
+      if (phoneWithPlus && !phoneWithPlus.startsWith('+')) {
+        phoneWithPlus = '+' + phoneWithPlus;
+      }
+
       const response = await fetch('http://localhost:5000/api/admin/send-reminder', {
         method: 'POST',
         headers: {
@@ -675,34 +679,41 @@ function AdminPanel() {
         },
         body: JSON.stringify({
           client_id: client.id,
-          phone: client.phone,
+          phone: phoneWithPlus,
           message: message
         })
       });
 
-      if (response.ok) {
-        showToast.success('Reminder sent successfully!');
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        showToast.success('SMS reminder sent successfully!');
         handleCloseModal();
       } else {
-        throw new Error('Failed to send reminder');
+        throw new Error(result.error || 'Failed to send SMS');
       }
     } catch (error) {
       console.error('Error sending reminder:', error);
-      showToast.error('Error sending reminder. Please try again.');
+      showToast.error(`SMS sending failed: ${error.message}`);
     }
   };
 
   const handleClaimOwnership = async (client) => {
+    // Add this validation before processing the claim
+    if (loan.status != 'overdue') {
+      return jsonify({'error': 'Loan is not overdue and cannot be claimed'}), 400
+    }
     try {
       console.log('Claiming ownership for:', client.client_name);
 
       const response = await adminAPI.claimOwnership({
-        client_id: client.client_id || client.id, // Use client_id if available, fallback to id
-        loan_id: client.loan_id || client.id // Use loan_id if available, fallback to id
+        client_id: client.client_id || client.id,
+        loan_id: client.loan_id || client.id
       });
 
       if (response.data.success) {
-        alert(response.data.message);
+        // Use the toast message from the backend
+        showToast.success(response.data.toast.message);
         handleCloseModal();
         // Refresh dashboard data to reflect changes
         fetchDashboardData();
@@ -713,7 +724,7 @@ function AdminPanel() {
       }
     } catch (error) {
       console.error('Error claiming ownership:', error);
-      showToast.error('Error claiming ownership. Please try again.');
+      showToast.error(error.response?.data?.error || 'Error claiming ownership. Please try again.');
     }
   };
 
