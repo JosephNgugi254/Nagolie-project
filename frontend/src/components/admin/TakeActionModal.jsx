@@ -5,8 +5,11 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
   const [isLoading, setIsLoading] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
 
+  // Determine if client is overdue (for showing claim option)
+  const isOverdue = client?.days_overdue > 0 || client?.daysLeft < 0;
+
   // Default reminder message
-  const defaultReminderMessage = `Hello ${client?.client_name}, this is a reminder from Nagolie Enterprises that your loan of KES ${client?.balance?.toLocaleString()} is due. Please make your payment to avoid additional charges. Thank you.`;
+  const defaultReminderMessage = `Hello ${client?.client_name || client?.name}, this is a reminder from Nagolie Enterprises that your loan of KES ${client?.balance?.toLocaleString()} is due. Please make your payment to avoid additional charges. Thank you.`;
 
   const handleSendReminder = async () => {
     if (!selectedAction) {
@@ -34,7 +37,7 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
       <div className="modal-dialog modal-dialog-centered">
         <div className="modal-content">
           <div className="modal-header bg-primary text-white">
-            <h5 className="modal-title">Take Action - {client?.client_name}</h5>
+            <h5 className="modal-title">Take Action - {client?.client_name || client?.name}</h5>
             <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
           </div>
           
@@ -44,7 +47,7 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
               <h6 className="alert-heading">Loan Summary</h6>
               <div className="row small">
                 <div className="col-6">
-                  <strong>Client:</strong> {client?.client_name}
+                  <strong>Client:</strong> {client?.client_name || client?.name}
                 </div>
                 <div className="col-6">
                   <strong>Phone:</strong> {client?.phone}
@@ -54,8 +57,8 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
                 </div>
                 <div className="col-6">
                   <strong>Status:</strong> 
-                  <span className={`badge ${client?.days_overdue ? 'bg-danger' : 'bg-warning'} ms-1`}>
-                    {client?.days_overdue ? `${client.days_overdue} days overdue` : 'Due today'}
+                  <span className={`badge ${isOverdue ? 'bg-danger' : 'bg-warning'} ms-1`}>
+                    {isOverdue ? `${client.days_overdue || Math.abs(client.daysLeft)} days overdue` : 'Due today'}
                   </span>
                 </div>
               </div>
@@ -84,24 +87,27 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
                 </label>
               </div>
 
-              <div className="form-check">
-                <input
-                  className="form-check-input"
-                  type="radio"
-                  name="actionType"
-                  id="claimOwnership"
-                  value="claim"
-                  checked={selectedAction === 'claim'}
-                  onChange={(e) => setSelectedAction(e.target.value)}
-                />
-                <label className="form-check-label" htmlFor="claimOwnership">
-                  <i className="fas fa-gavel text-warning me-2"></i>
-                  <strong>Claim Livestock Ownership</strong>
-                  <small className="d-block text-muted">
-                    Initiate process to take ownership of the collateral livestock
-                  </small>
-                </label>
-              </div>
+              {/* Only show claim option for overdue clients */}
+              {isOverdue && (
+                <div className="form-check">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="actionType"
+                    id="claimOwnership"
+                    value="claim"
+                    checked={selectedAction === 'claim'}
+                    onChange={(e) => setSelectedAction(e.target.value)}
+                  />
+                  <label className="form-check-label" htmlFor="claimOwnership">
+                    <i className="fas fa-gavel text-warning me-2"></i>
+                    <strong>Claim Livestock Ownership</strong>
+                    <small className="d-block text-muted">
+                      Initiate process to take ownership of the collateral livestock
+                    </small>
+                  </label>
+                </div>
+              )}
             </div>
 
             {/* Custom Message for Reminder */}
@@ -126,7 +132,13 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
               <div className="alert alert-warning">
                 <i className="fas fa-exclamation-triangle me-2"></i>
                 <strong>Warning:</strong> This action will initiate the process to take ownership 
-                of the client's livestock. This process cannot be undone and may involve legal procedures.
+                of the client's livestock. This will:
+                <ul className="mt-2 mb-0">
+                  <li>Mark the livestock as "Available Now" in the gallery</li>
+                  <li>Remove the client from the client list</li>
+                  <li>Close the loan permanently</li>
+                </ul>
+                This process cannot be undone.
               </div>
             )}
           </div>

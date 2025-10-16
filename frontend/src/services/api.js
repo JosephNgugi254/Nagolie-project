@@ -87,7 +87,7 @@ export const adminAPI = {
   approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
   sendReminder: (data) => api.post("/admin/send-reminder", data),
-  claimOwnership: (data) => api.post("/admin/claim-ownership", data), 
+  claimOwnership: (data) => api.post("/admin/claim-ownership", data),
 }
 
 export const clientAPI = {
