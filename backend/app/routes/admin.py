@@ -578,7 +578,7 @@ def get_public_livestock_gallery():
             # Determine if it's admin-added or client livestock
             if item.client_id is None:
                 # Admin-added livestock
-                description = item.location or 'Available for purchase'
+                description = f"livestock for purchase"
                 available_info = 'Available now'
                 livestock_type = item.livestock_type or 'Unknown'
                 days_remaining = 0
@@ -737,10 +737,12 @@ def claim_ownership():
         
         print(f"Found livestock: {livestock.livestock_type}, Client ID: {livestock.client_id}")
         
+        client_name = loan.client.full_name if loan.client else 'Unknown'
+        
         # FIX: Keep status as 'active' so it appears in gallery
         livestock.status = 'active'  # Changed from 'available'
         livestock.client_id = None  # Remove client association
-        livestock.location = f"Available for purchase"
+        livestock.location = f"Available (claimed from {client_name})"
         
         # Close the loan and mark as claimed
         loan.status = 'claimed'
