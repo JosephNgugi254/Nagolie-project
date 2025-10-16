@@ -699,26 +699,31 @@ function AdminPanel() {
   };
 
   const handleClaimOwnership = async (client) => {
-    // Add this validation before processing the claim
-    if (loan.status != 'overdue') {
-      return jsonify({'error': 'Loan is not overdue and cannot be claimed'}), 400
-    }
     try {
-      console.log('Claiming ownership for:', client.client_name);
-
+      console.log('Claiming ownership for:', client.client_name || client.name);
+    
+      // Frontend validation - check if client is overdue
+      if (client.daysLeft >= 0 && !client.days_overdue) {
+        showToast.error('Loan is not overdue and cannot be claimed');
+        return;
+      }
+    
       const response = await adminAPI.claimOwnership({
         client_id: client.client_id || client.id,
         loan_id: client.loan_id || client.id
       });
-
+    
       if (response.data.success) {
-        // Use the toast message from the backend
-        showToast.success(response.data.toast.message);
+        showToast.success(response.data.message || 'Livestock ownership claimed successfully!');
         handleCloseModal();
-        // Refresh dashboard data to reflect changes
-        fetchDashboardData();
-        // Also refresh clients list if you have one
-        fetchClients();
+        
+        // Refresh all relevant data to reflect changes
+        await Promise.all([
+          fetchDashboardData(),
+          fetchClients(),
+          fetchLivestock(), // This will update the gallery with the claimed livestock
+          fetchTransactions()
+        ]);
       } else {
         throw new Error(response.data.error || 'Failed to claim ownership');
       }

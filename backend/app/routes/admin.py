@@ -5,6 +5,7 @@ from decimal import Decimal
 from app import db
 from app.models import Client, Loan, Livestock, Transaction, User
 from app.utils.security import admin_required, log_audit
+from app.services.sms_service import sms_service
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -326,7 +327,6 @@ def get_all_clients():
         print(f"Clients error: {str(e)}")
         return jsonify({'error': str(e)}), 500
     
-# In admin.py - update the get_all_livestock function
 @admin_bp.route('/livestock', methods=['GET', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -338,18 +338,19 @@ def get_all_livestock():
     try:
         from datetime import datetime
         
-        # Only show active livestock (both admin-added and client livestock with active loans)
+        # Show all active livestock (both admin-added and client livestock with active loans)
         livestock = Livestock.query.filter_by(status='active').all()
         livestock_data = []
         
         for item in livestock:
             # Determine if it's admin-added or client livestock
             if item.client_id is None:
-                # Admin-added livestock
+                # Admin-added livestock (including claimed livestock)
                 description = item.location or 'Available for purchase'
                 available_info = 'Available now'
                 livestock_type = item.livestock_type or 'Unknown'
                 days_remaining = 0  # Available immediately
+                is_admin_added = True
             else:
                 # Client livestock - only show if loan is active
                 client_loan = Loan.query.filter_by(
@@ -361,6 +362,7 @@ def get_all_livestock():
                     client_name = item.client.full_name if item.client else 'Unknown'
                     description = f"Collateral for {client_name}'s loan"
                     livestock_type = item.livestock_type or 'Unknown'
+                    is_admin_added = False
                     
                     # Calculate days remaining until repayment
                     if client_loan.due_date:
@@ -387,7 +389,6 @@ def get_all_livestock():
                 else:
                     continue  # Skip client livestock without active loans
             
-            # Use the correct field names from your Livestock model
             livestock_data.append({
                 'id': item.id,
                 'title': f"{livestock_type.capitalize()} - {item.count} head",
@@ -397,16 +398,16 @@ def get_all_livestock():
                 'description': description,
                 'images': item.photos if item.photos else [],
                 'availableInfo': available_info,
-                'daysRemaining': days_remaining,  # Add this field for frontend
+                'daysRemaining': days_remaining,
                 'status': item.status,
-                'isAdminAdded': item.client_id is None
+                'isAdminAdded': is_admin_added  # This is computed, not from database
             })
         
         return jsonify(livestock_data), 200
     except Exception as e:
         print(f"Livestock error: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
+
 @admin_bp.route('/transactions', methods=['GET', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -590,7 +591,7 @@ def get_public_livestock_gallery():
                 
                 if client_loan:
                     client_name = item.client.full_name if item.client else 'Unknown'
-                    description = f"Collateral livestock"
+                    description = f"livestock for purchase"
                     livestock_type = item.livestock_type or 'Unknown'
                     
                     # Calculate days remaining until repayment
@@ -640,7 +641,7 @@ def get_public_livestock_gallery():
 @jwt_required()
 @admin_required
 def send_reminder():
-    """Send SMS reminder to client - PLACEHOLDER FOR SMS INTEGRATION"""
+    """Send SMS reminder to client using Africa's Talking API"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
         
@@ -650,86 +651,133 @@ def send_reminder():
         phone = data.get('phone')
         message = data.get('message')
         
-        print(f"TODO: Integrate SMS API for phone: {phone}")
-        print(f"Message: {message}")
+        print(f"Received SMS request - Client ID: {client_id}, Phone: {phone}")
         
-        # TODO: Integrate with your SMS provider (Africa's Talking, etc.)
-        # For now, just log and return success
+        if not phone or not message:
+            return jsonify({
+                'success': False,
+                'error': 'Phone number and message are required'
+            }), 400
         
-        log_audit('reminder_sent', 'client', client_id, {
-            'phone': phone,
-            'message_length': len(message)
-        })
+        # Check if SMS service is available
+        if sms_service is None:
+            return jsonify({
+                'success': False,
+                'error': 'SMS service is not configured'
+            }), 500
         
-        return jsonify({
-            'success': True,
-            'message': 'Reminder sent successfully (SMS integration pending)'
-        }), 200
+        # Send SMS using Africa's Talking
+        result = sms_service.send_sms(phone, message)
+        
+        if result['success']:
+            log_audit('reminder_sent', 'client', client_id, {
+                'phone': phone,
+                'message': message,
+                'formatted_phone': result.get('recipient'),
+                'sms_response': result.get('response', {})
+            })
+            
+            return jsonify({
+                'success': True,
+                'message': 'SMS reminder sent successfully',
+                'data': result
+            }), 200
+        else:
+            # Log the failure
+            log_audit('reminder_failed', 'client', client_id, {
+                'phone': phone,
+                'message': message,
+                'error': result.get('error', 'Unknown error')
+            })
+            
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Failed to send SMS'),
+                'message': 'Failed to send SMS reminder'
+            }), 500
+            
     except Exception as e:
-        print(f"Error sending reminder: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        print(f"Error in send_reminder route: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @admin_bp.route('/claim-ownership', methods=['POST', 'OPTIONS'])
 @jwt_required()
 @admin_required
 def claim_ownership():
-    """Claim livestock ownership for overdue loans - ADMIN ONLY"""
+    """Claim ownership of livestock for overdue loans - ADMIN ONLY"""
     if request.method == 'OPTIONS':
-        response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response, 200
+        return jsonify({'status': 'OK'}), 200
         
     try:
-        data = request.json
+        data = request.get_json()
         client_id = data.get('client_id')
         loan_id = data.get('loan_id')
         
-        print(f"Claiming ownership for client {client_id}, loan {loan_id}")
+        print(f"Claiming ownership - Client ID: {client_id}, Loan ID: {loan_id}")
         
-        # Get the loan
-        loan = db.session.get(Loan, loan_id)
+        # Get the loan and client
+        loan = Loan.query.filter_by(id=loan_id, client_id=client_id, status='active').first()
         if not loan:
             return jsonify({'error': 'Loan not found'}), 404
         
-        # Verify the loan belongs to the client
-        if loan.client_id != client_id:
-            return jsonify({'error': 'Loan does not belong to the specified client'}), 400
+        # Check if loan is overdue - FIXED: Proper date comparison
+        if loan.due_date:
+            # Ensure both are date objects for comparison
+            due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
+            if due_date >= datetime.now().date():
+                return jsonify({'error': 'Loan is not overdue and cannot be claimed'}), 400
         
         # Get the livestock associated with the loan
-        livestock = db.session.get(Livestock, loan.livestock_id)
+        livestock = Livestock.query.filter_by(id=loan.livestock_id).first()
         if not livestock:
             return jsonify({'error': 'Livestock not found'}), 404
         
-        # Update the loan status to 'claimed' (defaulted)
-        loan.status = 'claimed'
-        loan.balance = Decimal('0')
-        loan.amount_paid = Decimal('0')
+        print(f"Found livestock: {livestock.livestock_type}, Client ID: {livestock.client_id}")
         
-        # Update the livestock: set client_id to None and status to 'available'
-        livestock.client_id = None
-        livestock.status = 'available'
+        # FIX: Keep status as 'active' so it appears in gallery
+        livestock.status = 'active'  # Changed from 'available'
+        livestock.client_id = None  # Remove client association
+        livestock.location = f"Available for purchase"
+        
+        # Close the loan and mark as claimed
+        loan.status = 'claimed'
+        loan.balance = 0
+        loan.amount_paid = loan.total_amount  # Mark as fully "paid" through claim
+        
+        # Create a transaction record for the claim
+        transaction = Transaction(
+            loan_id=loan.id,
+            transaction_type='claim',
+            amount=0,  # No monetary transaction
+            payment_method='claim',
+            notes=f'Livestock claimed due to overdue loan. Original livestock: {livestock.livestock_type} (ID: {livestock.id})'
+        )
+        db.session.add(transaction)
         
         db.session.commit()
         
-        log_audit('ownership_claimed', 'client', client_id, {
-            'loan_id': loan_id,
+        log_audit('livestock_claimed', 'loan', loan.id, {
+            'client_id': client_id,
             'livestock_id': livestock.id,
-            'livestock_type': livestock.livestock_type,
-            'action': 'livestock_claimed'
+            'livestock_type': livestock.livestock_type
         })
         
-        jsonify({
+        return jsonify({
             'success': True,
-            'toast': {
-                'type': 'success',
-                'message': f'Ownership claimed successfully. {livestock.livestock_type} is now available for sale.'
-            },
-            'livestock_id': livestock.id
-        }), 200
+            'message': f'Successfully claimed ownership of {livestock.livestock_type}. The livestock is now available in the gallery.',
+            'livestock': {
+                'id': livestock.id,
+                'type': livestock.livestock_type,
+                'status': 'active'  # Updated to reflect the change
+            }
+        })
+        
     except Exception as e:
         db.session.rollback()
         print(f"Error claiming ownership: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to claim ownership: {str(e)}'}), 500
