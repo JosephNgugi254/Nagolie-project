@@ -201,14 +201,14 @@ useEffect(() => {
   const fetchLivestock = async () => {
     try {
       console.log('Fetching livestock gallery...');
-      const response = await fetch('http://localhost:5000/api/admin/livestock/gallery');
+      // Use adminAPI instead of direct fetch
+      const response = await adminAPI.getLivestockGallery();
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Livestock data received:', data);
-        setLivestock(data);
+      if (response.data) {
+        console.log('Livestock data received:', response.data);
+        setLivestock(response.data);
       } else {
-        console.error('Failed to fetch livestock:', response.status);
+        console.error('Failed to fetch livestock: No data received');
         setLivestock([]);
       }
     } catch (error) {

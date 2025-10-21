@@ -87,11 +87,16 @@ export const adminAPI = {
   getApplications: () => api.get("/admin/applications"),
   getClients: () => api.get("/admin/clients"),
   getLivestock: () => api.get("/admin/livestock"),
+  getLivestockGallery: () => api.get("/admin/livestock/gallery"), // ADDED
   getTransactions: () => api.get("/admin/transactions"),
   approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
-  sendReminder: (data) => api.post("/admin/send-reminder", data),
+  sendReminder: (data) => api.post("/admin/send-reminder", data), // ADDED
   claimOwnership: (data) => api.post("/admin/claim-ownership", data),
+  test: () => api.get("/admin/test"), // ADDED
+  addLivestock: (data) => api.post("/admin/livestock", data), // ADDED
+  updateLivestock: (id, data) => api.put(`/admin/livestock/${id}`, data), // ADDED
+  deleteLivestock: (id) => api.delete(`/admin/livestock/${id}`), // ADDED
 }
 
 export const clientAPI = {

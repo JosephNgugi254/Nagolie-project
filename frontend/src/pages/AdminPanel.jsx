@@ -345,32 +345,16 @@ function AdminPanel() {
       console.log("Testing API connection...")
       const token = localStorage.getItem("token")
       console.log("Stored token:", token)
-      
-      // Test the test endpoint first
-      const response = await fetch('http://localhost:5000/api/admin/test', {
-        method: 'GET',
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      })
-      console.log("Test endpoint response status:", response.status)
-      if (response.ok) {
-        const data = await response.json()
-        console.log("Test endpoint response data:", data)
-        return true
-      } else {
-        console.log("Test endpoint failed with status:", response.status)
-        const errorText = await response.text()
-        console.log("Test endpoint error:", errorText)
-        return false
-      }
+
+      // Use adminAPI instead of direct fetch
+      const response = await adminAPI.test()
+      console.log("Test endpoint response data:", response.data)
+      return true
     } catch (error) {
       console.error("API connection test failed:", error)
       return false
     }
-  }
+  } 
 
   useEffect(() => {
     const initializeData = async () => {
@@ -671,26 +655,18 @@ function AdminPanel() {
         phoneWithPlus = '+' + phoneWithPlus;
       }
 
-      const response = await fetch('http://localhost:5000/api/admin/send-reminder', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          client_id: client.id,
-          phone: phoneWithPlus,
-          message: message
-        })
+      // Use adminAPI instead of direct fetch
+      const response = await adminAPI.sendReminder({
+        client_id: client.id,
+        phone: phoneWithPlus,
+        message: message
       });
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
+      if (response.data.success) {
         showToast.success('SMS reminder sent successfully!');
         handleCloseModal();
       } else {
-        throw new Error(result.error || 'Failed to send SMS');
+        throw new Error(response.data.error || 'Failed to send SMS');
       }
     } catch (error) {
       console.error('Error sending reminder:', error);
@@ -737,36 +713,24 @@ function AdminPanel() {
     try {
       console.log('Adding livestock:', livestockData);
 
-      const response = await fetch('http://localhost:5000/api/admin/livestock', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          type: livestockData.type,
-          count: parseInt(livestockData.count),
-          price: parseFloat(livestockData.price),
-          description: livestockData.description,
-          images: livestockData.images || []
-        })
+      // Use adminAPI instead of direct fetch
+      const response = await adminAPI.addLivestock({
+        type: livestockData.type,
+        count: parseInt(livestockData.count),
+        price: parseFloat(livestockData.price),
+        description: livestockData.description,
+        images: livestockData.images || []
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP error! status: ${response.status}`);
-      }
-
-      console.log('Livestock added successfully:', data);
+      console.log('Livestock added successfully:', response.data);
       showToast.success('Livestock added successfully!');
       setShowAddLivestockModal(false);
       fetchLivestock(); // Refresh the list
-      return data;
+      return response.data;
 
     } catch (error) {
       console.error('Error adding livestock:', error);
-      showToast.error(`Failed to add livestock: ${error.message}`);
+      showToast.error(`Failed to add livestock: ${error.response?.data?.error || error.message}`);
       throw error;
     }
   };
@@ -794,31 +758,45 @@ function AdminPanel() {
 
       console.log('Updating livestock with data:', updatedData)
 
-      const response = await fetch(`http://localhost:5000/api/admin/livestock/${editingLivestock.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(updatedData)
-      })
+      // Use adminAPI instead of direct fetch
+      const response = await adminAPI.updateLivestock(editingLivestock.id, updatedData)
 
-      if (response.ok) {
-        const data = await response.json()
+      if (response.data.success) {
         showToast.success('Livestock updated successfully!')
         setShowEditLivestockModal(false)
         setEditingLivestock(null)
         setSelectedImages([])
         fetchLivestock()
       } else {
-        const error = await response.json()
-        showToast.error(`Failed to update livestock: ${error.error}`)
+        showToast.error(`Failed to update livestock: ${response.data.error}`)
       }
     } catch (error) {
       console.error('Error updating livestock:', error)
-      showToast.error('Failed to update livestock')
+      showToast.error(`Failed to update livestock: ${error.response?.data?.error || error.message}`)
     }
   }
+
+  const handleDeleteLivestock = async () => {
+    if (!livestockToDelete) return
+    
+    try {
+      // Use adminAPI instead of direct fetch
+      const response = await adminAPI.deleteLivestock(livestockToDelete)
+      
+      if (response.data.success) {
+        showToast.success('Livestock deleted successfully!');
+        fetchLivestock();
+      } else {
+        showToast.error(`Failed to delete livestock: ${response.data.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting livestock:', error);
+      showToast.error(`Failed to delete livestock: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setShowDeleteConfirmation(false)
+      setLivestockToDelete(null)
+    }
+  };  
 
   const handleImageUpload = (event) => {
     const files = Array.from(event.target.files)
@@ -845,32 +823,7 @@ function AdminPanel() {
     setLivestockToDelete(livestockId)
     setShowDeleteConfirmation(true)
   }
-
-  const handleDeleteLivestock = async () => {
-    if (!livestockToDelete) return
-
-    try {
-      const response = await fetch(`http://localhost:5000/api/admin/livestock/${livestockToDelete}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-    
-      if (response.ok) {
-        showToast.success('Livestock deleted successfully!');
-        fetchLivestock();
-      } else {
-        const error = await response.json();
-        showToast.error(`Failed to delete livestock: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Error deleting livestock:', error);
-      showToast.error('Failed to delete livestock');
-    } finally {
-      setLivestockToDelete(null)
-    }
-  };  
+   
 
   const pendingApplicationsCount = applications.filter(app => app.status === "pending").length
 
