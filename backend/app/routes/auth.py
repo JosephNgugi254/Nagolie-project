@@ -126,3 +126,13 @@ def setup_admin():
             'success': False,
             'error': f'Failed to create admin: {str(e)}'
         }), 500
+    
+
+@auth_bp.route("/run-migrations", methods=["GET"])
+def run_migrations():
+    from flask_migrate import upgrade
+    try:
+        upgrade()
+        return jsonify({"message": "Migrations applied successfully!"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
