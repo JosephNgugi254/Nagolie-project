@@ -101,13 +101,13 @@ def setup_admin():
                 'error': 'Username and password required'
             }), 400
         
-        # Create admin user
+        # Create admin user using the proper User model method
         admin_user = User(
             username=data['username'],
-            email=data.get('email', ''),
+            email=data.get('email', 'nagolie7@gmail.com'),  # Use the email from request or default
             role='admin'
         )
-        admin_user.set_password(data['password'])
+        admin_user.set_password(data['password'])  # This uses the correct method from your User model
         
         db.session.add(admin_user)
         db.session.commit()
@@ -128,3 +128,31 @@ def setup_admin():
             'success': False,
             'error': f'Failed to create admin: {str(e)}'
         }), 500
+    
+
+@auth_bp.route('/create-admin-direct', methods=['POST'])
+def create_admin_direct():
+    """Direct admin creation - no schema validation"""
+    try:
+        # Check if admin already exists
+        if User.query.filter_by(role='admin').first():
+            return jsonify({'error': 'Admin already exists'}), 400
+            
+        admin_user = User(
+            username='admin',
+            email='nagolie7@gmail.com',
+            role='admin'
+        )
+        admin_user.set_password('n@g0l13')
+        
+        db.session.add(admin_user)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Admin user created! Use username: nagolieadmin, password: n@g0l13'
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500    
