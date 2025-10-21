@@ -24,8 +24,18 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     jwt.init_app(app)
     
-    # Configure CORS properly
-    CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True)
+    # Configure CORS 
+    import os  
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+    CORS(app,
+     origins=[
+         frontend_url,
+         "http://localhost:5173",
+         "https://nagolie-frontend.onrender.com"
+     ],
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization", "Accept"],
+     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     
     limiter.init_app(app)
 
@@ -35,7 +45,7 @@ def create_app(config_class=Config):
     from app.routes.clients import clients_bp
     from app.routes.payments import payments_bp
     from app.routes.admin import admin_bp
-    from app.routes.test_daraja import test_bp  # Add test routes
+    from app.routes.test_daraja import test_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(loans_bp, url_prefix='/api/loans')
