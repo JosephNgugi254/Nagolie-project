@@ -1,7 +1,10 @@
 import axios from "axios"
 
-const API_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
-
+// Use environment variable for API URL, with proper fallbacks for production
+const API_URL = import.meta.env.VITE_API_BASE_URL || 
+                (window.location.hostname === 'localhost' 
+                  ? "http://localhost:5000/api" 
+                  : "https://nagolie-backend.onrender.com/api");
 
 // Create axios instance with default config
 const api = axios.create({
@@ -16,7 +19,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("token")
-    console.log(`Making ${config.method?.toUpperCase()} request to: ${config.url}`)
+    console.log(`Making ${config.method?.toUpperCase()} request to: ${config.baseURL}${config.url}`)
     console.log('Auth token:', token ? 'Present' : 'Missing')
     
     if (token) {

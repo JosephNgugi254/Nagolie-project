@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:5000',
+        target: process.env.VITE_API_URL || 'https://nagolie-backend.onrender.com',
         changeOrigin: true,
         secure: false,
       }
@@ -16,5 +16,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false
+  },
+  // Add this to define global environment variables
+  define: {
+    'process.env': process.env
   }
 })

@@ -213,7 +213,7 @@ def init_database():
 def check_tables():
     """Check if all database tables are created"""
     try:
-        from sqlalchemy import inspect
+        from sqlalchemy import inspect, text
         
         inspector = inspect(db.engine)
         tables = inspector.get_table_names()
@@ -221,11 +221,11 @@ def check_tables():
         required_tables = ['users', 'clients', 'loans', 'livestock', 'transactions', 'payments', 'audit_logs']
         missing_tables = [table for table in required_tables if table not in tables]
         
-        # Count records in each table
+        # Count records in each table - FIXED: Use text() for SQL expressions
         table_counts = {}
         for table in tables:
             if table in required_tables:
-                count = db.session.execute(f"SELECT COUNT(*) FROM {table}").scalar()
+                count = db.session.execute(text(f'SELECT COUNT(*) FROM {table}')).scalar()
                 table_counts[table] = count
         
         return jsonify({
