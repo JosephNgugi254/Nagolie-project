@@ -30,3 +30,7 @@ class Config:
     
     # Callback Security
     CALLBACK_SECRET_TOKEN = os.getenv('CALLBACK_SECRET_TOKEN', 'change-this-secret-token')
+
+    # Africa's Talking sms configs
+    AFRICAS_TALKING_USERNAME = os.getenv('AFRICAS_TALKING_USERNAME', 'sandbox')
+    AFRICAS_TALKING_API_KEY = os.getenv('AFRICAS_TALKING_API_KEY', 'your_api_key_here')

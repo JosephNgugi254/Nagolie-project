@@ -104,10 +104,10 @@ def setup_admin():
         # Create admin user using the proper User model method
         admin_user = User(
             username=data['username'],
-            email=data.get('email', 'nagolie7@gmail.com'),  # Use the email from request or default
+            email=data.get('email', 'nagolie7@gmail.com'),
             role='admin'
         )
-        admin_user.set_password(data['password'])  # This uses the correct method from your User model
+        admin_user.set_password(data['password'])  # FIXED: Use the model method
         
         db.session.add(admin_user)
         db.session.commit()
@@ -115,11 +115,7 @@ def setup_admin():
         return jsonify({
             'success': True,
             'message': 'Admin user created successfully!',
-            'user': {
-                'username': admin_user.username,
-                'email': admin_user.email,
-                'role': admin_user.role
-            }
+            'user': admin_user.to_dict()  # FIXED: Use the model's to_dict method
         }), 201
         
     except Exception as e:
@@ -130,14 +126,15 @@ def setup_admin():
         }), 500
     
 
-@auth_bp.route('/create-admin-direct', methods=['POST'])
-def create_admin_direct():
-    """Direct admin creation - no schema validation"""
+@auth_bp.route('/create-admin-now', methods=['POST'])
+def create_admin_now():
+    """Direct admin creation - no validation"""
     try:
-        # Check if admin already exists
-        if User.query.filter_by(role='admin').first():
-            return jsonify({'error': 'Admin already exists'}), 400
-            
+        # Delete any existing admin with same username to avoid conflicts
+        User.query.filter_by(username='admin').delete()
+        db.session.commit()
+        
+        # Create new admin user
         admin_user = User(
             username='admin',
             email='nagolie7@gmail.com',
@@ -150,13 +147,97 @@ def create_admin_direct():
         
         return jsonify({
             'success': True,
-            'message': 'Admin user created! Use username: nagolieadmin, password: n@g0l13'
+            'message': 'Admin user created successfully!',
+            'login_credentials': {
+                'username': 'admin',
+                'password': 'n@g0l13'
+            }
         }), 201
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500    
+        return jsonify({
+            'success': False,
+            'error': f'Failed to create admin: {str(e)}'
+        }), 500
     
 @auth_bp.route('/test', methods=['GET'])
 def test_route():
     return jsonify({"message": "Auth routes are working!"}), 200
+
+
+@auth_bp.route('/init-db', methods=['POST'])
+def init_database():
+    """Initialize database with all tables and create admin user"""
+    try:
+        # Create all tables
+        db.create_all()
+        
+        # Check if admin already exists
+        existing_admin = User.query.filter_by(role='admin').first()
+        if existing_admin:
+            return jsonify({
+                'success': False,
+                'error': 'Admin user already exists'
+            }), 400
+        
+        # Create admin user
+        admin_user = User(
+            username='admin',
+            email='nagolie7@gmail.com',
+            role='admin'
+        )
+        admin_user.set_password('n@g0l13')
+        
+        db.session.add(admin_user)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Database initialized and admin user created successfully!',
+            'credentials': {
+                'username': 'admin',
+                'password': 'n@g0l13'
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to initialize database: {str(e)}'
+        }), 500
+    
+
+@auth_bp.route('/check-tables', methods=['GET'])
+def check_tables():
+    """Check if all database tables are created"""
+    try:
+        from sqlalchemy import inspect
+        
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        
+        required_tables = ['users', 'clients', 'loans', 'livestock', 'transactions', 'payments', 'audit_logs']
+        missing_tables = [table for table in required_tables if table not in tables]
+        
+        # Count records in each table
+        table_counts = {}
+        for table in tables:
+            if table in required_tables:
+                count = db.session.execute(f"SELECT COUNT(*) FROM {table}").scalar()
+                table_counts[table] = count
+        
+        return jsonify({
+            'success': True,
+            'tables_exist': tables,
+            'missing_tables': missing_tables,
+            'table_counts': table_counts,
+            'all_tables_exist': len(missing_tables) == 0
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to check tables: {str(e)}'
+        }), 500

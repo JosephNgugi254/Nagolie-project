@@ -2,47 +2,44 @@ from app import create_app, db
 from app.models import Client, Loan, Livestock, Transaction
 from datetime import datetime, timedelta
 from decimal import Decimal
-import random
 
 app = create_app()
 
 with app.app_context():
     try:
-        print("Adding test clients...")
+        print("Adding test clients with Africa's Talking compatible phone numbers...")
         
-        # Generate unique ID numbers using timestamp
-        timestamp = int(datetime.now().timestamp())
-        id1 = f"99{timestamp % 1000000:06d}"[:8]  # 8-digit ID
-        id2 = f"88{timestamp % 1000000:06d}"[:8]  # Different prefix
+        # Use Africa's Talking test numbers format
+        phone1 = "254768805337"  # Test number format
+        phone2 = "254711082002"  # Test number format
         
-        # Generate unique phone numbers
-        phone1 = f"2547{random.randint(10000000, 99999999)}"
-        phone2 = f"2547{random.randint(10000000, 99999999)}"
+        print(f"Using phones: {phone1}, {phone2}")
         
-        print(f"Generated IDs: {id1}, {id2}")
-        print(f"Generated phones: {phone1}, {phone2}")
-        
-        # Check if clients already exist
-        existing_client1 = Client.query.filter_by(id_number=id1).first()
-        existing_client2 = Client.query.filter_by(id_number=id2).first()
+        # Check if clients already exist by phone
+        # Check if clients already exist by phone or id_number
+        existing_client1 = Client.query.filter(
+            (Client.phone_number == phone1) | (Client.id_number == "38489214")
+        ).first()
+        existing_client2 = Client.query.filter(
+            (Client.phone_number == phone2) | (Client.id_number == "38489215")
+        ).first()
         
         if existing_client1:
-            print(f"Client with ID {id1} already exists, updating...")
+            print(f"Client with phone {phone1} or id_number 38489214 already exists, updating...")
             client1 = existing_client1
         else:
             # Test Client 1: Due Today
             client1 = Client(
-                full_name="John Due Today",
+                full_name="Joseph Ngugi",
                 phone_number=phone1,
-                id_number=id1,
-                email="john_due@test.com",
+                id_number="38489214",
+                email="joseph@test.com",
                 location="Isinya"
             )
             db.session.add(client1)
-            print("Created new client: John Due Today")
+            print("Created new client: Joseph Ngugi")
         
         db.session.flush()
-        
         # Create livestock for client 1
         livestock1 = Livestock(
             client_id=client1.id,
@@ -78,18 +75,15 @@ with app.app_context():
             )
             db.session.add(loan1)
             print("Created new loan due today")
-        
-        db.session.flush()
-        
         if existing_client2:
-            print(f"Client with ID {id2} already exists, updating...")
+            print(f"Client with phone {phone2} or id_number 38489215 already exists, updating...")
             client2 = existing_client2
         else:
             # Test Client 2: Overdue
             client2 = Client(
                 full_name="Mary Overdue",
                 phone_number=phone2,
-                id_number=id2,
+                id_number="38489215",
                 email="mary_overdue@test.com",
                 location="Isinya"
             )
