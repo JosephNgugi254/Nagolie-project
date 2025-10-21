@@ -156,3 +156,7 @@ def create_admin_direct():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500    
+    
+@auth_bp.route('/test', methods=['GET'])
+def test_route():
+    return jsonify({"message": "Auth routes are working!"}), 200
