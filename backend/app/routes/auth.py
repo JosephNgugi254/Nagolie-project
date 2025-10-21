@@ -95,21 +95,19 @@ def setup_admin():
         
         data = request.get_json()
         
-        if not data or not data.get('email') or not data.get('password'):
+        if not data or not data.get('username') or not data.get('password'):
             return jsonify({
                 'success': False,
-                'error': 'Email and password required'
+                'error': 'Username and password required'
             }), 400
         
         # Create admin user
         admin_user = User(
-            email=data['email'],
-            password_hash=generate_password_hash(data['password']),
-            first_name=data.get('first_name', 'Admin'),
-            last_name=data.get('last_name', 'User'),
-            role='admin',
-            is_active=True
+            username=data['username'],
+            email=data.get('email', ''),
+            role='admin'
         )
+        admin_user.set_password(data['password'])
         
         db.session.add(admin_user)
         db.session.commit()
@@ -117,7 +115,11 @@ def setup_admin():
         return jsonify({
             'success': True,
             'message': 'Admin user created successfully!',
-            'email': admin_user.email
+            'user': {
+                'username': admin_user.username,
+                'email': admin_user.email,
+                'role': admin_user.role
+            }
         }), 201
         
     except Exception as e:
@@ -126,13 +128,3 @@ def setup_admin():
             'success': False,
             'error': f'Failed to create admin: {str(e)}'
         }), 500
-    
-
-@auth_bp.route("/run-migrations", methods=["GET"])
-def run_migrations():
-    from flask_migrate import upgrade
-    try:
-        upgrade()
-        return jsonify({"message": "Migrations applied successfully!"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
