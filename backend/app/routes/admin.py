@@ -5,7 +5,7 @@ from decimal import Decimal
 from app import db
 from app.models import Client, Loan, Livestock, Transaction, User
 from app.utils.security import admin_required, log_audit
-from app.services.sms_service import sms_service
+# from app.services.sms_service import sms_service
 
 admin_bp = Blueprint('admin', __name__)
 
