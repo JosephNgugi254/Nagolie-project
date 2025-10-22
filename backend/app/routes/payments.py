@@ -49,13 +49,14 @@ def process_cash_payment():
             if loan.livestock:
                 db.session.delete(loan.livestock)  #  delete the livestock from gallery after its fully paid
         
-        # Create transaction record
+        # Create transaction record - FIXED: Set status to 'completed'
         transaction = Transaction(
             loan_id=loan.id,
             transaction_type='payment',
             amount=payment_amount,
             payment_method='cash',
-            notes=notes or f'Cash payment of KSh {float(payment_amount)}'
+            notes=notes or f'Cash payment of KSh {float(payment_amount)}',
+            status='completed'  # ADD THIS LINE - set status to completed
         )
         
         db.session.add(transaction)
@@ -265,6 +266,7 @@ def mpesa_callback():
                 payment_method='mpesa',
                 mpesa_receipt=mpesa_receipt_number,
                 notes=f'M-Pesa payment completed: {mpesa_receipt_number}',
+                status='completed',
                 created_at=datetime.utcnow()
             )
             

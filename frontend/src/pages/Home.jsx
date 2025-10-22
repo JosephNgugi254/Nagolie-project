@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import LoanApply from "../features/loans/LoanApply"
-import { loanAPI } from "../services/api" 
+import { adminAPI, loanAPI } from "../services/api" 
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
 
@@ -203,6 +203,7 @@ useEffect(() => {
       console.log('Fetching livestock gallery...');
       // Use adminAPI instead of direct fetch
       const response = await adminAPI.getLivestockGallery();
+      
       
       if (response.data) {
         console.log('Livestock data received:', response.data);

@@ -19,7 +19,6 @@ def handle_options_request():
         response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
         return response
 
-
 @admin_bp.route('/test', methods=['GET', 'OPTIONS'])
 @jwt_required()
 def test_endpoint():
@@ -138,13 +137,14 @@ def approve_application(loan_id):
         loan.disbursement_date = datetime.utcnow()
         loan.due_date = datetime.utcnow() + timedelta(days=7)
         
-        # Create disbursement transaction
+        # Create disbursement transaction - FIXED: Add client name and proper status
         transaction = Transaction(
             loan_id=loan.id,
             transaction_type='disbursement',
             amount=loan.principal_amount,
             payment_method='cash',
-            notes='Loan approved and disbursed'
+            notes='Loan approved and disbursed',
+            status='completed'  # Ensure status is set
         )
         
         db.session.add(transaction)
@@ -160,7 +160,8 @@ def approve_application(loan_id):
         return jsonify({
             'success': True,
             'message': 'Loan approved successfully',
-            'loan': loan.to_dict()
+            'loan': loan.to_dict(),
+            'transaction': transaction.to_dict()  # Return transaction data
         }), 200
     except Exception as e:
         db.session.rollback()
@@ -431,6 +432,9 @@ def get_all_transactions():
             elif txn.payment_method == 'cash':
                 receipt = 'Cash'
             
+            # FIXED: Ensure status is properly set
+            status = txn.status or 'completed'  # Default to 'completed' if null
+            
             transactions_data.append({
                 'id': txn.id,
                 'date': txn.created_at.isoformat() if txn.created_at else None,
@@ -438,10 +442,10 @@ def get_all_transactions():
                 'type': txn.transaction_type,
                 'amount': float(txn.amount),
                 'method': txn.payment_method or 'cash',
-                'status': txn.status or 'completed',
+                'status': status,  # Use the fixed status
                 'receipt': receipt,
                 'notes': txn.notes or '',
-                'mpesa_receipt': txn.mpesa_receipt  # Include this for receipts
+                'mpesa_receipt': txn.mpesa_receipt
             })
         
         return jsonify(transactions_data), 200

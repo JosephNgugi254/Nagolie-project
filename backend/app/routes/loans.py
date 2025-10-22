@@ -137,31 +137,35 @@ def apply_for_loan():
     client = Client.query.filter_by(id_number=data['id_number']).first()
     
     if not client:
-        # Create new client - FIXED: Make sure location is saved
+        # Create new client
         client = Client(
             full_name=data['full_name'],
             phone_number=data['phone_number'],
             id_number=data['id_number'],
             email=data.get('email', ''),
-            location=data.get('location', '')  # FIXED: Save location
+            location=data.get('location', '')
         )
         db.session.add(client)
         db.session.flush()
     else:
-        # Update existing client's location if provided
-        if data.get('location'):
-            client.location = data.get('location')
+        # FIXED: Update ALL client information, not just location
+        client.full_name = data['full_name']  # Update name if different
+        client.phone_number = data['phone_number']  # Update phone
+        client.email = data.get('email', client.email)  # Update email if provided
+        client.location = data.get('location', client.location)  # Update location
+        
+        print(f"Updated existing client: {client.full_name}, ID: {client.id_number}")
         db.session.add(client)
         db.session.flush()
     
-    # Create livestock record - FIXED: Save photos and location
+    # Create livestock record
     livestock = Livestock(
         client_id=client.id,
         livestock_type=data['livestock_type'],
         count=data.get('count', 1),
         estimated_value=Decimal(str(data.get('estimated_value', 0))),
-        location=data.get('location', ''),  # FIXED: Save location to livestock too
-        photos=data.get('photos', [])  # FIXED: Save photos
+        location=data.get('location', ''),
+        photos=data.get('photos', [])
     )
     db.session.add(livestock)
     db.session.flush()
@@ -175,7 +179,7 @@ def apply_for_loan():
     # Set due date to 7 days from now
     due_date = datetime.now() + timedelta(days=7)
     
-    # Create loan application - FIXED: Save notes properly
+    # Create loan application
     loan = Loan(
         client_id=client.id,
         livestock_id=livestock.id,
@@ -185,23 +189,25 @@ def apply_for_loan():
         balance=total_amount,
         due_date=due_date,
         status='pending',
-        notes=data.get('notes', '')  # FIXED: Save notes
+        notes=data.get('notes', '')
     )
     
     db.session.add(loan)
     db.session.commit()
     
-    print(f"Loan application created: ID {loan.id}")  # Debug log
-    print(f"Client location: {client.location}")  # Debug log
-    print(f"Livestock photos: {livestock.photos}")  # Debug log
-    print(f"Loan notes: {loan.notes}")  # Debug log
+    print(f"Loan application created: ID {loan.id}")
+    print(f"Client: {client.full_name}, ID: {client.id_number}")
+    print(f"Client location: {client.location}")
+    print(f"Livestock photos: {livestock.photos}")
+    print(f"Loan notes: {loan.notes}")
     
     return jsonify({
         'success': True,
         'message': 'Loan application submitted successfully',
         'application_id': loan.id,
         'total_amount': float(total_amount),
-        'interest_rate': float(interest_rate)
+        'interest_rate': float(interest_rate),
+        'client_name': client.full_name  # Return client name for confirmation
     }), 201
 
 @loans_bp.route('/<int:loan_id>/approve', methods=['POST'])
@@ -221,13 +227,14 @@ def approve_loan(loan_id):
     loan.status = 'active'
     loan.disbursement_date = datetime.utcnow()
     
-    # Create disbursement transaction
+    # Create disbursement transaction - FIXED: Set status to 'completed'
     transaction = Transaction(
         loan_id=loan.id,
         transaction_type='disbursement',
         amount=loan.principal_amount,
         payment_method='cash',
-        notes='Loan approved and disbursed'
+        notes='Loan approved and disbursed',
+        status='completed'  # ADD THIS LINE - set status to completed
     )
     
     db.session.add(transaction)
