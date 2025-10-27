@@ -137,7 +137,7 @@ class Transaction(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
-    status = db.Column(db.String(20), default='pending')  # 'pending', 'completed', 'failed'
+    status = db.Column(db.String(20), default='completed')  # 'pending', 'completed', 'failed'
     mpesa_reference = db.Column(db.String(50))
     merchant_request_id = db.Column(db.String(50))
     checkout_request_id = db.Column(db.String(50))

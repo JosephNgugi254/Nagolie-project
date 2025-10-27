@@ -126,7 +126,7 @@ def approve_application(loan_id):
         if loan.status != 'pending':
             return jsonify({'error': 'Loan application already processed'}), 400
         
-        # ENFORCE 30% INTEREST RATE - regardless of what was stored
+        # ENFORCE 30% INTEREST RATE
         loan.interest_rate = Decimal('30.0')
         interest_amount = loan.principal_amount * (loan.interest_rate / 100)
         loan.total_amount = loan.principal_amount + interest_amount
@@ -137,14 +137,15 @@ def approve_application(loan_id):
         loan.disbursement_date = datetime.utcnow()
         loan.due_date = datetime.utcnow() + timedelta(days=7)
         
-        # Create disbursement transaction - FIXED: Add client name and proper status
+        # Create disbursement transaction - FIXED: Explicitly set all fields
         transaction = Transaction(
             loan_id=loan.id,
             transaction_type='disbursement',
             amount=loan.principal_amount,
             payment_method='cash',
             notes='Loan approved and disbursed',
-            status='completed'  # Ensure status is set
+            status='completed',  # Explicitly set status
+            created_at=datetime.utcnow()  # Explicitly set creation time
         )
         
         db.session.add(transaction)
@@ -432,8 +433,18 @@ def get_all_transactions():
             elif txn.payment_method == 'cash':
                 receipt = 'Cash'
             
-            # FIXED: Ensure status is properly set
-            status = txn.status or 'completed'  # Default to 'completed' if null
+            # FIXED: Better status handling with specific logic for disbursements
+            status = txn.status
+            if not status:
+                # If status is null, determine based on transaction type
+                if txn.transaction_type == 'disbursement':
+                    status = 'completed'  # Disbursements should always be completed
+                else:
+                    status = 'completed'  # Default for other transactions
+            
+            # Additional safety: Force disbursements to show as completed
+            if txn.transaction_type == 'disbursement':
+                status = 'completed'
             
             transactions_data.append({
                 'id': txn.id,
@@ -442,7 +453,7 @@ def get_all_transactions():
                 'type': txn.transaction_type,
                 'amount': float(txn.amount),
                 'method': txn.payment_method or 'cash',
-                'status': status,  # Use the fixed status
+                'status': status,
                 'receipt': receipt,
                 'notes': txn.notes or '',
                 'mpesa_receipt': txn.mpesa_receipt

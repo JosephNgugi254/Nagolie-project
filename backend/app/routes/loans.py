@@ -10,6 +10,48 @@ from app.utils.security import log_audit, admin_required
 
 loans_bp = Blueprint('loans', __name__)
 
+@loans_bp.route('/<int:loan_id>/approve', methods=['POST'])
+@jwt_required()
+@admin_required
+def approve_loan(loan_id):
+    """Approve a loan application"""
+    loan = db.session.get(Loan, loan_id)
+    
+    if not loan:
+        return jsonify({'error': 'Loan application not found'}), 404
+    
+    if loan.status != 'pending':
+        return jsonify({'error': 'Loan application already processed'}), 400
+    
+    # Update loan status to active
+    loan.status = 'active'
+    loan.disbursement_date = datetime.utcnow()
+    
+    # Create disbursement transaction - FIXED: Ensure status is set to completed
+    transaction = Transaction(
+        loan_id=loan.id,
+        transaction_type='disbursement',
+        amount=loan.principal_amount,
+        payment_method='cash',
+        notes='Loan approved and disbursed',
+        status='completed',  # Explicitly set status
+        created_at=datetime.utcnow()  # Explicitly set creation time
+    )
+    
+    db.session.add(transaction)
+    db.session.commit()
+    
+    log_audit('loan_approved', 'loan', loan.id, {
+        'client': loan.client.full_name,
+        'amount': float(loan.principal_amount)
+    })
+    
+    return jsonify({
+        'success': True,
+        'message': 'Loan approved successfully',
+        'loan': loan.to_dict()
+    }), 200
+
 @loans_bp.route('', methods=['GET'])
 @jwt_required()
 def get_loans():
@@ -210,46 +252,6 @@ def apply_for_loan():
         'client_name': client.full_name  # Return client name for confirmation
     }), 201
 
-@loans_bp.route('/<int:loan_id>/approve', methods=['POST'])
-@jwt_required()
-@admin_required
-def approve_loan(loan_id):
-    """Approve a loan application"""
-    loan = db.session.get(Loan, loan_id)
-    
-    if not loan:
-        return jsonify({'error': 'Loan application not found'}), 404
-    
-    if loan.status != 'pending':
-        return jsonify({'error': 'Loan application already processed'}), 400
-    
-    # Update loan status to active
-    loan.status = 'active'
-    loan.disbursement_date = datetime.utcnow()
-    
-    # Create disbursement transaction - FIXED: Set status to 'completed'
-    transaction = Transaction(
-        loan_id=loan.id,
-        transaction_type='disbursement',
-        amount=loan.principal_amount,
-        payment_method='cash',
-        notes='Loan approved and disbursed',
-        status='completed'  # ADD THIS LINE - set status to completed
-    )
-    
-    db.session.add(transaction)
-    db.session.commit()
-    
-    log_audit('loan_approved', 'loan', loan.id, {
-        'client': loan.client.full_name,
-        'amount': float(loan.principal_amount)
-    })
-    
-    return jsonify({
-        'success': True,
-        'message': 'Loan approved successfully',
-        'loan': loan.to_dict()
-    }), 200
 
 @loans_bp.route('/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
