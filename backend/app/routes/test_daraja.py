@@ -2,6 +2,8 @@
 from flask import Blueprint, jsonify, current_app
 from flask_jwt_extended import jwt_required
 from app.utils.daraja import DarajaAPI
+from app.routes.payments import payments_bp
+
 
 test_bp = Blueprint('test', __name__)
 
@@ -85,3 +87,33 @@ def get_daraja_config():
         'consumer_secret_set': bool(current_app.config['DARAJA_CONSUMER_SECRET']),
         'passkey_set': bool(current_app.config['DARAJA_PASSKEY'])
     })
+
+
+# Add this to your test_daraja.py or create a new route
+@payments_bp.route('/test-daraja-setup', methods=['GET'])
+@jwt_required()
+def test_daraja_setup():
+    """Test Daraja API setup"""
+    try:
+        daraja = DarajaAPI()
+        
+        # Test access token
+        token = daraja.get_access_token()
+        if not token:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to get access token'
+            }), 500
+            
+        return jsonify({
+            'success': True,
+            'message': 'Daraja setup is working',
+            'access_token_obtained': True,
+            'shortcode': daraja.shortcode
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500

@@ -117,104 +117,132 @@ function AdminPanel() {
     }
   }
 
-  // Enhanced payment status checker
-  const checkPaymentStatus = async (checkoutRequestId, maxAttempts = 10) => {
+  // In AdminPanel.jsx - Smart polling with rate limit handling
+  const checkPaymentStatus = async (checkoutRequestId, maxAttempts = 12) => {
     let attempts = 0;
     let isCompleted = false;
-
-    // Show loading state
-    setSendingStk(false); // STK sent, now we're checking status
-
+    let baseDelay = 8000; // Start with 8 seconds
+    let currentDelay = baseDelay;
+  
+    setSendingStk(false);
+  
     const pollStatus = async () => {
       if (isCompleted) return { completed: true, success: true };
-
+    
       attempts++;
-      console.log(`Checking payment status (attempt ${attempts})`);
-
+      console.log(`Checking payment status (attempt ${attempts}), delay: ${currentDelay}ms`);
+    
       try {
         const statusResponse = await paymentAPI.checkMpesaStatus({
           checkout_request_id: checkoutRequestId
         });
-
+      
+        console.log('Payment status response:', statusResponse.data);
+      
         if (statusResponse.data.success) {
           const statusData = statusResponse.data.status;
           const resultCode = statusData?.ResultCode;
-
+        
           console.log('Payment status result code:', resultCode);
-
+        
           if (resultCode === '0') {
             // Payment successful
-            showToast.success('Payment completed successfully!');
+            showToast.success('M-Pesa payment completed successfully!');
             isCompleted = true;
-
+          
             // Refresh all relevant data
             await Promise.all([
               fetchDashboardData(),
               fetchClients(),
               fetchTransactions()
             ]);
-
+          
             return { completed: true, success: true };
-          } else if (['1032', '1', '17', '26', '1031'].includes(resultCode)) {
+          } else if (['1032', '1', '17', '26', '1031', '1037'].includes(resultCode)) {
             // Payment cancelled, failed, or timed out
             const errorMsg = statusData?.ResultDesc || 'Payment was cancelled or failed';
             showToast.error(`Payment failed: ${errorMsg}`);
             isCompleted = true;
             return { completed: true, success: false };
           } else {
-            // Still processing - show progress to admin
-            if (attempts % 3 === 0) { // Show progress every 3 attempts
-              showToast.info(`Still waiting for payment confirmation... (${attempts}/${maxAttempts})`, 3000);
+            // Still processing - increase delay for next attempt
+            currentDelay = Math.min(currentDelay * 1.5, 30000); // Max 30 seconds
+            if (attempts % 2 === 0) {
+              showToast.info(`Waiting for payment confirmation... (${attempts}/${maxAttempts})`, 3000);
             }
             return { completed: false, success: false };
           }
         } else {
-          // API error but keep trying
-          console.log('Status check API error, but continuing:', statusResponse.data.error);
+          // Handle rate limiting and other errors
+          const errorMsg = statusResponse.data.error || 'Failed to check status';
+          console.log('Status check API error:', errorMsg);
+          
+          // If rate limited, use the suggested retry time or increase delay significantly
+          if (errorMsg.includes('rate limit') || errorMsg.includes('429')) {
+            const retryAfter = statusResponse.data.retry_after || 30;
+            currentDelay = retryAfter * 1000; // Convert to milliseconds
+            showToast.info(`M-Pesa service busy. Waiting ${retryAfter} seconds...`, 4000);
+          } else if (errorMsg.includes('access token')) {
+            // Access token issues - wait longer
+            currentDelay = 15000;
+            if (attempts > 3) {
+              showToast.error('M-Pesa service temporarily unavailable. Payment will be processed when service resumes.');
+              return { completed: true, success: false };
+            }
+          } else {
+            // Other errors - moderate increase
+            currentDelay = Math.min(currentDelay * 1.3, 20000);
+          }
+          
           return { completed: false, success: false };
         }
       } catch (error) {
         console.error('Error checking status:', error);
-        // Network errors are temporary, keep trying
+        // Network errors - moderate increase
+        currentDelay = Math.min(currentDelay * 1.3, 20000);
+        if (attempts % 3 === 0) {
+          showToast.info('Network issue, retrying...', 2000);
+        }
         return { completed: false, success: false };
       }
     };
-
-    // Wait 10 seconds before starting to check (give user time to enter PIN)
-    await new Promise(resolve => setTimeout(resolve, 10000));
-
-    // Poll every 5 seconds
-    const pollInterval = setInterval(async () => {
-      const result = await pollStatus();
-
-      if (result.completed || attempts >= maxAttempts) {
-        clearInterval(pollInterval);
-
-        if (attempts >= maxAttempts && !result.completed) {
-          showToast.info('Payment status check completed. If payment was made, it will be reflected shortly.');
-        }
-
-        // Close modal if payment completed or max attempts reached
-        if (result.completed || attempts >= maxAttempts) {
-          setShowMpesaModal(false);
-          setSelectedClient(null);
-          setMpesaAmount("");
-
-          // Final refresh to ensure data is current
-          setTimeout(() => {
-            Promise.all([
-              fetchDashboardData(),
-              fetchClients(),
-              fetchTransactions()
-            ]);
-          }, 1000);
-        }
-      }
-    }, 5000);
-  };
-
   
-
+    // Initial delay before first check
+    await new Promise(resolve => setTimeout(resolve, 10000));
+  
+    const pollWithBackoff = async () => {
+      const result = await pollStatus();
+    
+      if (!result.completed && attempts < maxAttempts) {
+        console.log(`Scheduling next check in ${currentDelay}ms`);
+        setTimeout(pollWithBackoff, currentDelay);
+      } else if (attempts >= maxAttempts && !result.completed) {
+        showToast.info('Payment status check completed. If payment was made, it will be reflected in transactions shortly.');
+        handlePollingCompletion();
+      } else if (result.completed) {
+        handlePollingCompletion();
+      }
+    };
+  
+    const handlePollingCompletion = () => {
+      setShowMpesaModal(false);
+      setSelectedClient(null);
+      setMpesaAmount("");
+    
+      // Final refresh
+      setTimeout(() => {
+        Promise.all([
+          fetchDashboardData(),
+          fetchClients(),
+          fetchTransactions()
+        ]);
+      }, 2000);
+    };
+  
+    // Start polling
+    pollWithBackoff();
+  };
+  
   const [livestock, setLivestock] = useState([])
   const [applications, setApplications] = useState([])
   const [clients, setClients] = useState([])
@@ -778,11 +806,11 @@ function AdminPanel() {
 
   const handleDeleteLivestock = async () => {
     if (!livestockToDelete) return
-    
+
     try {
       // Use adminAPI instead of direct fetch
       const response = await adminAPI.deleteLivestock(livestockToDelete)
-      
+
       if (response.data.success) {
         showToast.success('Livestock deleted successfully!');
         fetchLivestock();

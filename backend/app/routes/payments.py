@@ -195,6 +195,7 @@ def stk_push():
         db.session.rollback()
         return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
+# In payments.py - Improve the callback endpoint
 @payments_bp.route('/callback', methods=['POST'])
 @limiter.limit("100 per minute")
 def mpesa_callback():
@@ -271,6 +272,7 @@ def mpesa_callback():
             )
             
             db.session.add(transaction)
+            db.session.commit()
             
             log_audit('mpesa_payment_completed', 'payment', payment.id, {
                 'loan_id': loan.id,
@@ -322,11 +324,11 @@ def get_payment_status(payment_id):
     
     return jsonify(payment.to_dict()), 200
 
-# In payments.py - Fix the check_payment_status endpoint
+# In payments.py - Enhanced check_payment_status with rate limit handling
 @payments_bp.route('/mpesa/check-status', methods=['POST'])
 @jwt_required()
 def check_payment_status():
-    """Check M-Pesa payment status manually"""
+    """Check M-Pesa payment status with rate limit protection"""
     try:
         data = request.json
         checkout_request_id = data.get('checkout_request_id')
@@ -341,25 +343,32 @@ def check_payment_status():
         
         # If payment is already completed, return immediately
         if payment.status == 'completed':
+            transaction = Transaction.query.filter_by(
+                mpesa_receipt=payment.mpesa_receipt_number
+            ).first()
+            
             return jsonify({
                 'success': True,
                 'status': {
                     'ResultCode': '0',
                     'ResultDesc': 'The service request is processed successfully.'
-                }
+                },
+                'transaction': transaction.to_dict() if transaction else None,
+                'payment_status': 'completed'
             }), 200
         
         # Use DarajaAPI to check status
         daraja = DarajaAPI()
         status_response = daraja.check_stk_status(checkout_request_id)
         
+        print(f"Daraja status response: {status_response}")
+        
         if status_response.get('success'):
             status_data = status_response.get('status', {})
             result_code = status_data.get('ResultCode')
             
-            # If payment is successful, process it
             if result_code == '0':
-                # Process the successful payment
+                # Process successful payment
                 callback_metadata = status_data.get('CallbackMetadata', {}).get('Item', [])
                 result_data = {item['Name']: item.get('Value') for item in callback_metadata}
                 
@@ -367,7 +376,14 @@ def check_payment_status():
                 mpesa_receipt_number = result_data.get('MpesaReceiptNumber')
                 phone_number = result_data.get('PhoneNumber')
                 
-                # Update payment
+                if not all([amount, mpesa_receipt_number]):
+                    return jsonify({
+                        'success': False,
+                        'error': 'Incomplete payment data from Daraja',
+                        'payment_status': 'pending'
+                    }), 400
+                
+                # Update payment and loan
                 payment.status = 'completed'
                 payment.mpesa_receipt_number = mpesa_receipt_number
                 payment.phone_number = phone_number
@@ -379,13 +395,9 @@ def check_payment_status():
                 callback_amount = Decimal(str(amount))
                 loan = payment.loan
                 
-                old_balance = loan.balance
-                old_amount_paid = loan.amount_paid
-                
                 loan.amount_paid += callback_amount
                 loan.balance = loan.total_amount - loan.amount_paid
                 
-                # Mark loan as completed if fully paid
                 if loan.balance <= 0:
                     loan.status = 'completed'
                     if loan.livestock:
@@ -399,6 +411,7 @@ def check_payment_status():
                     payment_method='mpesa',
                     mpesa_receipt=mpesa_receipt_number,
                     notes=f'M-Pesa payment completed: {mpesa_receipt_number}',
+                    status='completed',
                     created_at=datetime.utcnow()
                 )
                 
@@ -411,13 +424,128 @@ def check_payment_status():
                     'amount': float(callback_amount),
                     'mpesa_receipt': mpesa_receipt_number
                 })
-            
-            return jsonify(status_response), 200
+                
+                return jsonify({
+                    'success': True,
+                    'status': status_data,
+                    'transaction': transaction.to_dict(),
+                    'payment_status': 'completed'
+                })
+            else:
+                # Payment failed
+                payment.status = 'failed'
+                payment.result_code = str(result_code)
+                payment.result_desc = status_data.get('ResultDesc', 'Payment failed')
+                payment.completed_at = datetime.utcnow()
+                db.session.commit()
+                
+                return jsonify({
+                    'success': False,
+                    'error': status_data.get('ResultDesc', 'Payment failed'),
+                    'payment_status': 'failed'
+                })
         else:
-            return jsonify(status_response), 200
+            # Handle rate limiting specifically
+            error_msg = status_response.get('error', 'Failed to check payment status')
+            retry_after = status_response.get('retry_after', 10)
+            
+            if 'rate limit' in error_msg.lower() or '429' in error_msg:
+                return jsonify({
+                    'success': False,
+                    'error': f'Rate limited. Please wait {retry_after} seconds before checking again.',
+                    'payment_status': 'pending',
+                    'retry_after': retry_after
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': error_msg,
+                    'payment_status': 'pending'
+                })
             
     except Exception as e:
         print(f"Error checking payment status: {str(e)}")
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        db.session.rollback()
+        return jsonify({
+            'success': False, 
+            'error': f'Internal server error: {str(e)}',
+            'payment_status': 'error'
+        }), 500
+    
+
+# In payments.py - Add manual confirmation endpoint
+@payments_bp.route('/mpesa/manual-confirm', methods=['POST'])
+@jwt_required()
+@admin_required
+def manual_confirm_payment():
+    """Manually confirm M-Pesa payment when callback fails"""
+    try:
+        data = request.json
+        checkout_request_id = data.get('checkout_request_id')
+        mpesa_receipt = data.get('mpesa_receipt')
+        amount = data.get('amount')
+        
+        if not all([checkout_request_id, mpesa_receipt, amount]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Find payment record
+        payment = Payment.query.filter_by(checkout_request_id=checkout_request_id).first()
+        if not payment:
+            return jsonify({'error': 'Payment record not found'}), 404
+        
+        if payment.status == 'completed':
+            return jsonify({'error': 'Payment already completed'}), 400
+        
+        # Update payment
+        payment.status = 'completed'
+        payment.mpesa_receipt_number = mpesa_receipt
+        payment.result_code = '0'
+        payment.result_desc = 'Manually confirmed'
+        payment.completed_at = datetime.utcnow()
+        
+        # Update loan
+        callback_amount = Decimal(str(amount))
+        loan = payment.loan
+        
+        old_balance = loan.balance
+        loan.amount_paid += callback_amount
+        loan.balance = loan.total_amount - loan.amount_paid
+        
+        if loan.balance <= 0:
+            loan.status = 'completed'
+            if loan.livestock:
+                db.session.delete(loan.livestock)
+        
+        # Create transaction
+        transaction = Transaction(
+            loan_id=loan.id,
+            transaction_type='payment',
+            amount=callback_amount,
+            payment_method='mpesa',
+            mpesa_receipt=mpesa_receipt,
+            notes=f'M-Pesa payment manually confirmed: {mpesa_receipt}',
+            status='completed',
+            created_at=datetime.utcnow()
+        )
+        
+        db.session.add(transaction)
+        db.session.commit()
+        
+        log_audit('mpesa_payment_manual_confirm', 'payment', payment.id, {
+            'loan_id': loan.id,
+            'mpesa_receipt': mpesa_receipt,
+            'amount': float(callback_amount)
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Payment manually confirmed successfully',
+            'transaction': transaction.to_dict()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Manual confirm error: {str(e)}")
+        return jsonify({'error': str(e)}), 500

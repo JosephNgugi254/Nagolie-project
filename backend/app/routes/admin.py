@@ -410,6 +410,7 @@ def get_all_livestock():
         print(f"Livestock error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# In admin.py - Update the get_all_transactions function
 @admin_bp.route('/transactions', methods=['GET', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -456,7 +457,8 @@ def get_all_transactions():
                 'status': status,
                 'receipt': receipt,
                 'notes': txn.notes or '',
-                'mpesa_receipt': txn.mpesa_receipt
+                'mpesa_receipt': txn.mpesa_receipt,
+                'loan_id': txn.loan_id  # ADD THIS LINE - crucial for filtering
             })
         
         return jsonify(transactions_data), 200
