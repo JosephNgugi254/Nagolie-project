@@ -1,9 +1,11 @@
 "use client"
 
 import { Link, useLocation } from "react-router-dom"
+import { useRef } from "react" // Add this import
 
 function Navbar() {
   const location = useLocation()
+  const navbarCollapseRef = useRef(null) // Add this ref
 
   const scrollToSection = (sectionId) => {
     // If we're not on the home page, navigate to home first
@@ -20,8 +22,18 @@ function Navbar() {
     }
   }
 
-  const handleNavClick = (sectionId, e) => {
+  // Add this function to handle nav link clicks
+  const handleNavLinkClick = (sectionId, e) => {
     e.preventDefault()
+    
+    // Close the navbar collapse on mobile
+    if (navbarCollapseRef.current) {
+      const bsCollapse = bootstrap.Collapse.getInstance(navbarCollapseRef.current)
+      if (bsCollapse) {
+        bsCollapse.hide()
+      }
+    }
+    
     scrollToSection(sectionId)
   }
 
@@ -35,7 +47,8 @@ function Navbar() {
         <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
           <span className="navbar-toggler-icon"></span>
         </button>
-        <div className="collapse navbar-collapse" id="navbarNav">
+        {/* Add ref to the collapse element */}
+        <div className="collapse navbar-collapse" id="navbarNav" ref={navbarCollapseRef}>
           <ul className="navbar-nav ms-auto align-items-center">
             <li className="nav-item">
               <Link 
@@ -43,8 +56,7 @@ function Navbar() {
                 to="/"
                 onClick={(e) => {
                   if (location.pathname === "/") {
-                    e.preventDefault()
-                    scrollToSection("home")
+                    handleNavLinkClick("home", e) // Updated to use new function
                   }
                 }}
               >
@@ -57,8 +69,7 @@ function Navbar() {
                 to="/"
                 onClick={(e) => {
                   if (location.pathname === "/") {
-                    e.preventDefault()
-                    scrollToSection("about")
+                    handleNavLinkClick("about", e) // Updated to use new function
                   }
                 }}
               >
@@ -71,8 +82,7 @@ function Navbar() {
                 to="/"
                 onClick={(e) => {
                   if (location.pathname === "/") {
-                    e.preventDefault()
-                    scrollToSection("services")
+                    handleNavLinkClick("services", e) // Updated to use new function
                   }
                 }}
               >
@@ -85,8 +95,7 @@ function Navbar() {
                 to="/"
                 onClick={(e) => {
                   if (location.pathname === "/") {
-                    e.preventDefault()
-                    scrollToSection("gallery")
+                    handleNavLinkClick("gallery", e) // Updated to use new function
                   }
                 }}
               >
@@ -99,8 +108,7 @@ function Navbar() {
                 to="/"
                 onClick={(e) => {
                   if (location.pathname === "/") {
-                    e.preventDefault()
-                    scrollToSection("contact")
+                    handleNavLinkClick("contact", e) // Updated to use new function
                   }
                 }}
               >
@@ -113,8 +121,7 @@ function Navbar() {
                 to="/"
                 onClick={(e) => {
                   if (location.pathname === "/") {
-                    e.preventDefault()
-                    scrollToSection("loan-application")
+                    handleNavLinkClick("loan-application", e) // Updated to use new function
                   }
                 }}
               >
@@ -126,6 +133,15 @@ function Navbar() {
                 className="nav-link btn btn-outline-primary d-flex align-items-center"
                 to="/admin/login"
                 title="Admin Login"
+                onClick={() => {
+                  // Also close navbar when admin login is clicked
+                  if (navbarCollapseRef.current) {
+                    const bsCollapse = bootstrap.Collapse.getInstance(navbarCollapseRef.current)
+                    if (bsCollapse) {
+                      bsCollapse.hide()
+                    }
+                  }
+                }}
               >
                 <i className="fas fa-user"></i>
                 <span className="visually-hidden">Admin Login</span>
