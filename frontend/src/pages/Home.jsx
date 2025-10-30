@@ -8,6 +8,7 @@ import LoanApply from "../features/loans/LoanApply"
 import { adminAPI, loanAPI } from "../services/api" 
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
+import SEO from '../components/common/SEO'
 
 function Home() {
   const sliderRef = useRef(null)
@@ -194,42 +195,46 @@ function Home() {
   }
 
   // Add state for livestock
-const [livestock, setLivestock] = useState([])
+  const [livestock, setLivestock] = useState([])
 
-// Fetch livestock for gallery
-useEffect(() => {  
-  const fetchLivestock = async () => {
-    try {
-      console.log('Fetching livestock gallery...');
-      // Use adminAPI instead of direct fetch
-      const response = await adminAPI.getLivestockGallery();
-      
-      
-      if (response.data) {
-        console.log('Livestock data received:', response.data);
-        setLivestock(response.data);
-      } else {
-        console.error('Failed to fetch livestock: No data received');
+  // Fetch livestock for gallery
+  useEffect(() => {  
+    const fetchLivestock = async () => {
+      try {
+        console.log('Fetching livestock gallery...');
+        // Use adminAPI instead of direct fetch
+        const response = await adminAPI.getLivestockGallery();
+        
+        if (response.data) {
+          console.log('Livestock data received:', response.data);
+          setLivestock(response.data);
+        } else {
+          console.error('Failed to fetch livestock: No data received');
+          setLivestock([]);
+        }
+      } catch (error) {
+        console.error('Error fetching livestock:', error);
         setLivestock([]);
       }
-    } catch (error) {
-      console.error('Error fetching livestock:', error);
-      setLivestock([]);
-    }
+    };
+
+    fetchLivestock();
+  }, []);
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "KES",
+    }).format(Number(amount) || 0);
   };
-
-  fetchLivestock();
-}, []);
-
-const formatCurrency = (amount) => {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "KES",
-  }).format(Number(amount) || 0);
-};
 
   return (
     <div>
+      <SEO 
+        title="Nagolie - Livestock Backed Lending Solutions in Kajiado, Kenya"
+        description="Get affordable livestock loans and agricultural financing in Kajiado County. Cattle financing, livestock collateral loans, and farm credit solutions."
+        keywords="livestock loans Kenya, agricultural financing Kajiado, cattle loans Kenya, livestock collateral, farm loans Kajiado, Nagolie lending, livestock backed lending Kajiado"
+      />
       <Navbar />
       <Toast />
 
@@ -259,6 +264,7 @@ const formatCurrency = (amount) => {
         </div>
       </section>
 
+      {/* Rest of your Home component remains exactly the same */}
       {/* Key Features */}
       <section className="py-5 bg-light">
         <div className="container">

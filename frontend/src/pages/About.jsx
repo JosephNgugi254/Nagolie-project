@@ -1,11 +1,18 @@
 "use client"
 
+import { Link } from "react-router-dom"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
+import SEO from '../components/common/SEO'
 
 function About() {
   return (
     <div>
+      <SEO 
+        title="About Nagolie - Livestock Lending in Kajiado County"
+        description="Learn about Nagolie's mission to provide livestock-backed financing solutions to farmers in Kajiado County and across Kenya."
+        keywords="about Nagolie, livestock lending Kenya, Kajiado agricultural financing, our mission, farming community support"
+      />
       <Navbar />
 
       {/* About Hero Section */}
