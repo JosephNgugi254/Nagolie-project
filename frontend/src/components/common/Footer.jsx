@@ -9,7 +9,7 @@ function Footer() {
             </div>
           </div>
           <div className="col-md-6 text-md-end">
-            <span className="text-light">Developed by <a href="solitarywebworks.netlify.app" id="solitary">SolitaryWebWorks</a></span>
+            <span className="text-light">Developed by <a href="https://solitarywebworks.netlify.app" id="solitary" target="_blank" rel="noopener noreferrer">SolitaryWebWorks</a></span>
           </div>
         </div>
       </div>
@@ -18,3 +18,5 @@ function Footer() {
 }
 
 export default Footer
+
+
