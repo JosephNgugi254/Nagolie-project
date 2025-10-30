@@ -348,7 +348,7 @@ def get_all_livestock():
             # Determine if it's admin-added or client livestock
             if item.client_id is None:
                 # Admin-added livestock (including claimed livestock)
-                description = item.location or 'Available for purchase'
+                description = item.location or 'Available for purchase'  # Use actual description
                 available_info = 'Available now'
                 livestock_type = item.livestock_type or 'Unknown'
                 days_remaining = 0  # Available immediately
@@ -362,7 +362,7 @@ def get_all_livestock():
                 
                 if client_loan:
                     client_name = item.client.full_name if item.client else 'Unknown'
-                    description = f"Collateral for {client_name}'s loan"
+                    description = f"Collateral for {client_name}'s loan"  # Keep this format for client livestock
                     livestock_type = item.livestock_type or 'Unknown'
                     is_admin_added = False
                     
@@ -397,12 +397,12 @@ def get_all_livestock():
                 'type': livestock_type,
                 'count': item.count,
                 'price': float(item.estimated_value) if item.estimated_value else 0,
-                'description': description,
+                'description': description,  # This now uses the actual description for admin-added
                 'images': item.photos if item.photos else [],
                 'availableInfo': available_info,
                 'daysRemaining': days_remaining,
                 'status': item.status,
-                'isAdminAdded': is_admin_added  # This is computed, not from database
+                'isAdminAdded': is_admin_added
             })
         
         return jsonify(livestock_data), 200
@@ -580,7 +580,6 @@ def delete_livestock(livestock_id):
         print(f"Error deleting livestock: {str(e)}")
         return jsonify({'error': str(e)}), 500
   
-# Add this route to admin.py for public access to livestock gallery
 @admin_bp.route('/livestock/gallery', methods=['GET'])
 def get_public_livestock_gallery():
     """Get all livestock for public gallery - NO AUTH REQUIRED"""
@@ -594,8 +593,13 @@ def get_public_livestock_gallery():
         for item in livestock:
             # Determine if it's admin-added or client livestock
             if item.client_id is None:
-                # Admin-added livestock
-                description = f"livestock for purchase"
+                # Admin-added livestock - check if it's claimed livestock
+                if item.location and item.location.startswith("Available (claimed from"):
+                    # For claimed livestock in public gallery, show generic message
+                    description = "Livestock for purchase"
+                else:
+                    # For regular admin-added livestock, use the actual description
+                    description = item.location or 'Available for purchase'
                 available_info = 'Available now'
                 livestock_type = item.livestock_type or 'Unknown'
                 days_remaining = 0
@@ -607,8 +611,7 @@ def get_public_livestock_gallery():
                 ).first()
                 
                 if client_loan:
-                    client_name = item.client.full_name if item.client else 'Unknown'
-                    description = f"livestock for purchase"
+                    description = "Livestock available for purchase"  # Generic for client collateral
                     livestock_type = item.livestock_type or 'Unknown'
                     
                     # Calculate days remaining until repayment
@@ -642,7 +645,7 @@ def get_public_livestock_gallery():
                 'type': livestock_type,
                 'count': item.count,
                 'price': float(item.estimated_value) if item.estimated_value else 0,
-                'description': description,
+                'description': description,  # This will show generic message for claimed livestock
                 'images': item.photos if item.photos else [],
                 'availableInfo': available_info,
                 'daysRemaining': days_remaining
@@ -653,7 +656,6 @@ def get_public_livestock_gallery():
         print(f"Public livestock gallery error: {str(e)}")
         return jsonify({'error': str(e)}), 500
     
-
 @admin_bp.route('/send-reminder', methods=['POST', 'OPTIONS'])
 @jwt_required()
 @admin_required
