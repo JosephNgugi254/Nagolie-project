@@ -110,6 +110,7 @@ export const paymentAPI = {
   initiateStkPush: (paymentData) => api.post("/payments/stkpush", paymentData),
   getStatus: (id) => api.get(`/payments/${id}/status`),
   processCashPayment: (paymentData) => api.post("/payments/cash", paymentData),
+  processMpesaManual: (data) =>  api.post('/payments/mpesa/manual', data),
   processMpesaPayment: (paymentData) => api.post('/payments/mpesa/stk-push', paymentData),
   checkMpesaStatus: (statusData) => api.post('/payments/mpesa/check-status', statusData),
 }

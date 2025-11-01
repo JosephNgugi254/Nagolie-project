@@ -475,11 +475,7 @@ def check_payment_status():
         }), 500
     
 
-# In payments.py - Add manual confirmation endpoint
-@payments_bp.route('/mpesa/manual-confirm', methods=['POST'])
-@jwt_required()
-@admin_required
-def manual_confirm_payment():
+
     """Manually confirm M-Pesa payment when callback fails"""
     try:
         data = request.json
@@ -548,4 +544,87 @@ def manual_confirm_payment():
     except Exception as e:
         db.session.rollback()
         print(f"Manual confirm error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+
+@payments_bp.route('/mpesa/manual', methods=['POST'])
+@jwt_required()
+@admin_required
+def process_mpesa_manual():
+    """Process manual M-Pesa payment with reference code - ADMIN ONLY"""
+    try:
+        data = request.json
+        
+        loan_id = data.get('loan_id')
+        amount = data.get('amount')
+        mpesa_reference = data.get('mpesa_reference')
+        notes = data.get('notes', '')
+        
+        if not all([loan_id, amount, mpesa_reference]):
+            return jsonify({'error': 'Missing required fields: loan_id, amount, and mpesa_reference'}), 400
+        
+        # Verify loan exists
+        loan = db.session.get(Loan, loan_id)
+        if not loan:
+            return jsonify({'error': 'Loan not found'}), 404
+        
+        if loan.status != 'active':
+            return jsonify({'error': 'Loan is not active'}), 400
+        
+        payment_amount = Decimal(str(amount))
+        
+        # Check if payment exceeds balance
+        if payment_amount > loan.balance:
+            return jsonify({'error': f'Payment amount exceeds loan balance of {float(loan.balance)}'}), 400
+        
+        # Update loan
+        loan.amount_paid += payment_amount
+        loan.balance -= payment_amount
+        
+        # Mark loan as completed if fully paid and update livestock status
+        if loan.balance <= 0:
+            loan.status = 'completed'
+            # Remove livestock from gallery when loan is fully paid
+            if loan.livestock:
+                db.session.delete(loan.livestock)
+        
+        # Create transaction record for manual M-Pesa
+        transaction = Transaction(
+            loan_id=loan.id,
+            transaction_type='payment',
+            amount=payment_amount,
+            payment_method='mpesa',
+            mpesa_receipt=mpesa_reference.upper(),  # Store in uppercase
+            notes=notes or f'M-Pesa manual payment: {mpesa_reference}',
+            status='completed'
+        )
+        
+        db.session.add(transaction)
+        db.session.commit()
+        
+        log_audit('mpesa_manual_payment_processed', 'transaction', transaction.id, {
+            'loan_id': loan.id,
+            'client': loan.client.full_name if loan.client else 'Unknown',
+            'amount': float(payment_amount),
+            'mpesa_reference': mpesa_reference,
+            'new_balance': float(loan.balance)
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'M-Pesa payment processed successfully',
+            'transaction': transaction.to_dict(),
+            'loan': {
+                'id': loan.id,
+                'amount_paid': float(loan.amount_paid),
+                'balance': float(loan.balance),
+                'status': loan.status
+            }
+        }), 200
+        
+    except ValueError as e:
+        return jsonify({'error': f'Invalid amount format: {str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        print(f"Manual M-Pesa payment error: {str(e)}")
         return jsonify({'error': str(e)}), 500

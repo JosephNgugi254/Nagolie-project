@@ -31,6 +31,9 @@ function AdminPanel() {
   })
 
   const [showActionModal, setShowActionModal] = useState(false)
+  const [mpesaReference, setMpesaReference] = useState("")
+
+  
 
   // MPESA stk state variable 
   const [showMpesaModal, setShowMpesaModal] = useState(false)
@@ -254,6 +257,30 @@ function AdminPanel() {
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedClient, setSelectedClient] = useState(null)
   const [loading, setLoading] = useState(true)
+
+  // Add this useEffectto handle dynamic field display
+  useEffect(() => {
+    const handleMethodChange = () => {
+      const methodField = document.getElementById('paymentMethod');
+      const referenceField = document.getElementById('mpesaReferenceField');
+
+      if (methodField && referenceField) {
+        referenceField.style.display = methodField.value === 'mpesa' ? 'block' : 'none';
+      }
+    };
+
+    // Add event listener to payment method dropdown
+    const methodField = document.getElementById('paymentMethod');
+    if (methodField) {
+      methodField.addEventListener('change', handleMethodChange);
+    }
+
+    return () => {
+      if (methodField) {
+        methodField.removeEventListener('change', handleMethodChange);
+      }
+    };
+  }, [showPaymentModal]);
 
   // edit livestock in gallery state variables
   const [showEditLivestockModal, setShowEditLivestockModal] = useState(false)
@@ -617,7 +644,7 @@ function AdminPanel() {
   const handlePayment = async (paymentData) => {
     try {
       console.log("Processing payment with data:", paymentData)
-      
+
       if (!selectedClient?.loan_id) {
         showToast.error("Error: No active loan found for this client")
         return
@@ -633,20 +660,39 @@ function AdminPanel() {
         showToast.error("Payment amount cannot exceed the current balance")
         return
       }
-      
-      const response = await paymentAPI.processCashPayment({
-        loan_id: selectedClient.loan_id,
-        amount: paymentAmount,
-        notes: paymentData.notes || `Cash payment of KSh ${paymentAmount}`
-      })
-      
+
+      let response;
+
+      if (paymentData.method === 'cash') {
+        // Process cash payment
+        response = await paymentAPI.processCashPayment({
+          loan_id: selectedClient.loan_id,
+          amount: paymentAmount,
+          notes: paymentData.notes || `Cash payment of KSh ${paymentAmount}`
+        })
+      } else if (paymentData.method === 'mpesa') {
+        // Process manual M-Pesa payment
+        if (!mpesaReference.trim()) {
+          showToast.error("Please enter M-Pesa reference code")
+          return
+        }
+
+        response = await paymentAPI.processMpesaManual({
+          loan_id: selectedClient.loan_id,
+          amount: paymentAmount,
+          mpesa_reference: mpesaReference.toUpperCase().trim(), // Convert to uppercase
+          notes: paymentData.notes || `M-Pesa payment of KSh ${paymentAmount}`
+        })
+      }
+
       console.log("Payment response:", response.data)
-      
+
       if (response.data.success) {
         showToast.success(`Payment processed successfully!\nNew balance: ${formatCurrency(response.data.loan.balance)}`)
         setShowPaymentModal(false)
         setSelectedClient(null)
-        
+        setMpesaReference("") // Reset reference
+
         // Refresh all data
         await Promise.all([
           fetchDashboardData(),
@@ -1824,13 +1870,14 @@ function AdminPanel() {
         </Modal>
       )}
 
-      {/* Payment Modal(CASH) */}
+      {/* Payment Modal(CASH & MPESA MANUAL) */}
       {showPaymentModal && selectedClient && (
         <Modal
           isOpen={showPaymentModal}
           onClose={() => {
             setShowPaymentModal(false)
             setSelectedClient(null)
+            setMpesaReference("") // Reset on close
           }}
           title="Process Payment"
           size="md"
@@ -1838,10 +1885,14 @@ function AdminPanel() {
           <form onSubmit={(e) => {
             e.preventDefault()
             const formData = new FormData(e.target)
+            const method = formData.get('method')
+
             handlePayment({
               amount: formData.get('amount'),
-              method: formData.get('method'),
-              notes: `Cash payment received for ${selectedClient.name}`
+              method: method,
+              notes: method === 'cash' 
+                ? `Cash payment received for ${selectedClient.name}`
+                : `M-Pesa payment received for ${selectedClient.name}`
             })
           }}>
             <div className="mb-3">
@@ -1853,7 +1904,7 @@ function AdminPanel() {
                 readOnly 
               />
             </div>
-            
+
             <div className="mb-3">
               <label className="form-label">Phone Number</label>
               <input 
@@ -1863,7 +1914,7 @@ function AdminPanel() {
                 readOnly 
               />
             </div>
-            
+
             <div className="mb-3">
               <label className="form-label">Total Loan Amount</label>
               <input 
@@ -1873,7 +1924,7 @@ function AdminPanel() {
                 readOnly 
               />
             </div>
-            
+
             <div className="mb-3">
               <label className="form-label">Amount Already Paid</label>
               <input 
@@ -1883,7 +1934,7 @@ function AdminPanel() {
                 readOnly 
               />
             </div>
-            
+
             <div className="mb-3">
               <label className="form-label"><strong>Current Balance</strong></label>
               <input 
@@ -1893,7 +1944,7 @@ function AdminPanel() {
                 readOnly 
               />
             </div>
-            
+
             <div className="mb-3">
               <label htmlFor="paymentAmount" className="form-label">
                 Payment Amount (KSh) <span className="text-danger">*</span>
@@ -1910,28 +1961,68 @@ function AdminPanel() {
                 required 
               />
               <small className="text-muted">
-                Maximum: {formatCurrency(Math.floor(selectedClient.balance || 0))} (whole numbers only for M-Pesa)
+                Maximum: {formatCurrency(Math.floor(selectedClient.balance || 0))}
               </small>
             </div>
-            
+
             <div className="mb-3">
               <label htmlFor="paymentMethod" className="form-label">
                 Payment Method <span className="text-danger">*</span>
               </label>
-              <select className="form-control" id="paymentMethod" name="method" required>
+              <select 
+                className="form-control" 
+                id="paymentMethod" 
+                name="method" 
+                required
+                onChange={(e) => {
+                  // Reset reference when method changes
+                  if (e.target.value === 'cash') {
+                    setMpesaReference("")
+                  }
+                }}
+              >
                 <option value="cash">Cash</option>
-                <option value="mpesa">M-Pesa (Coming Soon)</option>
+                <option value="mpesa">M-Pesa (Manual Reference)</option>
               </select>
             </div>
-            
+              
+            {/* M-Pesa Reference Input - Only show when M-Pesa is selected */}
+            <div className="mb-3" id="mpesaReferenceField" style={{
+              display: document.getElementById('paymentMethod')?.value === 'mpesa' ? 'block' : 'none'
+            }}>
+              <label htmlFor="mpesaReference" className="form-label">
+                M-Pesa Reference Code <span className="text-danger">*</span>
+              </label>
+              <input 
+                type="text" 
+                className="form-control" 
+                id="mpesaReference" 
+                value={mpesaReference}
+                onChange={(e) => setMpesaReference(e.target.value)}
+                placeholder="Enter M-Pesa reference (e.g., RB64AX25B1)"
+                style={{ textTransform: 'uppercase' }}
+                required={document.getElementById('paymentMethod')?.value === 'mpesa'}
+              />
+              <small className="text-muted">
+                Enter the M-Pesa transaction reference code from the client's payment
+              </small>
+            </div>
+
             <div className="alert alert-info">
               <i className="fas fa-info-circle me-2"></i>
-              This payment will be recorded immediately and update the client's balance.
+              {document.getElementById('paymentMethod')?.value === 'mpesa' 
+                ? "This payment will be recorded as M-Pesa transaction with the provided reference code."
+                : "This payment will be recorded immediately and update the client's balance."
+              }
             </div>
             
             <div className="d-flex gap-2">
               <button type="submit" className="btn btn-success">
-                <i className="fas fa-check me-2"></i>Process Payment
+                <i className="fas fa-check me-2"></i>
+                {document.getElementById('paymentMethod')?.value === 'mpesa' 
+                  ? "Process M-Pesa Payment" 
+                  : "Process Payment"
+                }
               </button>
               <button 
                 type="button" 
@@ -1939,6 +2030,7 @@ function AdminPanel() {
                 onClick={() => {
                   setShowPaymentModal(false)
                   setSelectedClient(null)
+                  setMpesaReference("")
                 }}
               >
                 Cancel
