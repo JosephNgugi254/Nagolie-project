@@ -97,6 +97,12 @@ export const generateTransactionReceipt = async (transaction) => {
     doc.line(20, yPos, 190, yPos);
     yPos += 10;
     
+    // Handle transaction type display
+    let displayType = transaction.type || 'N/A';
+    if (displayType.toLowerCase() === 'topup') displayType = 'Top-up';
+    else if (displayType.toLowerCase() === 'adjustment') displayType = 'Adjustment';
+    displayType = displayType.charAt(0).toUpperCase() + displayType.slice(1);
+
     // Transaction Details (text dark, alternating bold/normal)
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(11);
@@ -105,7 +111,7 @@ export const generateTransactionReceipt = async (transaction) => {
       { label: 'Transaction ID:', value: String(transaction.id || 'N/A') },
       { label: 'Date:', value: transaction.date ? new Date(transaction.date).toLocaleDateString() : 'N/A' },
       { label: 'Client:', value: transaction.clientName || 'N/A' },
-      { label: 'Type:', value: (transaction.type || '').toUpperCase() },
+      { label: 'Type:', value: displayType },
       { label: 'Amount:', value: `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
       { label: 'Method:', value: (transaction.method || '').toUpperCase() },
       { label: 'Status:', value: (transaction.status || '').toUpperCase() }
@@ -120,7 +126,7 @@ export const generateTransactionReceipt = async (transaction) => {
       yPos += 7;
     });
 
-    // Add M-Pesa reference if method is MPESA (after main details for better flow)
+    // Add M-Pesa reference if method is MPESA (after main details)
     if (transaction.method?.toLowerCase() === 'mpesa' && transaction.mpesa_receipt) {
       doc.setFont('helvetica', 'bold');
       doc.text('M-Pesa Receipt:', 20, yPos);
@@ -146,7 +152,7 @@ export const generateTransactionReceipt = async (transaction) => {
     doc.save(`Transaction_${transaction.id || 'Receipt'}.pdf`);
   } catch (error) {
     console.error('Error generating transaction receipt:', error);
-    throw error; // Re-throw for caller to handle (e.g., show toast in AdminPanel)
+    throw error;
   }
 };
 
@@ -260,14 +266,14 @@ export const generateClientStatement = async (client, allTransactions) => {
     
     yPos += 10;
     
-    // Transaction History Section - FIXED: Show individual transactions
+    // Transaction History Section
     if (clientTransactions.length > 0) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.text('Transaction History:', 20, yPos);
       yPos += 8;
       
-      // Sort by date descending (most recent first)
+      // Sort by date descending
       const sortedTransactions = [...clientTransactions].sort((a, b) => 
         new Date(b.date || b.createdAt || b.created_at) - new Date(a.date || a.createdAt || a.created_at)
       );
@@ -296,16 +302,19 @@ export const generateClientStatement = async (client, allTransactions) => {
         }
         
         const date = new Date(transaction.date || transaction.createdAt || transaction.created_at).toLocaleDateString();
-        const type = (transaction.type || '').toUpperCase();
+        let type = (transaction.type || '').toUpperCase();
+        if (type === 'TOPUP') type = 'TOP-UP';
         const method = (transaction.method || '').toUpperCase();
         const amount = `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
         
-        // Reference number (M-Pesa receipt for M-Pesa, Transaction ID for others)
+        // Reference number logic (updated)
         let reference = `TXN-${transaction.id}`;
         if (method === 'MPESA' && transaction.mpesa_receipt) {
           reference = transaction.mpesa_receipt;
         } else if (method === 'CASH') {
           reference = 'CASH PAYMENT';
+        } else if (type === 'TOP-UP' || type === 'ADJUSTMENT') {
+          reference = `${type} PROCESS`;
         }
         
         doc.setFont('helvetica', 'normal');
@@ -342,6 +351,6 @@ export const generateClientStatement = async (client, allTransactions) => {
     doc.save(`Statement_${client.idNumber || client.name}_${new Date().toISOString().split('T')[0]}.pdf`);
   } catch (error) {
     console.error('Error generating client statement:', error);
-    throw error; // Re-throw for caller to handle
+    throw error;
   }
 };

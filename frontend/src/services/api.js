@@ -97,6 +97,7 @@ export const adminAPI = {
   addLivestock: (data) => api.post("/admin/livestock", data), // ADDED
   updateLivestock: (id, data) => api.put(`/admin/livestock/${id}`, data), // ADDED
   deleteLivestock: (id) => api.delete(`/admin/livestock/${id}`), // ADDED
+  processTopup: (loanId, data) => api.post(`/admin/loans/${loanId}/topup`, data),
 }
 
 export const clientAPI = {

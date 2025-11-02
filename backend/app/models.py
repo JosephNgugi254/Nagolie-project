@@ -125,12 +125,13 @@ class Loan(db.Model):
         }
 
 
+# In models.py - Update the Transaction model to include topup type
 class Transaction(db.Model):
     __tablename__ = 'transactions'
     
     id = db.Column(db.Integer, primary_key=True)
     loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
-    transaction_type = db.Column(db.String(20), nullable=False)  # disbursement, payment
+    transaction_type = db.Column(db.String(20), nullable=False)  # disbursement, payment, topup, adjustment
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     payment_method = db.Column(db.String(20))  # cash, mpesa
     mpesa_receipt = db.Column(db.String(50))

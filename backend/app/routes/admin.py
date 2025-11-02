@@ -802,3 +802,108 @@ def claim_ownership():
         import traceback
         traceback.print_exc()
         return jsonify({'error': f'Failed to claim ownership: {str(e)}'}), 500
+    
+
+# Add this to admin.py after the existing routes
+@admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def process_topup(loan_id):
+    """Process loan top-up or adjustment - ADMIN ONLY"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        data = request.json
+        
+        topup_amount = Decimal(str(data.get('topup_amount', 0)))
+        adjustment_amount = Decimal(str(data.get('adjustment_amount', 0)))
+        disbursement_method = data.get('disbursement_method', 'cash')
+        mpesa_reference = data.get('mpesa_reference', '')
+        notes = data.get('notes', '')
+        
+        if topup_amount <= 0 and adjustment_amount == 0:
+            return jsonify({'error': 'Invalid amount provided'}), 400
+        
+        # Get the loan
+        loan = db.session.get(Loan, loan_id)
+        if not loan:
+            return jsonify({'error': 'Loan not found'}), 404
+        
+        if loan.status != 'active':
+            return jsonify({'error': 'Loan is not active'}), 400
+        
+        # Calculate new amounts
+        old_principal = loan.principal_amount
+        old_total = loan.total_amount
+        old_balance = loan.balance
+        
+        if topup_amount > 0:
+            # Top-up: Add to principal and recalculate everything
+            loan.principal_amount += topup_amount
+            interest_amount = loan.principal_amount * (loan.interest_rate / 100)
+            loan.total_amount = loan.principal_amount + interest_amount
+            loan.balance = loan.total_amount - loan.amount_paid
+            
+            transaction_type = 'topup'
+            transaction_amount = topup_amount
+            transaction_notes = f'Loan top-up of {format_currency(topup_amount)}'
+            
+        else:
+            # Adjustment: Set new principal amount
+            new_principal = adjustment_amount
+            if new_principal <= 0:
+                return jsonify({'error': 'Adjustment amount must be positive'}), 400
+                
+            loan.principal_amount = new_principal
+            interest_amount = loan.principal_amount * (loan.interest_rate / 100)
+            loan.total_amount = loan.principal_amount + interest_amount
+            loan.balance = loan.total_amount - loan.amount_paid
+            
+            transaction_type = 'adjustment'
+            transaction_amount = new_principal - old_principal  # This could be positive or negative
+            transaction_notes = f'Loan adjustment from {format_currency(old_principal)} to {format_currency(new_principal)}'
+        
+        if notes:
+            transaction_notes += f'. {notes}'
+        
+        # Create transaction record
+        transaction = Transaction(
+            loan_id=loan.id,
+            transaction_type=transaction_type,
+            amount=transaction_amount,
+            payment_method=disbursement_method,
+            mpesa_receipt=mpesa_reference.upper() if disbursement_method == 'mpesa' else None,
+            notes=transaction_notes,
+            status='completed'
+        )
+        
+        db.session.add(transaction)
+        db.session.commit()
+        
+        log_audit('loan_modified', 'loan', loan.id, {
+            'client': loan.client.full_name if loan.client else 'Unknown',
+            'old_principal': float(old_principal),
+            'new_principal': float(loan.principal_amount),
+            'old_total': float(old_total),
+            'new_total': float(loan.total_amount),
+            'old_balance': float(old_balance),
+            'new_balance': float(loan.balance),
+            'type': transaction_type
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Loan {transaction_type} processed successfully',
+            'loan': loan.to_dict(),
+            'transaction': transaction.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error processing top-up/adjustment: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# Helper function for currency formatting
+def format_currency(amount):
+    return f"KES {float(amount):,.2f}"
