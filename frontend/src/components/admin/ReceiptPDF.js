@@ -290,6 +290,217 @@ export const generateClientStatement = async (client, allTransactions) => {
   }
 };
 
+// Generate Professional Loan Agreement PDF (Fixed Signature Section with Side-by-Side Confirmed By)
+export const generateLoanAgreementPDF = async (application) => {
+  try {
+    const doc = new jsPDF();
+    let yPos = await addHeader(doc, 10);
+
+    // Main Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
+    yPos += 8; // Reduced from 10
+
+    yPos = addDivider(doc, yPos);
+
+    // Agreement Date
+    const agreementDate = application.date ? new Date(application.date) : new Date();
+    const formattedDate = agreementDate.toLocaleDateString('en-GB', {
+      day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Agreement Date: ${formattedDate}`, 20, yPos);
+    yPos += 15; // Reduced from 20
+
+    // Simplified Agreement Body - Reduced spacing
+    doc.setFontSize(12);
+
+    const firstLineParts = [
+      { text: "I ", style: 'normal' },
+      { text: `${application.name || '___________________'}`, style: 'bold' },
+      { text: " of ID NO: ", style: 'normal' },
+      { text: `${application.idNumber || '___________________'}`, style: 'bold' },
+      { text: " on this ", style: 'normal' },
+      { text: "________", style: 'bold' },
+      { text: " (day) ", style: 'normal' },
+      { text: "________", style: 'bold' },
+      { text: ` (month) (Year) 20${agreementDate.getFullYear().toString().slice(-2)}`, style: 'normal' }
+    ];
+    writeStyledLine(doc, firstLineParts, 20, yPos, 12);
+    yPos += 6; // Reduced from 8
+
+    const secondLineParts = [
+      { text: "acknowledge/agree and therefore receive Ksh: ", style: 'normal' },
+      { text: `${application.loanAmount ? application.loanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '__________'}`, style: 'bold' }
+    ];
+    writeStyledLine(doc, secondLineParts, 20, yPos, 12);
+    yPos += 6; // Reduced from 8
+
+    const thirdLineParts = [
+      { text: "for payment of ", style: 'normal' },
+      { text: `${application.livestockType || '__________'}`, style: 'bold' },
+      { text: " (No. of livestock ", style: 'normal' },
+      { text: `${application.livestockCount || '____'}`, style: 'bold' },
+      { text: ") by Nagolie enterprises.", style: 'normal' }
+    ];
+    writeStyledLine(doc, thirdLineParts, 20, yPos, 12);
+    yPos += 12; // Reduced from 15
+
+    // Add Terms and Conditions heading
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
+    yPos += 8; // Reduced from 10
+
+    // Group terms to ensure they stay together
+    const termGroups = [
+      // Group 1: Agreement Overview
+      [
+        { text: "1. Agreement Overview", bold: true },
+        "This Livestock Financing Agreement (\"Agreement\") is entered into between the",
+        "applicant (\"Recipient\") and Nagolie Enterprises Ltd (\"Company\"). The Recipient",
+        "acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured by the",
+        "specified livestock, which shall become the property of Nagolie Enterprises Ltd",
+        "until the loan is fully repaid.",
+        ""
+      ],
+      // Group 2: Ownership Transfer and Custody
+      [
+        { text: "2. Ownership Transfer and Custody", bold: true },
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers",
+        "to Nagolie Enterprises Ltd, with the Recipient maintaining physical custody. The",
+        "Recipient agrees to:",
+        "- Provide proper care and maintenance for the livestock",
+        "- Ensure the livestock are kept in good health",
+        "- Not sell, transfer, or dispose of the livestock without prior written consent",
+        "  from the Company",
+        "- Allow Company representatives access to inspect the livestock at reasonable times",
+        ""
+      ],
+      // Group 3: Repayment Terms
+      [
+        { text: "3. Repayment Terms", bold: true },
+        "The loan is typically repayable within seven (7) days from the date of",
+        "disbursement. However, recognizing the circumstances of local communities, the CEO",
+        "of Nagolie Enterprises Ltd may, at their discretion, grant an extension of the",
+        "repayment period after consultation with the Recipient. Any extension must be",
+        "agreed upon in writing by both parties, specifying the new repayment date.",
+        ""
+      ],
+      // Group 4: Loan Settlement and Ownership Return
+      [
+        { text: "4. Loan Settlement and Ownership Return", bold: true },
+        "Upon full repayment of the loan principal plus agreed interest:",
+        "- Legal ownership of the livestock reverts to the Recipient",
+        "- All rights and responsibilities regarding the livestock return to the Recipient",
+        ""
+      ],
+      // Group 5: Livestock Valuation
+      [
+        { text: "5. Livestock Valuation", bold: true },
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by",
+        "Nagolie Enterprises Ltd. The valuation shall be final and binding for determining",
+        "the maximum loan amount.",
+        ""
+      ],
+      // Group 6: Default and Remedies
+      [
+        { text: "6. Default and Remedies", bold: true },
+        "Failure to repay the loan by the due date (including any agreed extension) shall",
+        "constitute default, entitling Nagolie Enterprises Ltd to:",
+        "- Take immediate possession of the livestock",
+        "- Sell the livestock to recover the outstanding loan amount",
+        "- Initiate legal proceedings for recovery of any remaining balance",
+        "- Charge interest on overdue amounts at the prevailing market rate",
+        ""
+      ],
+      // Group 7: Governing Law
+      [
+        { text: "7. Governing Law", bold: true },
+        "This agreement shall be governed by and construed in accordance with the laws of",
+        "Kenya. Any disputes arising from this agreement shall be subject to the exclusive",
+        "jurisdiction of the courts of Kajiado County.",
+        ""
+      ],
+      // Group 8: Entire Agreement
+      [
+        { text: "8. Entire Agreement", bold: true },
+        "This document constitutes the entire agreement between the parties and supersedes",
+        "all prior discussions, negotiations, and agreements. No modification of this",
+        "agreement shall be effective unless in writing and signed by both parties."
+      ]
+    ];
+
+    doc.setFontSize(10.5); // Slightly increased from 10
+    termGroups.forEach((group, groupIndex) => {
+      // Calculate group height
+      const groupHeight = group.length * 4.5; // Reduced line spacing
+      
+      // Check if we need a new page for this group
+      if (yPos + groupHeight > 250 && groupIndex > 0) {
+        doc.addPage();
+        yPos = 20;
+      }
+      
+      // Render the group
+      group.forEach(line => {
+        if (typeof line === 'object' && line.bold) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(...COLORS.primaryBlue);
+          doc.text(line.text, 20, yPos);
+        } else {
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(...COLORS.textDark);
+          doc.text(line, 20, yPos);
+        }
+        yPos += 4.5; // Reduced line spacing
+      });
+    });
+
+    yPos += 8; // Reduced from 10
+
+    // Add a new page if needed for signatures
+    if (yPos > 180) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    // Signature Section with reduced spacing
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text('SIGNATURES', 105, yPos, { align: 'center' });
+    yPos += 12; // Reduced from 15
+
+    // Client Section with reduced spacing
+    doc.setFontSize(12);
+    doc.text('CLIENT:', 20, yPos);
+    yPos += 6; // Reduced from 8
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('NAME:', 25, yPos);
+    doc.text(`${application.name || '___________________'}`, 60, yPos);
+    yPos += 6; // Reduced from 8
+
+    doc.text('ID NO:', 25, yPos);
+    doc.text(`${application.idNumber || '___________________'}`, 60, yPos);
+    yPos += 6; // Reduced from 8
+
+    doc.text('SIGN:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', 60, yPos);
+    yPos += 6; // Reduced from 8
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('DATE:', 25, yPos);
+    doc.text(formattedDate, 60, yPos);
+    yPos += 15; // Reduced from 20
+
     // Confirmed By Section with proper alignment
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
@@ -333,6 +544,16 @@ export const generateClientStatement = async (client, allTransactions) => {
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
     doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 6, { align: 'center' });
+
+    // Save PDF
+    const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
+    doc.save(fileName);
+
+  } catch (error) {
+    console.error('Error generating loan agreement:', error);
+    throw error;
+  }
+};
 
 
 
