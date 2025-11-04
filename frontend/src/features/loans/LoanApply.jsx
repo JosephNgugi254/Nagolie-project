@@ -171,7 +171,7 @@ function LoanApply({ onSubmit }) {
               type="email"
               value={formData.email}
               onChange={handleChange}
-              placeholder="your@email.com"
+              placeholder="example@email.com (optional)"
             />
           </div>
         </div>
@@ -179,11 +179,12 @@ function LoanApply({ onSubmit }) {
         <div className="row">
           <div className="col-md-6">
             <FormInput
-              label="Cash Offer Amount (KSh)"
+              label="Amount (KSh)"
               name="loanAmount"
               type="number"
               value={formData.loanAmount}
               onChange={handleChange}
+              placeholder="Enter desired amount"
               min="1000"
               max="1000000"
               required
@@ -230,6 +231,7 @@ function LoanApply({ onSubmit }) {
               label="Estimated Value (KSh)"
               name="estimatedValue"
               type="number"
+              placeholder="Enter estimate value of your livestock"
               value={formData.estimatedValue}
               onChange={handleChange}
               required
@@ -292,7 +294,7 @@ function LoanApply({ onSubmit }) {
             rows="3"
             value={formData.notes}
             onChange={handleChange}
-            placeholder="Any additional information about your livestock"
+            placeholder="Any additional information (optional)"
           ></textarea>
         </div>
 
