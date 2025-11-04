@@ -15,4 +15,4 @@ services:
 
 databases:
   - name: nagolie-db
-    plan: free
+    plan: freerender
