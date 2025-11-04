@@ -89,6 +89,7 @@ export const adminAPI = {
   getLivestock: () => api.get("/admin/livestock"),
   getLivestockGallery: () => api.get("/admin/livestock/gallery"), // ADDED
   getTransactions: () => api.get("/admin/transactions"),
+  getApprovedLoans: () => api.get('/admin/approved-loans'),//approved loans api
   approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
   sendReminder: (data) => api.post("/admin/send-reminder", data), // ADDED
