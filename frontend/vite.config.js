@@ -15,10 +15,26 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false
+    sourcemap: false,
+    // Add these optimizations for production
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+        }
+      }
+    }
   },
-  // Add this to define global environment variables
+  // Updated environment variable handling
   define: {
-    'process.env': process.env
+    'process.env': {}
+  },
+  // Add base URL configuration for production
+  base: '/',
+  // Optional: Preview configuration for production-like testing
+  preview: {
+    port: 4173,
+    host: true
   }
 })
