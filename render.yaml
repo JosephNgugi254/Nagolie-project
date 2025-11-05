@@ -13,6 +13,17 @@ services:
           name: nagolie-db
           property: connectionString
 
+  - type: static
+    name: nagolie-frontend
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    publishDirectory: frontend/dist
+    routes:
+      - type: rewrite
+        source: /(.*)
+        destination: /index.html
+        condition: !static
+
 databases:
   - name: nagolie-db
-    plan: freerender
+    plan: free
