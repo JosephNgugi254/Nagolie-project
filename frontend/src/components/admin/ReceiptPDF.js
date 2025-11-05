@@ -290,7 +290,7 @@ export const generateClientStatement = async (client, allTransactions) => {
   }
 };
 
-// Generate Professional Loan Agreement PDF (Fixed Signature Section with Side-by-Side Confirmed By)
+// Generate Professional Loan Agreement PDF (Updated Signature Section with Stamp Box)
 export const generateLoanAgreementPDF = async (application) => {
   try {
     const doc = new jsPDF();
@@ -301,7 +301,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
-    yPos += 8; // Reduced from 10
+    yPos += 8;
 
     yPos = addDivider(doc, yPos);
 
@@ -315,7 +315,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.text(`Agreement Date: ${formattedDate}`, 20, yPos);
-    yPos += 15; // Reduced from 20
+    yPos += 15;
 
     // Simplified Agreement Body - Reduced spacing
     doc.setFontSize(12);
@@ -332,14 +332,14 @@ export const generateLoanAgreementPDF = async (application) => {
       { text: ` (month) (Year) 20${agreementDate.getFullYear().toString().slice(-2)}`, style: 'normal' }
     ];
     writeStyledLine(doc, firstLineParts, 20, yPos, 12);
-    yPos += 6; // Reduced from 8
+    yPos += 6;
 
     const secondLineParts = [
       { text: "acknowledge/agree and therefore receive Ksh: ", style: 'normal' },
       { text: `${application.loanAmount ? application.loanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '__________'}`, style: 'bold' }
     ];
     writeStyledLine(doc, secondLineParts, 20, yPos, 12);
-    yPos += 6; // Reduced from 8
+    yPos += 6;
 
     const thirdLineParts = [
       { text: "for payment of ", style: 'normal' },
@@ -349,14 +349,14 @@ export const generateLoanAgreementPDF = async (application) => {
       { text: ") by Nagolie enterprises.", style: 'normal' }
     ];
     writeStyledLine(doc, thirdLineParts, 20, yPos, 12);
-    yPos += 12; // Reduced from 15
+    yPos += 12;
 
     // Add Terms and Conditions heading
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
-    yPos += 8; // Reduced from 10
+    yPos += 8;
 
     // Group terms to ensure they stay together
     const termGroups = [
@@ -437,10 +437,10 @@ export const generateLoanAgreementPDF = async (application) => {
       ]
     ];
 
-    doc.setFontSize(10.5); // Slightly increased from 10
+    doc.setFontSize(10.5);
     termGroups.forEach((group, groupIndex) => {
       // Calculate group height
-      const groupHeight = group.length * 4.5; // Reduced line spacing
+      const groupHeight = group.length * 4.5;
       
       // Check if we need a new page for this group
       if (yPos + groupHeight > 250 && groupIndex > 0) {
@@ -459,11 +459,11 @@ export const generateLoanAgreementPDF = async (application) => {
           doc.setTextColor(...COLORS.textDark);
           doc.text(line, 20, yPos);
         }
-        yPos += 4.5; // Reduced line spacing
+        yPos += 4.5;
       });
     });
 
-    yPos += 8; // Reduced from 10
+    yPos += 8;
 
     // Add a new page if needed for signatures
     if (yPos > 180) {
@@ -475,65 +475,98 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.text('SIGNATURES', 105, yPos, { align: 'center' });
-    yPos += 12; // Reduced from 15
+    yPos += 12;
 
-    // Client Section with reduced spacing
+    // Client Section - Simplified (removed ID number and date)
     doc.setFontSize(12);
     doc.text('CLIENT:', 20, yPos);
-    yPos += 6; // Reduced from 8
+    yPos += 6;
 
     doc.setFont('helvetica', 'bold');
     doc.text('NAME:', 25, yPos);
     doc.text(`${application.name || '___________________'}`, 60, yPos);
-    yPos += 6; // Reduced from 8
-
-    doc.text('ID NO:', 25, yPos);
-    doc.text(`${application.idNumber || '___________________'}`, 60, yPos);
-    yPos += 6; // Reduced from 8
+    yPos += 6;
 
     doc.text('SIGN:', 25, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text('___________________', 60, yPos);
-    yPos += 6; // Reduced from 8
+    yPos += 15;
 
-    doc.setFont('helvetica', 'bold');
-    doc.text('DATE:', 25, yPos);
-    doc.text(formattedDate, 60, yPos);
-    yPos += 15; // Reduced from 20
-
-    // Confirmed By Section with proper alignment
+    // Confirmed By Section - Three signatories in one row, evenly spaced
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('CONFIRMED BY:', 20, yPos);
     yPos += 12;
 
-    const leftX = 25;
-    const rightX = 110; // Adjusted for better alignment
+    // Calculate even spacing for three columns
+    const pageWidth = 190; // Total width from left margin 20 to right margin 190
+    const columnWidth = pageWidth / 3;
+    const leftX = 20;
+    const middleX = 20 + columnWidth;
+    const rightX = 20 + (columnWidth * 2);
 
-    // Livestock Valuer Column - George Marite
-    const valuerY = yPos;
+    const signatoryY = yPos;
+
+    // Director - Shadrack Kesumet (First Column)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('George Marite', leftX, valuerY);
+    doc.text('Shadrack Kesumet', leftX, signatoryY);
     
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text('Livestock Valuer', leftX, valuerY + 5);
-    
-    doc.text('Sign: ___________________', leftX, valuerY + 12);
+    doc.text('Director', leftX, signatoryY + 5);
+    doc.text('Sign: ___________________', leftX, signatoryY + 12);
 
-    // Director Column - Shadrack Kesumet
+    // Livestock Valuer - George Marite (Second Column)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('Shadrack Kesumet', rightX, valuerY);
+    doc.text('George Marite', middleX, signatoryY);
     
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text('Director', rightX, valuerY + 5);
-    
-    doc.text('Sign: ___________________', rightX, valuerY + 12);
+    doc.text('Livestock Valuer', middleX, signatoryY + 5);
+    doc.text('Sign: ___________________', middleX, signatoryY + 12);
 
-    yPos = valuerY + 20;
+    // Accountant - Gideon Matunta (Third Column)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('Gideon Matunta', rightX, signatoryY);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text('Accountant', rightX, signatoryY + 5);
+    doc.text('Sign: ___________________', rightX, signatoryY + 12);
+
+    yPos = signatoryY + 25;
+
+    // Company Stamp Box - Creative and faint
+    const stampBoxY = yPos;
+    const stampBoxWidth = 60;
+    const stampBoxHeight = 35;
+    const stampBoxX = (210 - stampBoxWidth) / 2; // Center the box horizontally
+
+    // Outer border - very subtle
+    doc.setDrawColor(230, 235, 245); // Lighter blue-gray border
+    doc.setLineWidth(0.3);
+    doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+
+    // Calculate the exact center of the stamp box
+    const stampBoxCenterX = stampBoxX + (stampBoxWidth / 2);
+    const stampBoxCenterY = stampBoxY + (stampBoxHeight / 2);
+
+    // Stamp placeholder text - perfectly centered
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+
+    // Main stamp text - perfectly centered in the box
+    doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY, { align: 'center' });
+        
+    // Decorative elements around the stamp area
+    doc.setDrawColor(230, 235, 240);
+    doc.setLineWidth(0.2);    
+   
+    yPos = stampBoxY + stampBoxHeight + 15;
 
     // Footer - properly positioned at bottom
     const footerY = 270;
@@ -554,8 +587,6 @@ export const generateLoanAgreementPDF = async (application) => {
     throw error;
   }
 };
-
-
 
 // Helper function to write lines with mixed styles without overlapping
 const writeStyledLine = (doc, parts, x, y, fontSize = 10) => {
