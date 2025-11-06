@@ -1826,30 +1826,8 @@ function AdminPanel() {
 
                     {/* Approved Loans Tab */}
                     {applicationsTab === 'approved' && (
-                      <>
-                        {/* Search and Filter Section - Approved Loans */}
-                        <div className="search-filter-row mb-4">
-                          <div>
-                            <label className="form-label small text-muted mb-1">Search Loans</label>
-                            <input 
-                              type="text" 
-                              className="form-control" 
-                              placeholder="Search by name, phone, livestock..." 
-                              value={approvedSearch}
-                              onChange={(e) => setApprovedSearch(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label className="form-label small text-muted mb-1">Approval Date</label>
-                            <input 
-                              type="date" 
-                              className="form-control" 
-                              value={approvedDate}
-                              onChange={(e) => setApprovedDate(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                    
+                      <>                  
+                                     
                         {approvedLoansLoading ? (
                           <div className="text-center py-5">
                             <div className="spinner-border text-primary" role="status">
