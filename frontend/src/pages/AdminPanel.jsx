@@ -33,6 +33,15 @@ function AdminPanel() {
   const [showActionModal, setShowActionModal] = useState(false)
   const [mpesaReference, setMpesaReference] = useState("")
 
+  //loading states
+  // Loading states
+  const [loading, setLoading] = useState(true)
+  const [livestockLoading, setLivestockLoading] = useState(false)
+  const [approvedLoansLoading, setApprovedLoansLoading] = useState(false)
+  const [applicationsLoading, setApplicationsLoading] = useState(false)
+  const [clientsLoading, setClientsLoading] = useState(false)
+  const [transactionsLoading, setTransactionsLoading] = useState(false)
+
   // Data state variables - MOVED UP
   const [livestock, setLivestock] = useState([])
   const [applications, setApplications] = useState([])
@@ -405,7 +414,7 @@ function AdminPanel() {
   const [showAddLivestockModal, setShowAddLivestockModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedClient, setSelectedClient] = useState(null)
-  const [loading, setLoading] = useState(true)
+  
 
   // Add these to your existing state variables
   const [applicationsTab, setApplicationsTab] = useState('pending');
@@ -565,9 +574,8 @@ function AdminPanel() {
     }
   } 
 
- 
-  // Add this function to fetch approved loans
   const fetchApprovedLoans = useCallback(async () => {
+    setApprovedLoansLoading(true)
     try {
       console.log("Fetching approved loans...");
       const response = await adminAPI.getApprovedLoans();
@@ -580,10 +588,16 @@ function AdminPanel() {
         return;
       }
       setApprovedLoans([]);
-      showToast.error("Failed to load approved loans: " + (error.response?.data?.error || error.message));
+      // Don't show error if it's just a timeout and we have some data
+      if (approvedLoans.length === 0) {
+        showToast.error("Failed to load approved loans: " + (error.response?.data?.error || error.message));
+      }
+    } finally {
+      setApprovedLoansLoading(false)
     }
-  }, [navigate]);
+  }, [navigate, approvedLoans.length]);
 
+  // Staggered data loading implementation(MAIN DATA INITIALIZATION)
   useEffect(() => {
     const initializeData = async () => {
       if (isAuthenticated) {
@@ -592,14 +606,18 @@ function AdminPanel() {
         if (connectionOk) {
           console.log("API connection successful, fetching data...")
           try {
-            await Promise.all([
-              fetchDashboardData(),
-              fetchLivestock(),
-              fetchApplications(),
-              fetchApprovedLoans(), // Fetch approved loans
-              fetchClients(),
+            // Load critical data first
+            await fetchDashboardData()
+            await fetchApplications()
+            await fetchClients()
+
+            // Then load heavier datasets with delay
+            setTimeout(() => {
+              fetchLivestock()
+              fetchApprovedLoans()
               fetchTransactions()
-            ])
+            }, 1000)
+
           } catch (error) {
             console.error("Error fetching data:", error)
             showToast.error("Failed to load data from server")
@@ -610,7 +628,7 @@ function AdminPanel() {
         }
       }
     }
-    
+
     initializeData()
   }, [isAuthenticated])
 
@@ -648,6 +666,7 @@ function AdminPanel() {
   }, [navigate])
 
   const fetchLivestock = useCallback(async () => {
+    setLivestockLoading(true)
     try {
       console.log("Fetching livestock...")
       const response = await adminAPI.getLivestock()
@@ -660,11 +679,17 @@ function AdminPanel() {
         return
       }
       setLivestock([])
-      showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message))
+      // Don't show error if it's just a timeout and we have some data
+      if (livestock.length === 0) {
+        showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message));
+      }
+    } finally {
+      setLivestockLoading(false)
     }
-  }, [navigate])
+  }, [navigate, livestock.length])
 
   const fetchApplications = useCallback(async () => {
+    setApplicationsLoading(true)
     try {
       console.log("Fetching applications...")
       const response = await adminAPI.getApplications()
@@ -678,10 +703,13 @@ function AdminPanel() {
       }
       setApplications([])
       showToast.error("Failed to load applications: " + (error.response?.data?.error || error.message))
+    } finally {
+      setApplicationsLoading(false)
     }
   }, [navigate])
 
   const fetchClients = useCallback(async () => {
+    setClientsLoading(true)
     try {
       console.log("Fetching clients...")
       const response = await adminAPI.getClients()
@@ -695,21 +723,24 @@ function AdminPanel() {
       }
       setClients([])
       showToast.error("Failed to load clients: " + (error.response?.data?.error || error.message))
+    } finally {
+      setClientsLoading(false)
     }
   }, [navigate])
 
   const fetchTransactions = useCallback(async () => {
+    setTransactionsLoading(true)
     try {
       console.log("Fetching transactions...")
       const response = await adminAPI.getTransactions()
       console.log("Transactions response:", response.data)
-      
+
       const sortedTransactions = (response.data || []).sort((a, b) => {
         const dateA = new Date(a.createdAt || a.date || a.created_at || 0);
         const dateB = new Date(b.createdAt || b.date || b.created_at || 0);
         return dateB - dateA;
       });
-      
+
       setTransactions(sortedTransactions)
     } catch (error) {
       console.error("Failed to fetch transactions:", error)
@@ -719,6 +750,8 @@ function AdminPanel() {
       }
       setTransactions([])
       showToast.error("Failed to load transactions: " + (error.response?.data?.error || error.message))
+    } finally {
+      setTransactionsLoading(false)
     }
   }, [navigate])
 
@@ -1528,7 +1561,7 @@ function AdminPanel() {
               </div>
             )}
 
-            {/* Gallery Section */}
+            {/* Livestock Gallery Section */}
             {activeSection === "gallery" && (
               <div id="gallery-section" className="content-section">
                 <div className="d-flex justify-content-between align-items-center mb-4">
@@ -1538,69 +1571,78 @@ function AdminPanel() {
                   </button>
                 </div>
             
-                
-            
-                {livestock.length === 0 ? (
-                  <div className="card">
-                    <div className="card-body text-center py-5">
-                      <i className="fas fa-images fa-3x text-muted mb-3"></i>
-                      <h5 className="text-muted">No Livestock in Gallery</h5>
-                      <p className="text-muted">Get started by adding livestock to your gallery.</p>
-                      <button className="btn btn-primary mt-3" onClick={() => setShowAddLivestockModal(true)}>
-                        <i className="fas fa-plus me-2"></i>Add Your First Livestock
-                      </button>
+                {livestockLoading ? (
+                  <div className="text-center py-5">
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Loading livestock...</span>
                     </div>
+                    <p className="mt-2">Loading livestock data...</p>
                   </div>
                 ) : (
-                  <div className="row" id="adminGallery">
-                    {livestock.map((item) => (
-                      <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4">
-                        <div className="card gallery-card h-100">
-                          {/* Image Carousel */}
-                          <ImageCarousel images={item.images} title={item.title} />
-                          
-                          <div className="card-body d-flex flex-column">
-                            <h5 className="card-title">{item.title}</h5>
-                            <p className="card-text flex-grow-1">{item.description}</p>
-                            <div className="d-flex justify-content-between align-items-center mb-2">
-                              <span className="h6 text-primary">{formatCurrency(item.price)}</span>
-                              <span className={`badge ${
-                                item.daysRemaining > 1 ? 'bg-warning' : 
-                                item.daysRemaining === 1 ? 'bg-info' : 
-                                'bg-success'
-                              }`}>
-                                {item.availableInfo}
-                              </span>
-                            </div>
-                            {item.isAdminAdded && (
-                              <small className="text-muted mb-2">
-                                <i className="fas fa-user-tie me-1"></i>Admin Added
-                              </small>
-                            )}
-                            {!item.isAdminAdded && (
-                              <small className="text-muted mb-2">
-                                <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral
-                              </small>
-                            )}
-                            <div className="mt-auto">
-                              <button 
-                                className="btn btn-sm btn-outline-primary me-2"
-                                onClick={() => handleEditLivestock(item)}
-                              >
-                                <i className="fas fa-edit"></i> Edit
-                              </button>
-                              <button 
-                                className="btn btn-sm btn-outline-danger"
-                                onClick={() => confirmDeleteLivestock(item.id)}
-                              >
-                                <i className="fas fa-trash"></i> Delete
-                              </button>
-                            </div>
-                          </div>
+                  <>
+                    {livestock.length === 0 ? (
+                      <div className="card">
+                        <div className="card-body text-center py-5">
+                          <i className="fas fa-images fa-3x text-muted mb-3"></i>
+                          <h5 className="text-muted">No Livestock in Gallery</h5>
+                          <p className="text-muted">Get started by adding livestock to your gallery.</p>
+                          <button className="btn btn-primary mt-3" onClick={() => setShowAddLivestockModal(true)}>
+                            <i className="fas fa-plus me-2"></i>Add Your First Livestock
+                          </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    ) : (
+                      <div className="row" id="adminGallery">
+                        {livestock.map((item) => (
+                          <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4">
+                            <div className="card gallery-card h-100">
+                              {/* Image Carousel */}
+                              <ImageCarousel images={item.images} title={item.title} />
+
+                              <div className="card-body d-flex flex-column">
+                                <h5 className="card-title">{item.title}</h5>
+                                <p className="card-text flex-grow-1">{item.description}</p>
+                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                  <span className="h6 text-primary">{formatCurrency(item.price)}</span>
+                                  <span className={`badge ${
+                                    item.daysRemaining > 1 ? 'bg-warning' : 
+                                    item.daysRemaining === 1 ? 'bg-info' : 
+                                    'bg-success'
+                                  }`}>
+                                    {item.availableInfo}
+                                  </span>
+                                </div>
+                                {item.isAdminAdded && (
+                                  <small className="text-muted mb-2">
+                                    <i className="fas fa-user-tie me-1"></i>Admin Added
+                                  </small>
+                                )}
+                                {!item.isAdminAdded && (
+                                  <small className="text-muted mb-2">
+                                    <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral
+                                  </small>
+                                )}
+                                <div className="mt-auto">
+                                  <button 
+                                    className="btn btn-sm btn-outline-primary me-2"
+                                    onClick={() => handleEditLivestock(item)}
+                                  >
+                                    <i className="fas fa-edit"></i> Edit
+                                  </button>
+                                  <button 
+                                    className="btn btn-sm btn-outline-danger"
+                                    onClick={() => confirmDeleteLivestock(item.id)}
+                                  >
+                                    <i className="fas fa-trash"></i> Delete
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -1640,207 +1682,252 @@ function AdminPanel() {
                   </li>
                 </ul>
                     
-                {/* Search and Filter Section - Pending Applications */}
-                {applicationsTab === 'pending' && (
-                  <div className="search-filter-row mb-4">
-                    <div>
-                      <label className="form-label small text-muted mb-1">Search Applications</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="Search by name, phone, livestock..." 
-                        value={pendingSearch}
-                        onChange={(e) => setPendingSearch(e.target.value)}
-                      />
+                {applicationsLoading ? (
+                  <div className="text-center py-5">
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Loading applications...</span>
                     </div>
-                    <div>
-                      <label className="form-label small text-muted mb-1">Application Date</label>
-                      <input 
-                        type="date" 
-                        className="form-control" 
-                        value={pendingDate}
-                        onChange={(e) => setPendingDate(e.target.value)}
-                      />
-                    </div>
+                    <p className="mt-2">Loading applications...</p>
                   </div>
-                )}
-            
-                {/* Search and Filter Section - Approved Loans */}
-                {applicationsTab === 'approved' && (
-                  <div className="search-filter-row mb-4">
-                    <div>
-                      <label className="form-label small text-muted mb-1">Search Loans</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="Search by name, phone, livestock..." 
-                        value={approvedSearch}
-                        onChange={(e) => setApprovedSearch(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="form-label small text-muted mb-1">Approval Date</label>
-                      <input 
-                        type="date" 
-                        className="form-control" 
-                        value={approvedDate}
-                        onChange={(e) => setApprovedDate(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
-                      
-                {/* Pending Applications Tab */}
-                {applicationsTab === 'pending' && (
-                  <div className="card">
-                    <div className="card-body">
-                      {filteredPendingApplications.length === 0 ? (
-                        <div className="text-center py-5">
-                          <i className="fas fa-file-alt fa-3x text-muted mb-3"></i>
-                          <h5 className="text-muted">
-                            {applications.filter(app => app.status === 'pending').length === 0 
-                              ? "No Pending Applications" 
-                              : "No Applications Match Your Filters"}
-                          </h5>
-                          <p className="text-muted">
-                            {applications.filter(app => app.status === 'pending').length === 0 
-                              ? "No pending loan applications at the moment." 
-                              : "Try adjusting your search or date criteria."}
-                          </p>
+                ) : (
+                  <>
+                    {/* Search and Filter Section - Pending Applications */}
+                    {applicationsTab === 'pending' && (
+                      <div className="search-filter-row mb-4">
+                        <div>
+                          <label className="form-label small text-muted mb-1">Search Applications</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="Search by name, phone, livestock..." 
+                            value={pendingSearch}
+                            onChange={(e) => setPendingSearch(e.target.value)}
+                          />
                         </div>
-                      ) : (
-                        <AdminTable
-                          columns={[
-                            { header: "Date", field: "date", render: (row) => formatDate(row.date) },
-                            { header: "Name", field: "name" },
-                            { header: "Phone", field: "phone" },
-                            { header: "Amount", field: "loanAmount", render: (row) => formatCurrency(row.loanAmount) },
-                            { header: "Livestock", field: "livestock", render: (row) => `${row.livestockCount || ''} ${row.livestockType || ''}` },
-                            { 
-                              header: "Status", 
-                              field: "status",
-                              render: (row) => (
-                                <span className={`badge ${row.status === "pending" ? "bg-warning" : row.status === "active" ? "bg-success" : "bg-danger"}`}>
-                                  {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
-                                </span>
-                              )
-                            },
-                            {
-                              header: "Actions",
-                              render: (row) => (
-                                <div className="btn-group btn-group-sm">
-                                  <button 
-                                    className="btn btn-outline-success" 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleApplicationAction(row.id, "approve");
-                                    }}
-                                    disabled={row.status !== 'pending'}
-                                    title="Approve"
-                                  >
-                                    <i className="fas fa-check"></i>
-                                  </button>
-                                  <button 
-                                    className="btn btn-outline-danger" 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleApplicationAction(row.id, "reject");
-                                    }}
-                                    disabled={row.status !== 'pending'}
-                                    title="Reject"
-                                  >
-                                    <i className="fas fa-times"></i>
-                                  </button>
-                                  <button 
-                                    className="btn btn-outline-info" 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSelectedApplication(row)
-                                      setShowApplicationModal(true)
-                                    }}
-                                    title="View Details"
-                                  >
-                                    <i className="fas fa-eye"></i>
-                                  </button>
-                                </div>
-                              ),
-                            },
-                          ]}
-                          data={filteredPendingApplications}
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
-            
-                {/* Approved Loans Tab */}
-                {applicationsTab === 'approved' && (
-                  <div className="card">
-                    <div className="card-body">
-                      {filteredApprovedLoans.length === 0 ? (
-                        <div className="text-center py-5">
-                          <i className="fas fa-file-contract fa-3x text-muted mb-3"></i>
-                          <h5 className="text-muted">
-                            {approvedLoans.length === 0 
-                              ? "No Approved Loans" 
-                              : "No Loans Match Your Filters"}
-                          </h5>
-                          <p className="text-muted">
-                            {approvedLoans.length === 0 
-                              ? "No approved loans found." 
-                              : "Try adjusting your search or date criteria."}
-                          </p>
+                        <div>
+                          <label className="form-label small text-muted mb-1">Application Date</label>
+                          <input 
+                            type="date" 
+                            className="form-control" 
+                            value={pendingDate}
+                            onChange={(e) => setPendingDate(e.target.value)}
+                          />
                         </div>
-                      ) : (
-                        <AdminTable
-                          columns={[
-                            { header: "Approved Date", field: "date", render: (row) => formatDate(row.date) },
-                            { header: "Name", field: "name" },
-                            { header: "Phone", field: "phone" },
-                            { header: "ID Number", field: "idNumber" },
-                            { header: "Loan Amount", field: "loanAmount", render: (row) => formatCurrency(row.loanAmount) },
-                            { header: "Livestock", field: "livestock", render: (row) => `${row.livestockCount || ''} ${row.livestockType || ''}` },
-                            { header: "Location", field: "location" },
-                            {
-                              header: "Actions",
-                              render: (row) => (
-                                <div className="btn-group btn-group-sm">
-                                  <button 
-                                    className="btn btn-outline-info" 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSelectedApplication(row)
-                                      setShowApplicationModal(true)
-                                    }}
-                                    title="View Details"
-                                  >
-                                    <i className="fas fa-eye"></i>
-                                  </button>
-                                  <button 
-                                    className="btn btn-outline-success" 
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      try {
-                                        await generateLoanAgreementPDF(row);
-                                        showToast.success("Loan agreement downloaded successfully!");
-                                      } catch (error) {
-                                        console.error("Error generating loan agreement:", error);
-                                        showToast.error("Failed to download loan agreement");
-                                      }
-                                    }}
-                                    title="Download Agreement"
-                                  >
-                                    <i className="fas fa-download"></i>
-                                  </button>
+                      </div>
+                    )}
+
+                    {/* Search and Filter Section - Approved Loans */}
+                    {applicationsTab === 'approved' && (
+                      <div className="search-filter-row mb-4">
+                        <div>
+                          <label className="form-label small text-muted mb-1">Search Loans</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="Search by name, phone, livestock..." 
+                            value={approvedSearch}
+                            onChange={(e) => setApprovedSearch(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="form-label small text-muted mb-1">Approval Date</label>
+                          <input 
+                            type="date" 
+                            className="form-control" 
+                            value={approvedDate}
+                            onChange={(e) => setApprovedDate(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pending Applications Tab */}
+                    {applicationsTab === 'pending' && (
+                      <div className="card">
+                        <div className="card-body">
+                          {filteredPendingApplications.length === 0 ? (
+                            <div className="text-center py-5">
+                              <i className="fas fa-file-alt fa-3x text-muted mb-3"></i>
+                              <h5 className="text-muted">
+                                {applications.filter(app => app.status === 'pending').length === 0 
+                                  ? "No Pending Applications" 
+                                  : "No Applications Match Your Filters"}
+                              </h5>
+                              <p className="text-muted">
+                                {applications.filter(app => app.status === 'pending').length === 0 
+                                  ? "No pending loan applications at the moment." 
+                                  : "Try adjusting your search or date criteria."}
+                              </p>
+                            </div>
+                          ) : (
+                            <AdminTable
+                              columns={[
+                                { header: "Date", field: "date", render: (row) => formatDate(row.date) },
+                                { header: "Name", field: "name" },
+                                { header: "Phone", field: "phone" },
+                                { header: "Amount", field: "loanAmount", render: (row) => formatCurrency(row.loanAmount) },
+                                { header: "Livestock", field: "livestock", render: (row) => `${row.livestockCount || ''} ${row.livestockType || ''}` },
+                                { 
+                                  header: "Status", 
+                                  field: "status",
+                                  render: (row) => (
+                                    <span className={`badge ${row.status === "pending" ? "bg-warning" : row.status === "active" ? "bg-success" : "bg-danger"}`}>
+                                      {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
+                                    </span>
+                                  )
+                                },
+                                {
+                                  header: "Actions",
+                                  render: (row) => (
+                                    <div className="btn-group btn-group-sm">
+                                      <button 
+                                        className="btn btn-outline-success" 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleApplicationAction(row.id, "approve");
+                                        }}
+                                        disabled={row.status !== 'pending'}
+                                        title="Approve"
+                                      >
+                                        <i className="fas fa-check"></i>
+                                      </button>
+                                      <button 
+                                        className="btn btn-outline-danger" 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleApplicationAction(row.id, "reject");
+                                        }}
+                                        disabled={row.status !== 'pending'}
+                                        title="Reject"
+                                      >
+                                        <i className="fas fa-times"></i>
+                                      </button>
+                                      <button 
+                                        className="btn btn-outline-info" 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedApplication(row)
+                                          setShowApplicationModal(true)
+                                        }}
+                                        title="View Details"
+                                      >
+                                        <i className="fas fa-eye"></i>
+                                      </button>
+                                    </div>
+                                  ),
+                                },
+                              ]}
+                              data={filteredPendingApplications}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Approved Loans Tab */}
+                    {applicationsTab === 'approved' && (
+                      <>
+                        {/* Search and Filter Section - Approved Loans */}
+                        <div className="search-filter-row mb-4">
+                          <div>
+                            <label className="form-label small text-muted mb-1">Search Loans</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="Search by name, phone, livestock..." 
+                              value={approvedSearch}
+                              onChange={(e) => setApprovedSearch(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="form-label small text-muted mb-1">Approval Date</label>
+                            <input 
+                              type="date" 
+                              className="form-control" 
+                              value={approvedDate}
+                              onChange={(e) => setApprovedDate(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                    
+                        {approvedLoansLoading ? (
+                          <div className="text-center py-5">
+                            <div className="spinner-border text-primary" role="status">
+                              <span className="visually-hidden">Loading approved loans...</span>
+                            </div>
+                            <p className="mt-2">Loading approved loans...</p>
+                          </div>
+                        ) : (
+                          <div className="card">
+                            <div className="card-body">
+                              {filteredApprovedLoans.length === 0 ? (
+                                <div className="text-center py-5">
+                                  <i className="fas fa-file-contract fa-3x text-muted mb-3"></i>
+                                  <h5 className="text-muted">
+                                    {approvedLoans.length === 0 
+                                      ? "No Approved Loans" 
+                                      : "No Loans Match Your Filters"}
+                                  </h5>
+                                  <p className="text-muted">
+                                    {approvedLoans.length === 0 
+                                      ? "No approved loans found." 
+                                      : "Try adjusting your search or date criteria."}
+                                  </p>
                                 </div>
-                              ),
-                            },
-                          ]}
-                          data={filteredApprovedLoans}
-                        />
-                      )}
-                    </div>
-                  </div>
+                              ) : (
+                                <AdminTable
+                                  columns={[
+                                    { header: "Approved Date", field: "date", render: (row) => formatDate(row.date) },
+                                    { header: "Name", field: "name" },
+                                    { header: "Phone", field: "phone" },
+                                    { header: "ID Number", field: "idNumber" },
+                                    { header: "Loan Amount", field: "loanAmount", render: (row) => formatCurrency(row.loanAmount) },
+                                    { header: "Livestock", field: "livestock", render: (row) => `${row.livestockCount || ''} ${row.livestockType || ''}` },
+                                    { header: "Location", field: "location" },
+                                    {
+                                      header: "Actions",
+                                      render: (row) => (
+                                        <div className="btn-group btn-group-sm">
+                                          <button 
+                                            className="btn btn-outline-info" 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedApplication(row)
+                                              setShowApplicationModal(true)
+                                            }}
+                                            title="View Details"
+                                          >
+                                            <i className="fas fa-eye"></i>
+                                          </button>
+                                          <button 
+                                            className="btn btn-outline-success" 
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              try {
+                                                await generateLoanAgreementPDF(row);
+                                                showToast.success("Loan agreement downloaded successfully!");
+                                              } catch (error) {
+                                                console.error("Error generating loan agreement:", error);
+                                                showToast.error("Failed to download loan agreement");
+                                              }
+                                            }}
+                                            title="Download Agreement"
+                                          >
+                                            <i className="fas fa-download"></i>
+                                          </button>
+                                        </div>
+                                      ),
+                                    },
+                                  ]}
+                                  data={filteredApprovedLoans}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
                 )}
               </div>
             )}

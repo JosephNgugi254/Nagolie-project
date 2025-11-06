@@ -5,6 +5,8 @@ from decimal import Decimal
 from app import db
 from app.models import Client, Loan, Livestock, Transaction, User
 from app.utils.security import admin_required, log_audit
+from sqlalchemy.orm import joinedload
+
 # from app.services.sms_service import sms_service
 
 admin_bp = Blueprint('admin', __name__)
@@ -109,6 +111,49 @@ def get_applications():
     except Exception as e:
         print(f"Error fetching applications: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/approved-loans', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_approved_loans():
+    """Get all approved loans - ADMIN ONLY - OPTIMIZED"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+
+    try:
+        approved_loans = Loan.query.options(
+            joinedload(Loan.client),
+            joinedload(Loan.livestock)
+        ).filter_by(status='active').order_by(Loan.disbursement_date.desc()).all()
+
+        loans_data = []
+        for loan in approved_loans:
+            client_name = loan.client.full_name if loan.client else 'Unknown'
+            livestock_type = loan.livestock.livestock_type if loan.livestock else 'N/A'
+            livestock_count = loan.livestock.count if loan.livestock else 0
+            livestock_value = float(loan.livestock.estimated_value) if loan.livestock and loan.livestock.estimated_value else 0
+
+            loans_data.append({
+                'id': loan.id,
+                'clientName': client_name,
+                'loanAmount': float(loan.principal_amount),
+                'totalAmount': float(loan.total_amount),
+                'amountPaid': float(loan.amount_paid),
+                'balance': float(loan.balance),
+                'livestockType': livestock_type,
+                'livestockCount': livestock_count,
+                'livestockValue': livestock_value,
+                'disbursementDate': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
+                'dueDate': loan.due_date.isoformat() if loan.due_date else None,
+                'status': loan.status
+            })
+
+        return jsonify(loans_data), 200
+
+    except Exception as e:
+        print(f"Approved loans error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST', 'OPTIONS'])
 @jwt_required()
@@ -347,82 +392,71 @@ def get_all_clients():
 @jwt_required()
 @admin_required
 def get_all_livestock():
-    """Get all livestock for gallery - ADMIN ONLY"""
+    """Get all livestock for gallery - ADMIN ONLY - OPTIMIZED"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
-        
+
     try:
-        from datetime import datetime
-        
-        # Show all active livestock (both admin-added and client livestock with active loans)
-        livestock = Livestock.query.filter_by(status='active').all()
+        livestock = Livestock.query.options(
+            joinedload(Livestock.client),
+            joinedload(Livestock.loans)
+        ).filter_by(status='active').all()
+
         livestock_data = []
-        
+
         for item in livestock:
-            # Determine if it's admin-added or client livestock
             if item.client_id is None:
-                # Admin-added livestock (including claimed livestock)
-                description = item.location or 'Available for purchase'  # Use actual description
+                description = item.location or 'Available for purchase'
                 available_info = 'Available now'
                 livestock_type = item.livestock_type or 'Unknown'
-                days_remaining = 0  # Available immediately
+                days_remaining = 0
                 is_admin_added = True
             else:
-                # Client livestock - only show if loan is active
-                client_loan = Loan.query.filter_by(
-                    livestock_id=item.id, 
-                    status='active'
-                ).first()
-                
-                if client_loan:
+                active_loan = next((loan for loan in item.loans if loan.status == 'active'), None)
+                if active_loan:
                     client_name = item.client.full_name if item.client else 'Unknown'
-                    description = f"Collateral for {client_name}'s loan"  # Keep this format for client livestock
+                    description = f"Collateral for {client_name}'s loan"
                     livestock_type = item.livestock_type or 'Unknown'
                     is_admin_added = False
-                    
-                    # Calculate days remaining until repayment
-                    if client_loan.due_date:
+
+                    if active_loan.due_date:
                         today = datetime.now().date()
-                        due_date = client_loan.due_date
-                        
-                        if isinstance(due_date, str):
-                            due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
-                        elif hasattr(due_date, 'date'):
-                            due_date = due_date.date()
-                        
+                        due_date = active_loan.due_date.date() if hasattr(active_loan.due_date, 'date') else active_loan.due_date
                         days_remaining = (due_date - today).days
-                        
+
                         if days_remaining > 0:
                             available_info = f'Available in {days_remaining} days'
                         elif days_remaining == 0:
                             available_info = 'Available now'
                         else:
                             available_info = 'Available (overdue)'
-                            days_remaining = 0  # Overdue, so available now
+                            days_remaining = 0
                     else:
                         available_info = 'Available after loan repayment'
-                        days_remaining = 7  # Default 7 days
+                        days_remaining = 7
                 else:
-                    continue  # Skip client livestock without active loans
-            
+                    continue
+
             livestock_data.append({
                 'id': item.id,
                 'title': f"{livestock_type.capitalize()} - {item.count} head",
                 'type': livestock_type,
                 'count': item.count,
                 'price': float(item.estimated_value) if item.estimated_value else 0,
-                'description': description,  # This now uses the actual description for admin-added
+                'description': description,
                 'images': item.photos if item.photos else [],
                 'availableInfo': available_info,
                 'daysRemaining': days_remaining,
                 'status': item.status,
                 'isAdminAdded': is_admin_added
             })
-        
+
         return jsonify(livestock_data), 200
+
     except Exception as e:
         print(f"Livestock error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
 
 # In admin.py - Update the get_all_transactions function
 @admin_bp.route('/transactions', methods=['GET', 'OPTIONS'])
@@ -923,65 +957,3 @@ def format_currency(amount):
     return f"KES {float(amount):,.2f}"
 
 
-@admin_bp.route('/approved-loans', methods=['GET', 'OPTIONS'])
-@jwt_required()
-@admin_required
-def get_approved_loans():
-    """Get all approved loans - ADMIN ONLY"""
-    if request.method == 'OPTIONS':
-        return jsonify({'status': 'OK'}), 200
-        
-    try:
-        # Fetch loans with status 'active' (which are approved and disbursed)
-        approved_loans = Loan.query.filter_by(status='active').order_by(Loan.disbursement_date.desc()).all()
-        
-        approved_loans_data = []
-        for loan in approved_loans:
-            client_name = loan.client.full_name if loan.client else 'Unknown'
-            phone_number = loan.client.phone_number if loan.client else 'N/A'
-            id_number = loan.client.id_number if loan.client else 'N/A'
-            
-            # Get livestock data
-            livestock_type = 'N/A'
-            livestock_count = 0
-            estimated_value = 0
-            photos = []
-            
-            if loan.livestock:
-                livestock_type = loan.livestock.livestock_type or 'N/A'
-                livestock_count = loan.livestock.count or 0
-                estimated_value = float(loan.livestock.estimated_value) if loan.livestock.estimated_value else 0
-                photos = loan.livestock.photos if loan.livestock.photos else []
-            
-            location = 'N/A'
-            if loan.client and loan.client.location:
-                location = loan.client.location
-            elif loan.livestock and loan.livestock.location:
-                location = loan.livestock.location
-            
-            additional_info = "None"
-            if loan.notes:
-                additional_info = loan.notes
-            elif loan.notes == "":
-                additional_info = "None provided"
-            
-            approved_loans_data.append({
-                'id': loan.id,
-                'date': loan.disbursement_date.isoformat() if loan.disbursement_date else loan.created_at.isoformat(),
-                'name': client_name,
-                'phone': phone_number,
-                'idNumber': id_number,
-                'loanAmount': float(loan.principal_amount),
-                'livestockType': livestock_type,
-                'livestockCount': livestock_count,
-                'estimatedValue': estimated_value,
-                'location': location,
-                'additionalInfo': additional_info,
-                'photos': photos,
-                'status': loan.status
-            })
-        
-        return jsonify(approved_loans_data), 200
-    except Exception as e:
-        print(f"Error fetching approved loans: {str(e)}")
-        return jsonify({'error': str(e)}), 500

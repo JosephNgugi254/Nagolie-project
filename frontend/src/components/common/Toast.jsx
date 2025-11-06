@@ -2,10 +2,10 @@ import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 export const showToast = {
-  success: (message) => toast.success(message),
-  error: (message) => toast.error(message),
-  warning: (message) => toast.warning(message),
-  info: (message) => toast.info(message),
+  success: (message, duration = 5000) => toast.success(message, { autoClose: duration }),
+  error: (message, duration = 5000) => toast.error(message, { autoClose: duration }),
+  warning: (message, duration = 5000) => toast.warning(message, { autoClose: duration }),
+  info: (message, duration = 5000) => toast.info(message, { autoClose: duration }),
 };
 
 function Toast() {
@@ -15,15 +15,19 @@ function Toast() {
       autoClose={5000}
       hideProgressBar={false}
       newestOnTop={false}
-      closeOnClick
+      closeOnClick={true}
       rtl={false}
       pauseOnFocusLoss
       draggable
       pauseOnHover
       theme="light"
-      className="toast-container"
-      toastClassName="toast-wrapper"
-      bodyClassName="toast-body"
+      // Ensure these props are set for close button functionality
+      closeButton={true}
+      enableMultiContainer={false}
+      style={{
+        zIndex: 9999,
+      }}
+      // Remove custom className overrides that might interfere with functionality
     />
   );
 }
