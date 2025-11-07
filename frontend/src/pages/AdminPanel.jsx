@@ -33,7 +33,11 @@ function AdminPanel() {
   const [showActionModal, setShowActionModal] = useState(false)
   const [mpesaReference, setMpesaReference] = useState("")
 
-  //loading states
+  // SMS modal state
+  const [showSmsModal, setShowSmsModal] = useState(false);
+  const [smsMessage, setSmsMessage] = useState('');
+  const [smsPhone, setSmsPhone] = useState('');
+
   // Loading states
   const [loading, setLoading] = useState(true)
   const [livestockLoading, setLivestockLoading] = useState(false)
@@ -924,34 +928,81 @@ function AdminPanel() {
     setSelectedClient(null);
   };
 
-  const handleSendReminder = async (client, message) => {
+  const handleSendReminder = (client, message) => {
     try {
-      console.log('Sending reminder to:', client.client_name || client.name);
-      console.log('Message:', message);
-      console.log('Phone:', client.phone);
-
-      // Add "+" at the beginning of the phone number if not present
-      let phoneWithPlus = client.phone;
-      if (phoneWithPlus && !phoneWithPlus.startsWith('+')) {
-        phoneWithPlus = '+' + phoneWithPlus;
+      // Validate client object
+      if (!client) {
+        throw new Error('Client information is missing');
       }
 
-      // Use adminAPI instead of direct fetch
-      const response = await adminAPI.sendReminder({
-        client_id: client.id,
-        phone: phoneWithPlus,
-        message: message
-      });
-
-      if (response.data.success) {
-        showToast.success('SMS reminder sent successfully!');
-        handleCloseModal();
-      } else {
-        throw new Error(response.data.error || 'Failed to send SMS');
+      if (!client.client_name && !client.name) {
+        throw new Error('Client name is required');
       }
+
+      if (!client.phone) {
+        throw new Error('Client phone number is required');
+      }
+
+      if (typeof client.balance === 'undefined') {
+        throw new Error('Client balance information is missing');
+      }
+
+      // Generate professional reminder message
+      const messageText = `Hello ${client.client_name || client.name}, this is a reminder that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience.`;
+
+      // Format phone number - ensure it has +254 prefix
+      let phoneNumber = client.phone.toString().trim();
+
+      if (!phoneNumber) {
+        throw new Error('Phone number is empty');
+      }
+
+      // Remove any spaces or special characters
+      phoneNumber = phoneNumber.replace(/\s+/g, '').replace(/[-\s()]/g, '');
+
+      if (!phoneNumber.startsWith('+')) {
+        if (phoneNumber.startsWith('0')) {
+          phoneNumber = '+254' + phoneNumber.substring(1);
+        } else if (phoneNumber.startsWith('254')) {
+          phoneNumber = '+' + phoneNumber;
+        } else {
+          throw new Error('Invalid phone number format. Please use 07XXX, 2547XXX, or +2547XXX format');
+        }
+      }
+
+      // Validate the final phone number format
+      const phoneRegex = /^\+254[17]\d{8}$/;
+      if (!phoneRegex.test(phoneNumber)) {
+        throw new Error('Invalid phone number. Kenyan numbers should be +254 followed by 10 digits starting with 1 or 7');
+      }
+
+      // Validate message generation
+      if (!messageText || messageText.length < 10) {
+        throw new Error('Generated message is too short or invalid');
+      }
+
+      // Set states
+      setSmsMessage(messageText);
+      setSmsPhone(phoneNumber);
+      setShowSmsModal(true);
+      handleCloseModal(); // Close the TakeActionModal
+
     } catch (error) {
-      console.error('Error sending reminder:', error);
-      showToast.error(`SMS sending failed: ${error.message}`);
+      console.error('Error in handleSendReminder:', error);
+
+      // Show appropriate error message to user
+      if (error.message.includes('phone number')) {
+        showToast.error(`Phone number error: ${error.message}`);
+      } else if (error.message.includes('name')) {
+        showToast.error(`Client information error: ${error.message}`);
+      } else if (error.message.includes('balance')) {
+        showToast.error(`Loan information error: ${error.message}`);
+      } else {
+        showToast.error(`Failed to prepare SMS: ${error.message}`);
+      }
+
+      // Optional: Log to analytics or monitoring service
+      // logError('handleSendReminder', error, { clientId: client?.id });
     }
   };
 
@@ -2853,6 +2904,124 @@ function AdminPanel() {
             </button>
           </div>
         </Modal>
+      )}
+
+      {/* send SMS Reminder Modal */}
+      {showSmsModal && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">SMS Reminder</h5>
+                <button 
+                  type="button" 
+                  className="btn-close" 
+                  onClick={() => setShowSmsModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <div className="alert alert-info">
+                  <i className="fas fa-info-circle me-2"></i>
+                  SMS API feature coming soon. You can edit the message and phone number below.
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label">Recipient Phone:</label>
+                  <input 
+                    type="tel" 
+                    className="form-control mb-3" 
+                    value={smsPhone} 
+                    onChange={(e) => setSmsPhone(e.target.value)}
+                    placeholder="Enter phone number (e.g., +254712345678)"
+                  />
+
+                  <label className="form-label">Message:</label>
+                  <textarea 
+                    className="form-control" 
+                    value={smsMessage} 
+                    onChange={(e) => setSmsMessage(e.target.value)}
+                    rows="5" 
+                    style={{resize: 'none'}}
+                    placeholder="Type your message here..."
+                  />
+
+                  <div className="mt-2 text-muted small">
+                    <i className="fas fa-info-circle me-1"></i>
+                    You can edit both the phone number and message before sending
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setShowSmsModal(false)}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-outline-primary"
+                  onClick={async () => {
+                    try {
+                      if (!navigator.clipboard) {
+                        throw new Error('Clipboard API not supported in this browser');
+                      }
+
+                      await navigator.clipboard.writeText(smsMessage);
+                      showToast.success('Message copied to clipboard!');
+                    } catch (error) {
+                      console.error('Failed to copy message:', error);
+                      showToast.error('Failed to copy message. Please select and copy manually.');
+
+                      // Fallback: Select the text for manual copy
+                      const textarea = document.querySelector('.modal-body textarea');
+                      if (textarea) {
+                        textarea.select();
+                      }
+                    }
+                  }}
+                >
+                  <i className="fas fa-copy me-2"></i>Copy Message
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-success"
+                  onClick={() => {
+                    try {
+                      // Validate phone number
+                      if (!smsPhone.trim()) {
+                        throw new Error('Please enter a phone number');
+                      }
+
+                      if (!smsMessage.trim()) {
+                        throw new Error('Please enter a message');
+                      }
+
+                      // Additional phone validation
+                      const phoneRegex = /^\+254[17]\d{8}$/;
+                      if (!phoneRegex.test(smsPhone.trim())) {
+                        throw new Error('Please enter a valid Kenyan phone number (+2547XXXXXXXX)');
+                      }
+
+                      // Open SMS app with edited message and phone number
+                      const smsUri = `sms:${smsPhone.trim()}?body=${encodeURIComponent(smsMessage)}`;
+                      window.location.href = smsUri;
+
+                      showToast.info('Opening SMS app...');
+
+                    } catch (error) {
+                      console.error('Error opening SMS app:', error);
+                      showToast.error(error.message);
+                    }
+                  }}
+                >
+                  <i className="fas fa-paper-plane me-2"></i>Open in SMS App
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
