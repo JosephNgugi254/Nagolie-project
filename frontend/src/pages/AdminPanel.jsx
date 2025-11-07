@@ -948,7 +948,7 @@ function AdminPanel() {
       }
 
       // Generate professional reminder message
-      const messageText = `Hello ${client.client_name || client.name}, this is a reminder that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience.`;
+      const messageText = `Hello ${client.client_name || client.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience. Thank you for choosing us.`;
 
       // Format phone number - ensure it has +254 prefix
       let phoneNumber = client.phone.toString().trim();
