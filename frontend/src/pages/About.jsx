@@ -222,7 +222,7 @@ function About() {
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="/JOSEPH NGUGI.jpg" alt="Head of IT" className="img-fluid" />
+                  <img src="/solitary.png" alt="Head of IT" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
                       <a href="www.linkedin.com/in/joseph-ngugi-2a78991b7" className="social-link">
