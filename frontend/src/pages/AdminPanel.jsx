@@ -2178,7 +2178,6 @@ function AdminPanel() {
                   id="livestockPrice" 
                   name="price" 
                   min="1"
-                  step="0.01"
                   required 
                 />
               </div>
@@ -2321,7 +2320,6 @@ function AdminPanel() {
                   id="editPrice" 
                   name="editPrice" 
                   min="1"
-                  step="0.01"
                   defaultValue={editingLivestock.price}
                   required 
                 />
@@ -2484,9 +2482,8 @@ function AdminPanel() {
                 className="form-control" 
                 id="paymentAmount" 
                 name="amount" 
-                min="1"
+                min="0.01"
                 max={Math.floor(selectedClient.balance || 0)}
-                step="0.01"
                 placeholder="Enter amount"
                 required 
               />
@@ -2625,7 +2622,6 @@ function AdminPanel() {
             onChange={(e) => setMpesaAmount(e.target.value)}
             min="1"
             max={selectedClient.balance || 0}
-            step="1"
             placeholder="Enter amount"
             required 
           />
@@ -2782,7 +2778,6 @@ function AdminPanel() {
                 value={topupAmount}
                 onChange={(e) => setTopupAmount(e.target.value)}
                 min="1"
-                step="0.01"
                 placeholder="Enter top-up amount"
                 required 
               />
@@ -2799,7 +2794,6 @@ function AdminPanel() {
                 value={adjustmentAmount}
                 onChange={(e) => setAdjustmentAmount(e.target.value)}
                 min="1"
-                step="0.01"
                 placeholder="Enter new loan amount"
                 required 
               />
