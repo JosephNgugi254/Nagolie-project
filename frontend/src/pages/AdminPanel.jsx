@@ -2481,11 +2481,9 @@ function AdminPanel() {
                 type="number" 
                 className="form-control" 
                 id="paymentAmount" 
-                name="amount" 
-                min={selectedClient.balance < 1 ? undefined : 1}
-                max={selectedClient.balance < 1 ? undefined : Math.floor(selectedClient.balance || 0)}
-                // min="0.01"
-                // max={Math.floor(selectedClient.balance || 0)}
+                name="amount"                 
+                min="1"
+                max={Math.floor(selectedClient.balance || 0)}
                 placeholder="Enter amount"
                 required 
               />
