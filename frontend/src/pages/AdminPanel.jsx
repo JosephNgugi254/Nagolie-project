@@ -26,9 +26,28 @@ function AdminPanel() {
     total_lent: 0,
     total_received: 0,
     total_revenue: 0,
+    total_principal_paid: 0,  // NEW
+    available_funds: 0,  // NEW
     due_today: [],
     overdue: []
   })
+
+  // Payment Stats - NEW
+  const [paymentStats, setPaymentStats] = useState({
+    payment_stats: [],
+    total_principal_collected: 0,
+    currently_lent: 0,
+    available_for_lending: 0,
+    revenue_collected: 0
+  })
+
+  const [paymentStatsLoading, setPaymentStatsLoading] = useState(false)
+  const [paymentStatsSearch, setPaymentStatsSearch] = useState("")
+  const [paymentStatsStatus, setPaymentStatsStatus] = useState("all")
+
+  // Payment Type Selection - NEW
+  const [paymentType, setPaymentType] = useState('principal')
+  const [mpesaPaymentType, setMpesaPaymentType] = useState('principal')
 
   const [showActionModal, setShowActionModal] = useState(false)
   const [mpesaReference, setMpesaReference] = useState("")
@@ -208,11 +227,23 @@ function AdminPanel() {
   const [sendingStk, setSendingStk] = useState(false)
   const [paymentStatus, setPaymentStatus] = useState('');
 
+  //state variables for sharing livestock
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [sharingLivestock, setSharingLivestock] = useState(null);
+  const [shareMessage, setShareMessage] = useState('');
+
+  const openShareModal = (livestock) => {
+    console.log('Opening share modal for livestock:', livestock);
+    setSharingLivestock(livestock);
+    setShowShareModal(true);
+  };
+
 
   const openMpesaModal = (client) => {
     console.log("Opening M-Pesa modal for client:", client)
     setSelectedClient(client)
     setMpesaAmount("")
+    setMpesaPaymentType('principal')  // NEW - Add this line
     setShowMpesaModal(true)
   }
 
@@ -242,27 +273,32 @@ function AdminPanel() {
       return
     }
 
-    if (paymentAmount > (selectedClient.balance || 0)) {
-      showToast.error("Payment amount cannot exceed the current balance")
-      return
+    // NEW: Validate based on payment type
+    const currentPrincipal = selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0
+    const expectedInterest = currentPrincipal * 0.30
+
+    if (mpesaPaymentType === 'interest') {
+      if (paymentAmount > expectedInterest) {
+        showToast.error(`Interest payment cannot exceed ${formatCurrency(expectedInterest)}`)
+        return
+      }
+    } else if (mpesaPaymentType === 'principal') {
+      if (paymentAmount > currentPrincipal) {
+        showToast.error(`Principal payment cannot exceed ${formatCurrency(currentPrincipal)}`)
+        return
+      }
     }
 
     setSendingStk(true)
 
     try {
       const formattedPhone = formatPhoneNumber(selectedClient.phone);
-      console.log("Formatted phone:", formattedPhone);
-
-      console.log("Sending STK push for:", {
-        loan_id: selectedClient.loan_id,
-        amount: paymentAmount,
-        phone_number: formattedPhone
-      })
 
       const response = await paymentAPI.processMpesaPayment({
         loan_id: selectedClient.loan_id,
         amount: paymentAmount,
-        phone_number: formattedPhone
+        phone_number: formattedPhone,
+        payment_type: mpesaPaymentType  // NEW - Add this line
       })
 
       console.log("STK Push response:", response.data)
@@ -482,16 +518,32 @@ function AdminPanel() {
     if (clientFilter) {
       switch (clientFilter) {
         case "due-today":
-          filtered = filtered.filter(client => client.daysLeft === 0)
+          filtered = filtered.filter(client => {
+            const daysLeft = client.daysLeft || 0;
+            return daysLeft === 0;
+          })
           break
         case "overdue":
-          filtered = filtered.filter(client => client.daysLeft < 0)
+          filtered = filtered.filter(client => {
+            const daysLeft = client.daysLeft || 0;
+            return daysLeft < 0;
+          })
           break
         case "completed":
-          filtered = filtered.filter(client => client.balance <= 0)
+          // A loan is completed only when BOTH principal and interest are fully paid
+          filtered = filtered.filter(client => {
+            const currentPrincipal = client.currentPrincipal || client.borrowedAmount || 0;
+            const balance = client.balance || 0;
+            return currentPrincipal <= 0 && balance <= 0;
+          })
           break
         case "active":
-          filtered = filtered.filter(client => client.balance > 0)
+          // A client is active if they still owe ANYTHING (principal OR interest)
+          filtered = filtered.filter(client => {
+            const currentPrincipal = client.currentPrincipal || client.borrowedAmount || 0;
+            const balance = client.balance || 0;
+            return currentPrincipal > 0 || balance > 0;
+          })
           break
         default:
           // "all" - no additional filtering
@@ -499,7 +551,7 @@ function AdminPanel() {
       }
     }
 
-    // Date filter (expected return date) - FIXED
+    // Date filter (expected return date)
     if (clientDate) {
       filtered = filtered.filter(client => {
         if (!client.expectedReturnDate) return false
@@ -509,7 +561,7 @@ function AdminPanel() {
     }
 
     return filtered
-  },   [clients, clientSearch, clientFilter, clientDate])
+  }, [clients, clientSearch, clientFilter, clientDate])
 
   const filterTransactions = useCallback(() => {
     let filtered = [...transactions]
@@ -548,16 +600,24 @@ function AdminPanel() {
   // Set active section based on URL
   useEffect(() => {
     const path = location.pathname
+    let section = "overview"
     if (path.includes("/admin/clients")) {
-      setActiveSection("clients")
+      section = "clients"
     } else if (path.includes("/admin/transactions")) {
-      setActiveSection("transactions")
+      section = "transactions"
     } else if (path.includes("/admin/gallery")) {
-      setActiveSection("gallery")
+      section = "gallery"
     } else if (path.includes("/admin/applications")) {
-      setActiveSection("applications")
-    } else {
-      setActiveSection("overview")
+      section = "applications"
+    } else if (path.includes("/admin/payment-stats")) {
+      section = "payment-stats"
+    }
+
+    setActiveSection(section)
+
+    // Fetch data for the detected section
+    if (section === "payment-stats") {
+      fetchPaymentStats()
     }
   }, [location.pathname])
 
@@ -612,6 +672,7 @@ function AdminPanel() {
           try {
             // Load critical data first
             await fetchDashboardData()
+            await fetchPaymentStats() // Load payment stats early for dashboard overview
             await fetchApplications()
             await fetchClients()
 
@@ -675,22 +736,27 @@ function AdminPanel() {
       console.log("Fetching livestock...")
       const response = await adminAPI.getLivestock()
       console.log("Livestock response:", response.data)
-      setLivestock(response.data || [])
+      
+      // Ensure it's always an array
+      const data = Array.isArray(response.data) ? response.data : []
+      setLivestock(data)
     } catch (error) {
       console.error("Failed to fetch livestock:", error)
       if (error.response?.status === 401) {
         navigate("/admin/login")
         return
       }
+      // Always set empty array on error to prevent .map() crashes
       setLivestock([])
-      // Don't show error if it's just a timeout and we have some data
+      
+      // Only show toast if no data loaded yet
       if (livestock.length === 0) {
         showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message));
       }
     } finally {
       setLivestockLoading(false)
     }
-  }, [navigate, livestock.length])
+  }, [navigate, livestock.length])  // Note: Remove livestock.length from deps if causing infinite loops
 
   const fetchApplications = useCallback(async () => {
     setApplicationsLoading(true)
@@ -759,6 +825,38 @@ function AdminPanel() {
     }
   }, [navigate])
 
+  const fetchPaymentStats = useCallback(async () => {
+    setPaymentStatsLoading(true)
+    try {
+      console.log("Fetching payment stats...")
+      const response = await adminAPI.getPaymentStats()
+      console.log("Payment stats response:", response.data)
+      setPaymentStats(response.data || {
+        payment_stats: [],
+        total_principal_collected: 0,
+        currently_lent: 0,
+        available_for_lending: 0,
+        revenue_collected: 0 
+      })
+    } catch (error) {
+      console.error("Failed to fetch payment stats:", error)
+      if (error.response?.status === 401) {
+        navigate("/admin/login")
+        return
+      }
+      setPaymentStats({
+        payment_stats: [],
+        total_principal_collected: 0,
+        currently_lent: 0,
+        available_for_lending: 0,
+        revenue_collected: 0 
+      })
+      showToast.error("Failed to load payment statistics")
+    } finally {
+      setPaymentStatsLoading(false)
+    }
+  }, [navigate])
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -800,6 +898,12 @@ function AdminPanel() {
 
   const handleSectionChange = (section) => {
     setActiveSection(section)
+    
+    // Fetch payment stats when navigating to that section
+    if (section === "payment-stats") {
+      fetchPaymentStats()
+    }
+
     if (section === "overview") {
       navigate("/admin")
     } else {
@@ -853,70 +957,111 @@ function AdminPanel() {
   }
 
   const handlePayment = async (paymentData) => {
-    try {
-      console.log("Processing payment with data:", paymentData)
-
-      if (!selectedClient?.loan_id) {
-        showToast.error("Error: No active loan found for this client")
-        return
-      }
-
-      const paymentAmount = parseFloat(paymentData.amount)
-      if (isNaN(paymentAmount) || paymentAmount <= 0) {
-        showToast.error("Invalid payment amount")
-        return
-      }
-
-      if (paymentAmount > (selectedClient.balance || 0)) {
-        showToast.error("Payment amount cannot exceed the current balance")
-        return
-      }
-
-      let response;
-
-      if (paymentData.method === 'cash') {
-        // Process cash payment
-        response = await paymentAPI.processCashPayment({
-          loan_id: selectedClient.loan_id,
-          amount: paymentAmount,
-          notes: paymentData.notes || `Cash payment of KSh ${paymentAmount}`
-        })
-      } else if (paymentData.method === 'mpesa') {
-        // Process manual M-Pesa payment
-        if (!mpesaReference.trim()) {
-          showToast.error("Please enter M-Pesa reference code")
-          return
-        }
-
-        response = await paymentAPI.processMpesaManual({
-          loan_id: selectedClient.loan_id,
-          amount: paymentAmount,
-          mpesa_reference: mpesaReference.toUpperCase().trim(), // Convert to uppercase
-          notes: paymentData.notes || `M-Pesa payment of KSh ${paymentAmount}`
-        })
-      }
-
-      console.log("Payment response:", response.data)
-
-      if (response.data.success) {
-        showToast.success(`Payment processed successfully!\nNew balance: ${formatCurrency(response.data.loan.balance)}`)
-        setShowPaymentModal(false)
-        setSelectedClient(null)
-        setMpesaReference("") // Reset reference
-
-        // Refresh all data
-        await Promise.all([
-          fetchDashboardData(),
-          fetchClients(),
-          fetchTransactions()
-        ])
-      }
-    } catch (error) {
-      console.error('Payment processing error:', error)
-      const errorMsg = error.response?.data?.error || error.message
-      showToast.error(`Failed to process payment: ${errorMsg}`)
+  try {
+    console.log("Processing payment with data:", paymentData)
+  
+    if (!selectedClient?.loan_id) {
+      showToast.error("Error: No active loan found for this client")
+      return
     }
+  
+    const paymentAmount = parseFloat(paymentData.amount)
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
+      showToast.error("Invalid payment amount")
+      return
+    }
+  
+    // Calculate expected interest and current principal
+    const currentPrincipal = selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0
+    const expectedInterest = currentPrincipal * 0.30
+  
+    // Validate amount based on payment type
+    if (paymentType === 'interest') {
+      // Calculate based on current principal, not original
+      const currentPrincipal = selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0
+      const expectedInterest = currentPrincipal * 0.30
+    
+      // Check if interest was already paid for this period
+      const lastInterestPayment = selectedClient.lastInterestPayment
+      if (lastInterestPayment) {
+          const lastPaymentDate = new Date(lastInterestPayment)
+          const today = new Date()
+          const daysSinceLastPayment = Math.floor((today - lastPaymentDate) / (1000 * 60 * 60 * 24))
+         
+          if (daysSinceLastPayment < 7 && selectedClient.interestPaid >= expectedInterest) {
+              showToast.error(`Interest for this period has already been paid. Next interest payment available in ${7 - daysSinceLastPayment} days.`)
+              return
+          }
+      }
+     
+      if (paymentAmount > expectedInterest) {
+          showToast.error(`Interest payment cannot exceed ${formatCurrency(expectedInterest)}`)
+          return
+      }
+    } else if (paymentType === 'principal') {
+      if (paymentAmount > currentPrincipal) {
+        showToast.error(`Principal payment cannot exceed ${formatCurrency(currentPrincipal)}`)
+        return
+      }
+    }
+  
+    let response
+  
+    if (paymentData.method === 'cash') {
+      response = await paymentAPI.processCashPayment({
+        loan_id: selectedClient.loan_id,
+        amount: paymentAmount,
+        payment_type: paymentType,
+        notes: paymentData.notes || `Cash ${paymentType} payment of KSh ${paymentAmount}`
+      })
+    } else if (paymentData.method === 'mpesa') {
+      if (!mpesaReference.trim()) {
+        showToast.error("Please enter M-Pesa reference code")
+        return
+      }
+    
+      response = await paymentAPI.processMpesaManual({
+        loan_id: selectedClient.loan_id,
+        amount: paymentAmount,
+        payment_type: paymentType,
+        mpesa_reference: mpesaReference.toUpperCase().trim(),
+        notes: paymentData.notes || `M-Pesa ${paymentType} payment of KSh ${paymentAmount}`
+      })
+    }
+  
+    console.log("Payment response:", response.data)
+  
+    if (response.data.success) {
+      const loanData = response.data.loan
+      const interestPaid = loanData.interest_paid || 0;
+      const totalInterestDue = (selectedClient.borrowedAmount || 0) * 0.30;
+      const interestRemaining = totalInterestDue - interestPaid;
+      
+      showToast.success(
+        `${paymentType.charAt(0).toUpperCase() + paymentType.slice(1)} payment processed!\n` +
+        `Current Principal: ${formatCurrency(loanData.current_principal)}\n` +
+        `Interest Remaining: ${formatCurrency(interestRemaining)}\n` +
+        `New Balance: ${formatCurrency(loanData.balance)}`
+      )
+      setShowPaymentModal(false)
+      setSelectedClient(null)
+      setMpesaReference("")
+      setPaymentType('principal')  // Reset
+    
+      // Refresh all data including payment stats
+      await Promise.all([
+        fetchDashboardData(),
+        fetchClients(),
+        fetchTransactions(),
+        fetchPaymentStats()
+      ])
+    }
+  } catch (error) {
+    console.error('Payment processing error:', error)
+    const errorMsg = error.response?.data?.error || error.message
+    showToast.error(`Failed to process payment: ${errorMsg}`)
   }
+}
 
   const handleTakeAction = (client) => {
     setSelectedClient(client);
@@ -948,7 +1093,10 @@ function AdminPanel() {
       }
 
       // Generate professional reminder message
-      const messageText = `Hello ${client.client_name || client.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience. Thank you for choosing us.`;
+     const messageText = `Hello ${client.client_name || client.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience. Please make your payment via: 
+     Paybill: 247247
+     Account: 651259
+Thank you for choosing us.`;
 
       // Format phone number - ensure it has +254 prefix
       let phoneNumber = client.phone.toString().trim();
@@ -1050,7 +1198,8 @@ function AdminPanel() {
         type: livestockData.type,
         count: parseInt(livestockData.count),
         price: parseFloat(livestockData.price),
-        description: livestockData.description,
+        description: livestockData.description || 'Available for purchase',  // Added
+        location: livestockData.location || 'Isinya, Kajiado',  // Added
         images: livestockData.images || []
       });
 
@@ -1067,17 +1216,88 @@ function AdminPanel() {
     }
   };
 
-  const handleEditLivestock = (livestockItem) => {
-    console.log('Editing livestock:', livestockItem)
-    setEditingLivestock(livestockItem)
-    setSelectedImages(livestockItem.images || [])
-    setShowEditLivestockModal(true)
+const handleEditLivestock = (livestockItem) => {
+  console.log('Editing livestock:', livestockItem)
+  
+  // Parse the location field
+  let initialDescription = (livestockItem.livestock_type?.charAt(0).toUpperCase() + livestockItem.livestock_type?.slice(1)) + ' available for purchase';
+  let initialLocation = 'Isinya, Kajiado';
+  
+  if (livestockItem.location) {
+    // Check if it contains a pipe character
+    if (livestockItem.location.includes('|')) {
+      // Split by pipe, but keep all parts
+      const parts = livestockItem.location.split('|');
+      console.log('Split parts:', parts);
+      
+      if (parts.length >= 2) {
+        // First part is description, everything after first pipe is location
+        initialDescription = parts[0].trim();
+        // Join all remaining parts as location (in case location contains pipes)
+        initialLocation = parts.slice(1).join('|').trim();
+      } else if (parts.length === 1) {
+        // Only one part - could be description or location
+        const part = parts[0].trim();
+        // Check if it looks like a description
+        if (isDescription(part)) {
+          initialDescription = part;
+        } else {
+          initialLocation = part;
+        }
+      }
+    } else {
+      // No pipe separator - check if it's a description or location
+      if (isDescription(livestockItem.location)) {
+        initialDescription = livestockItem.location.trim();
+      } else {
+        initialLocation = livestockItem.location.trim();
+      }
+    }
   }
+  
+  // For admin view, use the description from the item if available
+  if (livestockItem.description && livestockItem.description !== 'Available for purchase') {
+    initialDescription = livestockItem.description;
+  }
+  
+  console.log('Parsed values - Description:', initialDescription, 'Location:', initialLocation);
+  
+  setEditingLivestock({
+    ...livestockItem,
+    description: initialDescription,
+    location: initialLocation
+  });
+  
+  setSelectedImages(livestockItem.images || [])
+  setShowEditLivestockModal(true)
+}
+
+// Helper function to determine if a string looks like a description
+const isDescription = (str) => {
+  const lowerStr = str.toLowerCase();
+  return (
+    lowerStr.includes('cow') ||
+    lowerStr.includes('goat') ||
+    lowerStr.includes('sheep') ||
+    lowerStr.includes('chicken') ||
+    lowerStr.includes('poultry') ||
+    lowerStr.includes('bull') ||
+    lowerStr.includes('calf') ||
+    lowerStr.includes('healthy') ||
+    lowerStr.includes('good') ||
+    lowerStr.includes('excellent') ||
+    lowerStr.includes('nice') ||
+    lowerStr.includes('quality') ||
+    lowerStr.includes('available for') ||
+    lowerStr.includes('for sale') ||
+    lowerStr.includes('for purchase')
+  );
+};
 
   const handleUpdateLivestock = async (e) => {
     e.preventDefault()
     if (!editingLivestock) return
-
+    
     try {
       const formData = new FormData(e.target)
       const updatedData = {
@@ -1085,14 +1305,15 @@ function AdminPanel() {
         count: parseInt(formData.get('editCount')),
         price: parseFloat(formData.get('editPrice')),
         description: formData.get('editDescription'),
+        location: formData.get('editLocation'), // Make sure this is included
         images: selectedImages
       }
-
+    
       console.log('Updating livestock with data:', updatedData)
-
+    
       // Use adminAPI instead of direct fetch
       const response = await adminAPI.updateLivestock(editingLivestock.id, updatedData)
-
+    
       if (response.data.success) {
         showToast.success('Livestock updated successfully!')
         setShowEditLivestockModal(false)
@@ -1178,6 +1399,47 @@ function AdminPanel() {
       </div>
     )
   }
+
+  const formatTransactionType = (type, paymentType) => {
+  if (!type) return 'N/A';
+  
+  const typeLower = type.toLowerCase();
+  const paymentTypeLower = paymentType ? paymentType.toLowerCase() : '';
+  
+  // Handle payment types specifically
+  if (typeLower === 'payment') {
+    if (paymentTypeLower === 'principal') return 'Principal Payment';
+    if (paymentTypeLower === 'interest') return 'Interest Payment';
+    return 'Payment';
+  }
+  
+  const typeMap = {
+    'topup': 'Top-up',
+    'adjustment': 'Adjustment',
+    'payment': 'Payment',
+    'disbursement': 'Disbursement',
+    'claim': 'Claim'
+  };
+  
+  return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
+};
+
+  const getTransactionBadgeColor = (type) => {
+    const typeLower = (type || '').toLowerCase();
+
+    switch(typeLower) {
+      case 'disbursement':
+        return 'bg-primary';
+      case 'topup':
+      case 'adjustment':
+        return 'bg-info';
+      case 'claim':
+        return 'bg-danger';
+      case 'payment':
+      default:
+        return 'bg-success';
+    }
+  };
 
   return (
     <div>
@@ -1269,9 +1531,9 @@ function AdminPanel() {
                       </div>
                       <div className="col-md-3 mb-3">
                         <AdminCard
-                          title="Revenue"
-                          value={formatCurrency(dashboardData.total_revenue)}
-                          icon="fa-chart-line"
+                          title="Available Funds"
+                          value={formatCurrency(paymentStats.available_for_lending)}
+                          icon="fa-wallet"
                           color="warning"
                         />
                       </div>
@@ -1431,21 +1693,40 @@ function AdminPanel() {
                           { header: "Amount Paid", field: "amountPaid", render: (row) => formatCurrency(row.amountPaid) },
                           { header: "Balance", field: "balance", render: (row) => formatCurrency(row.balance) },
                           { 
-                            header: "Days Left", 
-                            field: "daysLeft",
+                            header: "Status", 
+                            field: "status",
                             render: (row) => {
-                              const days = row.daysLeft
-                              let className = "days-counter "
-                              if (days > 0) className += "positive"
-                              else if (days === 0) className += "zero"
-                              else className += "negative"
-
-                              let text = ""
-                              if (days > 0) text = `${days} days left`
-                              else if (days === 0) text = "Due today"
-                              else text = `${Math.abs(days)} days overdue`
-
-                              return <span className={className}>{text}</span>
+                              const currentPrincipal = row.currentPrincipal || row.borrowedAmount || 0;
+                              const balance = row.balance || 0;
+                              const days = row.daysLeft || 0;
+                              
+                              let status = "active";
+                              let className = "badge ";
+                              let text = "";
+                              
+                              if (currentPrincipal <= 0 && balance <= 0) {
+                                status = "completed";
+                                className += "bg-secondary";
+                                text = "Completed";
+                              } else if (days < 0) {
+                                status = "overdue";
+                                className += "bg-danger";
+                                text = `${Math.abs(days)} days overdue`;
+                              } else if (days === 0) {
+                                status = "due-today";
+                                className += "bg-warning";
+                                text = "Due today";
+                              } else if (currentPrincipal <= 0 && balance > 0) {
+                                status = "interest-only";
+                                className += "bg-info";
+                                text = "Interest only";
+                              } else {
+                                status = "active";
+                                className += "bg-success";
+                                text = `${days} days left`;
+                              }
+                              
+                              return <span className={className}>{text}</span>;
                             }
                           },
                           {
@@ -1559,11 +1840,13 @@ function AdminPanel() {
                           { 
                             header: "Type", 
                             field: "type",
-                            render: (row) => (
-                              <span className={`badge ${row.type === "disbursement" ? "bg-primary" : "bg-success"}`}>
-                                {row.type.charAt(0).toUpperCase() + row.type.slice(1)}
-                              </span>
-                            )
+                            render: (row) => {
+                              const paymentType = row.payment_type || row.paymentType || '';
+                              const displayType = formatTransactionType(row.type, paymentType);
+                              const badgeClass = getTransactionBadgeColor(row.type);
+
+                              return <span className={`badge ${badgeClass}`}>{displayType}</span>;
+                            }
                           },
                           { header: "Amount", field: "amount", render: (row) => formatCurrency(row.amount) },
                           { 
@@ -1679,6 +1962,12 @@ function AdminPanel() {
                                     onClick={() => handleEditLivestock(item)}
                                   >
                                     <i className="fas fa-edit"></i> Edit
+                                  </button>
+                                  <button 
+                                    className="btn btn-sm btn-outline-info me-2"  // NEW: Share button
+                                    onClick={() => openShareModal(item)}
+                                  >
+                                    <i className="fas fa-share-alt"></i> Share
                                   </button>
                                   <button 
                                     className="btn btn-sm btn-outline-danger"
@@ -1961,6 +2250,155 @@ function AdminPanel() {
               </div>
             )}
 
+            {/* Payment Stats Section - NEW */}
+            {activeSection === "payment-stats" && (
+              <div id="payment-stats-section" className="content-section">
+                <div className="d-flex justify-content-between align-items-center mb-4">
+                  <h2>Payment Statistics</h2>
+                  <div className="d-flex gap-2">
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="Search by name or phone..." 
+                      value={paymentStatsSearch}
+                      onChange={(e) => setPaymentStatsSearch(e.target.value)}
+                    />
+                    <select 
+                      className="form-select"
+                      value={paymentStatsStatus}
+                      onChange={(e) => setPaymentStatsStatus(e.target.value)}
+                    >
+                      <option value="all">All</option>
+                      <option value="active">Active</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+                </div>
+            
+                {/* Summary Cards */}
+                <div className="row mb-4">
+                  <div className="col-md-3 mb-3">
+                    <AdminCard
+                      title="Total Principal Collected"
+                      value={formatCurrency(paymentStats.total_principal_collected)}
+                      icon="fa-coins"
+                      color="success"
+                    />
+                  </div>
+                  <div className="col-md-3 mb-3">
+                    <AdminCard
+                      title="Currently Lent"
+                      value={formatCurrency(paymentStats.currently_lent)}
+                      icon="fa-hand-holding-usd"
+                      color="info"
+                    />
+                  </div>
+                  <div className="col-md-3 mb-3">
+                    <AdminCard
+                      title="Available for Lending"
+                      value={formatCurrency(paymentStats.available_for_lending)}
+                      icon="fa-piggy-bank"
+                      color="primary"
+                    />
+                  </div>
+                  {/* NEW: Revenue Collected Card */}
+                  <div className="col-md-3 mb-3">
+                    <AdminCard
+                      title="Revenue Collected"
+                      value={formatCurrency(paymentStats.revenue_collected || 0)}
+                      icon="fa-chart-line"
+                      color="warning"
+                    />
+                  </div>
+                </div>
+            
+                <div className="card">
+                  <div className="card-body">
+                    {paymentStatsLoading ? (
+                      <div className="text-center py-5">
+                        <div className="spinner-border text-primary" role="status">
+                          <span className="visually-hidden">Loading...</span>
+                        </div>
+                        <p className="mt-2">Loading payment statistics...</p>
+                      </div>
+                    ) : (
+                      <>
+                        {paymentStats.payment_stats
+                          .filter(stat => {
+                            // Apply filters
+                            if (paymentStatsSearch) {
+                              const searchTerm = paymentStatsSearch.toLowerCase()
+                              if (!stat.name?.toLowerCase().includes(searchTerm) &&
+                                  !stat.phone?.toLowerCase().includes(searchTerm)) {
+                                return false
+                              }
+                            }
+                            if (paymentStatsStatus !== 'all') {
+                              if (paymentStatsStatus === 'active' && stat.status !== 'active') return false
+                              if (paymentStatsStatus === 'completed' && stat.status !== 'completed') return false
+                            }
+                            return true
+                          }).length === 0 ? (
+                          <div className="text-center py-5">
+                            <i className="fas fa-chart-bar fa-3x text-muted mb-3"></i>
+                            <h5 className="text-muted">No Payment Data</h5>
+                            <p className="text-muted">
+                              {paymentStats.payment_stats.length === 0 
+                                ? "No principal payments have been recorded yet."
+                                : "No results match your filters."}
+                            </p>
+                          </div>
+                        ) : (
+                          <AdminTable
+                            columns={[
+                              { header: "Name", field: "name" },
+                              { header: "Phone", field: "phone" },
+                              { header: "Borrowed Date", field: "borrowed_date", render: (row) => formatDate(row.borrowed_date) },
+                              { header: "Amount Borrowed", field: "borrowed_amount", render: (row) => formatCurrency(row.borrowed_amount) },
+                              { header: "Principal Paid", field: "principal_paid", render: (row) => formatCurrency(row.principal_paid) },
+                              { header: "Current Principal", field: "current_principal", render: (row) => formatCurrency(row.current_principal) },
+                              { 
+                                header: "Interest Paid", 
+                                field: "interest_paid", 
+                                render: (row) => (
+                                  <span className="text-warning fw-bold">
+                                    {formatCurrency(row.interest_paid)}
+                                  </span>
+                                )
+                              },
+                              { 
+                                header: "Status", 
+                                field: "status",
+                                render: (row) => (
+                                  <span className={`badge ${row.status === 'active' ? 'bg-success' : 'bg-secondary'}`}>
+                                    {row.status.toUpperCase()}
+                                  </span>
+                                )
+                              },
+                            ]}
+                            data={paymentStats.payment_stats.filter(stat => {
+                              if (paymentStatsSearch) {
+                                const searchTerm = paymentStatsSearch.toLowerCase()
+                                if (!stat.name?.toLowerCase().includes(searchTerm) &&
+                                    !stat.phone?.toLowerCase().includes(searchTerm)) {
+                                  return false
+                                }
+                              }
+                              if (paymentStatsStatus !== 'all') {
+                                if (paymentStatsStatus === 'active' && stat.status !== 'active') return false
+                                if (paymentStatsStatus === 'completed' && stat.status !== 'completed') return false
+                              }
+                              return true
+                            })}
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       </div>
@@ -2112,16 +2550,17 @@ function AdminPanel() {
           <form onSubmit={async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-
+          
             try {
               await handleAddLivestock({
                 type: formData.get('type'),
                 count: parseInt(formData.get('count')),
                 price: parseFloat(formData.get('price')),
-                description: formData.get('description'),
+                description: formData.get('description') || 'Available for purchase',
+                location: formData.get('location') || 'Isinya, Kajiado',
                 images: selectedImages
               });
-              setSelectedImages([]) // Reset images after successful submission
+              setSelectedImages([]); // Reset images after successful submission
             } catch (error) {
               console.error('Error in form submission:', error);
             }
@@ -2129,151 +2568,10 @@ function AdminPanel() {
             <div className="row">
               <div className="col-md-6 mb-3">
                 <label htmlFor="livestockType" className="form-label">Livestock Type *</label>
-                <select 
-                  className="form-control" 
-                  id="livestockType" 
-                  name="type" 
-                  required
-                  style={{
-                    width: '100%',
-                    fontSize: '16px',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    backgroundColor: 'white',
-                    border: '1px solid #ddd',
-                    appearance: 'none',
-                    WebkitAppearance: 'none',
-                    MozAppearance: 'none',
-                    backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 12px center',
-                    backgroundSize: '16px',
-                    paddingRight: '40px'
-                  }}
-                  >           
-                  <option value="cattle">Cattle</option>
-                  <option value="goats">Goats</option>
-                  <option value="sheep">Sheep</option>
-                  <option value="poultry">Poultry</option>
-                </select>
-              </div>
-              <div className="col-md-6 mb-3">
-                <label htmlFor="livestockCount" className="form-label">Count *</label>
-                <input 
-                  type="number" 
-                  className="form-control" 
-                  id="livestockCount" 
-                  name="count" 
-                  min="1"
-                  required 
-                />
-              </div>
-            </div>
-            <div className="row">
-              <div className="col-md-6 mb-3">
-                <label htmlFor="livestockPrice" className="form-label">Price (KSh) *</label>
-                <input 
-                  type="number" 
-                  className="form-control" 
-                  id="livestockPrice" 
-                  name="price" 
-                  min="1"
-                  required 
-                />
-              </div>
-              <div className="col-md-6 mb-3">
-                <label htmlFor="livestockDescription" className="form-label">Description</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  id="livestockDescription" 
-                  name="description" 
-                  placeholder="Brief description of the livestock"
-                />
-              </div>
-            </div>
-
-            {/* Image Upload Section */}
-            <div className="mb-3">
-              <label htmlFor="livestockImages" className="form-label">Upload Images</label>
-              <input 
-                type="file" 
-                className="form-control" 
-                id="livestockImages" 
-                multiple 
-                accept="image/*"
-                onChange={handleImageUpload}
-              />
-              <small className="text-muted">You can select multiple images</small>
-
-              {/* Image Preview */}
-              {selectedImages.length > 0 && (
-                <div className="mt-3">
-                  <label className="form-label">Image Previews:</label>
-                  <div className="row">
-                    {selectedImages.map((image, index) => (
-                      <div key={index} className="col-3 mb-2 position-relative">
-                        <img 
-                          src={image} 
-                          alt={`Preview ${index + 1}`} 
-                          className="img-thumbnail"
-                          style={{ width: '100%', height: '80px', objectFit: 'cover' }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm position-absolute top-0 end-0"
-                          onClick={() => removeImage(index)}
-                          style={{ transform: 'translate(50%, -50%)' }}
-                        >
-                          <i className="fas fa-times"></i>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="alert alert-info">
-              <i className="fas fa-info-circle me-2"></i>
-              This livestock will be added to the public gallery and marked as available immediately.
-            </div>
-            <div className="d-flex gap-2">
-              <button type="submit" className="btn btn-primary">
-                Add to Gallery
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => {
-                setShowAddLivestockModal(false)
-                setSelectedImages([])
-              }}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
-
-      {/* Edit Livestock Modal */}
-      {showEditLivestockModal && editingLivestock && (
-        <Modal
-          isOpen={showEditLivestockModal}
-          onClose={() => {
-            setShowEditLivestockModal(false)
-            setEditingLivestock(null)
-            setSelectedImages([])
-          }}
-          title="Edit Livestock"
-          size="lg"
-        >
-          <form onSubmit={handleUpdateLivestock}>
-            <div className="row">
-              <div className="col-md-6 mb-3">
-                <label htmlFor="editType" className="form-label">Livestock Type *</label>
-                <select 
-                  className="form-control" 
-                  id="editType" 
-                  name="editType" 
-                  defaultValue={editingLivestock.type}
+                <select
+                  className="form-control"
+                  id="livestockType"
+                  name="type"
                   required
                   style={{
                     width: '100%',
@@ -2299,67 +2597,81 @@ function AdminPanel() {
                 </select>
               </div>
               <div className="col-md-6 mb-3">
-                <label htmlFor="editCount" className="form-label">Count *</label>
-                <input 
-                  type="number" 
-                  className="form-control" 
-                  id="editCount" 
-                  name="editCount" 
+                <label htmlFor="livestockCount" className="form-label">Count *</label>
+                <input
+                  type="number"
+                  className="form-control"
+                  id="livestockCount"
+                  name="count"
                   min="1"
-                  defaultValue={editingLivestock.count}
-                  required 
+                  placeholder="Enter number of livestock"
+                  required
                 />
               </div>
             </div>
+                
             <div className="row">
               <div className="col-md-6 mb-3">
-                <label htmlFor="editPrice" className="form-label">Price (KSh) *</label>
-                <input 
-                  type="number" 
-                  className="form-control" 
-                  id="editPrice" 
-                  name="editPrice" 
+                <label htmlFor="livestockPrice" className="form-label">Price (KSh) *</label>
+                <input
+                  type="number"
+                  className="form-control"
+                  id="livestockPrice"
+                  name="price"
                   min="1"
-                  defaultValue={editingLivestock.price}
-                  required 
-                />
-              </div>
-              <div className="col-md-6 mb-3">
-                <label htmlFor="editDescription" className="form-label">Description</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  id="editDescription" 
-                  name="editDescription" 
-                  placeholder="Brief description of the livestock"
-                  defaultValue={editingLivestock.description}
+                  required
                 />
               </div>
             </div>
-
-            {/* Image Upload Section for Edit */}
+                
+            {/* Description and Location Fields */}
+            <div className="row">
+              <div className="col-md-6 mb-3">
+                <label htmlFor="livestockDescription" className="form-label">Description</label>
+                <textarea
+                  className="form-control"
+                  id="livestockDescription"
+                  name="description"
+                  placeholder="Brief description (e.g., Healthy cow with good milk production)"
+                  rows="3"
+                />
+              </div>
+              <div className="col-md-6 mb-3">
+                <label htmlFor="livestockLocation" className="form-label">Location</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  id="livestockLocation"
+                  name="location"
+                  placeholder="Location (e.g., Isinya, Kajiado)"
+                  defaultValue="Isinya, Kajiado"
+                />
+              </div>
+            </div>
+                
+            {/* Image Upload Section */}
             <div className="mb-3">
-              <label htmlFor="editLivestockImages" className="form-label">Update Images</label>
-              <input 
-                type="file" 
-                className="form-control" 
-                id="editLivestockImages" 
-                multiple 
+              <label htmlFor="livestockImages" className="form-label">Upload Images</label>
+              <input
+                type="file"
+                className="form-control"
+                id="livestockImages"
+                multiple
                 accept="image/*"
                 onChange={handleImageUpload}
               />
-              <small className="text-muted">Select new images to add to existing ones</small>
-
-              {/* Current Images */}
+              <small className="text-muted">You can select multiple images</small>
+                
+              {/* Image Preview */}
               {selectedImages.length > 0 && (
                 <div className="mt-3">
-                  <label className="form-label">Current Images:</label>
+                  <label className="form-label">Image Previews:</label>
                   <div className="row">
                     {selectedImages.map((image, index) => (
                       <div key={index} className="col-3 mb-2 position-relative">
-                        <img 
-                          src={image} 
-                          alt={`Preview ${index + 1}`} 
+                        <img
+                          src={image}
+                          alt={`Preview ${index + 1}`}
                           className="img-thumbnail"
                           style={{ width: '100%', height: '80px', objectFit: 'cover' }}
                         />
@@ -2378,20 +2690,213 @@ function AdminPanel() {
               )}
             </div>
             
+            <div className="alert alert-info">
+              <i className="fas fa-info-circle me-2"></i>
+              This livestock will be added to the public gallery and marked as available immediately.
+            </div>
+            
             <div className="d-flex gap-2">
               <button type="submit" className="btn btn-primary">
-                Update Livestock
+                Add to Gallery
               </button>
-              <button 
-                type="button" 
-                className="btn btn-secondary" 
+              <button
+                type="button"
+                className="btn btn-secondary"
                 onClick={() => {
-                  setShowEditLivestockModal(false)
-                  setEditingLivestock(null)
-                  setSelectedImages([])
+                  setShowAddLivestockModal(false);
+                  setSelectedImages([]);
                 }}
               >
                 Cancel
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Edit Livestock Modal */}
+      {showEditLivestockModal && editingLivestock && (
+        <Modal
+          isOpen={showEditLivestockModal}
+          onClose={() => {
+            setShowEditLivestockModal(false);
+            setEditingLivestock(null);
+            setSelectedImages([]);
+          }}
+          title="Edit Livestock"
+          size="lg"
+        >
+          <form onSubmit={handleUpdateLivestock}>
+            {/* Parse stored location field: "Description | Location" */}
+            {(() => {
+              const storedLocation = editingLivestock.location || '';
+              let initialDescription = 'Available for purchase';
+              let initialLocation = 'Isinya, Kajiado';
+            
+              if (storedLocation.includes('|')) {
+                const parts = storedLocation.split('|');
+                if (parts.length >= 2) {
+                  initialDescription = parts[0].trim();
+                  initialLocation = parts.slice(1).join('|').trim(); // In case location has |
+                } else {
+                  initialLocation = storedLocation.trim();
+                }
+              } else if (storedLocation.trim() && storedLocation.trim() !== 'Isinya, Kajiado') {
+                // Fallback: if no | separator, assume it's location only
+                initialLocation = storedLocation.trim();
+              }
+            
+              // For admin view, description might come separately — use it if available
+              if (editingLivestock.description && editingLivestock.description !== 'Available for purchase') {
+                initialDescription = editingLivestock.description;
+              }
+            
+              return (
+                <>
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label htmlFor="editType" className="form-label">Livestock Type *</label>
+                      <select
+                        className="form-control"
+                        id="editType"
+                        name="editType"
+                        defaultValue={editingLivestock.type || ''}
+                        required
+                        style={{
+                          width: '100%',
+                          fontSize: '16px',
+                          padding: '12px',
+                          borderRadius: '8px',
+                          backgroundColor: 'white',
+                          border: '1px solid #ddd',
+                          appearance: 'none',
+                          WebkitAppearance: 'none',
+                          MozAppearance: 'none',
+                          backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 12px center',
+                          backgroundSize: '16px',
+                          paddingRight: '40px'
+                        }}
+                      >
+                        <option value="cattle">Cattle</option>
+                        <option value="goats">Goats</option>
+                        <option value="sheep">Sheep</option>
+                        <option value="poultry">Poultry</option>
+                      </select>
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label htmlFor="editCount" className="form-label">Count *</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        id="editCount"
+                        name="editCount"
+                        min="1"
+                        defaultValue={editingLivestock.count}
+                        required
+                      />
+                    </div>
+                  </div>
+                      
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label htmlFor="editPrice" className="form-label">Price (KSh) *</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        id="editPrice"
+                        name="editPrice"
+                        min="1"
+                        defaultValue={editingLivestock.price}
+                        required
+                      />
+                    </div>
+                  </div>
+                      
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label htmlFor="editDescription" className="form-label">Description</label>
+                      <textarea
+                        className="form-control"
+                        id="editDescription"
+                        name="editDescription"
+                        placeholder="e.g. Healthy bulls ready for sale"
+                        rows="3"
+                        defaultValue={initialDescription}
+                      />
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label htmlFor="editLocation" className="form-label">Location</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="editLocation"
+                        name="editLocation"
+                        placeholder="e.g. Isinya, Kajiado"
+                        defaultValue={initialLocation}
+                      />
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Image Upload Section */}
+            <div className="mb-3">
+              <label htmlFor="editLivestockImages" className="form-label">Update Images</label>
+              <input
+                type="file"
+                className="form-control"
+                id="editLivestockImages"
+                multiple
+                accept="image/*"
+                onChange={handleImageUpload}
+              />
+              <small className="text-muted">Select new images to replace or add</small>
+          
+              {/* Preview current + newly selected images */}
+              {selectedImages.length > 0 && (
+                <div className="mt-3">
+                  <label className="form-label">Current Images:</label>
+                  <div className="row g-2">
+                    {selectedImages.map((image, index) => (
+                      <div key={index} className="col-3 position-relative">
+                        <img
+                          src={image}
+                          alt={`Image ${index + 1}`}
+                          className="img-thumbnail"
+                          style={{ width: '100%', height: '100px', objectFit: 'cover' }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm position-absolute top-0 end-0"
+                          onClick={() => removeImage(index)}
+                          style={{ transform: 'translate(50%, -50%)', borderRadius: '50%' }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="d-flex justify-content-end gap-2 mt-4">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowEditLivestockModal(false);
+                  setEditingLivestock(null);
+                  setSelectedImages([]);
+                }}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Update Livestock
               </button>
             </div>
           </form>
@@ -2472,6 +2977,60 @@ function AdminPanel() {
                 readOnly 
               />
             </div>
+
+            {/* Payment Type Selection - NEW */}
+            <div className="mb-3">
+              <label className="form-label"><strong>Payment Type</strong> <span className="text-danger">*</span></label>
+              <div className="form-check">
+                <input 
+                  className="form-check-input" 
+                  type="radio" 
+                  name="paymentTypeRadio" 
+                  id="principalPayment" 
+                  checked={paymentType === 'principal'}
+                  onChange={() => setPaymentType('principal')}
+                />
+                <label className="form-check-label" htmlFor="principalPayment">
+                  Principal Payment (Reduces loan amount)
+                </label>
+              </div>
+              <div className="form-check">
+                <input 
+                  className="form-check-input" 
+                  type="radio" 
+                  name="paymentTypeRadio" 
+                  id="interestPayment" 
+                  checked={paymentType === 'interest'}
+                  onChange={() => setPaymentType('interest')}
+                />
+                <label className="form-check-label" htmlFor="interestPayment">
+                  Interest Payment (Extends due date by 7 days)
+                </label>
+              </div>
+            </div>
+                    
+            {/* Show different info based on payment type */}
+            {paymentType === 'principal' ? (
+              <div className="mb-3">
+                <label className="form-label">Current Principal Amount</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={formatCurrency(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)} 
+                  readOnly 
+                />
+              </div>
+            ) : (
+              <div className="mb-3">
+                <label className="form-label">Expected Interest (30%)</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={formatCurrency((selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) * 0.30)} 
+                  readOnly 
+                />
+              </div>
+            )}
 
             <div className="mb-3">
               <label htmlFor="paymentAmount" className="form-label">
@@ -2608,6 +3167,37 @@ function AdminPanel() {
             value={formatCurrency(selectedClient.balance || 0)} 
             readOnly 
           />
+        </div>
+
+        {/* Payment Type Selection for M-Pesa - NEW */}
+        <div className="mb-3">
+          <label className="form-label"><strong>Payment Type</strong></label>
+          <div className="form-check">
+            <input 
+              className="form-check-input" 
+              type="radio" 
+              name="mpesaPaymentType" 
+              id="mpesaPrincipal" 
+              checked={mpesaPaymentType === 'principal'}
+              onChange={() => setMpesaPaymentType('principal')}
+            />
+            <label className="form-check-label" htmlFor="mpesaPrincipal">
+              Principal Payment
+            </label>
+          </div>
+          <div className="form-check">
+            <input 
+              className="form-check-input" 
+              type="radio" 
+              name="mpesaPaymentType" 
+              id="mpesaInterest" 
+              checked={mpesaPaymentType === 'interest'}
+              onChange={() => setMpesaPaymentType('interest')}
+            />
+            <label className="form-check-label" htmlFor="mpesaInterest">
+              Interest Payment
+            </label>
+          </div>
         </div>
       
         <div className="mb-3">
@@ -3016,6 +3606,160 @@ function AdminPanel() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Share Modal */}
+      {showShareModal && sharingLivestock && (
+        <Modal
+          isOpen={showShareModal}
+          onClose={() => {
+            setShowShareModal(false);
+            setSharingLivestock(null);
+            setShareMessage(''); // Reset the custom message
+          }}
+          title="Share Livestock"
+          size="md"
+        >
+          <div className="mb-3">
+            <label className="form-label">Livestock</label>
+            <input 
+              type="text" 
+              className="form-control" 
+              value={sharingLivestock.title || 'Untitled'} 
+              readOnly 
+            />
+          </div>
+
+          {/* Custom Message Input */}
+          <div className="mb-3">
+            <label className="form-label">Custom Message</label>
+            <textarea 
+              className="form-control" 
+              rows="3"
+              placeholder="Enter a custom message for sharing (e.g., Healthy cow with excellent milk production)"
+              value={shareMessage}
+              onChange={(e) => setShareMessage(e.target.value)}
+              maxLength="200"
+            />
+            <small className="text-muted">
+              This message will replace the default livestock title when shared. Leave empty to use original title.
+            </small>
+          </div>
+
+          <div className="mb-3">
+            <label className="form-label">Shareable Link</label>
+            <div className="input-group">
+              <input 
+                type="text" 
+                className="form-control" 
+                id="shareLink"
+                value={`${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`}
+                readOnly 
+              />
+              <button 
+                className="btn btn-outline-secondary"
+                type="button"
+                onClick={() => {
+                  const linkInput = document.getElementById('shareLink');
+                  linkInput.select();
+                  navigator.clipboard.writeText(linkInput.value);
+                  showToast.success('Link copied to clipboard!');
+                }}
+              >
+                <i className="fas fa-copy"></i>
+              </button>
+            </div>
+            <small className="text-muted">
+              Share this link with clients. When they open it, they'll see this livestock in the public gallery.
+            </small>
+          </div>
+              
+          <div className="mb-4">
+            <label className="form-label">Share via</label>
+            <div className="d-flex flex-wrap gap-2">
+              {/* WhatsApp Button */}
+              <button 
+                className="btn btn-success flex-fill d-flex align-items-center justify-content-center"
+                onClick={() => {
+                  // Use custom message if provided, otherwise use original title
+                  const livestockTitle = shareMessage.trim() || sharingLivestock.title;
+                  const message = `Check out this livestock available for purchase from Nagolie Enterprises:\n\n${livestockTitle}\nPrice: ${formatCurrency(sharingLivestock.price)}\n\nView details: ${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`;
+                  const encodedMessage = encodeURIComponent(message);
+                  window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+                }}
+              >
+                <i className="fab fa-whatsapp me-2"></i> WhatsApp
+              </button>
+              
+              {/* Facebook Button */}
+              <button 
+                className="btn btn-info flex-fill d-flex align-items-center justify-content-center"
+                onClick={() => {
+                  const livestockTitle = shareMessage.trim() || sharingLivestock.title;
+                  const text = `Check out this livestock available for purchase from Nagolie Enterprises: ${livestockTitle} - ${formatCurrency(sharingLivestock.price)}`;
+                  const url = `${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`;
+                  window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`, '_blank');
+                }}
+              >
+                <i className="fab fa-facebook me-2"></i> Facebook
+              </button>
+              
+              {/* Instagram Button */}
+              <button 
+                className="btn btn-danger flex-fill d-flex align-items-center justify-content-center"
+                onClick={() => {
+                  const livestockTitle = shareMessage.trim() || sharingLivestock.title;
+                  const text = `Check out this livestock available for purchase from Nagolie Enterprises:\n${livestockTitle}\nPrice: ${formatCurrency(sharingLivestock.price)}`;
+                  const url = `${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`;
+
+                  // Since Instagram doesn't have a direct web sharing API, we'll copy to clipboard
+                  const shareText = `${text}\n\nView details: ${url}`;
+
+                  // Try to use the Web Share API if available (works on mobile)
+                  if (navigator.share) {
+                    navigator.share({
+                      title: livestockTitle,
+                      text: text,
+                      url: url
+                    }).catch(console.error);
+                  } else {
+                    // Fallback: copy to clipboard
+                    navigator.clipboard.writeText(shareText)
+                      .then(() => {
+                        showToast.success('Copied to clipboard! You can now paste it on Instagram.');
+                      })
+                      .catch(() => {
+                        // Fallback for older browsers
+                        const textarea = document.createElement('textarea');
+                        textarea.value = shareText;
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        showToast.success('Copied to clipboard! You can now paste it on Instagram.');
+                      });
+                  }
+                }}
+              >
+                <i className="fab fa-instagram me-2"></i> Instagram
+              </button>
+            </div>
+          </div>
+              
+          <div className="d-flex gap-2">
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={() => {
+                setShowShareModal(false);
+                setSharingLivestock(null);
+                setShareMessage('');
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   )

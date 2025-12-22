@@ -222,6 +222,7 @@ function LoanApply({ onSubmit }) {
               type="number"
               value={formData.count}
               onChange={handleChange}
+              placeholder="Enter specific Livestock"
               min="1"
               required
             />

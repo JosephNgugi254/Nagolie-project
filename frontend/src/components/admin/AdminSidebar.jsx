@@ -5,6 +5,7 @@ function AdminSidebar({ activeSection, onSectionChange, pendingApplications = 0,
     { id: "overview", icon: "fa-tachometer-alt", label: "Overview", path: "/admin" },
     { id: "clients", icon: "fa-users", label: "Clients", path: "/admin/clients" },
     { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/admin/transactions" },
+    { id: "payment-stats", icon: "fa-chart-bar", label: "Payment Stats", path: "/admin/payment-stats" }, // NEW
     { id: "gallery", icon: "fa-images", label: "Livestock Gallery", path: "/admin/gallery" },
     { id: "applications", icon: "fa-file-alt", label: "Applications", path: "/admin/applications", badge: pendingApplications },
   ]

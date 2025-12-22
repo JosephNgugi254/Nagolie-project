@@ -41,7 +41,7 @@ function Navbar() {
     <nav className="navbar navbar-expand-lg navbar-light bg-white fixed-top shadow-sm">
       <div className="container">
         <Link className="navbar-brand d-flex align-items-center" to="/">
-          <img src="/logo.png" alt="Nagolie Enterprises" height="40" className="me-2" />
+          <img src="/logo.png" alt="Nagolie Enterprises" height="40" style={{borderRadius:5}} className="me-2" />
           <span className="brand-text">Nagolie Enterprises</span>
         </Link>
         <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">

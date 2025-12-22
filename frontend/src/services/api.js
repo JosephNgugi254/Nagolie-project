@@ -129,25 +129,25 @@ export const loanAPI = {
   reject: (id) => api.post(`/loans/${id}/reject`),
 };
 
-export const adminAPI = {
-  getDashboard: () => api.get("/admin/dashboard"),
-  getApplications: () => api.get("/admin/applications"),
-  getClients: () => api.get("/admin/clients"),
-  getLivestock: () => api.get("/admin/livestock"),
-  getLivestockGallery: () => api.get("/admin/livestock/gallery"),
-  getTransactions: () => api.get("/admin/transactions"),
-  getApprovedLoans: () => api.get("/admin/approved-loans"),
-  approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
-  rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
-  sendReminder: (data) => api.post("/admin/send-reminder", data),
-  claimOwnership: (data) => api.post("/admin/claim-ownership", data),
-  test: () => api.get("/admin/test"),
-  addLivestock: (data) => api.post("/admin/livestock", data),
-  updateLivestock: (id, data) => api.put(`/admin/livestock/${id}`, data),
-  deleteLivestock: (id) => api.delete(`/admin/livestock/${id}`),
-  processTopup: (loanId, data) =>
-    api.post(`/admin/loans/${loanId}/topup`, data),
-};
+// export const adminAPI = {
+//   getDashboard: () => api.get("/admin/dashboard"),
+//   getApplications: () => api.get("/admin/applications"),
+//   getClients: () => api.get("/admin/clients"),
+//   getLivestock: () => api.get("/admin/livestock"),
+//   getLivestockGallery: () => api.get("/admin/livestock/gallery"),
+//   getTransactions: () => api.get("/admin/transactions"),
+//   getApprovedLoans: () => api.get("/admin/approved-loans"),
+//   approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
+//   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
+//   sendReminder: (data) => api.post("/admin/send-reminder", data),
+//   claimOwnership: (data) => api.post("/admin/claim-ownership", data),
+//   test: () => api.get("/admin/test"),
+//   addLivestock: (data) => api.post("/admin/livestock", data),
+//   updateLivestock: (id, data) => api.put(`/admin/livestock/${id}`, data),
+//   deleteLivestock: (id) => api.delete(`/admin/livestock/${id}`),
+//   processTopup: (loanId, data) =>
+//     api.post(`/admin/loans/${loanId}/topup`, data),
+// };
 
 export const clientAPI = {
   getAll: () => api.get("/clients"),
@@ -156,15 +156,46 @@ export const clientAPI = {
   update: (id, clientData) => api.put(`/clients/${id}`, clientData),
 };
 
+// export const paymentAPI = {
+//   initiateStkPush: (paymentData) => api.post("/payments/stkpush", paymentData),
+//   getStatus: (id) => api.get(`/payments/${id}/status`),
+//   processCashPayment: (paymentData) => api.post("/payments/cash", paymentData),
+//   processMpesaManual: (data) => api.post("/payments/mpesa/manual", data),
+//   processMpesaPayment: (paymentData) =>
+//     api.post("/payments/mpesa/stk-push", paymentData),
+//   checkMpesaStatus: (statusData) =>
+//     api.post("/payments/mpesa/check-status", statusData),
+// };
+
+// Add this to your existing api.js file
+
+export const adminAPI = {
+  getDashboard: () => api.get("/admin/dashboard"),
+  getApplications: () => api.get("/admin/applications"),
+  getClients: () => api.get("/admin/clients"),
+  getLivestock: () => api.get("/admin/livestock"),
+  getLivestockGallery: () => api.get("/admin/livestock/gallery"),
+  getTransactions: () => api.get("/admin/transactions"),
+  getApprovedLoans: () => api.get("/admin/approved-loans"),
+  getPaymentStats: () => api.get("/admin/payment-stats"),  // NEW
+  approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
+  rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
+  sendReminder: (data) => api.post("/admin/send-reminder", data),
+  claimOwnership: (data) => api.post("/admin/claim-ownership", data),
+  test: () => api.get("/admin/test"),
+  addLivestock: (data) => api.post("/admin/livestock", data),
+  updateLivestock: (id, data) => api.put(`/admin/livestock/${id}`, data),
+  deleteLivestock: (id) => api.delete(`/admin/livestock/${id}`),
+  processTopup: (loanId, data) => api.post(`/admin/loans/${loanId}/topup`, data),
+};
+
 export const paymentAPI = {
   initiateStkPush: (paymentData) => api.post("/payments/stkpush", paymentData),
   getStatus: (id) => api.get(`/payments/${id}/status`),
   processCashPayment: (paymentData) => api.post("/payments/cash", paymentData),
   processMpesaManual: (data) => api.post("/payments/mpesa/manual", data),
-  processMpesaPayment: (paymentData) =>
-    api.post("/payments/mpesa/stk-push", paymentData),
-  checkMpesaStatus: (statusData) =>
-    api.post("/payments/mpesa/check-status", statusData),
+  processMpesaPayment: (paymentData) => api.post("/payments/mpesa/stk-push", paymentData),
+  checkMpesaStatus: (statusData) => api.post("/payments/mpesa/check-status", statusData),
 };
 
 export default api;

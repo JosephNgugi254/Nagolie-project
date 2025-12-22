@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import LoanApply from "../features/loans/LoanApply"
-import { adminAPI, loanAPI } from "../services/api" 
+import { adminAPI, loanAPI } from "../services/api"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
 import SEO from '../components/common/SEO'
@@ -15,6 +15,18 @@ function Home() {
   const dotsRef = useRef(null)
   const currentIndexRef = useRef(0)
   const autoSlideIntervalRef = useRef(null)
+
+  // state variables
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedLivestockItem, setSelectedLivestockItem] = useState(null);
+
+  // image clicks handler
+  const handleImageClick = (livestock, imageIndex = 0) => {
+    setSelectedLivestockItem(livestock);
+    setSelectedImage(livestock.images[imageIndex] || null);
+    setShowImageModal(true);
+  };
 
   const handleLoanSubmit = async (formData) => {
     try {
@@ -195,29 +207,38 @@ function Home() {
   }
 
   // Add state for livestock
-  const [livestock, setLivestock] = useState([])
+  const [livestock, setLivestock] = useState([])  
 
-  // Fetch livestock for gallery
-  useEffect(() => {  
-    const fetchLivestock = async () => {
-      try {
-        console.log('Fetching livestock gallery...');
-        // Use adminAPI instead of direct fetch
-        const response = await adminAPI.getLivestockGallery();
-        
-        if (response.data) {
-          console.log('Livestock data received:', response.data);
-          setLivestock(response.data);
-        } else {
-          console.error('Failed to fetch livestock: No data received');
-          setLivestock([]);
-        }
-      } catch (error) {
-        console.error('Error fetching livestock:', error);
+  const fetchLivestock = async () => {
+    try {
+      console.log('Fetching livestock gallery...');
+      const response = await adminAPI.getLivestockGallery();
+
+      console.log('Full API response:', response);
+      console.log('Response data:', response.data);
+
+      // Check if response has items
+      if (response.data && response.data.items) {
+        console.log('Items count:', response.data.items.length);
+        console.log('Livestock items:', response.data.items);
+        setLivestock(response.data.items);
+      } else if (Array.isArray(response.data)) {
+        // If the response is directly an array (fallback)
+        console.log('Direct array response, items count:', response.data.length);
+        setLivestock(response.data);
+      } else {
+        console.error('Unexpected response format:', response.data);
         setLivestock([]);
       }
-    };
+    } catch (error) {
+      console.error('Error fetching livestock:', error);
+      console.error('Error details:', error.response?.data);
+      setLivestock([]);
+    }
+  };
 
+  // Add useEffect to fetch livestock on component mount
+  useEffect(() => {
     fetchLivestock();
   }, []);
 
@@ -227,6 +248,44 @@ function Home() {
       currency: "KES",
     }).format(Number(amount) || 0);
   };
+
+
+  // Add this useEffect after your existing useEffect hooks
+  useEffect(() => {
+    // Check if there's a livestock ID in the URL
+    const hash = window.location.hash;
+    if (hash.includes('?livestock=')) {
+      const params = new URLSearchParams(hash.split('?')[1]);
+      const livestockId = params.get('livestock');
+
+      if (livestockId && livestock.length > 0) {
+        // Find the livestock item
+        const selectedItem = livestock.find(item => item.id.toString() === livestockId.toString());
+
+        if (selectedItem) {
+          // Scroll to gallery section
+          const gallerySection = document.getElementById('gallery');
+          if (gallerySection) {
+            gallerySection.scrollIntoView({ behavior: 'smooth' });
+          }
+
+          // Highlight the livestock item (optional visual effect)
+          setTimeout(() => {
+            const livestockElement = document.querySelector(`[data-livestock-id="${livestockId}"]`);
+            if (livestockElement) {
+              livestockElement.style.boxShadow = '0 0 20px rgba(0, 123, 255, 0.5)';
+              livestockElement.style.transition = 'box-shadow 0.5s ease';
+
+              // Remove highlight after 3 seconds
+              setTimeout(() => {
+                livestockElement.style.boxShadow = '';
+              }, 3000);
+            }
+          }, 1000);
+        }
+      }
+    }
+  }, [livestock]); // Run when livestock data is loaded
 
   return (
     <div>
@@ -241,11 +300,11 @@ function Home() {
       {/* Hero Section */}
       <section id="home" className="hero-section">
         <div className="hero-overlay"></div>
-        <div className="container">
+        <div className="container container-hero">
           <div className="row align-items-center min-vh-100">
             <div className="col-lg-8 mx-auto text-center text-white">
               <div className="hero-content">
-                <h1 className="display-3 fw-bold mb-4">Unlock Cash from Your Livestock</h1>
+                <h1 className="display-3 fw-bold mb-4">Giving livestock farmers another chance</h1>
                 <p className="lead mb-5">
                   Transform your livestock into immediate financial opportunities. Quick, secure, reliable and trusted
                   services in Isinya, Kajiado County.
@@ -264,7 +323,6 @@ function Home() {
         </div>
       </section>
 
-      {/* Rest of your Home component remains exactly the same */}
       {/* Key Features */}
       <section className="py-5 bg-light">
         <div className="container">
@@ -313,8 +371,8 @@ function Home() {
       <section id="about" className="py-5">
         <div className="container">
           <div className="row align-items-center">
-            <div className="col-lg-6 mb-5">
-              <h2 className="display-5 fw-bold mb-4">About us</h2>
+            <div className="col-lg-12 mb-5 col-sm-12 text-justify">
+              <h2 className="display-5 fw-bold mb-4 text-center">About us</h2>
               <p className="lead mb-4">
                 Your local partner for turning livestock into cash in Isinya, Kajiado County,
                 through fair and innovative buying solutions
@@ -609,11 +667,11 @@ function Home() {
       </section>
 
       {/* Livestock Gallery in */}
-      <section id="gallery" className="py-5 bg-light">
+      <section id="gallery" className="py-5">
         <div className="container">
           <div className="text-center mb-5">
             <h2 className="display-5 fw-bold">Available Livestock</h2>
-            <p className="lead text-muted">Quality livestock available for purchase</p>
+            <p className="lead">Quality livestock available for purchase</p>
           </div>
           <div className="row" id="livestock-gallery">
             {livestock.length === 0 ? (
@@ -625,18 +683,19 @@ function Home() {
               </div>
             ) : (
               livestock.map((item) => (
-                <div key={item.id} className="col-md-4 mb-4">
+                <div key={item.id} className="col-md-4 mb-4" data-livestock-id={item.id}>
                   <div className="card h-100">
                     {/* Replace the static image with carousel */}
                     <ImageCarousel 
                       images={item.images} 
                       title={item.title}
                       height="200px"
+                      onImageClick={(index) => handleImageClick(item, index)} 
                     />
 
                     <div className="card-body d-flex flex-column">
                       <h5 className="card-title">{item.title}</h5>
-                      <p className="card-text flex-grow-1">{item.description}</p>
+                      <p className="card-text flex-grow-1 livestock-description">{item.description || 'Available for purchase'}</p>
                       <div className="d-flex justify-content-between align-items-center mb-2">
                         <span className="h5 text-primary">{formatCurrency(item.price)}</span>
                         <span className={`badge ${
@@ -660,9 +719,9 @@ function Home() {
                       </button>
                     </div>
                     <div className="card-footer">
-                      <small className="text-muted">
+                      <small className="text-muted livestock-location">
                         <i className="fas fa-map-marker-alt me-1"></i>
-                        Isinya, Kajiado
+                        {item.location || 'Isinya, Kajiado'}
                       </small>
                     </div>
                   </div>
@@ -756,6 +815,105 @@ function Home() {
       </section>
 
       <Footer />
+
+      {/* Image Zoom Modal for Home Page */}
+      {showImageModal && selectedImage && selectedLivestockItem && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{backgroundColor: 'rgba(0,0,0,0.5)'}}>
+          <div className="modal-dialog modal-dialog-centered modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">{selectedLivestockItem.title}</h5>
+                <button 
+                  type="button" 
+                  className="btn-close" 
+                  onClick={() => {
+                    setShowImageModal(false);
+                    setSelectedImage(null);
+                    setSelectedLivestockItem(null);
+                  }}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <div className="text-center">
+                  <img 
+                    src={selectedImage} 
+                    alt={selectedLivestockItem.title} 
+                    className="img-fluid rounded"
+                    style={{ maxHeight: '70vh', width: 'auto' }}
+                  />
+                </div>
+                
+                {/* Image Carousel for multiple images */}
+                {selectedLivestockItem.images.length > 1 && (
+                  <div className="row mt-3">
+                    <div className="col-12">
+                      <p className="text-muted mb-2">More images:</p>
+                      <div className="d-flex flex-wrap gap-2">
+                        {selectedLivestockItem.images.map((img, index) => (
+                          <img
+                            key={index}
+                            src={img}
+                            alt={`${selectedLivestockItem.title} ${index + 1}`}
+                            className="img-thumbnail cursor-pointer"
+                            style={{ 
+                              width: '80px', 
+                              height: '80px', 
+                              objectFit: 'cover',
+                              border: img === selectedImage ? '3px solid #007bff' : '1px solid #dee2e6'
+                            }}
+                            onClick={() => setSelectedImage(img)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Livestock Details */}
+                <div className="mt-4">
+                  <h6>Details</h6>
+                  <p>{selectedLivestockItem.description}</p>
+                  <div className="d-flex justify-content-between align-items-center">
+                    <span className="h5 text-primary">{formatCurrency(selectedLivestockItem.price)}</span>
+                    <span className={`badge ${
+                      selectedLivestockItem.daysRemaining > 1 ? 'bg-warning' : 
+                      selectedLivestockItem.daysRemaining === 1 ? 'bg-info' : 
+                      'bg-success'
+                    }`}>
+                      {selectedLivestockItem.availableInfo}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowImageModal(false);
+                    setSelectedImage(null);
+                    setSelectedLivestockItem(null);
+                  }}
+                >
+                  Close
+                </button>
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => {
+                    const message = `Hello team, I am interested in the ${selectedLivestockItem.title} going for ${formatCurrency(selectedLivestockItem.price)}. Could you kindly provide more information regarding its availability and purchase process?`
+                    const encodedMessage = encodeURIComponent(message)
+                    window.open(`https://wa.me/254721451707?text=${encodedMessage}`, '_blank')
+                    setShowImageModal(false);
+                    setSelectedImage(null);
+                    setSelectedLivestockItem(null);
+                  }}
+                >
+                  <i className="fab fa-whatsapp me-2"></i>Inquire on WhatsApp
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

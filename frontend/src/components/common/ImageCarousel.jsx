@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 
-function ImageCarousel({ images, title, height = "200px" }) {
+function ImageCarousel({ images, title, height = "200px", onImageClick }) {
     const [currentIndex, setCurrentIndex] = useState(0)
 
     useEffect(() => {
@@ -17,12 +17,13 @@ function ImageCarousel({ images, title, height = "200px" }) {
 
     if (!images || images.length === 0) {
         return (
-            <img 
-                src="/placeholder.svg" 
-                className="d-block w-100" 
-                alt={title}
-                style={{ height, objectFit: "cover" }}
-            />
+            <div
+                className="bg-secondary d-flex align-items-center justify-content-center"
+                style={{ height, objectFit: "cover", cursor: onImageClick ? 'pointer' : 'default' }}
+                onClick={() => onImageClick && onImageClick(0)}
+            >
+                <i className="fas fa-image fa-3x text-light"></i>
+            </div>
         )
     }
 
@@ -42,13 +43,23 @@ function ImageCarousel({ images, title, height = "200px" }) {
         setCurrentIndex(slideIndex)
     }
 
+    const handleImageClick = () => {
+        if (onImageClick) {
+            onImageClick(currentIndex)
+        }
+    }
+
     return (
         <div className="carousel-container position-relative">
             {/* Main Image */}
-            <div className="carousel-slide">
-                <img 
-                    src={images[currentIndex]} 
-                    className="d-block w-100" 
+            <div
+                className="carousel-slide"
+                style={{ cursor: onImageClick ? 'pointer' : 'default' }}
+                onClick={handleImageClick}
+            >
+                <img
+                    src={images[currentIndex]}
+                    className="d-block w-100"
                     alt={`${title} - Image ${currentIndex + 1}`}
                     style={{ height, objectFit: "cover" }}
                 />
@@ -57,14 +68,14 @@ function ImageCarousel({ images, title, height = "200px" }) {
             {/* Navigation Arrows - Only show if multiple images */}
             {images.length > 1 && (
                 <>
-                    <button 
+                    <button
                         className="carousel-control prev position-absolute top-50 start-0 translate-middle-y btn btn-sm btn-light"
                         onClick={goToPrevious}
                         style={{ left: '10px', zIndex: 1 }}
                     >
                         <i className="fas fa-chevron-left"></i>
                     </button>
-                    <button 
+                    <button
                         className="carousel-control next position-absolute top-50 end-0 translate-middle-y btn btn-sm btn-light"
                         onClick={goToNext}
                         style={{ right: '10px', zIndex: 1 }}
@@ -103,8 +114,10 @@ function ImageCarousel({ images, title, height = "200px" }) {
                     ))}
                 </div>
             )}
+
+            {/* Optional counter (uncomment if you want it back) */}
             {/* {images.length > 1 && (
-                <div 
+                <div
                     className="position-absolute top-0 end-0 m-2 bg-dark bg-opacity-50 text-white rounded px-2 py-1"
                     style={{ fontSize: '0.75rem', zIndex: 1 }}
                 >

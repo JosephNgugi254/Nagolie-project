@@ -57,8 +57,11 @@ section {
 
 /* Hero Section Styles with farm-animals background */
 .hero-section {
-  background: linear-gradient(135deg, rgba(30, 64, 175, 0.5) 0%, rgba(30, 58, 138, 0.7) 100%), url("/farm-animals.png")
-    center / cover;
+  background-image: linear-gradient(135deg, rgba(30, 64, 175, 0.5) 0%, rgba(30, 58, 138, 0.7) 100%), 
+                    url("/hero-section-bg.png");
+  background-position: center 10%; /* Horizontal: center, Vertical: 30% from top */
+  background-size: cover;
+  background-repeat: no-repeat;
   position: relative;
   overflow: hidden;
   min-height: 100vh;
@@ -71,6 +74,16 @@ section {
   z-index: 3;
   padding: 2rem 0;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+  margin-top: 5rem;
+}
+
+.container-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+  max-width: 1100px;
 }
 
 .hero-content h1 {
@@ -1742,4 +1755,122 @@ section {
 .search-filter-item:focus-within .form-label {
   color: #007bff;
   font-weight: 600;
+}
+
+#gallery {
+  background: linear-gradient(135deg, rgba(30, 64, 175, 0.3) 0%, rgba(30, 58, 138, 0.4) 100%), 
+              url("/livestock-bg.png") center / cover;
+  position: relative;
+  overflow: hidden;
+  color: white;
+  padding: 5rem 0;
+}
+
+/* Dark overlay */
+#gallery::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1;
+}
+
+/* Container for content */
+#gallery > .container {
+  position: relative;
+  z-index: 2;
+}
+
+/* Text styles */
+#gallery .display-5,
+#gallery .lead {
+  color: white !important;
+  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+#gallery .text-muted {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Card styles - UPDATED with more border radius */
+#gallery .card {
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: white;
+  color: #333;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  border: none;
+  transition: all 0.3s ease;
+}
+
+#gallery .card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+}
+
+#gallery .card .carousel-container {
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  overflow: hidden;
+}
+
+#gallery .card-title {
+  color: #333;
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+#gallery .card-text {
+  color: #555;
+  line-height: 1.6;
+}
+
+#gallery .card .badge {
+  border-radius: 10px;
+  padding: 0.4rem 0.75rem;
+  font-weight: 600;
+}
+
+#gallery .card .btn-primary {
+  border-radius: 10px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+}
+
+#gallery .card-footer {
+  background-color: #f8f9fa;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  padding: 1rem 1.5rem;
+  font-size: 0.9rem;
+}
+
+/* Alert styling */
+#gallery .alert-info {
+  background-color: rgba(255, 255, 255, 0.95);
+  color: #333;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+}
+
+/* Button styling */
+#gallery .btn-primary {
+  background-color: var(--primary-blue);
+  border-color: var(--primary-blue);
+}
+
+#gallery .btn-primary:hover {
+  background-color: var(--dark-blue);
+  border-color: var(--dark-blue);
+}
+
+/* Text in badges and other elements */
+#gallery .text-primary {
+  color: var(--primary-blue) !important;
+}
+
+#gallery .text-muted {
+  color: #888 !important;
 }
