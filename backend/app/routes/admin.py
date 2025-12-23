@@ -7,6 +7,7 @@ from app.models import Client, Loan, Livestock, Transaction, User
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload
 from sqlalchemy import and_, or_
+from app.routes.payments import recalculate_loan
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -182,7 +183,13 @@ def reject_application(loan_id):
         if loan.status != 'pending':
             return jsonify({'error': 'Loan application already processed'}), 400
         
+        # Update loan status
         loan.status = 'rejected'
+        
+        # If there's associated livestock, mark it as inactive
+        if loan.livestock:
+            loan.livestock.status = 'inactive'
+        
         db.session.commit()
         
         log_audit('loan_rejected', 'loan', loan.id, {
@@ -322,22 +329,19 @@ def get_all_livestock():
 
 @admin_bp.route('/livestock/gallery', methods=['GET', 'OPTIONS'])
 def get_public_livestock_gallery():
-    """Get paginated livestock gallery for public view - UPDATED"""
+    """Get paginated livestock gallery for public view - FIXED DESCRIPTION & LOCATION"""
     if request.method == 'OPTIONS':
         response = jsonify({'status': 'OK'})
-        # Allow multiple origins
         origin = request.headers.get('Origin')
         allowed_origins = [
-            'http://localhost:5173',  # Local development
-            'https://www.nagolie.com',  # Your production domain
-            'https://nagolie.com'  # Also allow without www
+            'http://localhost:5173',
+            'https://www.nagolie.com',
+            'https://nagolie.com'
         ]
         
         if origin in allowed_origins:
             response.headers.add('Access-Control-Allow-Origin', origin)
         else:
-            # For any other origin (like Render testing), you might want to allow all
-            # But be careful with this in production
             response.headers.add('Access-Control-Allow-Origin', '*')
         
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
@@ -348,68 +352,87 @@ def get_public_livestock_gallery():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 12, type=int)
         
-        # Get ALL active livestock
-        livestock = Livestock.query.filter(
-            Livestock.status == 'active'
-        ).all()
+        livestock = Livestock.query.filter(Livestock.status == 'active').all()
         
         livestock_data = []
         today = datetime.now().date()
         
         for item in livestock:
-            # Parse location field to extract description and location
-            # Format: "description|location" or just "location"
-            location_field = item.location or ''
+            location_field = (item.location or '').strip()
             
-            # Split by '|' if it exists
-            if '|' in location_field:
-                parts = location_field.split('|', 1)
-                if len(parts) == 2:
-                    description = parts[0].strip()
-                    actual_location = parts[1].strip() or 'Isinya, Kajiado'
-                else:
-                    description = 'Available for purchase'
-                    actual_location = location_field or 'Isinya, Kajiado'
-            else:
-                # No description - just location
+            # DEFAULTS (will be overridden if better data exists)
+            description = 'Available for purchase'
+            actual_location = 'Isinya, Kajiado'
+            
+            # CASE 1: Old bad data with "claimed from" — clean it
+            if 'claimed from' in location_field.lower():
                 description = 'Available for purchase'
-                actual_location = location_field or 'Isinya, Kajiado'
+                actual_location = 'Isinya, Kajiado'
             
-            # Check availability
+            # CASE 2: Proper format "description|location" — USE IT FULLY
+            elif '|' in location_field:
+                parts = location_field.split('|', 1)  # Split only on first pipe
+                if len(parts) == 2:
+                    desc_part = parts[0].strip()
+                    loc_part = parts[1].strip()
+                    
+                    # Only use custom description if it's meaningful (not empty or generic fallback)
+                    if desc_part and desc_part.lower() not in ['', 'available for purchase', 'livestock for purchase']:
+                        description = desc_part
+                    actual_location = loc_part or 'Isinya, Kajiado'
+                else:
+                    # Malformed: has pipe but no second part → treat as location
+                    actual_location = location_field.strip() or 'Isinya, Kajiado'
+            
+            # CASE 3: No pipe at all
+            else:
+                # If the entire field looks like a real location (e.g. "Kitengela"), use it
+                if location_field:
+                    # Simple heuristic: if it contains common location words or format
+                    if any(keyword in location_field.lower() for keyword in ['kajiado', 'isinya', 'kitengela', 'ngong', 'town', 'county']):
+                        actual_location = location_field
+                    else:
+                        # Otherwise, assume it was meant to be a description
+                        if location_field.lower() not in ['available for purchase', 'livestock for purchase']:
+                            description = location_field
+                        actual_location = 'Isinya, Kajiado'
+                # else: empty → keep defaults
+            
+            # Availability logic
             if item.client_id is None:
-                # Admin-added or claimed livestock
+                # Admin-added or claimed → available now
                 available_info = 'Available now'
                 days_remaining = 0
             else:
-                # Client livestock (collateral)
-                active_loan = Loan.query.filter_by(
-                    livestock_id=item.id,
-                    status='active'
-                ).first()
+                associated_loan = Loan.query.filter_by(
+                    livestock_id=item.id
+                ).order_by(Loan.created_at.desc()).first()
                 
-                if not active_loan:
-                    available_info = 'Available now'
-                    days_remaining = 0
-                else:
-                    if active_loan.due_date:
-                        due_date = active_loan.due_date
+                if not associated_loan:
+                    continue
+                
+                loan_status = associated_loan.status
+                
+                if loan_status in ['rejected', 'pending']:
+                    continue
+                elif loan_status == 'active':
+                    if associated_loan.due_date:
+                        due_date = associated_loan.due_date
                         if isinstance(due_date, str):
                             due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
                         elif hasattr(due_date, 'date'):
                             due_date = due_date.date()
                         
                         days_remaining = (due_date - today).days
-                        
-                        if days_remaining > 0:
-                            available_info = f'Available in {days_remaining} days'
-                        elif days_remaining == 0:
-                            available_info = 'Available now'
-                        else:
-                            available_info = 'Available now'
-                            days_remaining = 0
+                        available_info = 'Available now' if days_remaining <= 0 else f'Available in {days_remaining} days'
                     else:
                         available_info = 'Contact for availability'
                         days_remaining = 7
+                elif loan_status in ['completed', 'defaulted', 'claimed']:
+                    available_info = 'Available now'
+                    days_remaining = 0
+                else:
+                    continue
             
             livestock_data.append({
                 'id': item.id,
@@ -424,9 +447,9 @@ def get_public_livestock_gallery():
                 'location': actual_location
             })
         
-        # Sort by availability
+        # Sort: available now first
         livestock_data.sort(key=lambda x: (
-            0 if 'now' in x['availableInfo'] else 1,
+            0 if 'now' in x['availableInfo'].lower() else 1,
             x['daysRemaining']
         ))
         
@@ -444,14 +467,8 @@ def get_public_livestock_gallery():
             'per_page': per_page
         })
         
-        # Set CORS headers for the actual response too
         origin = request.headers.get('Origin')
-        allowed_origins = [
-            'http://localhost:5173',
-            'https://www.nagolie.com',
-            'https://nagolie.com'
-        ]
-        
+        allowed_origins = ['http://localhost:5173', 'https://www.nagolie.com', 'https://nagolie.com']
         if origin in allowed_origins:
             response.headers.add('Access-Control-Allow-Origin', origin)
         else:
@@ -464,15 +481,9 @@ def get_public_livestock_gallery():
         import traceback
         traceback.print_exc()
         
-        # Also set CORS headers for error responses
         response = jsonify({'error': 'Failed to load gallery'})
         origin = request.headers.get('Origin')
-        allowed_origins = [
-            'http://localhost:5173',
-            'https://www.nagolie.com',
-            'https://nagolie.com'
-        ]
-        
+        allowed_origins = ['http://localhost:5173', 'https://www.nagolie.com', 'https://nagolie.com']
         if origin in allowed_origins:
             response.headers.add('Access-Control-Allow-Origin', origin)
         else:
