@@ -325,7 +325,21 @@ def get_public_livestock_gallery():
     """Get paginated livestock gallery for public view - UPDATED"""
     if request.method == 'OPTIONS':
         response = jsonify({'status': 'OK'})
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
+        # Allow multiple origins
+        origin = request.headers.get('Origin')
+        allowed_origins = [
+            'http://localhost:5173',  # Local development
+            'https://www.nagolie.com',  # Your production domain
+            'https://nagolie.com'  # Also allow without www
+        ]
+        
+        if origin in allowed_origins:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        else:
+            # For any other origin (like Render testing), you might want to allow all
+            # But be careful with this in production
+            response.headers.add('Access-Control-Allow-Origin', '*')
+        
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
         response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
         return response
@@ -343,71 +357,31 @@ def get_public_livestock_gallery():
         today = datetime.now().date()
         
         for item in livestock:
+            # Parse location field to extract description and location
+            # Format: "description|location" or just "location"
             location_field = item.location or ''
             
-            # Check if this is old claimed format with "Available (claimed from"
-            if "Available (claimed from" in location_field:
-                # OLD FORMAT: Extract location if possible
-                # Try to find a pipe separator
-                if '|' in location_field:
-                    parts = location_field.split('|', 1)
-                    if len(parts) == 2:
-                        # The part after the pipe should be the location
-                        actual_location = parts[1].strip() or 'Isinya, Kajiado'
-                        # Generate a proper description
-                        description = generate_livestock_description(item.livestock_type, item.count)
-                    else:
-                        description = generate_livestock_description(item.livestock_type, item.count)
-                        actual_location = 'Isinya, Kajiado'
+            # Split by '|' if it exists
+            if '|' in location_field:
+                parts = location_field.split('|', 1)
+                if len(parts) == 2:
+                    description = parts[0].strip()
+                    actual_location = parts[1].strip() or 'Isinya, Kajiado'
                 else:
-                    # No pipe, assume entire field is location/description
-                    # Check if it contains location keywords
-                    if any(word in location_field.lower() for word in ['isinya', 'kajiado', 'nairobi', 'mombasa', 'location:', 'area:']):
-                        actual_location = location_field.strip()
-                        description = generate_livestock_description(item.livestock_type, item.count)
-                    else:
-                        description = generate_livestock_description(item.livestock_type, item.count)
-                        actual_location = 'Isinya, Kajiado'
-                
-                available_info = 'Available now'
-                days_remaining = 0
-            elif item.client_id is None:
-                # Admin-added livestock (including newly claimed livestock with new format)
-                # Parse the location field for "description|location"
-                if '|' in location_field:
-                    parts = location_field.split('|', 1)
-                    if len(parts) == 2:
-                        description = parts[0].strip()
-                        actual_location = parts[1].strip() or 'Isinya, Kajiado'
-                    else:
-                        description = location_field.strip()
-                        actual_location = 'Isinya, Kajiado'
-                else:
-                    # No pipe separator - could be description or location
-                    # Check if it looks like a description
-                    if any(word in location_field.lower() for word in 
-                           ['cow', 'goat', 'sheep', 'chicken', 'poultry', 'bull', 'calf', 
-                            'healthy', 'good', 'excellent', 'nice', 'quality', 'available']):
-                        description = location_field.strip()
-                        actual_location = 'Isinya, Kajiado'
-                    else:
-                        # Assume it's a location
-                        description = generate_livestock_description(item.livestock_type, item.count)
-                        actual_location = location_field.strip() or 'Isinya, Kajiado'
-                
+                    description = 'Available for purchase'
+                    actual_location = location_field or 'Isinya, Kajiado'
+            else:
+                # No description - just location
+                description = 'Available for purchase'
+                actual_location = location_field or 'Isinya, Kajiado'
+            
+            # Check availability
+            if item.client_id is None:
+                # Admin-added or claimed livestock
                 available_info = 'Available now'
                 days_remaining = 0
             else:
                 # Client livestock (collateral)
-                description = 'Livestock for purchase'
-                
-                # Get client's location from Client table
-                if item.client and item.client.location:
-                    actual_location = item.client.location
-                else:
-                    actual_location = 'Isinya, Kajiado'
-                
-                # Check availability based on loan status
                 active_loan = Loan.query.filter_by(
                     livestock_id=item.id,
                     status='active'
@@ -470,15 +444,41 @@ def get_public_livestock_gallery():
             'per_page': per_page
         })
         
-        response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
+        # Set CORS headers for the actual response too
+        origin = request.headers.get('Origin')
+        allowed_origins = [
+            'http://localhost:5173',
+            'https://www.nagolie.com',
+            'https://nagolie.com'
+        ]
+        
+        if origin in allowed_origins:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        else:
+            response.headers.add('Access-Control-Allow-Origin', '*')
+        
         return response, 200
         
     except Exception as e:
         print(f"Livestock gallery error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': 'Failed to load gallery'}), 500
-
+        
+        # Also set CORS headers for error responses
+        response = jsonify({'error': 'Failed to load gallery'})
+        origin = request.headers.get('Origin')
+        allowed_origins = [
+            'http://localhost:5173',
+            'https://www.nagolie.com',
+            'https://nagolie.com'
+        ]
+        
+        if origin in allowed_origins:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        else:
+            response.headers.add('Access-Control-Allow-Origin', '*')
+        
+        return response, 500
 
 # Helper function to generate proper livestock description
 def generate_livestock_description(livestock_type, count):
