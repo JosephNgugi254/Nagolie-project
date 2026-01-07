@@ -1141,7 +1141,16 @@ def get_dashboard_stats():
             from app.routes.payments import recalculate_loan
             loan = recalculate_loan(loan)
 
-            days_overdue = (datetime.now().date() - loan.due_date.date()).days
+            # FIX: Handle both datetime and date objects
+            if loan.due_date:
+                due_date_value = loan.due_date
+                # If it's a datetime, get the date part
+                if hasattr(due_date_value, 'date'):
+                    due_date_value = due_date_value.date()
+                
+                days_overdue = (datetime.now().date() - due_date_value).days
+            else:
+                days_overdue = 0
 
             overdue_data.append({
                 'id': loan.id,

@@ -102,14 +102,12 @@ class Loan(db.Model):
     interest_paid = db.Column(db.Numeric(10, 2), default=0)
     current_principal = db.Column(db.Numeric(10, 2), nullable=False)  # Remaining principal
     # NEW FIELD: Track interest paid in current 7-day period
-    current_period_interest_paid = db.Column(db.Numeric(10, 2),default=Decimal('0'),nullable=False,server_default='0')
     disbursement_date = db.Column(db.DateTime)
     due_date = db.Column(db.DateTime, nullable=False)
     last_interest_payment_date = db.Column(db.DateTime)  # NEW: Track when last interest was paid
     status = db.Column(db.String(20), default='pending')
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)    
     livestock = db.relationship('Livestock', backref='loan', lazy='joined')
     payments = db.relationship('Payment', backref='loan', lazy='dynamic', cascade='all, delete-orphan')
     
