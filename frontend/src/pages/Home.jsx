@@ -21,6 +21,11 @@ function Home() {
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedLivestockItem, setSelectedLivestockItem] = useState(null);
 
+  // Add state for livestock and loading
+  const [livestock, setLivestock] = useState([]);
+  const [livestockLoading, setLivestockLoading] = useState(true);
+  const [livestockError, setLivestockError] = useState(false);
+
   // image clicks handler
   const handleImageClick = (livestock, imageIndex = 0) => {
     setSelectedLivestockItem(livestock);
@@ -42,9 +47,9 @@ function Home() {
         livestock_type: formData.livestockType,
         count: parseInt(formData.count) || 1,
         estimated_value: parseFloat(formData.estimatedValue) || 0,
-        location: formData.location || '', // Now matches
-        notes: formData.notes || '', // Now matches
-        photos: formData.photos || [] // Now matches and contains base64 data
+        location: formData.location || '',
+        notes: formData.notes || '',
+        photos: formData.photos || []
       }
 
       console.log("Sending to backend:", applicationData)
@@ -206,11 +211,10 @@ function Home() {
     }
   }
 
-  // Add state for livestock
-  const [livestock, setLivestock] = useState([])  
-
   const fetchLivestock = async () => {
     try {
+      setLivestockLoading(true);
+      setLivestockError(false);
       console.log('Fetching livestock gallery...');
       const response = await adminAPI.getLivestockGallery();
 
@@ -229,11 +233,16 @@ function Home() {
       } else {
         console.error('Unexpected response format:', response.data);
         setLivestock([]);
+        setLivestockError(true);
       }
     } catch (error) {
       console.error('Error fetching livestock:', error);
       console.error('Error details:', error.response?.data);
       setLivestock([]);
+      setLivestockError(true);
+      showToast.error("Failed to load livestock gallery. Please try again later.");
+    } finally {
+      setLivestockLoading(false);
     }
   };
 
@@ -249,7 +258,6 @@ function Home() {
     }).format(Number(amount) || 0);
   };
 
-
   // Add this useEffect after your existing useEffect hooks
   useEffect(() => {
     // Check if there's a livestock ID in the URL
@@ -258,34 +266,44 @@ function Home() {
       const params = new URLSearchParams(hash.split('?')[1]);
       const livestockId = params.get('livestock');
 
-      if (livestockId && livestock.length > 0) {
-        // Find the livestock item
-        const selectedItem = livestock.find(item => item.id.toString() === livestockId.toString());
+      if (livestockId) {
+        // Wait for livestock data to load
+        if (!livestockLoading && livestock.length > 0) {
+          // Find the livestock item
+          const selectedItem = livestock.find(item => item.id.toString() === livestockId.toString());
 
-        if (selectedItem) {
-          // Scroll to gallery section
-          const gallerySection = document.getElementById('gallery');
-          if (gallerySection) {
-            gallerySection.scrollIntoView({ behavior: 'smooth' });
-          }
-
-          // Highlight the livestock item (optional visual effect)
-          setTimeout(() => {
-            const livestockElement = document.querySelector(`[data-livestock-id="${livestockId}"]`);
-            if (livestockElement) {
-              livestockElement.style.boxShadow = '0 0 20px rgba(0, 123, 255, 0.5)';
-              livestockElement.style.transition = 'box-shadow 0.5s ease';
-
-              // Remove highlight after 3 seconds
-              setTimeout(() => {
-                livestockElement.style.boxShadow = '';
-              }, 3000);
+          if (selectedItem) {
+            // Scroll to gallery section
+            const gallerySection = document.getElementById('gallery');
+            if (gallerySection) {
+              gallerySection.scrollIntoView({ behavior: 'smooth' });
             }
-          }, 1000);
+
+            // Open the modal for this livestock after a short delay
+            setTimeout(() => {
+              setSelectedLivestockItem(selectedItem);
+              setSelectedImage(selectedItem.images[0] || null);
+              setShowImageModal(true);
+              
+              // Highlight the livestock item with pulsing effect
+              const livestockElement = document.querySelector(`[data-livestock-id="${livestockId}"]`);
+              if (livestockElement) {
+                livestockElement.classList.add('highlight-livestock');
+                
+                // Remove highlight after 5 seconds
+                setTimeout(() => {
+                  livestockElement.classList.remove('highlight-livestock');
+                }, 5000);
+              }
+            }, 1000);
+            
+            // Clear the URL hash after processing
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
         }
       }
     }
-  }, [livestock]); // Run when livestock data is loaded
+  }, [livestock, livestockLoading]); // Run when livestock data is loaded
 
   return (
     <div>
@@ -673,19 +691,33 @@ function Home() {
             <h2 className="display-5 fw-bold">Available Livestock</h2>
             <p className="lead">Quality livestock available for purchase</p>
           </div>
-          <div className="row" id="livestock-gallery">
-            {livestock.length === 0 ? (
-              <div className="col-12 text-center">
-                <div className="alert alert-info">
-                  <i className="fas fa-info-circle me-2"></i>
-                  No livestock available at the moment. Please check back later.
-                </div>
+          
+          {livestockLoading ? (
+            <div className="text-center py-5">
+              <div className="spinner-border text-primary" style={{ width: '3rem', height: '3rem' }} role="status">
+                <span className="visually-hidden">Loading livestock...</span>
               </div>
-            ) : (
-              livestock.map((item) => (
+              <p className="mt-3 text-muted">Loading available livestock...</p>
+            </div>
+          ) : livestockError ? (
+            <div className="col-12 text-center">
+              <div className="alert alert-warning">
+                <i className="fas fa-exclamation-triangle me-2"></i>
+                No livestock available at the moment. Please check back later.
+              </div>
+            </div>
+          ) : livestock.length === 0 ? (
+            <div className="col-12 text-center">
+              <div className="alert alert-info">
+                <i className="fas fa-info-circle me-2"></i>
+                No livestock available at the moment. Please check back later.
+              </div>
+            </div>
+          ) : (
+            <div className="row" id="livestock-gallery">
+              {livestock.map((item) => (
                 <div key={item.id} className="col-md-4 mb-4" data-livestock-id={item.id}>
                   <div className="card h-100">
-                    {/* Replace the static image with carousel */}
                     <ImageCarousel 
                       images={item.images} 
                       title={item.title}
@@ -706,7 +738,6 @@ function Home() {
                           {item.availableInfo}
                         </span>
                       </div>
-                      {/* Inquire Button */}
                       <button 
                         className="btn btn-primary mt-auto"
                         onClick={() => {
@@ -726,9 +757,9 @@ function Home() {
                     </div>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
           

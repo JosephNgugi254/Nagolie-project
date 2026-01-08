@@ -45,7 +45,7 @@ function AdminPanel() {
   const [paymentStatsSearch, setPaymentStatsSearch] = useState("")
   const [paymentStatsStatus, setPaymentStatsStatus] = useState("all")
 
-  // Payment Type Selection - NEW
+  // Payment Type Selection
   const [paymentType, setPaymentType] = useState('principal')
   const [mpesaPaymentType, setMpesaPaymentType] = useState('principal')
 
@@ -65,14 +65,14 @@ function AdminPanel() {
   const [clientsLoading, setClientsLoading] = useState(false)
   const [transactionsLoading, setTransactionsLoading] = useState(false)
 
-  // Data state variables - MOVED UP
+  // Data state variables 
   const [livestock, setLivestock] = useState([])
   const [applications, setApplications] = useState([])
   const [clients, setClients] = useState([])
   const [transactions, setTransactions] = useState([])
   const [approvedLoans, setApprovedLoans] = useState([])
 
-  // state variable for filtersing in applications
+  // state variable for filtering in applications
   const [pendingSearch, setPendingSearch] = useState("")
   const [pendingDate, setPendingDate] = useState("")
   const [approvedSearch, setApprovedSearch] = useState("")
@@ -155,7 +155,7 @@ function AdminPanel() {
     setShowTopupModal(true)
   }
 
-  // Add this function with the other handler functions
+  
   const handleTopup = async () => {
     if (!selectedClient?.loan_id) {
       showToast.error("Error: No active loan found for this client")
@@ -273,7 +273,7 @@ function AdminPanel() {
       return
     }
 
-    // NEW: Validate based on payment type
+    //  Validate based on payment type
     const currentPrincipal = selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0
     const expectedInterest = currentPrincipal * 0.30
 
@@ -298,7 +298,7 @@ function AdminPanel() {
         loan_id: selectedClient.loan_id,
         amount: paymentAmount,
         phone_number: formattedPhone,
-        payment_type: mpesaPaymentType  // NEW - Add this line
+        payment_type: mpesaPaymentType  
       })
 
       console.log("STK Push response:", response.data)
@@ -3670,7 +3670,7 @@ const isDescription = (str) => {
               </button>
             </div>
             <small className="text-muted">
-              Share this link with clients. When they open it, they'll see this livestock in the public gallery.
+              When clients open this link, the livestock will be highlighted and the details modal will open automatically.
             </small>
           </div>
               
