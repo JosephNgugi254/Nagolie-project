@@ -392,12 +392,15 @@ export const generateLoanAgreementPDF = async (application) => {
       ],
       // Group 3: Repayment Terms
       [
-        { text: "3. Repayment Terms", bold: true },
-        "The loan is typically repayable within seven (7) days from the date of",
-        "disbursement. However, recognizing the circumstances of local communities, the CEO",
-        "of Nagolie Enterprises Ltd may, at their discretion, grant an extension of the",
-        "repayment period after consultation with the Recipient. Any extension must be",
-        "agreed upon in writing by both parties, specifying the new repayment date.",
+        { text: "3. Repayment Terms and Interest", bold: true },
+        "The loan is typically repayable within seven (7) days from the date of disbursement",
+        "with an interest of 30%(negotiable) of the disbursed funds.",
+        "The interest rate for this loan is ________.",
+        "",
+        "Recognizing the circumstances of local communities, the CEO of Nagolie",
+        "Enterprises Ltd may, at their discretion, grant an extension of the repayment",
+        "period after consultation with the Recipient. Any extension must be agreed",
+        "upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
       // Group 4: Loan Settlement and Ownership Return
@@ -421,6 +424,7 @@ export const generateLoanAgreementPDF = async (application) => {
         { text: "6. Default and Remedies", bold: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall",
         "constitute default, entitling Nagolie Enterprises Ltd to:",
+        "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock",
         "- Sell the livestock to recover the outstanding loan amount",
         "- Initiate legal proceedings for recovery of any remaining balance",
