@@ -308,17 +308,21 @@ export const generateClientStatement = async (client, allTransactions) => {
   }
 };
 // Generate Professional Loan Agreement PDF (Updated Signature Section with Stamp Box)
+// Generate Professional Loan Agreement PDF (Updated Signature Section with Stamp Box)
 export const generateLoanAgreementPDF = async (application) => {
   try {
     const doc = new jsPDF();
     let yPos = await addHeader(doc, 10);
+    
     // Main Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
     yPos += 8;
+    
     yPos = addDivider(doc, yPos);
+    
     // Agreement Date
     const agreementDate = application.date ? new Date(application.date) : new Date();
     const formattedDate = agreementDate.toLocaleDateString('en-GB', {
@@ -329,6 +333,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.text(`Agreement Date: ${formattedDate}`, 20, yPos);
     yPos += 15;
+    
     // Simplified Agreement Body - Reduced spacing
     doc.setFontSize(12);
     const firstLineParts = [
@@ -344,12 +349,14 @@ export const generateLoanAgreementPDF = async (application) => {
     ];
     writeStyledLine(doc, firstLineParts, 20, yPos, 12);
     yPos += 6;
+    
     const secondLineParts = [
       { text: "acknowledge/agree and therefore receive Ksh: ", style: 'normal' },
       { text: `${application.loanAmount ? application.loanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '__________'}`, style: 'bold' }
     ];
     writeStyledLine(doc, secondLineParts, 20, yPos, 12);
     yPos += 6;
+    
     const thirdLineParts = [
       { text: "for payment of ", style: 'normal' },
       { text: `${application.livestockType || '__________'}`, style: 'bold' },
@@ -359,12 +366,65 @@ export const generateLoanAgreementPDF = async (application) => {
     ];
     writeStyledLine(doc, thirdLineParts, 20, yPos, 12);
     yPos += 12;
+    
+    // ========== NEW: NEXT OF KIN CONSENT SECTION ==========
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('NEXT OF KIN CONSENT AND ACKNOWLEDGEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    
+    // CHANGED: Increased font size to match first three lines (12)
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    
+    // Next of Kin consent statement - using writeStyledLine for consistent formatting
+    // Split the long sentence into two lines: print first line now, then let the existing call print the second
+    const nokLine1First = [
+      { text: "I, ____________________________, as the Next of Kin of the above-named client", style: 'normal' }
+    ];
+    const nokLine1Second = [
+      { text: "do hereby acknowledge that,", style: 'normal' }
+    ];
+
+    // Write the first part immediately and move yPos down for the second part
+    writeStyledLine(doc, nokLine1First, 17, yPos, 12);
+    yPos += 6;
+
+    // Provide nokLine1Parts for the existing call below to render the second line
+    const nokLine1Parts = nokLine1Second;
+    writeStyledLine(doc, nokLine1Parts, 17, yPos, 12);
+    yPos += 10;
+    
+        // Consent bullets with larger font
+    const consentBullets = [
+      "1. I am aware that the above-named client is taking a livestock financing loan from Nagolie Enterprises Ltd.",
+      "2. I have read, understood, and consent to all the terms and conditions of this agreement.",
+      "3. I acknowledge that the livestock specified herein will serve as collateral for this loan.",
+      "4. I understand the implications of default as outlined in this agreement.",
+      "5. I agree to act as a point of contact in matters relating to this loan."
+    ];
+    
+    consentBullets.forEach(bullet => {
+      doc.text(bullet, 17, yPos);
+      yPos += 7; // Slightly more spacing for larger font
+    });
+    
+    yPos += 5;
+    doc.text("Relationship to Client: ____________________", 20, yPos);
+    yPos += 7;
+    doc.text("Phone Number: ____________________", 20, yPos);
+    yPos += 12;
+    // ========== END NEXT OF KIN CONSENT SECTION ==========
+    
     // Add Terms and Conditions heading
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 8;
+    
     // Group terms to ensure they stay together
     const termGroups = [
       // Group 1: Agreement Overview
@@ -377,7 +437,7 @@ export const generateLoanAgreementPDF = async (application) => {
         "until the loan is fully repaid.",
         ""
       ],
-      // Group 2: Ownership Transfer and Custody
+      // Group 2: Ownership Transfer and Custody (UPDATED)
       [
         { text: "2. Ownership Transfer and Custody", bold: true },
         "Upon disbursement of the loan, legal ownership of the specified livestock transfers",
@@ -388,14 +448,40 @@ export const generateLoanAgreementPDF = async (application) => {
         "- Not sell, transfer, or dispose of the livestock without prior written consent",
         " from the Company",
         "- Allow Company representatives access to inspect the livestock at reasonable times",
+        "",
+        "2.1. Absolute Right of Claim Upon Default:",
+        "In the event of default, the Company reserves the absolute right to claim, take",
+        "possession of, and remove the collateral livestock without further notice.",
+        "This right extends to claiming the livestock:",
+        "- In the presence OR absence of the Recipient",
+        "- In the presence OR absence of the Next of Kin or any family members",
+        "- Without requirement for additional consent or permission from any party",
+        "",
+        "2.2. Immediate Action for Recovery:",
+        "The Company shall not be delayed or hindered in its recovery efforts by the",
+        "unavailability, resistance, or objections of the Recipient, Next of Kin, or any",
+        "related parties. The Company's representatives, including livestock valuers and",
+        "security personnel, are authorized to take immediate action to secure the",
+        "Company's property and recover losses without legal impediment.",
         ""
       ],
+      // ========== NEW: VALUER COMMENT SECTION ==========
+      [
+        { text: "2.3. Valuer's Comment:", bold: true },
+        "_____________________________________________________________________________",
+        "_____________________________________________________________________________",
+        "_____________________________________________________________________________",
+        "",
+        "Date: ________/________/________   Valuer's Signature: _______________",
+        ""
+      ],
+      // ========== END VALUER COMMENT SECTION ==========
       // Group 3: Repayment Terms
       [
         { text: "3. Repayment Terms and Interest", bold: true },
         "The loan is typically repayable within seven (7) days from the date of disbursement",
         "with an interest of 30%(negotiable) of the disbursed funds.",
-        "The interest rate for this loan is ________.",
+        "The interest for this loan is Ksh________",
         "",
         "Recognizing the circumstances of local communities, the CEO of Nagolie",
         "Enterprises Ltd may, at their discretion, grant an extension of the repayment",
@@ -447,17 +533,18 @@ export const generateLoanAgreementPDF = async (application) => {
         "agreement shall be effective unless in writing and signed by both parties."
       ]
     ];
+    
     doc.setFontSize(10.5);
     termGroups.forEach((group, groupIndex) => {
       // Calculate group height
       const groupHeight = group.length * 4.5;
-    
+      
       // Check if we need a new page for this group
       if (yPos + groupHeight > 250 && groupIndex > 0) {
         doc.addPage();
         yPos = 20;
       }
-    
+      
       // Render the group
       group.forEach(line => {
         if (typeof line === 'object' && line.bold) {
@@ -472,102 +559,154 @@ export const generateLoanAgreementPDF = async (application) => {
         yPos += 4.5;
       });
     });
+    
     yPos += 8;
+    
     // Add a new page if needed for signatures
     if (yPos > 180) {
       doc.addPage();
       yPos = 20;
     }
+    
     // Signature Section with reduced spacing
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.text('SIGNATURES', 105, yPos, { align: 'center' });
     yPos += 12;
-    // Client Section - Simplified (removed ID number and date)
+    
+    // ========== UPDATED SIGNATURE SECTION - CLIENT & NEXT OF KIN IN ONE ROW ==========
+    
+    // Signature Row Section Title
     doc.setFontSize(12);
-    doc.text('CLIENT:', 20, yPos);
-    yPos += 6;
+    doc.text('PARTIES TO THIS AGREEMENT:', 20, yPos);
+    yPos += 12;
+    
+    // Calculate spacing for two columns (Client and Next of Kin)
+    const pageWidth = 190; // Total width from left margin 20 to right margin 190
+    const columnWidth = pageWidth / 2;
+    const clientX = 20;
+    const nokX = 20 + columnWidth;
+    const signatureY = yPos;
+    
+    // CLIENT SECTION (First Column)
     doc.setFont('helvetica', 'bold');
-    doc.text('NAME:', 25, yPos);
-    doc.text(`${application.name || '___________________'}`, 60, yPos);
-    yPos += 6;
-    doc.text('SIGN:', 25, yPos);
+    doc.setFontSize(12);
+    doc.text('CLIENT', clientX, signatureY);
+    
+    doc.setFontSize(11);
+    doc.text('Name:', clientX, signatureY + 8);
     doc.setFont('helvetica', 'normal');
-    doc.text('___________________', 60, yPos);
-    yPos += 15;
+    doc.text(`${application.name || '___________________'}`, clientX + 25, signatureY + 8);
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('ID No:', clientX, signatureY + 14);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${application.idNumber || '___________________'}`, clientX + 25, signatureY + 14);
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Signature:', clientX, signatureY + 20);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', clientX + 30, signatureY + 20);
+    
+    // NEXT OF KIN SECTION (Second Column)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('NEXT OF KIN', nokX, signatureY);
+    
+    doc.setFontSize(11);
+    doc.text('Name:', nokX, signatureY + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', nokX + 25, signatureY + 8);
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('ID No:', nokX, signatureY + 14);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', nokX + 25, signatureY + 14);
+    
+    doc.setFont('helvetica', 'bold');
+    doc.text('Signature:', nokX, signatureY + 26);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', nokX + 30, signatureY + 26);
+    
+    yPos = signatureY + 45;
+    
     // Confirmed By Section - Three signatories in one row, evenly spaced
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('CONFIRMED BY:', 20, yPos);
     yPos += 12;
+    
     // Calculate even spacing for three columns
-    const pageWidth = 190; // Total width from left margin 20 to right margin 190
-    const columnWidth = pageWidth / 3;
+    const columnWidthThree = pageWidth / 3;
     const leftX = 20;
-    const middleX = 20 + columnWidth;
-    const rightX = 20 + (columnWidth * 2);
+    const middleX = 20 + columnWidthThree;
+    const rightX = 20 + (columnWidthThree * 2);
     const signatoryY = yPos;
+    
     // Director - Shadrack Kesumet (First Column)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('Shadrack Kesumet', leftX, signatoryY);
-  
+    
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text('Director', leftX, signatoryY + 5);
     doc.text('Sign: ___________________', leftX, signatoryY + 12);
+    
     // Livestock Valuer - George Marite (Second Column)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('George Marite', middleX, signatoryY);
-  
+    
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text('Livestock Valuer', middleX, signatoryY + 5);
     doc.text('Sign: ___________________', middleX, signatoryY + 12);
+    
     // Accountant - Gideon Matunta (Third Column)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('Gideon Matunta', rightX, signatoryY);
-  
+    
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text('Accountant', rightX, signatoryY + 5);
     doc.text('Sign: ___________________', rightX, signatoryY + 12);
+    
     yPos = signatoryY + 25;
+    
     // Company Stamp Box - Creative and faint
     const stampBoxY = yPos;
     const stampBoxWidth = 60;
     const stampBoxHeight = 35;
     const stampBoxX = (210 - stampBoxWidth) / 2; // Center the box horizontally
+    
     // Outer border - very subtle
     doc.setDrawColor(230, 235, 245); // Lighter blue-gray border
     doc.setLineWidth(0.3);
     doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+    
     // Calculate the exact center of the stamp box
     const stampBoxCenterX = stampBoxX + (stampBoxWidth / 2);
     const stampBoxCenterY = stampBoxY + (stampBoxHeight / 2);
+    
     // Stamp placeholder text - perfectly centered
     doc.setTextColor(230, 235, 240);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'italic');
     // Main stamp text - perfectly centered in the box
     doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY, { align: 'center' });
-      
-    // Decorative elements around the stamp area
-    doc.setDrawColor(230, 235, 240);
-    doc.setLineWidth(0.2);
- 
-    yPos = stampBoxY + stampBoxHeight + 15;
+    
     // Footer - properly positioned at bottom
     const footerY = 270;
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`, 20, footerY);
-  
+    
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
     doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 6, { align: 'center' });
+    
     // Save PDF
     const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
@@ -681,3 +820,430 @@ const numberToWords = (num) => {
   if (num < 10000000) return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 !== 0 ? ' ' + numberToWords(num % 100000) : '');
   return numberToWords(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 !== 0 ? ' ' + numberToWords(num % 10000000) : '');
 };
+
+// Generate Professional Investor Agreement PDF
+export const generateInvestorAgreementPDF = async (investor) => {
+  try {
+    const doc = new jsPDF();
+    let yPos = await addHeader(doc, 10);
+
+    // ────────────────────────────────────────────────
+    // Define agreement date early — this was the main fix
+    // ────────────────────────────────────────────────
+    const agreementDate = investor.invested_date 
+      ? new Date(investor.invested_date) 
+      : new Date();
+
+    const formattedDate = agreementDate.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    // Main Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('INVESTMENT AGREEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    yPos = addDivider(doc, yPos);
+
+    // Parties Section
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PARTIES TO THIS AGREEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+
+    // Company Details
+    doc.setFont('helvetica', 'bold');
+    doc.text('1. NAGOLIE ENTERPRISES LTD (hereinafter referred to as "the Company"):', 20, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text(` Registered Office: ${COMPANY_INFO.address}`, 25, yPos);
+    yPos += 6;
+    doc.text(` Postal Address: ${COMPANY_INFO.poBox}`, 25, yPos);
+    yPos += 6;
+    doc.text(` Phone: ${COMPANY_INFO.phone2}`, 25, yPos);
+    yPos += 6;
+    doc.text(` Email: ${COMPANY_INFO.email}`, 25, yPos);
+    yPos += 6;
+    doc.text(` Director: SHADRACK KESUMET`, 25, yPos);
+    yPos += 12;
+
+    // Investor Details
+    doc.setFont('helvetica', 'bold');
+    doc.text('2. THE INVESTOR:', 20, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text(` Full Name: ${(investor.name || '').toUpperCase() || '___________________'}`, 25, yPos);
+    yPos += 6;
+    doc.text(` ID Number: ${investor.id_number || '___________________'}`, 25, yPos);
+    yPos += 6;
+    doc.text(` Phone: ${investor.phone || '___________________'}`, 25, yPos);
+    yPos += 6;
+    doc.text(` Email: ${investor.email || '___________________'}`, 25, yPos);
+    yPos += 12;
+
+    // Investment Details Section
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('INVESTMENT DETAILS', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+
+    const investmentAmount = investor.investment_amount ? parseFloat(investor.investment_amount) : 0;
+    const returnAmount = investmentAmount * 0.10; // 10% return
+
+    const firstReturnDate  = getFirstReturnDate(agreementDate);
+    const secondReturnDate = getNextReturnDate(firstReturnDate);
+
+    const investmentDetails = [
+      { label: 'Investment Amount:',       value: `KES ${investmentAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Investment Date:',         value: formattedDate },
+      { label: 'Return Percentage:',       value: '10%' },
+      { label: 'Return Amount (per period):', value: `KES ${returnAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Return Frequency:',        value: 'First return after 14 days, then every 7 days' },
+      { label: 'First Return Date:',       value: firstReturnDate.toLocaleDateString('en-GB') },
+      { label: 'Second Return Date:',      value: secondReturnDate.toLocaleDateString('en-GB') },
+      { label: 'Investor Account Access:', value: 'Yes - Online dashboard with real-time statistics' }
+    ];
+
+    investmentDetails.forEach(({ label, value }) => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(value), 80, yPos);
+      yPos += 7;
+    });
+
+    yPos += 12;
+
+    // Terms and Conditions heading
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    // ────────────────────────────────────────────────
+    // Your full terms & conditions groups (unchanged)
+    // ────────────────────────────────────────────────
+    const termGroups = [
+      [
+        { text: "1. Agreement Overview", bold: true },
+        "This Investment Agreement (\"Agreement\") is entered into between Nagolie Enterprises Ltd",
+        "(the \"Company\") and the investor named above (the \"Investor\"). The Investor agrees to",
+        "invest the specified amount in the Company's livestock financing operations, and the Company",
+        "agrees to manage the investment and provide returns as specified herein.",
+        ""
+      ],
+      [
+        { text: "2. Investment and Returns", bold: true },
+        "The Investor shall invest the amount specified above. In consideration of this investment,",
+        "the Company shall pay the Investor a return of 10% of the invested amount. The first return",
+        "shall be paid after fourteen (14) days from the investment date, and subsequent returns",
+        "shall be paid every seven (7) days thereafter.",
+        "",
+        "The first 14-day period allows the Company to secure clients and deploy the investment",
+        "capital into livestock financing operations. Returns shall be calculated based on the",
+        "original investment amount and shall be paid promptly on the due date via the agreed",
+        "payment method (M-Pesa or Bank Transfer). The Company reserves the right to adjust the",
+        "return schedule during public holidays or weekends to the next available business day.",
+        ""
+      ],
+      [
+        { text: "3. Investor Account Access", bold: true },
+        "The Investor shall be provided with secure online access to an investor dashboard where",
+        "they can monitor:",
+        "- Real-time investment performance and returns history",
+        "- Livestock held as collateral for the investment",
+        "- Current valuation of livestock assets",
+        "- Upcoming return dates and amounts",
+        "- Company financial health indicators",
+        "",
+        "The Company shall ensure the investor dashboard is updated regularly with accurate",
+        "information regarding the livestock collateral.",
+        ""
+      ],
+      [
+        { text: "4. Livestock as Collateral", bold: true },
+        "The Investor's capital shall be secured by livestock owned and managed by the Company.",
+        "The Company shall maintain detailed records of all livestock serving as collateral,",
+        "including but not limited to:",
+        "- Type, breed, and age of livestock",
+        "- Current market valuation",
+        "- Health status and veterinary records",
+        "- Location and ownership documentation",
+        "",
+        "The Investor acknowledges that livestock are mortal assets and their value may fluctuate",
+        "due to market conditions, health issues, or other factors beyond the Company's control.",
+        ""
+      ],
+      [
+        { text: "5. Risk Acknowledgment and Management", bold: true },
+        "The Investor acknowledges and agrees that investing in livestock involves inherent risks,",
+        "including but not limited to:",
+        "- Mortality or illness of livestock",
+        "- Market price fluctuations",
+        "- Natural disasters or disease outbreaks",
+        "- Theft or loss",
+        "",
+        "In the event of livestock loss that affects the collateral value, the Company and Investor",
+        "shall negotiate in good faith to determine an appropriate loss allocation. The Company",
+        "shall provide transparent documentation of any such incidents and their financial impact.",
+        "Any loss allocation shall be mutually agreed upon in writing by both parties.",
+        ""
+      ],
+      [
+        { text: "6. Investment Term and Withdrawal", bold: true },
+        "6.1 Investment Term:",
+        "This investment shall continue until the Investor provides written notice of withdrawal",
+        "as specified below.",
+        "",
+        "6.2 Withdrawal Process:",
+        "Should the Investor wish to withdraw their investment, they must submit an official",
+        "written request (withdrawal letter) to the Company's registered office. The request",
+        "must include:",
+        "- Investor's full name and ID number",
+        "- Investment amount and date",
+        "- Reason for withdrawal (optional)",
+        "- Signature and date",
+        "",
+        "6.3 Withdrawal Timeline:",
+        "Upon receipt of the official withdrawal request, the Company shall:",
+        "- Immediately stop processing any further returns to the Investor",
+        "- Have a period of ninety (90) days to return the full invested amount to the Investor",
+        "",
+        "6.4 Purpose of 90-Day Period:",
+        "The 90-day period allows the Company adequate time to:",
+        "- Make proper logistical arrangements",
+        "- Liaise with clients to gather funds without disrupting ongoing operations",
+        "- Ensure orderly liquidation of livestock collateral if necessary",
+        "- Complete all administrative and financial processes",
+        "",
+        "6.5 Early Withdrawal:",
+        "Withdrawal requests submitted before the completion of twelve (12) months from the",
+        "investment date shall be considered early withdrawals and may be subject to:",
+        "- A processing fee of up to 5% of the principal amount",
+        "- Extended processing time at the Company's discretion",
+        "",
+        "6.6 Force Majeure:",
+        "In the event of circumstances beyond the Company's control (force majeure) that affect",
+        "the ability to process withdrawals within 90 days, the Company shall notify the Investor",
+        "in writing and propose a revised timeline.",
+        ""
+      ],
+      [
+        { text: "7. Company Obligations", bold: true },
+        "The Company shall:",
+        "- Provide quarterly financial statements to the Investor",
+        "- Notify the Investor of any material changes to the livestock portfolio",
+        "- Ensure proper care and veterinary attention for all livestock",
+        "- Maintain separate accounting for investor funds",
+        "- Process withdrawal requests in accordance with Clause 6",
+        ""
+      ],
+      [
+        { text: "8. Investor Obligations", bold: true },
+        "The Investor shall:",
+        "- Provide accurate personal information for account setup",
+        "- Maintain the confidentiality of their investor account credentials",
+        "- Notify the Company of any changes to contact information",
+        "- Review investment reports and statements promptly",
+        "- Submit withdrawal requests in writing as specified in Clause 6",
+        ""
+      ],
+      [
+        { text: "9. Dispute Resolution", bold: true },
+        "Any disputes arising from this Agreement shall first be addressed through mutual",
+        "negotiation between the parties. If unresolved, disputes shall be referred to mediation",
+        "in accordance with the laws of Kenya. The courts of Kajiado County shall have exclusive",
+        "jurisdiction over any legal proceedings.",
+        ""
+      ],
+      [
+        { text: "10. Governing Law", bold: true },
+        "This Agreement shall be governed by and construed in accordance with the laws of Kenya.",
+        "All matters relating to this investment shall be subject to Kenyan financial regulations",
+        "and agricultural investment guidelines.",
+        ""
+      ],
+      [
+        { text: "11. Entire Agreement", bold: true },
+        "This document constitutes the entire agreement between the parties and supersedes all",
+        "prior discussions and understandings. No modification shall be effective unless in",
+        "writing and signed by both parties.",
+        ""
+      ]
+    ];
+
+    doc.setFontSize(10.5);
+    termGroups.forEach((group, groupIndex) => {
+      const groupHeight = group.length * 4.5;
+
+      if (yPos + groupHeight > 250 && groupIndex > 0) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      group.forEach(line => {
+        if (typeof line === 'object' && line.bold) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(...COLORS.primaryBlue);
+          doc.text(line.text, 20, yPos);
+        } else {
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(...COLORS.textDark);
+          doc.text(line, 20, yPos);
+        }
+        yPos += 4.5;
+      });
+    });
+
+    yPos += 8;
+
+    // Add a new page if needed for signatures
+    if (yPos > 180) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    // Signature Section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text('SIGNATURES', 105, yPos, { align: 'center' });
+    yPos += 12;
+
+    // Investor Section
+    doc.setFontSize(12);
+    doc.text('INVESTOR:', 20, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('NAME:', 25, yPos);
+    doc.text(`${(investor.name || '').toUpperCase() || '___________________'}`, 70, yPos);
+    yPos += 6;
+
+    doc.text('ID NUMBER:', 25, yPos);
+    doc.text(`${investor.id_number || '___________________'}`, 70, yPos);
+    yPos += 6;
+
+    doc.text('SIGNATURE:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', 70, yPos);
+    yPos += 6;
+
+    doc.text('DATE:', 25, yPos);
+    doc.text('___________________', 70, yPos);
+
+    yPos += 15;
+
+    // Company/Director Section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('FOR AND ON BEHALF OF NAGOLIE ENTERPRISES LTD:', 20, yPos);
+    yPos += 8;
+
+    doc.text('DIRECTOR:', 25, yPos);
+    doc.text('SHADRACK KESUMET', 70, yPos);
+    yPos += 6;
+
+    doc.text('SIGNATURE:', 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', 70, yPos);
+    yPos += 6;
+
+    doc.text('DATE:', 25, yPos);
+    doc.text('___________________', 70, yPos);
+
+    yPos += 15;
+
+    // Company Stamp Box
+    const stampBoxY = yPos;
+    const stampBoxWidth = 60;
+    const stampBoxHeight = 35;
+    const stampBoxX = (210 - stampBoxWidth) / 2;
+
+    doc.setDrawColor(230, 235, 245);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('OFFICIAL COMPANY STAMP', stampBoxX + (stampBoxWidth / 2), stampBoxY + (stampBoxHeight / 2), { align: 'center' });
+
+    // Footer
+    const footerY = 270;
+    doc.setTextColor(...COLORS.textLight);
+    doc.setFontSize(8);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`, 20, footerY);
+
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(9);
+    doc.text('Thank you for investing with Nagolie Enterprises!', 105, footerY + 6, { align: 'center' });
+
+    // Save PDF
+    const fileName = `Investment_Agreement_${(investor.name || '').replace(/\s+/g, '_') || 'Investor'}_${formattedDate.replace(/\//g, '-')}.pdf`;
+    doc.save(fileName);
+
+  } catch (error) {
+    console.error('Error generating investor agreement:', error);
+    throw error;
+  }
+};
+
+// Helper function to get first return date (14 days from agreement date)
+function getFirstReturnDate(date) {
+  const firstReturnDate = new Date(date);
+  firstReturnDate.setDate(firstReturnDate.getDate() + 14);
+  
+  // Adjust to next weekday if it lands on a weekend
+  if (firstReturnDate.getDay() === 6) { // Saturday
+    firstReturnDate.setDate(firstReturnDate.getDate() + 2);
+  } else if (firstReturnDate.getDay() === 0) { // Sunday
+    firstReturnDate.setDate(firstReturnDate.getDate() + 1);
+  }
+  
+  return firstReturnDate;
+}
+
+// Helper function to get subsequent return dates (7 days from return)
+function getNextReturnDate(date) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 7);
+  
+  // Adjust to next weekday if it lands on a weekend
+  if (nextDate.getDay() === 6) { // Saturday
+    nextDate.setDate(nextDate.getDate() + 2);
+  } else if (nextDate.getDay() === 0) { // Sunday
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+  
+  return nextDate;
+}
+
+// Helper function to get next weekday
+function getNextWeekday(date) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 7);
+  
+  // If it's a weekend (Saturday = 6, Sunday = 0), move to Monday
+  if (nextDate.getDay() === 6) { // Saturday
+    nextDate.setDate(nextDate.getDate() + 2);
+  } else if (nextDate.getDay() === 0) { // Sunday
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+  
+  return nextDate;
+}
