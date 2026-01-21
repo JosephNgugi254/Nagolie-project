@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+
 // Company constants (branded info)
 const COMPANY_INFO = {
   name: 'NAGOLIE ENTERPRISES LTD',
@@ -11,6 +12,7 @@ const COMPANY_INFO = {
   poBox: 'P.O BOX 359-01100',
   logoUrl: '/logo.png' // Your logo path
 };
+
 // Colors from your :root (converted to RGB for jsPDF)
 const COLORS = {
   primaryBlue: [30, 64, 175], // #1e40af
@@ -19,8 +21,116 @@ const COLORS = {
   textLight: [107, 114, 128], // #6b7280
   white: [255, 255, 255],
   border: [229, 231, 235], // #e5e7eb
-  green: [17, 140, 79] // #30B54A for M-Pesa
+  green: [17, 140, 79], // #30B54A for M-Pesa
+  watermark: [220, 220, 220, 0.1] // Light gray for watermark with transparency
 };
+
+// ========== OPTIMIZED WATERMARK FUNCTION ==========
+const addOptimizedWatermark = (doc, type = 'agreement') => {
+  const totalPages = doc.getNumberOfPages();
+  const DOC_LABELS = {
+    receipt: 'RECEIPT',
+    statement: 'STATEMENT',
+    agreement: 'AGREEMENT',
+    investor: 'INVESTMENT AGREEMENT'
+  };
+  const docType = DOC_LABELS[type] || 'DOCUMENT';
+  
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    
+    const savedState = {
+      textColor: doc.getTextColor(),
+      drawColor: doc.getDrawColor(),
+      fillColor: doc.getFillColor(),
+      lineWidth: doc.internal.getLineWidth(),
+      font: doc.getFont(),
+      fontSize: doc.internal.getFontSize()
+    };
+    
+    try {
+      doc.setTextColor(238, 241, 245);
+      doc.setFont('helvetica', 'bold');
+      const angle = 45;
+      const watermarks = [
+        { x: pageWidth * 0.28, y: pageHeight * 0.38 },
+        { x: pageWidth * 0.72, y: pageHeight * 0.68 }
+      ];
+      
+      watermarks.forEach(pos => {
+        doc.setFontSize(28);
+        doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
+        doc.setFontSize(18);
+        doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
+      });
+    } finally {
+      doc.setTextColor(savedState.textColor);
+      doc.setDrawColor(savedState.drawColor);
+      doc.setFillColor(savedState.fillColor);
+      doc.setLineWidth(savedState.lineWidth);
+      if (savedState.font?.fontName) {
+        doc.setFont(savedState.font.fontName, savedState.font.fontStyle);
+      }
+      doc.setFontSize(savedState.fontSize);
+    }
+  }
+};
+
+// ========== NEW: SINGLE PAGE WATERMARK FUNCTION FOR MULTI-PAGE DOCS ==========
+/**
+ * Adds watermark to ONLY the current page (for multi-page documents)
+ * This should be called BEFORE adding content to each new page
+ */
+const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
+  const DOC_LABELS = {
+    receipt: 'RECEIPT',
+    statement: 'STATEMENT',
+    agreement: 'AGREEMENT',
+    investor: 'INVESTMENT AGREEMENT'
+  };
+  const docType = DOC_LABELS[type] || 'DOCUMENT';
+  
+  const pageWidth = doc.internal.pageSize.width;
+  const pageHeight = doc.internal.pageSize.height;
+  
+  const savedState = {
+    textColor: doc.getTextColor(),
+    drawColor: doc.getDrawColor(),
+    fillColor: doc.getFillColor(),
+    lineWidth: doc.internal.getLineWidth(),
+    font: doc.getFont(),
+    fontSize: doc.internal.getFontSize()
+  };
+  
+  try {
+    doc.setTextColor(238, 241, 245);
+    doc.setFont('helvetica', 'bold');
+    const angle = 45;
+    const watermarks = [
+      { x: pageWidth * 0.28, y: pageHeight * 0.38 },
+      { x: pageWidth * 0.72, y: pageHeight * 0.68 }
+    ];
+    
+    watermarks.forEach(pos => {
+      doc.setFontSize(28);
+      doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
+      doc.setFontSize(18);
+      doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
+    });
+  } finally {
+    doc.setTextColor(savedState.textColor);
+    doc.setDrawColor(savedState.drawColor);
+    doc.setFillColor(savedState.fillColor);
+    doc.setLineWidth(savedState.lineWidth);
+    if (savedState.font?.fontName) {
+      doc.setFont(savedState.font.fontName, savedState.font.fontStyle);
+    }
+    doc.setFontSize(savedState.fontSize);
+  }
+};
+
 // Helper to fetch logo as base64 with proper dimensions
 const getLogoBase64 = async (url) => {
   try {
@@ -37,15 +147,18 @@ const getLogoBase64 = async (url) => {
     return null;
   }
 };
+
 // Common header function for all PDFs
 const addHeader = async (doc, yStart = 15) => {
   const logoBase64 = await getLogoBase64(COMPANY_INFO.logoUrl);
   let yPos = yStart;
+  
   // Header with logo and company info side by side
   if (logoBase64) {
     // Add logo with proper dimensions (maintain aspect ratio)
     doc.addImage(logoBase64, 'PNG', 20, yPos, 25, 25);
   }
+  
   // Company info aligned to the right of logo
   const infoX = logoBase64 ? 55 : 20;
   doc.setTextColor(...COLORS.primaryBlue);
@@ -64,6 +177,7 @@ const addHeader = async (doc, yStart = 15) => {
   yPos += 35;
   return yPos;
 };
+
 // Common divider function
 const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
   doc.setLineWidth(0.5);
@@ -71,10 +185,15 @@ const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
   doc.line(20, yPos, 190, yPos);
   return yPos + 10;
 };
+
 // Generate Transaction Receipt PDF
 export const generateTransactionReceipt = async (transaction) => {
   try {
     const doc = new jsPDF();
+    
+    // ADD OPTIMIZED WATERMARK FIRST
+    addOptimizedWatermark(doc, 'receipt');
+    
     let yPos = await addHeader(doc);
   
     // Title: Transaction Receipt
@@ -101,6 +220,7 @@ export const generateTransactionReceipt = async (transaction) => {
       { label: 'Payment Method:', value: formatPaymentMethod(transaction.method, transaction.type) },
       { label: 'Status:', value: formatStatus(transaction.status) }
     ];
+    
     // Render details with proper spacing
     details.forEach(({ label, value }) => {
       doc.setTextColor(...COLORS.textDark);
@@ -121,6 +241,7 @@ export const generateTransactionReceipt = async (transaction) => {
       doc.text(String(value), 70, yPos);
       yPos += 8;
     });
+    
     // Add M-Pesa reference if applicable
     if (transaction.method?.toLowerCase() === 'mpesa' && transaction.mpesa_receipt) {
       yPos += 5;
@@ -145,6 +266,7 @@ export const generateTransactionReceipt = async (transaction) => {
     throw error;
   }
 };
+
 // Generate Client Statement PDF
 export const generateClientStatement = async (client, allTransactions) => {
   try {
@@ -154,6 +276,10 @@ export const generateClientStatement = async (client, allTransactions) => {
     );
   
     const doc = new jsPDF();
+    
+    // ADD OPTIMIZED WATERMARK FIRST
+    addOptimizedWatermark(doc, 'statement');
+    
     let yPos = await addHeader(doc);
   
     // Title
@@ -244,6 +370,11 @@ export const generateClientStatement = async (client, allTransactions) => {
       sortedTransactions.forEach((transaction, index) => {
         if (yPos > 250) {
           doc.addPage();
+          // Add watermark to new page FIRST, before any content
+          addWatermarkToCurrentPage(doc, 'statement');
+          // Reset font state after watermark
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
           yPos = 20;
         }
       
@@ -307,11 +438,15 @@ export const generateClientStatement = async (client, allTransactions) => {
     throw error;
   }
 };
-// Generate Professional Loan Agreement PDF (Updated Signature Section with Stamp Box)
-// Generate Professional Loan Agreement PDF (Updated Signature Section with Stamp Box)
+
+// Generate Professional Loan Agreement PDF
 export const generateLoanAgreementPDF = async (application) => {
   try {
     const doc = new jsPDF();
+    
+    // ADD OPTIMIZED WATERMARK FIRST (before any content)
+    addOptimizedWatermark(doc, 'agreement');
+    
     let yPos = await addHeader(doc, 10);
     
     // Main Title
@@ -367,7 +502,7 @@ export const generateLoanAgreementPDF = async (application) => {
     writeStyledLine(doc, thirdLineParts, 20, yPos, 12);
     yPos += 12;
     
-    // ========== NEW: NEXT OF KIN CONSENT SECTION ==========
+    // ========== NEXT OF KIN CONSENT SECTION ==========
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
@@ -379,8 +514,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLORS.textDark);
     
-    // Next of Kin consent statement - using writeStyledLine for consistent formatting
-    // Split the long sentence into two lines: print first line now, then let the existing call print the second
+    // Next of Kin consent statement
     const nokLine1First = [
       { text: "I, ____________________________, as the Next of Kin of the above-named client", style: 'normal' }
     ];
@@ -397,7 +531,7 @@ export const generateLoanAgreementPDF = async (application) => {
     writeStyledLine(doc, nokLine1Parts, 17, yPos, 12);
     yPos += 10;
     
-        // Consent bullets with larger font
+    // Consent bullets with larger font
     const consentBullets = [
       "1. I am aware that the above-named client is taking a livestock financing loan from Nagolie Enterprises Ltd.",
       "2. I have read, understood, and consent to all the terms and conditions of this agreement.",
@@ -465,7 +599,7 @@ export const generateLoanAgreementPDF = async (application) => {
         "Company's property and recover losses without legal impediment.",
         ""
       ],
-      // ========== NEW: VALUER COMMENT SECTION ==========
+      // ========== VALUER COMMENT SECTION ==========
       [
         { text: "2.3. Valuer's Comment:", bold: true },
         "_____________________________________________________________________________",
@@ -534,7 +668,10 @@ export const generateLoanAgreementPDF = async (application) => {
       ]
     ];
     
+    // IMPORTANT: Set font size and style explicitly before terms
     doc.setFontSize(10.5);
+    doc.setFont('helvetica', 'normal');
+    
     termGroups.forEach((group, groupIndex) => {
       // Calculate group height
       const groupHeight = group.length * 4.5;
@@ -542,6 +679,11 @@ export const generateLoanAgreementPDF = async (application) => {
       // Check if we need a new page for this group
       if (yPos + groupHeight > 250 && groupIndex > 0) {
         doc.addPage();
+        // Add watermark to new page FIRST, before any content
+        addWatermarkToCurrentPage(doc, 'agreement');
+        // Reset font state after watermark
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10.5);
         yPos = 20;
       }
       
@@ -551,6 +693,9 @@ export const generateLoanAgreementPDF = async (application) => {
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(...COLORS.primaryBlue);
           doc.text(line.text, 20, yPos);
+          // Reset to normal for next line
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(...COLORS.textDark);
         } else {
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...COLORS.textDark);
@@ -565,6 +710,11 @@ export const generateLoanAgreementPDF = async (application) => {
     // Add a new page if needed for signatures
     if (yPos > 180) {
       doc.addPage();
+      // Add watermark to new page FIRST, before any content
+      addWatermarkToCurrentPage(doc, 'agreement');
+      // Reset font state after watermark
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
       yPos = 20;
     }
     
@@ -715,9 +865,13 @@ export const generateLoanAgreementPDF = async (application) => {
     throw error;
   }
 };
+
 // Helper function to write lines with mixed styles without overlapping
 const writeStyledLine = (doc, parts, x, y, fontSize = 10) => {
   let currentX = x;
+  const originalFontSize = doc.internal.getFontSize();
+  const originalFont = doc.getFont();
+  
   parts.forEach(part => {
     doc.setFont('helvetica', part.style);
     doc.setFontSize(fontSize);
@@ -725,7 +879,12 @@ const writeStyledLine = (doc, parts, x, y, fontSize = 10) => {
     doc.text(text, currentX, y);
     currentX += doc.getTextWidth(text);
   });
+  
+  // Restore original font
+  doc.setFont(originalFont.fontName, originalFont.fontStyle);
+  doc.setFontSize(originalFontSize);
 };
+
 // Helper Functions
 const formatTransactionType = (type, paymentType) => {
   if (!type) return 'N/A';
@@ -746,6 +905,7 @@ const formatTransactionType = (type, paymentType) => {
   };
   return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
 };
+
 const formatPaymentMethod = (method, transactionType = '') => {
   if (!method && !transactionType) return 'N/A';
  
@@ -758,10 +918,12 @@ const formatPaymentMethod = (method, transactionType = '') => {
   if (methodUpper === 'DISBURSEMENT') return 'BANK';
   return methodUpper || 'N/A';
 };
+
 const formatStatus = (status) => {
   if (!status) return 'N/A';
   return status.charAt(0).toUpperCase() + status.slice(1);
 };
+
 const getTransactionReference = (transaction) => {
   const method = (transaction.method || '').toUpperCase();
   const paymentType = transaction.payment_type || transaction.paymentType || '';
@@ -796,6 +958,7 @@ const getTransactionReference = (transaction) => {
     return `TXN-${transaction.id}`;
   }
 };
+
 const addFooter = (doc, yPos) => {
   if (yPos > 270) return;
   const footerY = Math.min(yPos + 20, 270);
@@ -806,30 +969,18 @@ const addFooter = (doc, yPos) => {
   doc.setFontSize(9);
   doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 10, { align: 'center' });
 };
-// Simple number to words conversion for Kenyan Shillings
-const numberToWords = (num) => {
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-  if (num === 0) return 'Zero';
-  if (num < 10) return ones[num];
-  if (num < 20) return teens[num - 10];
-  if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + ones[num % 10] : '');
-  if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' and ' + numberToWords(num % 100) : '');
-  if (num < 100000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 !== 0 ? ' ' + numberToWords(num % 1000) : '');
-  if (num < 10000000) return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 !== 0 ? ' ' + numberToWords(num % 100000) : '');
-  return numberToWords(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 !== 0 ? ' ' + numberToWords(num % 10000000) : '');
-};
 
 // Generate Professional Investor Agreement PDF
 export const generateInvestorAgreementPDF = async (investor) => {
   try {
     const doc = new jsPDF();
+    
+    // ADD OPTIMIZED WATERMARK FIRST
+    addOptimizedWatermark(doc, 'investor');
+    
     let yPos = await addHeader(doc, 10);
 
-    // ────────────────────────────────────────────────
     // Define agreement date early — this was the main fix
-    // ────────────────────────────────────────────────
     const agreementDate = investor.invested_date 
       ? new Date(investor.invested_date) 
       : new Date();
@@ -935,9 +1086,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 8;
 
-    // ────────────────────────────────────────────────
     // Your full terms & conditions groups (unchanged)
-    // ────────────────────────────────────────────────
     const termGroups = [
       [
         { text: "1. Agreement Overview", bold: true },
@@ -1087,12 +1236,20 @@ export const generateInvestorAgreementPDF = async (investor) => {
       ]
     ];
 
+    // Set font explicitly before terms
     doc.setFontSize(10.5);
+    doc.setFont('helvetica', 'normal');
+    
     termGroups.forEach((group, groupIndex) => {
       const groupHeight = group.length * 4.5;
 
       if (yPos + groupHeight > 250 && groupIndex > 0) {
         doc.addPage();
+        // Add watermark to new page FIRST, before any content
+        addWatermarkToCurrentPage(doc, 'investor');
+        // Reset font state after watermark
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10.5);
         yPos = 20;
       }
 
@@ -1101,6 +1258,9 @@ export const generateInvestorAgreementPDF = async (investor) => {
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(...COLORS.primaryBlue);
           doc.text(line.text, 20, yPos);
+          // Reset to normal for next line
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(...COLORS.textDark);
         } else {
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...COLORS.textDark);
@@ -1115,6 +1275,11 @@ export const generateInvestorAgreementPDF = async (investor) => {
     // Add a new page if needed for signatures
     if (yPos > 180) {
       doc.addPage();
+      // Add watermark to new page FIRST, before any content
+      addWatermarkToCurrentPage(doc, 'investor');
+      // Reset font state after watermark
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
       yPos = 20;
     }
 
