@@ -467,10 +467,10 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.text(`Agreement Date: ${formattedDate}`, 20, yPos);
-    yPos += 15;
+    yPos += 12; // Reduced from 15
     
-    // Simplified Agreement Body - Reduced spacing
-    doc.setFontSize(12);
+    // Simplified Agreement Body - Adjusted spacing
+    doc.setFontSize(11.5); // Reduced from 12
     const firstLineParts = [
       { text: "I ", style: 'normal' },
       { text: `${application.name || '___________________'}`, style: 'bold' },
@@ -482,15 +482,15 @@ export const generateLoanAgreementPDF = async (application) => {
       { text: "________", style: 'bold' },
       { text: ` (month) (Year) 20${agreementDate.getFullYear().toString().slice(-2)}`, style: 'normal' }
     ];
-    writeStyledLine(doc, firstLineParts, 20, yPos, 12);
-    yPos += 6;
+    writeStyledLine(doc, firstLineParts, 20, yPos, 11.5);
+    yPos += 5; // Reduced from 6
     
     const secondLineParts = [
       { text: "acknowledge/agree and therefore receive Ksh: ", style: 'normal' },
       { text: `${application.loanAmount ? application.loanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '__________'}`, style: 'bold' }
     ];
-    writeStyledLine(doc, secondLineParts, 20, yPos, 12);
-    yPos += 6;
+    writeStyledLine(doc, secondLineParts, 20, yPos, 11.5);
+    yPos += 5; // Reduced from 6
     
     const thirdLineParts = [
       { text: "for payment of ", style: 'normal' },
@@ -499,65 +499,15 @@ export const generateLoanAgreementPDF = async (application) => {
       { text: `${application.livestockCount || '____'}`, style: 'bold' },
       { text: ") by Nagolie enterprises.", style: 'normal' }
     ];
-    writeStyledLine(doc, thirdLineParts, 20, yPos, 12);
-    yPos += 12;
-    
-    // ========== NEXT OF KIN CONSENT SECTION ==========
-    doc.setTextColor(...COLORS.primaryBlue);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text('NEXT OF KIN CONSENT AND ACKNOWLEDGEMENT', 105, yPos, { align: 'center' });
-    yPos += 8;
-    
-    // CHANGED: Increased font size to match first three lines (12)
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...COLORS.textDark);
-    
-    // Next of Kin consent statement
-    const nokLine1First = [
-      { text: "I, ____________________________, as the Next of Kin of the above-named client", style: 'normal' }
-    ];
-    const nokLine1Second = [
-      { text: "do hereby acknowledge that,", style: 'normal' }
-    ];
-
-    // Write the first part immediately and move yPos down for the second part
-    writeStyledLine(doc, nokLine1First, 17, yPos, 12);
-    yPos += 6;
-
-    // Provide nokLine1Parts for the existing call below to render the second line
-    const nokLine1Parts = nokLine1Second;
-    writeStyledLine(doc, nokLine1Parts, 17, yPos, 12);
-    yPos += 10;
-    
-    // Consent bullets with larger font
-    const consentBullets = [
-      "1. I am aware that the above-named client is taking a livestock financing loan from Nagolie Enterprises Ltd.",
-      "2. I have read, understood, and consent to all the terms and conditions of this agreement.",
-      "3. I acknowledge that the livestock specified herein will serve as collateral for this loan.",
-      "4. I understand the implications of default as outlined in this agreement.",
-      "5. I agree to act as a point of contact in matters relating to this loan."
-    ];
-    
-    consentBullets.forEach(bullet => {
-      doc.text(bullet, 17, yPos);
-      yPos += 7; // Slightly more spacing for larger font
-    });
-    
-    yPos += 5;
-    doc.text("Relationship to Client: ____________________", 20, yPos);
-    yPos += 7;
-    doc.text("Phone Number: ____________________", 20, yPos);
-    yPos += 12;
-    // ========== END NEXT OF KIN CONSENT SECTION ==========
+    writeStyledLine(doc, thirdLineParts, 20, yPos, 11.5);
+    yPos += 10; // Reduced from 12
     
     // Add Terms and Conditions heading
     doc.setTextColor(...COLORS.primaryBlue);
-    doc.setFontSize(14);
+    doc.setFontSize(13); // Reduced from 14
     doc.setFont('helvetica', 'bold');
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
-    yPos += 8;
+    yPos += 8; // Reduced from 8
     
     // Group terms to ensure they stay together
     const termGroups = [
@@ -669,12 +619,12 @@ export const generateLoanAgreementPDF = async (application) => {
     ];
     
     // IMPORTANT: Set font size and style explicitly before terms
-    doc.setFontSize(10.5);
+    doc.setFontSize(10); // Reduced from 10.5
     doc.setFont('helvetica', 'normal');
     
     termGroups.forEach((group, groupIndex) => {
-      // Calculate group height
-      const groupHeight = group.length * 4.5;
+      // Calculate group height - reduced line spacing
+      const groupHeight = group.length * 4.2; // Reduced from 4.5
       
       // Check if we need a new page for this group
       if (yPos + groupHeight > 250 && groupIndex > 0) {
@@ -683,7 +633,7 @@ export const generateLoanAgreementPDF = async (application) => {
         addWatermarkToCurrentPage(doc, 'agreement');
         // Reset font state after watermark
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10.5);
+        doc.setFontSize(10);
         yPos = 20;
       }
       
@@ -701,7 +651,7 @@ export const generateLoanAgreementPDF = async (application) => {
           doc.setTextColor(...COLORS.textDark);
           doc.text(line, 20, yPos);
         }
-        yPos += 4.5;
+        yPos += 4.2; // Reduced from 4.5
       });
     });
     
@@ -722,117 +672,91 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.text('SIGNATURES', 105, yPos, { align: 'center' });
-    yPos += 12;
+    yPos += 10; // Reduced from 12
     
-    // ========== UPDATED SIGNATURE SECTION - CLIENT & NEXT OF KIN IN ONE ROW ==========
+    // ========== UPDATED SIGNATURE SECTION ==========
     
     // Signature Row Section Title
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.text('PARTIES TO THIS AGREEMENT:', 20, yPos);
-    yPos += 12;
+    yPos += 10; // Reduced from 12
     
-    // Calculate spacing for two columns (Client and Next of Kin)
-    const pageWidth = 190; // Total width from left margin 20 to right margin 190
-    const columnWidth = pageWidth / 2;
-    const clientX = 20;
-    const nokX = 20 + columnWidth;
-    const signatureY = yPos;
-    
-    // CLIENT SECTION (First Column)
+    // CLIENT SECTION
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('CLIENT', clientX, signatureY);
-    
     doc.setFontSize(11);
-    doc.text('Name:', clientX, signatureY + 8);
+    doc.text('CLIENT', 20, yPos);
+    
+    doc.setFontSize(10);
+    doc.text('Name:', 25, yPos + 7);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${application.name || '___________________'}`, clientX + 25, signatureY + 8);
+    doc.text(`${application.name || '___________________'}`, 55, yPos + 7);
     
     doc.setFont('helvetica', 'bold');
-    doc.text('ID No:', clientX, signatureY + 14);
+    doc.text('ID No:', 25, yPos + 14);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${application.idNumber || '___________________'}`, clientX + 25, signatureY + 14);
+    doc.text(`${application.idNumber || '___________________'}`, 55, yPos + 14);
     
     doc.setFont('helvetica', 'bold');
-    doc.text('Signature:', clientX, signatureY + 20);
+    doc.text('Signature:', 25, yPos + 21);
     doc.setFont('helvetica', 'normal');
-    doc.text('___________________', clientX + 30, signatureY + 20);
+    doc.text('___________________', 65, yPos + 21);
     
-    // NEXT OF KIN SECTION (Second Column)
+    yPos += 35; // Adjusted spacing
+    
+    // Confirmed By Section - ALL THREE IN ONE ROW
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('NEXT OF KIN', nokX, signatureY);
-    
     doc.setFontSize(11);
-    doc.text('Name:', nokX, signatureY + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.text('___________________', nokX + 25, signatureY + 8);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.text('ID No:', nokX, signatureY + 14);
-    doc.setFont('helvetica', 'normal');
-    doc.text('___________________', nokX + 25, signatureY + 14);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.text('Signature:', nokX, signatureY + 26);
-    doc.setFont('helvetica', 'normal');
-    doc.text('___________________', nokX + 30, signatureY + 26);
-    
-    yPos = signatureY + 45;
-    
-    // Confirmed By Section - Three signatories in one row, evenly spaced
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
     doc.text('CONFIRMED BY:', 20, yPos);
-    yPos += 12;
+    yPos += 10;
     
-    // Calculate even spacing for three columns
-    const columnWidthThree = pageWidth / 3;
+    // Calculate positions for three columns in one row
+    const pageWidth = 190; // Total width from left margin 20 to right margin 190
+    const columnWidth = pageWidth / 3;
     const leftX = 20;
-    const middleX = 20 + columnWidthThree;
-    const rightX = 20 + (columnWidthThree * 2);
+    const middleX = 20 + columnWidth;
+    const rightX = 20 + (columnWidth * 2);
     const signatoryY = yPos;
     
     // Director - Shadrack Kesumet (First Column)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.text('Shadrack Kesumet', leftX, signatoryY);
     
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.text('Director', leftX, signatoryY + 5);
     doc.text('Sign: ___________________', leftX, signatoryY + 12);
     
     // Livestock Valuer - George Marite (Second Column)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.text('George Marite', middleX, signatoryY);
     
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.text('Livestock Valuer', middleX, signatoryY + 5);
     doc.text('Sign: ___________________', middleX, signatoryY + 12);
     
     // Accountant - Gideon Matunta (Third Column)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.text('Gideon Matunta', rightX, signatoryY);
     
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.text('Accountant', rightX, signatoryY + 5);
     doc.text('Sign: ___________________', rightX, signatoryY + 12);
     
     yPos = signatoryY + 25;
     
     // Company Stamp Box - Creative and faint
-    const stampBoxY = yPos;
+    const stampBoxY = Math.min(yPos, 210); // Adjusted position
     const stampBoxWidth = 60;
     const stampBoxHeight = 35;
-    const stampBoxX = (210 - stampBoxWidth) / 2; // Center the box horizontally
+    const stampBoxX = (210 - stampBoxWidth) / 2;
     
     // Outer border - very subtle
-    doc.setDrawColor(230, 235, 245); // Lighter blue-gray border
+    doc.setDrawColor(230, 235, 245);
     doc.setLineWidth(0.3);
     doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
     
@@ -844,18 +768,17 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setTextColor(230, 235, 240);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'italic');
-    // Main stamp text - perfectly centered in the box
     doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY, { align: 'center' });
     
     // Footer - properly positioned at bottom
-    const footerY = 270;
+    const footerY = 280; // Moved to bottom
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`, 20, footerY);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 6, { align: 'center' });
+    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
     
     // Save PDF
     const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
@@ -1059,13 +982,14 @@ export const generateInvestorAgreementPDF = async (investor) => {
     const secondReturnDate = getNextReturnDate(firstReturnDate);
 
     const investmentDetails = [
-      { label: 'Investment Amount:',       value: `KES ${investmentAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Investment Date:',         value: formattedDate },
-      { label: 'Return Percentage:',       value: '10%' },
+      { label: 'Investment Amount:', value: `KES ${investmentAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Investment Date:', value: formattedDate },
+      { label: 'Return Percentage:', value: '40%' },
       { label: 'Return Amount (per period):', value: `KES ${returnAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Return Frequency:',        value: 'First return after 14 days, then every 7 days' },
-      { label: 'First Return Date:',       value: firstReturnDate.toLocaleDateString('en-GB') },
-      { label: 'Second Return Date:',      value: secondReturnDate.toLocaleDateString('en-GB') },
+      { label: 'Return Frequency:', value: 'First return after 5 weeks, then every 4 weeks' },
+      { label: 'First Return Date:', value: firstReturnDate.toLocaleDateString('en-GB') },
+      { label: 'Second Return Date:', value: secondReturnDate.toLocaleDateString('en-GB') },
+      { label: 'Early Withdrawal Fee:', value: '15% of expected amount (investor receives 85%)' },
       { label: 'Investor Account Access:', value: 'Yes - Online dashboard with real-time statistics' }
     ];
 
@@ -1096,18 +1020,16 @@ export const generateInvestorAgreementPDF = async (investor) => {
         "agrees to manage the investment and provide returns as specified herein.",
         ""
       ],
-      [
+       [
         { text: "2. Investment and Returns", bold: true },
         "The Investor shall invest the amount specified above. In consideration of this investment,",
-        "the Company shall pay the Investor a return of 10% of the invested amount. The first return",
-        "shall be paid after fourteen (14) days from the investment date, and subsequent returns",
-        "shall be paid every seven (7) days thereafter.",
+        "the Company shall pay the Investor a return of 40% of the invested amount. The first return",
+        "shall be paid after five (5) weeks from the investment date, and subsequent returns",
+        "shall be paid every four (4) weeks thereafter.",
         "",
-        "The first 14-day period allows the Company to secure clients and deploy the investment",
-        "capital into livestock financing operations. Returns shall be calculated based on the",
-        "original investment amount and shall be paid promptly on the due date via the agreed",
-        "payment method (M-Pesa or Bank Transfer). The Company reserves the right to adjust the",
-        "return schedule during public holidays or weekends to the next available business day.",
+        "If the Investor requests an early return (before the scheduled return date), the Company",
+        "may, at its discretion, process the early return subject to a fee of 15% of the expected",
+        "return amount. In such a case, the Investor will receive 85% of the expected return amount.",
         ""
       ],
       [
@@ -1371,7 +1293,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
 // Helper function to get first return date (14 days from agreement date)
 function getFirstReturnDate(date) {
   const firstReturnDate = new Date(date);
-  firstReturnDate.setDate(firstReturnDate.getDate() + 14);
+  firstReturnDate.setDate(firstReturnDate.getDate() + 35);
   
   // Adjust to next weekday if it lands on a weekend
   if (firstReturnDate.getDay() === 6) { // Saturday
@@ -1386,7 +1308,7 @@ function getFirstReturnDate(date) {
 // Helper function to get subsequent return dates (7 days from return)
 function getNextReturnDate(date) {
   const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + 7);
+  nextDate.setDate(nextDate.getDate() + 28);
   
   // Adjust to next weekday if it lands on a weekend
   if (nextDate.getDay() === 6) { // Saturday
@@ -1412,3 +1334,198 @@ function getNextWeekday(date) {
   
   return nextDate;
 }
+
+// export const generateNextOfKinConsentPDF = async () => {
+//   try {
+//     const doc = new jsPDF();
+    
+//     // ADD OPTIMIZED WATERMARK FIRST
+//     addOptimizedWatermark(doc, 'agreement');
+    
+//     let yPos = await addHeader(doc, 10);
+
+//     const currentDate = new Date();
+//     const formattedDate = currentDate.toLocaleDateString('en-GB', {
+//       day: '2-digit', month: '2-digit', year: 'numeric'
+//     });
+    
+//     // Main Title
+//     doc.setTextColor(...COLORS.primaryBlue);
+//     doc.setFontSize(16);
+//     doc.setFont('helvetica', 'bold');
+//     doc.text('NEXT OF KIN CONSENT FORM', 105, yPos, { align: 'center' });
+//     yPos += 10;
+    
+//     yPos = addDivider(doc, yPos);
+    
+//     // Loan Reference Information Header
+//     doc.setTextColor(...COLORS.primaryBlue);
+//     doc.setFontSize(12);
+//     doc.setFont('helvetica', 'bold');
+//     doc.text('LOAN REFERENCE INFORMATION', 105, yPos, { align: 'center' });
+//     yPos += 12;
+    
+//     // Loan Reference Information in two rows
+//     doc.setFontSize(11);
+//     doc.setTextColor(...COLORS.textDark);
+    
+//     // First row: Borrower's Name and ID Number
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Borrower's Name:", 20, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("__________________________", 55, yPos);
+    
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("ID Number:", 120, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("_________________", 150, yPos);
+    
+//     yPos += 10;
+    
+//     // Second row: Loan Amount and Loan Date
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Loan Amount:", 20, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("KSh _________________", 55, yPos);
+    
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Loan Date:", 120, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("_________________", 150, yPos);
+    
+//     yPos += 10;
+    
+//     // Consent Statement Header
+//     doc.setTextColor(...COLORS.primaryBlue);
+//     doc.setFontSize(12);
+//     doc.setFont('helvetica', 'bold');
+//     doc.text('CONSENT AND ACKNOWLEDGEMENT STATEMENT', 105, yPos, { align: 'center' });
+//     yPos += 12;
+    
+//     // Consent Statement as a paragraph (to save space)
+//     doc.setFontSize(11);
+//     doc.setFont('helvetica', 'normal');
+//     doc.setTextColor(...COLORS.textDark);
+    
+//     const consentParagraph = "I, the undersigned Next of Kin to the above-named Borrower, hereby acknowledge and consent that:\n\n" +
+//       "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises Ltd.\n" +
+//       "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises Ltd.\n" +
+//       "3. I acknowledge that the livestock specified in the loan agreement will serve as collateral for this loan.\n" +
+//       "4. I understand the implications of default as outlined in the loan agreement.\n" +
+//       "5. I agree to act as a point of contact in matters relating to this loan.\n" +
+//       "6. In the event of default, I understand that Nagolie Enterprises Ltd has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not.\n" +
+//       "7. I will cooperate with Nagolie Enterprises Ltd in their recovery efforts should the need arise.";
+    
+//     // Split the paragraph into lines that fit the page width
+//     const consentLines = doc.splitTextToSize(consentParagraph, 170);
+//     consentLines.forEach(line => {
+//       // Check if we need a new page
+//       if (yPos > 250) {
+//         doc.addPage();
+//         addWatermarkToCurrentPage(doc, 'agreement');
+//         doc.setFont('helvetica', 'normal');
+//         doc.setFontSize(11);
+//         yPos = 20;
+//       }
+//       doc.text(line, 20, yPos);
+//       yPos += 6;
+//     });
+    
+//     yPos += 8;
+    
+//     // Next of Kin Details Header
+//     doc.setTextColor(...COLORS.primaryBlue);
+//     doc.setFontSize(12);
+//     doc.setFont('helvetica', 'bold');
+//     doc.text('NEXT OF KIN DETAILS', 105, yPos, { align: 'center' });
+//     yPos += 10;
+    
+//     // Next of Kin Information in two rows
+//     doc.setFontSize(11);
+//     doc.setTextColor(...COLORS.textDark);
+    
+//     // First row: Full Name and ID Number
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Full Name:", 20, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("__________________________", 55, yPos);
+    
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("ID Number:", 120, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("_________________", 150, yPos);
+    
+//     yPos += 10;
+    
+//     // Second row: Relationship and Phone Number
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Relationship:", 20, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("__________________________", 55, yPos);
+    
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Phone Number:", 120, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("_________________", 150, yPos);
+    
+//     yPos += 10;
+        
+//     // Third row: signature and date
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Signature:", 20, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("__________________________", 55, yPos);
+    
+//     doc.setFont('helvetica', 'bold');
+//     doc.text("Date:", 120, yPos);
+//     doc.setFont('helvetica', 'normal');
+//     doc.text("_________________", 150, yPos);
+    
+//     yPos += 9;
+    
+//     // Company Stamp Box
+//     const stampBoxY = Math.max(yPos, 200); // Ensure stamp box is positioned properly
+//     const stampBoxWidth = 60;
+//     const stampBoxHeight = 35;
+//     const stampBoxX = (210 - stampBoxWidth) / 2;
+    
+//     // Outer border
+//     doc.setDrawColor(230, 235, 245);
+//     doc.setLineWidth(0.3);
+//     doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+    
+//     // Stamp placeholder text
+//     const stampBoxCenterX = stampBoxX + (stampBoxWidth / 2);
+//     const stampBoxCenterY = stampBoxY + (stampBoxHeight / 2);
+    
+//     doc.setTextColor(230, 235, 240);
+//     doc.setFontSize(9);
+//     doc.setFont('helvetica', 'italic');
+//     doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY - 3, { align: 'center' });
+//     doc.text('(To be affixed here)', stampBoxCenterX, stampBoxCenterY + 3, { align: 'center' });
+    
+    
+//     // Footer
+//     doc.setTextColor(...COLORS.textLight);
+//     doc.setFontSize(8);
+//     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, 280);
+    
+//     doc.setTextColor(...COLORS.textDark);
+//     doc.setFontSize(9);
+//     doc.text(COMPANY_INFO.tagline, 105, 285, { align: 'center' });
+    
+//     // Save PDF
+//     const fileName = `Next_of_Kin_Consent_Form_${formattedDate.replace(/\//g, '-')}.pdf`;
+//     doc.save(fileName);
+    
+//   } catch (error) {
+//     console.error('Error generating next of kin consent form:', error);
+//     throw error;
+//   }
+// };
+
+// Helper function
+
+const formatNumber = (num) => {
+  return num ? num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "0";
+};
