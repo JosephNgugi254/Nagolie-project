@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from marshmallow import ValidationError
 from app import db
-from app.models import User
+from app.models import User, Investor
 from app.schemas.user_schema import UserRegistrationSchema, UserLoginSchema
 from app.utils.security import admin_required, log_audit
 
@@ -45,9 +45,10 @@ def register():
         'user': user.to_dict()
     }), 201
 
+# In auth.py, update the login function:
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    """User login"""
+    """User login - now handles admin, investor, and other roles"""
     schema = UserLoginSchema()
     
     try:
@@ -60,12 +61,27 @@ def login():
     if not user or not user.check_password(data['password']):
         return jsonify({'error': 'Invalid username or password'}), 401
     
-    # CRITICAL FIX: Create token with string identity
+    # Check if account is active (for investors)
+    if user.role == 'investor' and user.investor_profile:
+        if user.investor_profile.account_status != 'active':
+            return jsonify({'error': 'Your account has been deactivated. Please contact admin for support.'}), 403
+    
+    # Create token with string identity
     access_token = create_access_token(identity=str(user.id))
+    
+    # Get additional role-specific data
+    user_data = user.to_dict()
+    
+    if user.role == 'investor' and user.investor_profile:
+        user_data['investor_profile'] = user.investor_profile.to_dict()
+    
+    # Determine redirect based on role
+    redirect_to = '/admin' if user.role == 'admin' else '/investor'
     
     return jsonify({
         'access_token': access_token,
-        'user': user.to_dict()
+        'user': user_data,
+        'redirect_to': redirect_to
     }), 200
 
 @auth_bp.route('/me', methods=['GET'])
@@ -124,7 +140,6 @@ def setup_admin():
             'success': False,
             'error': f'Failed to create admin: {str(e)}'
         }), 500
-    
 
 @auth_bp.route('/create-admin-now', methods=['POST'])
 def create_admin_now():
@@ -164,7 +179,6 @@ def create_admin_now():
 @auth_bp.route('/test', methods=['GET'])
 def test_route():
     return jsonify({"message": "Auth routes are working!"}), 200
-
 
 @auth_bp.route('/init-db', methods=['POST'])
 def init_database():
@@ -208,7 +222,6 @@ def init_database():
             'error': f'Failed to initialize database: {str(e)}'
         }), 500
     
-
 @auth_bp.route('/check-tables', methods=['GET'])
 def check_tables():
     """Check if all database tables are created"""
@@ -241,3 +254,126 @@ def check_tables():
             'success': False,
             'error': f'Failed to check tables: {str(e)}'
         }), 500
+    
+@auth_bp.route('/investor/register/<int:investor_id>', methods=['POST'])
+def investor_register(investor_id):
+    """Complete investor registration with temporary password verification"""
+    try:
+        data = request.json
+        temporary_password = data.get('temporary_password')
+        username = data.get('username')
+        password = data.get('password')
+        confirmPassword = data.get('confirmPassword')  # Optional but good to have
+        
+        if not all([temporary_password, username, password]):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        # Validate password confirmation if provided
+        if confirmPassword and password != confirmPassword:
+            return jsonify({'error': 'Passwords do not match'}), 400
+        
+        investor = Investor.query.get(investor_id)
+        if not investor:
+            return jsonify({'error': 'Investor not found'}), 404
+        
+        # Check if account is pending
+        if investor.account_status != 'pending':
+            return jsonify({'error': 'Investor account is already active or inactive'}), 400
+        
+        # Verify temporary password from notes
+        notes = investor.notes or ""
+        lines = notes.split('\n')
+        stored_temp_password = None
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('Temporary Password:'):
+                stored_temp_password = line.split(': ', 1)[1] if ': ' in line else None
+                break
+        
+        # Verify temporary password
+        if not stored_temp_password:
+            return jsonify({'error': 'Temporary password not found. Please contact admin.'}), 400
+        
+        if stored_temp_password != temporary_password:
+            return jsonify({'error': 'Invalid temporary password'}), 400
+        
+        # Check if username exists
+        if User.query.filter_by(username=username).first():
+            return jsonify({'error': 'Username already exists'}), 400
+        
+        # Check if investor already has user account
+        if investor.user:
+            return jsonify({'error': 'Investor already has an account'}), 400
+        
+        # Create user account
+        user = User(
+            username=username,
+            email=investor.email or f"{investor.phone}@nagolie.com",
+            role='investor'
+        )
+        user.set_password(password)
+        
+        # Link investor to user
+        investor.user = user
+        investor.account_status = 'active'
+        
+        # Remove temporary password from notes (keep timestamp for audit)
+        new_notes = []
+        for line in notes.split('\n'):
+            line = line.strip()
+            if not line.startswith('Temporary Password:'):
+                new_notes.append(line)
+        
+        investor.notes = '\n'.join(new_notes).strip()
+        
+        db.session.add(user)
+        db.session.commit()
+        
+        # Create login token
+        access_token = create_access_token(identity=str(user.id))
+        
+        log_audit('investor_account_created', 'investor', investor.id, {
+            'username': username
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'Investor account created successfully',
+            'access_token': access_token,
+            'user': user.to_dict(),
+            'investor': investor.to_dict(),
+            'redirect_to': '/investor'  
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Investor registration error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
+@auth_bp.route('/investor/info/<int:investor_id>', methods=['GET'])
+def get_investor_info(investor_id):
+    """Get investor information for registration page"""
+    try:
+        investor = Investor.query.get(investor_id)
+        if not investor:
+            return jsonify({'error': 'Investor not found'}), 404
+        
+        # Only return basic info (no sensitive data)
+        return jsonify({
+            'success': True,
+            'investor': {
+                'id': investor.id,
+                'name': investor.name,
+                'investment_amount': float(investor.investment_amount),
+                'phone': investor.phone,
+                'email': investor.email,
+                'account_status': investor.account_status,
+                'invested_date': investor.invested_date.isoformat() if investor.invested_date else None
+            }
+        }), 200
+    except Exception as e:
+        print(f"Error getting investor info: {str(e)}")
+        return jsonify({'error': str(e)}), 500

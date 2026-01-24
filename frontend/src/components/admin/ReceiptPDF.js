@@ -1225,6 +1225,10 @@ export const generateInvestorAgreementPDF = async (investor) => {
     doc.text(`${investor.id_number || '___________________'}`, 70, yPos);
     yPos += 6;
 
+    doc.text('RETURNS DISBURSMENT ACCOUNT NUMBER:', 25, yPos);
+    doc.text('___________________', 130, yPos);
+    yPos += 6;
+
     doc.text('SIGNATURE:', 25, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text('___________________', 70, yPos);

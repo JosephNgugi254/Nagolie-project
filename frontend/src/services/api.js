@@ -15,6 +15,21 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000; // in milliseconds
 
 // ==========================
+// Token Management
+// ==========================
+const getAuthToken = () => {
+  // Check both tokens, let the backend determine validity
+  const adminToken = localStorage.getItem("admin_token");
+  const investorToken = localStorage.getItem("investor_token");
+  
+  console.log("Token check - Admin:", adminToken ? "Exists" : "Missing");
+  console.log("Token check - Investor:", investorToken ? "Exists" : "Missing");
+  
+  // Return whichever token exists
+  return adminToken || investorToken;
+};
+
+// ==========================
 // Axios Instance
 // ==========================
 const api = axios.create({
@@ -30,7 +45,7 @@ const api = axios.create({
 // ==========================
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("token");
+    const token = getAuthToken();
     console.log(`Making ${config.method?.toUpperCase()} request to: ${config.baseURL}${config.url}`);
     console.log("Auth token:", token ? "Present" : "Missing");
 
@@ -91,24 +106,36 @@ api.interceptors.response.use(
       message: error.message,
     });
 
-    // Handle specific error codes
     if (error.response?.status === 401) {
-      console.log("Authentication failed, redirecting to login");
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      window.location.href = "/admin/login";
-    } else if (error.response?.status === 422) {
-      console.warn("Validation error - check request data");
-    } else if (
-      error.code === "NETWORK_ERROR" ||
-      error.code === "ERR_NETWORK"
-    ) {
-      console.warn("Network error - check if backend is running");
+      console.log("401 Unauthorized received for:", error.config?.url);
+
+      // Don't redirect automatically, just clear the token that's not working
+      const currentPath = window.location.pathname;
+
+      if (currentPath.includes('/investor')) {
+        // If in investor panel and got 401, clear investor token
+        localStorage.removeItem("investor_token");
+        localStorage.removeItem("investor_user");
+        console.log("Cleared investor tokens due to 401");
+      } else if (currentPath.includes('/admin')) {
+        // If in admin panel and got 401, clear admin token
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_user");
+        console.log("Cleared admin tokens due to 401");
+      }
+
+      // Return error - let component handle redirection
+      return Promise.reject(error);
     }
 
     return Promise.reject(error);
   }
 );
+
+const getAuthHeader = () => {
+  const token = getAuthToken();
+  return { headers: { 'Authorization': `Bearer ${token}` } };
+};
 
 // ==========================
 // API Endpoints
@@ -117,6 +144,8 @@ export const authAPI = {
   login: (credentials) => api.post("/auth/login", credentials),
   register: (userData) => api.post("/auth/register", userData),
   getCurrentUser: () => api.get("/auth/me"),
+  completeInvestorRegistration: (investorId, data) => api.post(`/auth/investor/register/${investorId}`, data),
+  getInvestorInfo: (investorId) => api.get(`/auth/investor/info/${investorId}`),
 };
 
 export const loanAPI = {
@@ -129,45 +158,12 @@ export const loanAPI = {
   reject: (id) => api.post(`/loans/${id}/reject`),
 };
 
-// export const adminAPI = {
-//   getDashboard: () => api.get("/admin/dashboard"),
-//   getApplications: () => api.get("/admin/applications"),
-//   getClients: () => api.get("/admin/clients"),
-//   getLivestock: () => api.get("/admin/livestock"),
-//   getLivestockGallery: () => api.get("/admin/livestock/gallery"),
-//   getTransactions: () => api.get("/admin/transactions"),
-//   getApprovedLoans: () => api.get("/admin/approved-loans"),
-//   approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
-//   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
-//   sendReminder: (data) => api.post("/admin/send-reminder", data),
-//   claimOwnership: (data) => api.post("/admin/claim-ownership", data),
-//   test: () => api.get("/admin/test"),
-//   addLivestock: (data) => api.post("/admin/livestock", data),
-//   updateLivestock: (id, data) => api.put(`/admin/livestock/${id}`, data),
-//   deleteLivestock: (id) => api.delete(`/admin/livestock/${id}`),
-//   processTopup: (loanId, data) =>
-//     api.post(`/admin/loans/${loanId}/topup`, data),
-// };
-
 export const clientAPI = {
   getAll: () => api.get("/clients"),
   getById: (id) => api.get(`/clients/${id}`),
   create: (clientData) => api.post("/clients", clientData),
   update: (id, clientData) => api.put(`/clients/${id}`, clientData),
 };
-
-// export const paymentAPI = {
-//   initiateStkPush: (paymentData) => api.post("/payments/stkpush", paymentData),
-//   getStatus: (id) => api.get(`/payments/${id}/status`),
-//   processCashPayment: (paymentData) => api.post("/payments/cash", paymentData),
-//   processMpesaManual: (data) => api.post("/payments/mpesa/manual", data),
-//   processMpesaPayment: (paymentData) =>
-//     api.post("/payments/mpesa/stk-push", paymentData),
-//   checkMpesaStatus: (statusData) =>
-//     api.post("/payments/mpesa/check-status", statusData),
-// };
-
-// Add this to your existing api.js file
 
 export const adminAPI = {
   getDashboard: () => api.get("/admin/dashboard"),
@@ -177,8 +173,14 @@ export const adminAPI = {
   getLivestockGallery: () => api.get("/admin/livestock/gallery"),
   getTransactions: () => api.get("/admin/transactions"),
   getApprovedLoans: () => api.get("/admin/approved-loans"),
-  getPaymentStats: () => api.get("/admin/payment-stats"),  // NEW
-  approveApplication: (id) => api.post(`/admin/applications/${id}/approve`),
+  getPaymentStats: () => api.get("/admin/payment-stats"),
+  approveApplication: (id, fundingData = {}) => {
+    const data = {
+      funding_source: fundingData.funding_source || 'company',
+      investor_id: fundingData.investor_id || null
+    }
+    return api.post(`/admin/applications/${id}/approve`, data)
+  },
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
   sendReminder: (data) => api.post("/admin/send-reminder", data),
   claimOwnership: (data) => api.post("/admin/claim-ownership", data),
@@ -187,6 +189,30 @@ export const adminAPI = {
   updateLivestock: (id, data) => api.put(`/admin/livestock/${id}`, data),
   deleteLivestock: (id) => api.delete(`/admin/livestock/${id}`),
   processTopup: (loanId, data) => api.post(`/admin/loans/${loanId}/topup`, data),
+  getInvestors: () => api.get("/admin/investors"),
+  createInvestor: (data) => api.post("/admin/investors", data),
+  updateInvestor: (id, data) => api.put(`/admin/investors/${id}`, data),
+  deleteInvestor: (id) => api.delete(`/admin/investors/${id}`),
+  getInvestorStats: () => api.get("/admin/investors/stats"),
+  createInvestorAccountLink: (id) => api.post(`/admin/investors/${id}/create-user-account`),
+  calculateInvestorReturn: (investorId, date = null) => {
+    let url = `/admin/investors/${investorId}/calculate-return`
+    if (date) {
+      url += `?date=${date}`
+    }
+    return api.get(url)
+  },
+  processInvestorReturn: async (investorId, data) => {
+    return axios.post(`/admin/investors/${investorId}/process-return`, data, {
+      headers: getAuthHeader()
+    })
+  },
+  
+  adjustInvestorInvestment: async (investorId, data) => {
+    return axios.post(`/admin/investors/${investorId}/adjust-investment`, data, {
+      headers: getAuthHeader()
+    })
+  }
 };
 
 export const paymentAPI = {
@@ -196,6 +222,69 @@ export const paymentAPI = {
   processMpesaManual: (data) => api.post("/payments/mpesa/manual", data),
   processMpesaPayment: (paymentData) => api.post("/payments/mpesa/stk-push", paymentData),
   checkMpesaStatus: (statusData) => api.post("/payments/mpesa/check-status", statusData),
+};
+
+export const investorAPI = {
+  getDashboard: () => {
+    const token = localStorage.getItem("investor_token");
+    return api.get("/investor/dashboard", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+  },
+  getReturns: () => {
+    const token = localStorage.getItem("investor_token");
+    return api.get("/investor/returns", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+  },
+  shareLivestock: (livestockId, data) => {
+    const token = localStorage.getItem("investor_token");
+    return api.post(`/investor/share-livestock/${livestockId}`, data, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+  },
+  inquireLivestock: (livestockId, data) => {
+    const token = localStorage.getItem("investor_token");
+    return api.post(`/investor/inquire-livestock/${livestockId}`, data, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+  },
+  updateUsername: async (data) => {
+    const response = await api.put('/investor/account/update-username', data);
+    return response;
+  },
+  
+  updatePassword: async (data) => {
+    const response = await api.put('/investor/account/update-password', data);
+    return response;
+  },
+  
+  validatePassword: async (password) => {
+    const response = await api.post('/investor/account/validate-password', {
+      current_password: password
+    });
+    return response;
+  }
+
+};
+
+export const adminInvestorAPI = {
+  getInvestors: () => api.get("/admin/investors"),
+  createInvestor: (data) => api.post("/admin/investors", data),
+  getInvestor: (id) => api.get(`/admin/investors/${id}`),
+  updateInvestor: (id, data) => api.put(`/admin/investors/${id}`, data),
+  deleteInvestor: (id) => api.delete(`/admin/investors/${id}`),
+  processReturn: (id, data) => api.post(`/admin/investors/${id}/process-return`, data),
+  getInvestorStats: () => api.get("/admin/investors/stats"),
+  createInvestorAccountLink: (id) => api.post(`/admin/investors/${id}/create-user-account`),
 };
 
 export default api;

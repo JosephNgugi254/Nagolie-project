@@ -12,10 +12,12 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF  } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF  } from "../components/admin/ReceiptPDF";
+import ShareLinkModal from "../components/admin/ShareLinkModal"
+import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 
 function AdminPanel() {
-  const { isAuthenticated, logout, loading: authLoading } = useAuth()
+  const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [activeSection, setActiveSection] = useState("overview")
@@ -44,6 +46,37 @@ function AdminPanel() {
   const [paymentStatsLoading, setPaymentStatsLoading] = useState(false)
   const [paymentStatsSearch, setPaymentStatsSearch] = useState("")
   const [paymentStatsStatus, setPaymentStatsStatus] = useState("all")
+
+  // Investor account creation link state variables
+  const [showShareLinkModal, setShowShareLinkModal] = useState(false)
+  const [shareLinkData, setShareLinkData] = useState({
+    link: '',
+    investorName: '',
+    investorEmail: '',
+    investorPhone: ''
+  })
+  const [showViewInvestorModal, setShowViewInvestorModal] = useState(false);
+  const [selectedInvestor, setSelectedInvestor] = useState(null);
+  const [generatingLink, setGeneratingLink] = useState(false)
+
+  // Handle Download Investor Agreement
+  const handleDownloadInvestorAgreement = async (investor) => {
+    try {
+      // Note: Make sure to import the function at the top of your file
+      // import { generateInvestorAgreementPDF } from "../components/admin/ReceiptPDF";
+
+      if (!investor) {
+        showToast.error("No investor selected");
+        return;
+      }
+
+      await generateInvestorAgreementPDF(investor);
+      showToast.success("Investor agreement downloaded successfully!");
+    } catch (error) {
+      console.error("Error generating investor agreement:", error);
+      showToast.error("Failed to download investor agreement");
+    }
+  };
 
   // Payment Type Selection
   const [paymentType, setPaymentType] = useState('principal')
@@ -77,6 +110,238 @@ function AdminPanel() {
   const [pendingDate, setPendingDate] = useState("")
   const [approvedSearch, setApprovedSearch] = useState("")
   const [approvedDate, setApprovedDate] = useState("")
+
+  const [showProcessReturnModal, setShowProcessReturnModal] = useState(false)
+  const [selectedInvestorForReturn, setSelectedInvestorForReturn] = useState(null)
+  const [returnAmount, setReturnAmount] = useState("")
+  const [returnMethod, setReturnMethod] = useState("mpesa")
+  const [returnReference, setReturnReference] = useState("")
+  const [returnNotes, setReturnNotes] = useState("")
+  const [isTopupAdjustmentMode, setIsTopupAdjustmentMode] = useState(false)
+  const [adjustmentType, setAdjustmentType] = useState("topup") // "topup" or "adjust"
+  const [adjustmentAmount, setAdjustmentAmount] = useState("")
+  const [isEarlyWithdrawal, setIsEarlyWithdrawal] = useState(false);
+
+  //state variables for creating investor
+  const [investors, setInvestors] = useState([])
+  const [investorsLoading, setInvestorsLoading] = useState(false)
+  const [investorSearch, setInvestorSearch] = useState("")
+  const [investorFilter, setInvestorFilter] = useState("")
+  const [showAddInvestorModal, setShowAddInvestorModal] = useState(false)
+  const [newInvestor, setNewInvestor] = useState({
+    name: "",
+    phone: "",
+    id_number: "",
+    email: "",
+    investment_amount: "",
+    password: ""
+  })
+
+  //state variables for editing investor
+  const [showEditInvestorModal, setShowEditInvestorModal] = useState(false)
+  const [editingInvestor, setEditingInvestor] = useState(null)
+  const [showActivateDeactivateModal, setShowActivateDeactivateModal] = useState(false)
+  const [investorToToggle, setInvestorToToggle] = useState(null)
+  const [showDeleteInvestorModal, setShowDeleteInvestorModal] = useState(false)
+  const [investorToDelete, setInvestorToDelete] = useState(null)
+  const [updatedInvestor, setUpdatedInvestor] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    id_number: "",
+    notes: ""
+  })
+
+  const handleEditInvestor = (investor) => {
+    setEditingInvestor(investor)
+    setUpdatedInvestor({
+      name: investor.name,
+      phone: investor.phone,
+      email: investor.email || '',
+      id_number: investor.id_number,
+      notes: investor.notes || ''
+    })
+    setShowEditInvestorModal(true)
+  }
+
+  const handleUpdateInvestor = async () => {
+    try {
+      const response = await adminAPI.updateInvestor(editingInvestor.id, updatedInvestor)
+
+      if (response.data.success) {
+        showToast.success("Investor updated successfully!")
+        setShowEditInvestorModal(false)
+        fetchInvestors()
+      }
+    } catch (error) {
+      console.error("Error updating investor:", error)
+      showToast.error(error.response?.data?.error || "Failed to update investor")
+    }
+  }
+
+  const handleToggleAccountStatus = (investor) => {
+    setInvestorToToggle(investor)
+    setShowActivateDeactivateModal(true)
+  }
+
+  const confirmToggleAccountStatus = async () => {
+    try {
+      const newStatus = investorToToggle.account_status === 'active' ? 'inactive' : 'active'
+      const response = await adminAPI.updateInvestor(investorToToggle.id, {
+        account_status: newStatus
+      })
+
+      if (response.data.success) {
+        showToast.success(`Investor account ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully!`)
+        setShowActivateDeactivateModal(false)
+        setInvestorToToggle(null)
+        fetchInvestors()
+      }
+    } catch (error) {
+      console.error("Error toggling account status:", error)
+      showToast.error(error.response?.data?.error || "Failed to update account status")
+    }
+  }
+
+  const handleDeleteInvestor = (investor) => {
+    setInvestorToDelete(investor)
+    setShowDeleteInvestorModal(true)
+  }
+
+  const confirmDeleteInvestor = async () => {
+    try {
+      const response = await adminAPI.deleteInvestor(investorToDelete.id)
+
+      if (response.data.success) {
+        showToast.success("Investor deleted successfully!")
+        setShowDeleteInvestorModal(false)
+        setInvestorToDelete(null)
+        fetchInvestors()
+      }
+    } catch (error) {
+      console.error("Error deleting investor:", error)
+      showToast.error(error.response?.data?.error || "Failed to delete investor")
+    }
+  }
+
+
+  const calculateReturnAmount = async (investor) => {
+    try {
+      const response = await adminAPI.calculateInvestorReturn(investor.id);
+
+      if (response.data.success) {
+        return {
+          calculatedAmount: response.data.calculated_return,
+          lentAmount: response.data.lent_in_period,
+          totalLent: response.data.total_lent_amount,
+          periodDays: response.data.period_days,
+          canProcess: response.data.can_process_return
+        };
+      }
+    } catch (error) {
+      console.error("Error calculating return amount:", error);
+    }
+
+    return null;
+  };
+
+  const handleProcessReturn = async (investor) => {
+    // Calculate 40% return based on investment amount
+    const expectedAmount = investor.investment_amount * 0.40;
+    
+    setSelectedInvestorForReturn(investor);
+    setReturnAmount(expectedAmount.toFixed(2));
+    setReturnMethod("mpesa");
+    setReturnReference("");
+    setReturnNotes("");
+    setIsEarlyWithdrawal(false);
+    setShowProcessReturnModal(true);
+    
+    showToast.info(
+      `Expected return: 40% of ${formatCurrency(investor.investment_amount)} = ${formatCurrency(expectedAmount)}`,
+      5000
+    );
+  };
+
+  const fetchInvestors = useCallback(async () => {
+    setInvestorsLoading(true)
+    try {
+      console.log("Fetching investors...")
+      console.log("Current admin token:", localStorage.getItem("admin_token"))
+      console.log("Current admin user:", JSON.parse(localStorage.getItem("admin_user") || '{}'))
+      console.log("adminUser state:", user)
+      
+      const response = await adminAPI.getInvestors()
+      console.log("Investors response:", response.data)
+      setInvestors(response.data || [])
+    } catch (error) {
+      console.error("Failed to fetch investors:", error)
+      console.error("Error details:", {
+        status: error.response?.status,
+        data: error.response?.data,
+        headers: error.response?.headers
+      })
+      
+      // Don't redirect on 401 if we're already authenticated
+      // The API interceptor will handle the redirect if needed
+      if (error.response?.status === 401) {
+        // Check if we still have a valid admin session
+        const adminToken = localStorage.getItem("admin_token")
+        if (!adminToken) {
+          navigate("/admin/login")
+          return
+        }
+        // If we have a token but still get 401, it might be a backend issue
+        showToast.error("Authentication error. Please try logging out and back in.")
+      } else {
+        showToast.error("Failed to load investors: " + (error.response?.data?.error || error.message))
+      }
+      setInvestors([])
+    } finally {
+      setInvestorsLoading(false)
+    }
+  }, [navigate])
+
+  const handleGenerateShareLink = async (investor) => {
+    console.log("Generating share link for investor:", investor)
+    
+    // Check if investor is pending
+    if (investor.account_status !== 'pending') {
+      showToast.error("Cannot generate link for investor with active/inactive account")
+      return
+    }
+
+    setGeneratingLink(true)
+    try {
+      console.log("Calling createInvestorAccountLink API for investor ID:", investor.id)
+      const response = await adminAPI.createInvestorAccountLink(investor.id)
+      console.log("API Response:", response.data)
+
+      if (response.data.success) {
+        const shareData = {
+          link: response.data.link,
+          investorName: investor.name,
+          investorEmail: investor.email || '',
+          investorPhone: investor.phone,
+          temporaryPassword: response.data.temporary_password || response.data.temporaryPassword || 'Check notes'
+        }
+
+        console.log("Setting shareLinkData:", shareData)
+
+        setShareLinkData(shareData)
+        setShowShareLinkModal(true)
+        showToast.success("Account creation link generated!")
+      } else {
+        showToast.error(response.data.error || "Failed to generate link")
+      }
+    } catch (error) {
+      console.error("Error generating share link:", error)
+      console.error("Error response:", error.response?.data)
+      showToast.error(error.response?.data?.error || "Failed to generate share link")
+    } finally {
+      setGeneratingLink(false)
+    }
+  }
 
   const filterPendingApplications = useCallback(() => {
     let filtered = applications.filter(app => app.status === 'pending')
@@ -137,7 +402,6 @@ function AdminPanel() {
   //state variable for top up and editing loan amount
   const [showTopupModal, setShowTopupModal] = useState(false)
   const [topupAmount, setTopupAmount] = useState("")
-  const [adjustmentAmount, setAdjustmentAmount] = useState("")
   const [topupMethod, setTopupMethod] = useState("cash")
   const [topupReference, setTopupReference] = useState("")
   const [topupNotes, setTopupNotes] = useState("")
@@ -220,6 +484,11 @@ function AdminPanel() {
       showToast.error(`Failed to process ${isTopupMode ? 'top-up' : 'adjustment'}: ${errorMsg}`)
     }
   }
+
+  // Add to state variables section
+  const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [applicationToApprove, setApplicationToApprove] = useState(null)
+  const [approvingLoan, setApprovingLoan] = useState(false)
 
   // MPESA stk state variable 
   const [showMpesaModal, setShowMpesaModal] = useState(false)
@@ -590,14 +859,20 @@ function AdminPanel() {
   const filteredClients = filterClients()
   const filteredTransactions = filterTransactions()
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated as admin
   useEffect(() => {
-    if (!isAuthenticated && !authLoading) {
-      navigate("/admin/login")
+    if (!authLoading) {
+      if (!isAuthenticated()) {
+        navigate("/login");
+      } else if (userRole === 'investor') { // Check userRole
+        // If investor is logged in, they shouldn't access admin panel
+        navigate("/investor");
+      }
+      // Admin users can stay
     }
-  }, [isAuthenticated, authLoading, navigate])
+  }, [isAuthenticated, userRole, authLoading, navigate]);
 
-  // Set active section based on URL
+  //use effect for section selection in admin panel
   useEffect(() => {
     const path = location.pathname
     let section = "overview"
@@ -611,32 +886,76 @@ function AdminPanel() {
       section = "applications"
     } else if (path.includes("/admin/payment-stats")) {
       section = "payment-stats"
-    }
+    } else if (path.includes("/admin/investors")) { 
+      section = "investors" 
+    } 
 
     setActiveSection(section)
 
     // Fetch data for the detected section
     if (section === "payment-stats") {
       fetchPaymentStats()
+    } else if (section === "investors") { 
+      fetchInvestors()
     }
   }, [location.pathname])
 
-  // Test API connection first
+
+  // Generate temporary password for new investor
+  // Remove the old generateTemporaryPassword function and replace it with:
+const generateTemporaryPassword = (name, id) => {
+  if (!name || name.trim().length === 0) {
+    return '';
+  }
+  
+  // For new investors, we'll let the backend generate the password
+  // This function is just for display in the form
+  const cleanName = name.toLowerCase().replace(/[^a-z]/g, '');
+  const namePart = cleanName.substring(0, 3);
+  const randomNum = Math.floor(100 + Math.random() * 900); // 100-999
+  
+  // Format: inv{id}_{name}{randomNum} (backend will generate similar)
+  return `inv?${namePart}${randomNum}`;
+};
+
+  
   const testApiConnection = async () => {
     try {
       console.log("Testing API connection...")
-      const token = localStorage.getItem("token")
-      console.log("Stored token:", token)
-
+      
+      // Check authentication first
+      if (!isAuthenticated()) {
+        console.log("User is not authenticated, skipping API test");
+        return false;
+      }
+      
+      // Check token
+      const token = sessionStorage.getItem("admin_token") || localStorage.getItem("admin_token")
+      if (!token) {
+        console.log("No token found, skipping API test");
+        return false;
+      }
+      
+      console.log("Stored admin token exists, testing connection...")
+    
       // Use adminAPI instead of direct fetch
       const response = await adminAPI.test()
       console.log("Test endpoint response data:", response.data)
       return true
     } catch (error) {
       console.error("API connection test failed:", error)
+      
+      // If it's a 401, clear tokens and redirect
+      if (error.response?.status === 401) {
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_user");
+        sessionStorage.removeItem("admin_token");
+        sessionStorage.removeItem("admin_user");
+      }
+      
       return false
     }
-  } 
+  }
 
   const fetchApprovedLoans = useCallback(async () => {
     setApprovedLoansLoading(true)
@@ -672,9 +991,10 @@ function AdminPanel() {
           try {
             // Load critical data first
             await fetchDashboardData()
-            await fetchPaymentStats() // Load payment stats early for dashboard overview
-            await fetchApplications()
             await fetchClients()
+            await fetchPaymentStats() 
+            await fetchApplications()
+            await fetchInvestors()
 
             // Then load heavier datasets with delay
             setTimeout(() => {
@@ -912,41 +1232,168 @@ function AdminPanel() {
     setSidebarOpen(false)
   }
 
+  const formatAgreementData = (agreement) => {
+    if (!agreement) return null;
+    
+    try {
+      // If it's already an object, use it; otherwise parse it
+      const data = typeof agreement === 'string' ? JSON.parse(agreement) : agreement;
+
+      return (
+        <div className="agreement-details">
+          <div className="agreement-section mb-3">
+            <h6 className="text-primary mb-2">Investor Information</h6>
+            <div className="row">
+              <div className="col-md-6">
+                <p><strong>Name:</strong> {data.investor_name}</p>
+                <p><strong>ID Number:</strong> {data.investor_id}</p>
+                <p><strong>Phone:</strong> {data.phone}</p>
+              </div>
+              <div className="col-md-6">
+                <p><strong>Email:</strong> {data.email}</p>
+                <p><strong>Investment Date:</strong> {formatDate(data.date)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="agreement-section mb-3">
+            <h6 className="text-primary mb-2">Investment Details</h6>
+            <div className="row">
+              <div className="col-md-6">
+                <p><strong>Investment Amount:</strong> {formatCurrency(data.investment_amount)}</p>
+                <p><strong>Return Percentage:</strong> {data.return_percentage || '40%'}</p>
+              </div>
+              <div className="col-md-6">
+                <p><strong>Expected Return:</strong> {formatCurrency(data.return_amount || data.investment_amount * 0.40)}</p>
+                <p><strong>Return Period:</strong> {data.expected_return_period || '5 weeks for first return, then every 4 weeks thereafter'}</p>
+              </div>
+            </div>
+          </div>
+
+          {data.agreement_terms && (
+            <div className="agreement-section mb-3">
+              <h6 className="text-primary mb-2">Agreement Terms</h6>
+              <ul className="list-group list-group-flush">
+                {data.agreement_terms.map((term, index) => (
+                  <li key={index} className="list-group-item py-2 px-0 border-0">
+                    <i className="fas fa-check text-success me-2"></i>
+                    {term}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="agreement-section">
+            <h6 className="text-primary mb-2">Additional Information</h6>
+            <div className="row">
+              {data.early_withdrawal_fee && (
+                <div className="col-md-6">
+                  <p><strong>Early Withdrawal Fee:</strong> {data.early_withdrawal_fee}</p>
+                </div>
+              )}
+              {data.early_withdrawal_receivable && (
+                <div className="col-md-6">
+                  <p><strong>Early Withdrawal Receivable:</strong> {data.early_withdrawal_receivable}</p>
+                </div>
+              )}
+            </div>
+            {data.agreement_date && (
+              <p className="text-muted mt-3">
+                <small>Agreement signed on: {formatDate(data.agreement_date)}</small>
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    } catch (error) {
+      console.error('Error formatting agreement:', error);
+      return (
+        <div className="alert alert-warning">
+          Unable to format agreement details. Showing raw data.
+        </div>
+      );
+    }
+  };
+
   const handleLogout = useCallback(async () => {
     try {
+      // Clear any pending requests or timeouts first
+      setLoading(true);
+
       const result = await logout()
       if (result.success) {
         showToast.success("Logged out successfully")
+
+        // Navigate immediately without waiting for cleanup
         navigate("/")
+
+        // Clear any state that might trigger re-renders
+        setDashboardData({
+          total_clients: 0,
+          total_lent: 0,
+          total_received: 0,
+          total_revenue: 0,
+          total_principal_paid: 0,
+          available_funds: 0,
+          due_today: [],
+          overdue: []
+        });
+
+        // Reset all other state variables
+        setLivestock([]);
+        setApplications([]);
+        setClients([]);
+        setTransactions([]);
+        setApprovedLoans([]);
+        setInvestors([]);
       }
     } catch (error) {
       console.error("Logout error:", error)
       showToast.error("Logout failed")
       navigate("/")
+    } finally {
+      setLoading(false);
     }
   }, [logout, navigate])
 
-  const handleApplicationAction = async (applicationId, action) => {
+  const handleApplicationAction = async (applicationId, action, fundingData = null) => {
     try {
       if (action === "approve") {
-        await adminAPI.approveApplication(applicationId)
-        showToast.success("Loan application approved successfully!")
+        if (!fundingData) {
+          // Open approval modal instead of directly approving
+          const application = applications.find(app => app.id === applicationId)
+          if (application) {
+            setApplicationToApprove(application)
+            setShowApprovalModal(true)
+          }
+          return
+        }
+
+        // Approve with funding data
+        setApprovingLoan(true)
+        await adminAPI.approveApplication(applicationId, fundingData)
+        showToast.success("Loan approved successfully!")
       } else if (action === "reject") {
         await adminAPI.rejectApplication(applicationId)
         showToast.info("Loan application rejected.")
       }
-      
+
       // Refresh data
       await Promise.all([
         fetchApplications(),
         fetchClients(),
         fetchDashboardData()
       ])
-      
+
       setShowApplicationModal(false)
+      setShowApprovalModal(false)
+      setApplicationToApprove(null)
     } catch (error) {
       console.error(`Failed to ${action} application:`, error)
       showToast.error(`Failed to ${action} application: ${error.response?.data?.error || error.message}`)
+    } finally {
+      setApprovingLoan(false)
     }
   }
 
@@ -1216,83 +1663,83 @@ Thank you for choosing us.`;
     }
   };
 
-const handleEditLivestock = (livestockItem) => {
-  console.log('Editing livestock:', livestockItem)
-  
-  // Parse the location field
-  let initialDescription = (livestockItem.livestock_type?.charAt(0).toUpperCase() + livestockItem.livestock_type?.slice(1)) + ' available for purchase';
-  let initialLocation = 'Isinya, Kajiado';
-  
-  if (livestockItem.location) {
-    // Check if it contains a pipe character
-    if (livestockItem.location.includes('|')) {
-      // Split by pipe, but keep all parts
-      const parts = livestockItem.location.split('|');
-      console.log('Split parts:', parts);
-      
-      if (parts.length >= 2) {
-        // First part is description, everything after first pipe is location
-        initialDescription = parts[0].trim();
-        // Join all remaining parts as location (in case location contains pipes)
-        initialLocation = parts.slice(1).join('|').trim();
-      } else if (parts.length === 1) {
-        // Only one part - could be description or location
-        const part = parts[0].trim();
-        // Check if it looks like a description
-        if (isDescription(part)) {
-          initialDescription = part;
+  const handleEditLivestock = (livestockItem) => {
+    console.log('Editing livestock:', livestockItem)
+
+    // Parse the location field
+    let initialDescription = (livestockItem.livestock_type?.charAt(0).toUpperCase() + livestockItem.livestock_type?.slice(1)) + ' available for purchase';
+    let initialLocation = 'Isinya, Kajiado';
+
+    if (livestockItem.location) {
+      // Check if it contains a pipe character
+      if (livestockItem.location.includes('|')) {
+        // Split by pipe, but keep all parts
+        const parts = livestockItem.location.split('|');
+        console.log('Split parts:', parts);
+
+        if (parts.length >= 2) {
+          // First part is description, everything after first pipe is location
+          initialDescription = parts[0].trim();
+          // Join all remaining parts as location (in case location contains pipes)
+          initialLocation = parts.slice(1).join('|').trim();
+        } else if (parts.length === 1) {
+          // Only one part - could be description or location
+          const part = parts[0].trim();
+          // Check if it looks like a description
+          if (isDescription(part)) {
+            initialDescription = part;
+          } else {
+            initialLocation = part;
+          }
+        }
+      } else {
+        // No pipe separator - check if it's a description or location
+        if (isDescription(livestockItem.location)) {
+          initialDescription = livestockItem.location.trim();
         } else {
-          initialLocation = part;
+          initialLocation = livestockItem.location.trim();
         }
       }
-    } else {
-      // No pipe separator - check if it's a description or location
-      if (isDescription(livestockItem.location)) {
-        initialDescription = livestockItem.location.trim();
-      } else {
-        initialLocation = livestockItem.location.trim();
-      }
     }
+
+    // For admin view, use the description from the item if available
+    if (livestockItem.description && livestockItem.description !== 'Available for purchase') {
+      initialDescription = livestockItem.description;
+    }
+
+    console.log('Parsed values - Description:', initialDescription, 'Location:', initialLocation);
+
+    setEditingLivestock({
+      ...livestockItem,
+      description: initialDescription,
+      location: initialLocation
+    });
+
+    setSelectedImages(livestockItem.images || [])
+    setShowEditLivestockModal(true)
   }
-  
-  // For admin view, use the description from the item if available
-  if (livestockItem.description && livestockItem.description !== 'Available for purchase') {
-    initialDescription = livestockItem.description;
-  }
-  
-  console.log('Parsed values - Description:', initialDescription, 'Location:', initialLocation);
-  
-  setEditingLivestock({
-    ...livestockItem,
-    description: initialDescription,
-    location: initialLocation
-  });
-  
-  setSelectedImages(livestockItem.images || [])
-  setShowEditLivestockModal(true)
-}
 
 // Helper function to determine if a string looks like a description
-const isDescription = (str) => {
-  const lowerStr = str.toLowerCase();
-  return (
-    lowerStr.includes('cow') ||
-    lowerStr.includes('goat') ||
-    lowerStr.includes('sheep') ||
-    lowerStr.includes('chicken') ||
-    lowerStr.includes('poultry') ||
-    lowerStr.includes('bull') ||
-    lowerStr.includes('calf') ||
-    lowerStr.includes('healthy') ||
-    lowerStr.includes('good') ||
-    lowerStr.includes('excellent') ||
-    lowerStr.includes('nice') ||
-    lowerStr.includes('quality') ||
-    lowerStr.includes('available for') ||
-    lowerStr.includes('for sale') ||
-    lowerStr.includes('for purchase')
-  );
-};
+  const isDescription = (str) => {
+    const lowerStr = str.toLowerCase();
+    return (
+      lowerStr.includes('cow') ||
+      lowerStr.includes('goat') ||
+      lowerStr.includes('sheep') ||
+      lowerStr.includes('chicken') ||
+      lowerStr.includes('poultry') ||
+      lowerStr.includes('bull') ||
+      lowerStr.includes('calf') ||
+      lowerStr.includes('healthy') ||
+      lowerStr.includes('good') ||
+      lowerStr.includes('excellent') ||
+      lowerStr.includes('nice') ||
+      lowerStr.includes('quality') ||
+      lowerStr.includes('available for') ||
+      lowerStr.includes('for sale') ||
+      lowerStr.includes('for purchase')
+    );
+  };
 
   const handleUpdateLivestock = async (e) => {
     e.preventDefault()
@@ -1946,16 +2393,24 @@ const isDescription = (str) => {
                                     {item.availableInfo}
                                   </span>
                                 </div>
+                                
+                                {/* Add ownership display */}
+                                {item.ownership_type === 'investor' && item.investor_name && (
+                                  <small className="text-muted mb-2">
+                                    <i className="fas fa-user-tie me-1"></i>Owned by Investor: {item.investor_name}
+                                  </small>
+                                )}
+                                {item.ownership_type === 'company' && !item.isAdminAdded && (
+                                  <small className="text-muted mb-2">
+                                    <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral (Company Owned)
+                                  </small>
+                                )}
                                 {item.isAdminAdded && (
                                   <small className="text-muted mb-2">
                                     <i className="fas fa-user-tie me-1"></i>Admin Added
                                   </small>
                                 )}
-                                {!item.isAdminAdded && (
-                                  <small className="text-muted mb-2">
-                                    <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral
-                                  </small>
-                                )}
+
                                 <div className="mt-auto">
                                   <button 
                                     className="btn btn-sm btn-outline-primary me-2"
@@ -2393,6 +2848,206 @@ const isDescription = (str) => {
                           />
                         )}
                       </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Investors Section */}
+            {activeSection === "investors" && (
+              <div id="investors-section" className="content-section">
+                <div className="d-flex justify-content-between align-items-center mb-4">
+                  <h2>Investor Management</h2>
+                  <div className="d-flex gap-2">
+                    <input 
+                      type="text" 
+                      className="form-control" 
+                      placeholder="Search investors..." 
+                      value={investorSearch}
+                      onChange={(e) => setInvestorSearch(e.target.value)}
+                    />
+                    <select 
+                      className="form-select"
+                      value={investorFilter}
+                      onChange={(e) => setInvestorFilter(e.target.value)}
+                    >
+                      <option value="">All Investors</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                    <button 
+                      className="btn btn-primary"
+                      onClick={() => setShowAddInvestorModal(true)}
+                    >
+                      <i className="fas fa-plus me-1"></i>Add Investor
+                    </button>
+                  </div>
+                </div>
+            
+                <div className="card">
+                  <div className="card-body">
+                    {investorsLoading ? (
+                      <div className="text-center py-5">
+                        <div className="spinner-border text-primary" role="status">
+                          <span className="visually-hidden">Loading investors...</span>
+                        </div>
+                        <p className="mt-2">Loading investors...</p>
+                      </div>
+                    ) : investors.filter(investor => {
+                      // Filter by search
+                      if (investorSearch) {
+                        const searchTerm = investorSearch.toLowerCase()
+                        return (
+                          investor.name?.toLowerCase().includes(searchTerm) ||
+                          investor.phone?.toLowerCase().includes(searchTerm) ||
+                          investor.id_number?.toLowerCase().includes(searchTerm)
+                        )
+                      }
+                      // Filter by status
+                      if (investorFilter) {
+                        return investor.account_status === investorFilter
+                      }
+                      return true
+                    }).length === 0 ? (
+                      <div className="text-center py-5">
+                        <i className="fas fa-users fa-3x text-muted mb-3"></i>
+                        <h5 className="text-muted">
+                          {investors.length === 0 ? "No Investors Found" : "No Investors Match Your Filters"}
+                        </h5>
+                        <p className="text-muted">
+                          {investors.length === 0 
+                            ? "No investors in the system yet." 
+                            : "Try adjusting your search or filter criteria."}
+                        </p>
+                      </div>
+                    ) : (
+                      <AdminTable
+                        columns={[
+                          { header: "Name", field: "name" },
+                          { header: "Phone", field: "phone" },
+                          { header: "ID Number", field: "id_number" },
+                          { header: "Email", field: "email" },
+                          { header: "Investment Amount", field: "investment_amount", render: (row) => formatCurrency(row.investment_amount) },
+                          { header: "Investment Date", field: "invested_date", render: (row) => formatDate(row.invested_date) },
+                          { 
+                            header: "Next Return", 
+                            field: "next_return_date",
+                            render: (row) => {
+                              const nextDate = new Date(row.next_return_date);
+                              const today = new Date();
+                              const daysDiff = Math.ceil((nextDate - today) / (1000 * 60 * 60 * 24));
+
+                              let badgeClass = 'bg-success';
+                              if (daysDiff <= 0) {
+                                badgeClass = 'bg-danger';
+                              } else if (daysDiff <= 2) {
+                                badgeClass = 'bg-warning';
+                              }
+
+                              return (
+                                <span className={`badge ${badgeClass}`}>
+                                  {formatDate(row.next_return_date)}
+                                  {daysDiff <= 0 && ' (Due)'}
+                                </span>
+                              );
+                            }
+                          },
+                          { header: "Total Returns", field: "total_returns_received", render: (row) => formatCurrency(row.total_returns_received) },
+                          { 
+                            header: "Status", 
+                            field: "account_status",
+                            render: (row) => (
+                              <span className={`badge ${row.account_status === 'active' ? 'bg-success' : 'bg-warning'}`}>
+                                {row.account_status?.toUpperCase()}
+                              </span>
+                            )
+                          },
+                          {
+                            header: "Actions",
+                            render: (row) => (
+                              <div className="btn-group btn-group-sm">
+                                <button 
+                                  className="btn btn-outline-info"
+                                  onClick={() => {
+                                    setSelectedInvestor(row);          
+                                    setShowViewInvestorModal(true);    
+                                  }}
+                                  title="View Details"
+                                >
+                                  <i className="fas fa-eye"></i>
+                                </button>
+                                <button 
+                                  className="btn btn-outline-warning"
+                                  onClick={() => handleEditInvestor(row)}
+                                  title="Edit"
+                                >
+                                  <i className="fas fa-edit"></i>
+                                </button>
+                                
+                                {/* Share Link Button - Only for pending accounts */}
+                                {row.account_status === 'pending' && (
+                                  <button 
+                                    className="btn btn-outline-success"
+                                    onClick={() => handleGenerateShareLink(row)}
+                                    title="Share Account Creation Link"
+                                    disabled={generatingLink}
+                                  >
+                                    {generatingLink ? (
+                                      <span className="spinner-border spinner-border-sm"></span>
+                                    ) : (
+                                      <i className="fas fa-share-alt"></i>
+                                    )}
+                                  </button>
+                                )}
+
+                                {/* Process Return Button - For active investors */}
+                                {row.account_status === 'active' && (
+                                  <button 
+                                    className="btn btn-outline-primary"
+                                    onClick={() => handleProcessReturn(row)}
+                                    title="Process Return"
+                                  >
+                                    <i className="fas fa-money-bill-wave"></i>
+                                  </button>
+                                )}
+
+                                {/* Deactivate/Activate Button */}
+                                <button 
+                                  className={`btn btn-outline-${row.account_status === 'active' ? 'danger' : 'success'}`}
+                                  onClick={() => handleToggleAccountStatus(row)}
+                                  title={row.account_status === 'active' ? 'Deactivate' : 'Activate'}
+                                >
+                                  <i className={`fas fa-${row.account_status === 'active' ? 'ban' : 'check'}`}></i>
+                                </button>
+                              
+                                {/* Delete Button */}
+                                <button 
+                                  className="btn btn-outline-danger"
+                                  onClick={() => handleDeleteInvestor(row)}
+                                  title="Delete"
+                                >
+                                  <i className="fas fa-trash"></i>
+                                </button>
+                              </div>
+                            ),
+                          },
+                        ]}
+                      data={investors.filter(investor => {
+                        if (investorSearch) {
+                          const searchTerm = investorSearch.toLowerCase()
+                          return (
+                            investor.name?.toLowerCase().includes(searchTerm) ||
+                            investor.phone?.toLowerCase().includes(searchTerm) ||
+                            investor.id_number?.toLowerCase().includes(searchTerm)
+                          )
+                        }
+                        if (investorFilter) {
+                          return investor.account_status === investorFilter
+                        }
+                        return true
+                        })}
+                      />
                     )}
                   </div>
                 </div>
@@ -3608,7 +4263,7 @@ const isDescription = (str) => {
         </div>
       )}
 
-      {/* Share Modal */}
+      {/* Share livestock link Modal */}
       {showShareModal && sharingLivestock && (
         <Modal
           isOpen={showShareModal}
@@ -3761,7 +4416,546 @@ const isDescription = (str) => {
           </div>
         </Modal>
       )}
-    </div>
+
+      {/* show ADD investor modal */}
+      {showAddInvestorModal && (
+        <Modal
+          isOpen={showAddInvestorModal}
+          onClose={() => {
+            setShowAddInvestorModal(false)
+            setNewInvestor({
+              name: "",
+              phone: "",
+              id_number: "",
+              email: "",
+              investment_amount: "",
+            })
+          }}
+          title="Add New Investor"
+          size="md"
+        >
+          <form onSubmit={async (e) => {
+            e.preventDefault()
+            try {
+              // Auto-generate temporary password based on name
+              const tempPassword = generateTemporaryPassword(newInvestor.name);
+
+              if (!tempPassword) {
+                showToast.error("Please enter investor name to generate password")
+                return
+              }
+            
+              // Prepare investor data with auto-generated password
+              const investorData = {
+                name: newInvestor.name,
+                phone: newInvestor.phone,
+                id_number: newInvestor.id_number,
+                email: newInvestor.email || "",
+                investment_amount: newInvestor.investment_amount,
+                temporary_password: tempPassword
+              }
+            
+              console.log("Sending investor data:", investorData)
+            
+              const response = await adminAPI.createInvestor(investorData)
+              console.log("Create investor response:", response.data)
+
+              if (response.data.success) {
+                showToast.success("Investor created successfully!")
+                setShowAddInvestorModal(false)
+                setNewInvestor({
+                  name: "",
+                  phone: "",
+                  id_number: "",
+                  email: "",
+                  investment_amount: "",
+                })
+
+                // Refresh investors list
+                await fetchInvestors()
+
+                // Auto-show the share link modal
+                if (response.data.account_creation_link) {
+                  setShareLinkData({
+                    link: response.data.account_creation_link,
+                    investorName: investorData.name,
+                    investorEmail: investorData.email || '',
+                    investorPhone: investorData.phone,
+                    temporaryPassword: tempPassword
+                  })
+                  setShowShareLinkModal(true)
+                }
+              }
+            } catch (error) {
+              console.error("Error creating investor:", error)
+              showToast.error(error.response?.data?.error || "Failed to create investor")
+            }
+          }}>
+            <div className="mb-3">
+              <label className="form-label">Full Name *</label>
+              <input 
+                type="text" 
+                className="form-control" 
+                value={newInvestor.name || ""}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  setNewInvestor({...newInvestor, name: name})
+                }}
+                required
+                placeholder="John Doe"
+                autoFocus
+              />
+            </div>
+            <div className="mb-3">
+              <label className="form-label">Phone Number *</label>
+              <input 
+                type="tel" 
+                className="form-control" 
+                value={newInvestor.phone || ""}
+                onChange={(e) => setNewInvestor({...newInvestor, phone: e.target.value})}
+                required
+                placeholder="07XXXXXXXX"
+              />
+            </div>
+            <div className="mb-3">
+              <label className="form-label">ID Number *</label>
+              <input 
+                type="text" 
+                className="form-control" 
+                value={newInvestor.id_number || ""}
+                onChange={(e) => setNewInvestor({...newInvestor, id_number: e.target.value})}
+                required
+                placeholder="12345678"
+              />
+            </div>
+            <div className="mb-3">
+              <label className="form-label">Email (Optional)</label>
+              <input 
+                type="email" 
+                className="form-control" 
+                value={newInvestor.email || ""}
+                onChange={(e) => setNewInvestor({...newInvestor, email: e.target.value})}
+                placeholder="john@example.com"
+              />
+              <small className="text-muted">Optional - for account recovery</small>
+            </div>
+            <div className="mb-3">
+              <label className="form-label">Investment Amount (KES) *</label>
+              <input 
+                type="number" 
+                className="form-control" 
+                value={newInvestor.investment_amount || ""}
+                onChange={(e) => setNewInvestor({...newInvestor, investment_amount: e.target.value})}
+                min="1000"
+                required
+                placeholder="10000"
+              />
+            </div>
+              
+            {/* Auto-generated temporary password display */}
+            <div className="mb-4">
+              <label className="form-label">Temporary Password (Auto-generated)</label>
+              <div className="input-group mb-2">
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={newInvestor.name ? generateTemporaryPassword(newInvestor.name) : ''}
+                  readOnly
+                  placeholder="Will be generated from name"
+                />
+                <button 
+                  className="btn btn-outline-secondary" 
+                  type="button"
+                  onClick={() => {
+                    if (!newInvestor.name) {
+                      showToast.error("Please enter investor name first")
+                      return
+                    }
+                    const tempPass = generateTemporaryPassword(newInvestor.name);
+                    navigator.clipboard.writeText(tempPass);
+                    showToast.success("Temporary password copied to clipboard!");
+                  }}
+                >
+                  <i className="fas fa-copy"></i>
+                </button>
+              </div>
+              <small className="text-muted">
+                Password will be auto-generated from the investor's name. Minimum 6 characters.
+              </small>
+            </div>
+                
+            <div className="alert alert-info">
+              <i className="fas fa-info-circle me-2"></i>
+              After creating the investor, you'll be able to share the account creation link which includes the temporary password.
+            </div>
+                
+            <div className="d-flex gap-2">
+              <button type="submit" className="btn btn-primary">
+                Create Investor Account
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => {
+                  setShowAddInvestorModal(false)
+                  setNewInvestor({
+                    name: "",
+                    phone: "",
+                    id_number: "",
+                    email: "",
+                    investment_amount: "",
+                  })
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* share investor account set up link */}
+      {showShareLinkModal && (
+        <ShareLinkModal
+          isOpen={showShareLinkModal}
+          onClose={() => {
+            setShowShareLinkModal(false)
+            setShareLinkData({
+              link: '',
+              investorName: '',
+              investorEmail: '',
+              investorPhone: '',
+              temporaryPassword: ''
+            })
+          }}
+          shareLinkData={shareLinkData}
+        />
+      )}
+    
+      {/* View Investor Details Modal - embedded directly */}
+      {showViewInvestorModal && selectedInvestor && (
+        <Modal
+          isOpen={showViewInvestorModal}
+          onClose={() => {
+            setShowViewInvestorModal(false);
+            setSelectedInvestor(null);
+          }}
+          title="Investor Details"
+          size="lg"
+        >
+          <div className="row">
+            <div className="col-md-6 mb-3">
+              <p><strong>Name:</strong> {selectedInvestor.name}</p>
+              <p><strong>Phone:</strong> {selectedInvestor.phone}</p>
+              <p><strong>ID Number:</strong> {selectedInvestor.id_number}</p>
+              <p><strong>Email:</strong> {selectedInvestor.email || 'N/A'}</p>
+            </div>
+            <div className="col-md-6 mb-3">
+              <p><strong>Investment Amount:</strong> {formatCurrency(selectedInvestor.investment_amount)}</p>
+              <p><strong>Investment Date:</strong> {formatDate(selectedInvestor.invested_date)}</p>
+              <p><strong>Total Returns Received:</strong> {formatCurrency(selectedInvestor.total_returns_received)}</p>
+              <p><strong>Next Return Date:</strong> {formatDate(selectedInvestor.next_return_date)}</p>
+              <p><strong>Status:</strong>
+                <span className={`badge ms-2 ${
+                  selectedInvestor.account_status === 'active' ? 'bg-success' :
+                  selectedInvestor.account_status === 'pending' ? 'bg-warning' : 'bg-secondary'
+                }`}>
+                  {selectedInvestor.account_status?.toUpperCase() || 'UNKNOWN'}
+                </span>
+              </p>
+            </div>
+          </div>
+              
+          {selectedInvestor.agreement_document && (
+            <div className="mb-3">
+              <strong>Agreement Details:</strong>
+              <div className="card mt-2">
+                <div className="card-body">
+                  {formatAgreementData(selectedInvestor.agreement_document)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="d-flex gap-2 justify-content-end mt-4">
+            <button
+              className="btn btn-success"
+              onClick={() => {
+                handleDownloadInvestorAgreement(selectedInvestor);
+                setShowViewInvestorModal(false);
+              }}
+            >
+              <i className="fas fa-download me-2"></i>Download Agreement
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowViewInvestorModal(false);
+                setSelectedInvestor(null);
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Investor Modal */}
+      {showEditInvestorModal && editingInvestor && (
+          <Modal
+            isOpen={showEditInvestorModal}
+            onClose={() => {
+              setShowEditInvestorModal(false);
+              setEditingInvestor(null); 
+          }}
+          title="Edit Investor"
+          size="md"
+        >
+          <div className="mb-3">
+            <label className="form-label">Full Name *</label>
+            <input
+              type="text"
+              className="form-control"
+              value={updatedInvestor.name}
+              onChange={(e) => setUpdatedInvestor({...updatedInvestor, name: e.target.value})}
+              required
+            />
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Phone Number *</label>
+            <input
+              type="tel"
+              className="form-control"
+              value={updatedInvestor.phone}
+              onChange={(e) => setUpdatedInvestor({...updatedInvestor, phone: e.target.value})}
+              required
+            />
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Email (Optional)</label>
+            <input
+              type="email"
+              className="form-control"
+              value={updatedInvestor.email}
+              onChange={(e) => setUpdatedInvestor({...updatedInvestor, email: e.target.value})}
+            />
+          </div>
+          <div className="mb-3">
+            <label className="form-label">ID Number *</label>
+            <input
+              type="text"
+              className="form-control"
+              value={updatedInvestor.id_number}
+              readOnly
+              disabled
+            />
+            <small className="text-muted">ID number cannot be changed</small>
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Notes</label>
+            <textarea
+              className="form-control"
+              value={updatedInvestor.notes}
+              onChange={(e) => setUpdatedInvestor({...updatedInvestor, notes: e.target.value})}
+              rows="3"
+              placeholder="Additional notes about this investor"
+            />
+          </div>
+          <div className="alert alert-warning">
+            <i className="fas fa-exclamation-triangle me-2"></i>
+            Note: Investment amount and dates cannot be changed.
+          </div>
+          <div className="d-flex gap-2">
+            <button
+              className="btn btn-primary"
+              onClick={handleUpdateInvestor}
+            >
+              Update Investor
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowEditInvestorModal(false)
+                setEditingInvestor(null)
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Activate/Deactivate Confirmation Modal */}
+      {showActivateDeactivateModal && investorToToggle && (
+        <ConfirmationDialog
+          isOpen={showActivateDeactivateModal}
+          onClose={() => {
+            setShowActivateDeactivateModal(false)
+            setInvestorToToggle(null)
+          }}
+          onConfirm={confirmToggleAccountStatus}
+          title={`${investorToToggle.account_status === 'active' ? 'Deactivate' : 'Activate'} Investor Account`}
+          message={`Are you sure you want to ${investorToToggle.account_status === 'active' ? 'deactivate' : 'activate'} ${investorToToggle.name}'s account? ${investorToToggle.account_status === 'active' ? 'This will prevent them from logging in.' : 'They will be able to log in again.'}`}
+          confirmText={investorToToggle.account_status === 'active' ? 'Deactivate' : 'Activate'}
+          cancelText="Cancel"
+          confirmColor={investorToToggle.account_status === 'active' ? 'danger' : 'success'}
+        />
+      )}
+
+      {/* Delete Investor Confirmation Modal */}
+      {showDeleteInvestorModal && investorToDelete && (
+        <ConfirmationDialog
+          isOpen={showDeleteInvestorModal}
+          onClose={() => {
+            setShowDeleteInvestorModal(false)
+            setInvestorToDelete(null)
+          }}
+          onConfirm={confirmDeleteInvestor}
+          title="Delete Investor"
+          message={`Are you sure you want to delete ${investorToDelete.name}'s account? This action will permanently remove all investor data including returns history and cannot be undone.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          confirmColor="danger"
+        />
+      )}
+
+      {/* Loan Approval Modal */}
+      {showApprovalModal && applicationToApprove && (
+        <LoanApprovalModal
+          isOpen={showApprovalModal}
+          onClose={() => {
+            setShowApprovalModal(false)
+            setApplicationToApprove(null)
+          }}
+          onApprove={(loanId, fundingData) => handleApplicationAction(loanId, 'approve', fundingData)}
+          application={applicationToApprove}
+          investors={investors}
+          loading={approvingLoan}
+        />
+      )}
+
+      {/* Process Return Modal */}
+      {showProcessReturnModal && selectedInvestorForReturn && (
+        <Modal
+          isOpen={showProcessReturnModal}
+          onClose={() => {
+            setShowProcessReturnModal(false)
+            setSelectedInvestorForReturn(null)
+            setReturnAmount("")
+            setReturnMethod("mpesa")
+            setReturnReference("")
+            setReturnNotes("")
+            setIsTopupAdjustmentMode(false)
+          }}
+          title={isTopupAdjustmentMode ? "Top Up/Adjust Investment" : "Process Investor Return"}
+          size="md"
+        >
+          {/* Investor Name */}
+          <div className="mb-3">
+            <label className="form-label">Investor Name</label>
+            <input
+              type="text"
+              className="form-control"
+              value={selectedInvestorForReturn.name}
+              readOnly
+            />
+          </div>
+        
+          {/* Total Investment */}
+          <div className="mb-3">
+            <label className="form-label">Total Investment</label>
+            <input
+              type="text"
+              className="form-control"
+              value={formatCurrency(selectedInvestorForReturn.investment_amount)}
+              readOnly
+            />
+          </div>
+        
+          {/* Mode Selector */}
+          <div className="mb-3">
+            <div className="form-check form-check-inline">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="processMode"
+                checked={!isTopupAdjustmentMode}
+                onChange={() => setIsTopupAdjustmentMode(false)}
+              />
+              <label className="form-check-label">Process Return</label>
+            </div>
+            <div className="form-check form-check-inline">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="processMode"
+                checked={isTopupAdjustmentMode}
+                onChange={() => setIsTopupAdjustmentMode(true)}
+              />
+              <label className="form-check-label">Top Up / Adjust</label>
+            </div>
+          </div>
+        
+          {/* ================= PROCESS RETURN ================= */}
+          {!isTopupAdjustmentMode && (
+            <div className="mb-3">
+              <div className="form-check">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  checked={isEarlyWithdrawal}
+                  onChange={(e) => {
+                    setIsEarlyWithdrawal(e.target.checked);
+                    if (e.target.checked) {
+                      // Apply 15% fee, investor gets 85%
+                      const expectedAmount = selectedInvestorForReturn.investment_amount * 0.40;
+                      const earlyAmount = expectedAmount * 0.85;
+                      setReturnAmount(earlyAmount.toFixed(2));
+                    } else {
+                      // Full 40% amount
+                      const expectedAmount = selectedInvestorForReturn.investment_amount * 0.40;
+                      setReturnAmount(expectedAmount.toFixed(2));
+                    }
+                  }}
+                  id="earlyWithdrawalCheck"
+                />
+                <label className="form-check-label" htmlFor="earlyWithdrawalCheck">
+                  Early Withdrawal (15% fee applies - investor receives 85%)
+                </label>
+              </div>
+              {isEarlyWithdrawal && (
+                <div className="alert alert-warning mt-2">
+                  <i className="fas fa-exclamation-triangle me-2"></i>
+                  Early withdrawal fee of 15% will be applied. Investor will receive 85% of the expected return amount.
+                </div>
+              )}
+            </div>
+          )}
+      
+          {/* Buttons */}
+          <div className="d-flex gap-2">
+            <button
+              className="btn btn-primary"
+              onClick={handleProcessAction}
+            >
+              {isTopupAdjustmentMode
+                ? adjustmentType === "topup"
+                  ? "Process Top Up"
+                  : "Adjust Investment"
+                : "Process Return"}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowProcessReturnModal(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+
+
+    </div>  
   )
 }
 

@@ -3,11 +3,14 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from decimal import Decimal
 from app import db
-from app.models import Client, Loan, Livestock, Transaction, User
+from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 from app.routes.payments import recalculate_loan
+import json
+import secrets
+import string
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -107,6 +110,100 @@ def get_applications():
         print(f"Error fetching applications: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST', 'OPTIONS'])
+# @jwt_required()
+# @admin_required
+# def approve_application(loan_id):
+#     """Approve a loan application - ADMIN ONLY"""
+#     if request.method == 'OPTIONS':
+#         return jsonify({'status': 'OK'}), 200
+        
+#     try:
+#         data = request.get_json()
+        
+#         # Get funding source data
+#         funding_source = data.get('funding_source', 'company')  # 'company' or 'investor'
+#         investor_id = data.get('investor_id')
+        
+#         loan = db.session.get(Loan, loan_id)
+#         if not loan:
+#             return jsonify({'error': 'Loan application not found'}), 404
+        
+#         if loan.status != 'pending':
+#             return jsonify({'error': 'Loan application already processed'}), 400
+        
+#         # Validate investor if funding source is investor
+#         investor = None
+#         if funding_source == 'investor' and investor_id:
+#             investor = db.session.get(Investor, investor_id)
+#             if not investor or investor.account_status != 'active':
+#                 return jsonify({'error': 'Invalid or inactive investor selected'}), 400
+            
+#             # Check if investor has sufficient funds
+#             # You might want to add a check here for investor's available funds
+#             # For now, we'll assume the funds are available
+        
+#         # Update loan status and details
+#         loan.interest_rate = Decimal('30.0')
+#         interest_amount = loan.principal_amount * (loan.interest_rate / 100)
+#         loan.total_amount = loan.principal_amount + interest_amount
+#         loan.balance = loan.total_amount
+        
+#         loan.current_principal = loan.principal_amount
+#         loan.principal_paid = Decimal('0')
+#         loan.interest_paid = Decimal('0')
+        
+#         loan.status = 'active'
+#         loan.disbursement_date = datetime.utcnow()
+#         loan.due_date = datetime.utcnow() + timedelta(days=7)
+        
+#         # Record funding source
+#         loan.funding_source = funding_source
+#         if funding_source == 'investor' and investor:
+#             loan.investor_id = investor.id
+        
+#         transaction = Transaction(
+#             loan_id=loan.id,
+#             transaction_type='disbursement',
+#             amount=loan.principal_amount,
+#             payment_method='cash',
+#             notes='Loan approved and disbursed',
+#             status='completed',
+#             created_at=datetime.utcnow()
+#         )
+        
+#         db.session.add(transaction)
+        
+#         # Update livestock with ownership information
+#         if loan.livestock:
+#             if funding_source == 'investor' and investor:
+#                 loan.livestock.investor_id = investor.id
+#                 loan.livestock.ownership_type = 'investor'
+#             else:
+#                 loan.livestock.ownership_type = 'company'
+        
+#         db.session.commit()
+        
+#         log_audit('loan_approved', 'loan', loan.id, {
+#             'client': loan.client.full_name if loan.client else 'Unknown',
+#             'amount': float(loan.principal_amount),
+#             'funding_source': funding_source,
+#             'investor_id': investor.id if investor else None,
+#             'interest_rate': float(loan.interest_rate),
+#             'total_amount': float(loan.total_amount)
+#         })
+        
+#         return jsonify({
+#             'success': True,
+#             'message': 'Loan approved successfully',
+#             'loan': loan.to_dict(),
+#             'transaction': transaction.to_dict()
+#         }), 200
+#     except Exception as e:
+#         db.session.rollback()
+#         print(f"Error approving application: {str(e)}")
+#         return jsonify({'error': str(e)}), 500
+
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST', 'OPTIONS'])
 @jwt_required()
 @admin_required
@@ -116,6 +213,12 @@ def approve_application(loan_id):
         return jsonify({'status': 'OK'}), 200
         
     try:
+        data = request.get_json()
+        
+        # Get funding source data
+        funding_source = data.get('funding_source', 'company')  # 'company' or 'investor'
+        investor_id = data.get('investor_id')
+        
         loan = db.session.get(Loan, loan_id)
         if not loan:
             return jsonify({'error': 'Loan application not found'}), 404
@@ -123,6 +226,31 @@ def approve_application(loan_id):
         if loan.status != 'pending':
             return jsonify({'error': 'Loan application already processed'}), 400
         
+        # Validate investor if funding source is investor
+        investor = None
+        if funding_source == 'investor' and investor_id:
+            investor = db.session.get(Investor, investor_id)
+            if not investor or investor.account_status != 'active':
+                return jsonify({'error': 'Invalid or inactive investor selected'}), 400
+            
+            # Calculate investor's available balance (investment_amount - all loans funded by this investor)
+            from sqlalchemy import func
+            total_lent = db.session.query(func.sum(Loan.principal_amount)).filter(
+                Loan.investor_id == investor.id,
+                Loan.funding_source == 'investor',
+                Loan.status.in_(['active', 'completed'])
+            ).scalar() or Decimal('0')
+            
+            available_balance = investor.investment_amount - total_lent
+            
+            # Check if investor has sufficient funds
+            if loan.principal_amount > available_balance:
+                return jsonify({
+                    'error': f'Insufficient funds! Investor only has {available_balance} available, but loan requires {loan.principal_amount}'
+                }), 400
+        
+        # Rest of the function remains the same...
+        # Update loan status and details
         loan.interest_rate = Decimal('30.0')
         interest_amount = loan.principal_amount * (loan.interest_rate / 100)
         loan.total_amount = loan.principal_amount + interest_amount
@@ -136,6 +264,11 @@ def approve_application(loan_id):
         loan.disbursement_date = datetime.utcnow()
         loan.due_date = datetime.utcnow() + timedelta(days=7)
         
+        # Record funding source
+        loan.funding_source = funding_source
+        if funding_source == 'investor' and investor:
+            loan.investor_id = investor.id
+        
         transaction = Transaction(
             loan_id=loan.id,
             transaction_type='disbursement',
@@ -147,11 +280,22 @@ def approve_application(loan_id):
         )
         
         db.session.add(transaction)
+        
+        # Update livestock with ownership information
+        if loan.livestock:
+            if funding_source == 'investor' and investor:
+                loan.livestock.investor_id = investor.id
+                loan.livestock.ownership_type = 'investor'
+            else:
+                loan.livestock.ownership_type = 'company'
+        
         db.session.commit()
         
         log_audit('loan_approved', 'loan', loan.id, {
             'client': loan.client.full_name if loan.client else 'Unknown',
             'amount': float(loan.principal_amount),
+            'funding_source': funding_source,
+            'investor_id': investor.id if investor else None,
             'interest_rate': float(loan.interest_rate),
             'total_amount': float(loan.total_amount)
         })
@@ -210,77 +354,58 @@ def reject_application(loan_id):
 @jwt_required()
 @admin_required
 def get_all_livestock():
-    """Get all livestock for gallery - ADMIN ONLY - OPTIMIZED"""
+    """Get all livestock for gallery - ADMIN ONLY - USING SEPARATE FIELDS"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
     
     try:
-        # Use selectinload with the correct singular 'loan' backref
         livestock = Livestock.query.options(
             selectinload(Livestock.client),
-            selectinload(Livestock.loan)  # Changed from 'loans' to 'loan' (singular)
+            selectinload(Livestock.loan),
+            selectinload(Livestock.investor)
         ).filter_by(status='active').all()
         
         livestock_data = []
         today = datetime.now().date()
         
         for item in livestock:
-            location_field = item.location or ''
+            # Use separate description and location fields
+            description = item.description or 'Available for purchase'
+            actual_location = item.location or 'Isinya, Kajiado'
             
-            # Parse location field for description and location
-            if '|' in location_field:
-                parts = location_field.split('|', 1)
-                if len(parts) == 2:
-                    description = parts[0].strip()
-                    actual_location = parts[1].strip() or 'Isinya, Kajiado'
-                else:
-                    description = location_field.strip()
-                    actual_location = 'Isinya, Kajiado'
-            else:
-                # Check if it's a description or location
-                if any(word in location_field.lower() for word in ['cow', 'goat', 'sheep', 'chicken', 'bull', 'calf', 'healthy', 'good', 'excellent']):
-                    description = location_field.strip()
-                    actual_location = 'Isinya, Kajiado'
-                else:
-                    description = 'Available for purchase'
-                    actual_location = location_field.strip() or 'Isinya, Kajiado'
+            # Determine ownership
+            ownership_type = item.ownership_type or 'company'
+            investor_name = None
+            if item.investor:
+                investor_name = item.investor.name
             
             # Admin-added livestock
             if item.client_id is None:
                 available_info = 'Available now'
-                livestock_type = item.livestock_type or 'Unknown'
                 days_remaining = 0
                 is_admin_added = True
             else:
                 # Client livestock - Check if there's an active loan
                 client_loan = None
                 
-                # Since the relationship is one-to-one via backref, check if loan exists
                 if hasattr(item, 'loan') and item.loan:
-                    # item.loan is a single Loan object (or list of Loan objects)
-                    # Check if it's a list or single object
                     if isinstance(item.loan, list):
-                        # If it's a list, filter for active loans
                         active_loans = [loan for loan in item.loan if loan.status == 'active']
                         client_loan = active_loans[0] if active_loans else None
                     elif hasattr(item.loan, 'status') and item.loan.status == 'active':
-                        # If it's a single object and active
                         client_loan = item.loan
                 
-                # Fallback: query directly if backref didn't load properly
                 if not client_loan:
                     client_loan = Loan.query.filter_by(
                         livestock_id=item.id,
                         status='active'
                     ).first()
                 
-                # If still no active loan, skip this livestock
                 if not client_loan:
                     continue
                 
                 client_name = item.client.full_name if item.client else 'Unknown'
                 description = f"Collateral for {client_name}'s loan"
-                livestock_type = item.livestock_type or 'Unknown'
                 is_admin_added = False
                 
                 # Calculate days remaining
@@ -306,17 +431,19 @@ def get_all_livestock():
             
             livestock_data.append({
                 'id': item.id,
-                'title': f"{livestock_type.capitalize()} - {item.count} head",
-                'type': livestock_type,
+                'title': f"{item.livestock_type.capitalize()} - {item.count} head",
+                'type': item.livestock_type,
                 'count': item.count,
                 'price': float(item.estimated_value) if item.estimated_value else 0,
                 'description': description,
                 'images': item.photos if item.photos else [],
                 'availableInfo': available_info,
                 'daysRemaining': days_remaining,
-                'location': actual_location,  # Add location field
+                'location': actual_location,
                 'status': item.status,
-                'isAdminAdded': is_admin_added
+                'isAdminAdded': is_admin_added,
+                'ownership_type': ownership_type,
+                'investor_name': investor_name
             })
         
         return jsonify(livestock_data), 200
@@ -329,7 +456,7 @@ def get_all_livestock():
 
 @admin_bp.route('/livestock/gallery', methods=['GET', 'OPTIONS'])
 def get_public_livestock_gallery():
-    """Get paginated livestock gallery for public view - FIXED DESCRIPTION & LOCATION"""
+    """Get paginated livestock gallery for public view - FIXED FOR CLAIMED LIVESTOCK"""
     if request.method == 'OPTIONS':
         response = jsonify({'status': 'OK'})
         origin = request.headers.get('Origin')
@@ -352,58 +479,75 @@ def get_public_livestock_gallery():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 12, type=int)
         
+        # Get all active livestock
         livestock = Livestock.query.filter(Livestock.status == 'active').all()
         
         livestock_data = []
         today = datetime.now().date()
         
         for item in livestock:
-            location_field = (item.location or '').strip()
+            # Get description - handle None, NaN, or empty values
+            description = item.description
+            if not description or description == 'NaN' or description == 'None' or str(description).strip() == '':
+                description = 'Livestock for purchase'
             
-            # DEFAULTS (will be overridden if better data exists)
-            description = 'Available for purchase'
-            actual_location = 'Isinya, Kajiado'
+            # Clean description: remove any "claimed from" references for public view
+            description = str(description)
+            if 'claimed' in description.lower():
+                description = 'Livestock for purchase'
             
-            # CASE 1: Old bad data with "claimed from" — clean it
-            if 'claimed from' in location_field.lower():
-                description = 'Available for purchase'
+            # Clean description: remove any pipe characters
+            if '|' in description:
+                # Split by pipe and take only the description part (before pipe)
+                parts = description.split('|', 1)
+                description = parts[0].strip()
+            
+            # Get location - handle None, NaN, or empty values
+            actual_location = item.location
+            if not actual_location or actual_location == 'NaN' or actual_location == 'None' or str(actual_location).strip() == '':
                 actual_location = 'Isinya, Kajiado'
             
-            # CASE 2: Proper format "description|location" — USE IT FULLY
-            elif '|' in location_field:
-                parts = location_field.split('|', 1)  # Split only on first pipe
-                if len(parts) == 2:
-                    desc_part = parts[0].strip()
-                    loc_part = parts[1].strip()
-                    
-                    # Only use custom description if it's meaningful (not empty or generic fallback)
-                    if desc_part and desc_part.lower() not in ['', 'available for purchase', 'livestock for purchase']:
-                        description = desc_part
-                    actual_location = loc_part or 'Isinya, Kajiado'
+            # Clean location: remove any description parts and "claimed from" references
+            actual_location = str(actual_location)
+            if '|' in actual_location:
+                # Split by pipe
+                parts = actual_location.split('|', 1)
+                # Check which part looks more like a location
+                part1 = parts[0].strip()
+                part2 = parts[1].strip() if len(parts) > 1 else ''
+                
+                # Determine which part is the location
+                location_keywords = ['isinya', 'kajiado', 'town', 'county', 'moonlight', 'kwa', 'timo', 'naresho']
+                
+                if any(keyword in part2.lower() for keyword in location_keywords):
+                    actual_location = part2
+                elif any(keyword in part1.lower() for keyword in location_keywords):
+                    actual_location = part1
                 else:
-                    # Malformed: has pipe but no second part → treat as location
-                    actual_location = location_field.strip() or 'Isinya, Kajiado'
+                    actual_location = 'Isinya, Kajiado'
             
-            # CASE 3: No pipe at all
-            else:
-                # If the entire field looks like a real location (e.g. "Kitengela"), use it
-                if location_field:
-                    # Simple heuristic: if it contains common location words or format
-                    if any(keyword in location_field.lower() for keyword in ['kajiado', 'isinya', 'kitengela', 'ngong', 'town', 'county']):
-                        actual_location = location_field
-                    else:
-                        # Otherwise, assume it was meant to be a description
-                        if location_field.lower() not in ['available for purchase', 'livestock for purchase']:
-                            description = location_field
-                        actual_location = 'Isinya, Kajiado'
-                # else: empty → keep defaults
+            # Clean location: remove any "available" or "claimed" text
+            if 'available' in actual_location.lower() or 'claimed' in actual_location.lower():
+                actual_location = 'Isinya, Kajiado'
+            
+            # Ensure description is not empty
+            if not description or description.strip() == '':
+                description = 'Livestock for purchase'
+            
+            # Ensure location is not empty
+            if not actual_location or actual_location.strip() == '':
+                actual_location = 'Isinya, Kajiado'
             
             # Availability logic
+            should_include = False
+            available_info = 'Available now'
+            days_remaining = 0
+            
             if item.client_id is None:
-                # Admin-added or claimed → available now
-                available_info = 'Available now'
-                days_remaining = 0
+                # Admin-added livestock - always available
+                should_include = True
             else:
+                # Client livestock - check loan status
                 associated_loan = Loan.query.filter_by(
                     livestock_id=item.id
                 ).order_by(Loan.created_at.desc()).first()
@@ -413,26 +557,46 @@ def get_public_livestock_gallery():
                 
                 loan_status = associated_loan.status
                 
+                # Do NOT show claimed livestock to public
+                if loan_status == 'claimed':
+                    continue
+                
                 if loan_status in ['rejected', 'pending']:
                     continue
                 elif loan_status == 'active':
+                    should_include = True
                     if associated_loan.due_date:
                         due_date = associated_loan.due_date
                         if isinstance(due_date, str):
-                            due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
+                            try:
+                                due_date = datetime.strptime(due_date, '%Y-%m-%d').date()
+                            except:
+                                due_date = today
                         elif hasattr(due_date, 'date'):
                             due_date = due_date.date()
+                        else:
+                            due_date = today
                         
                         days_remaining = (due_date - today).days
-                        available_info = 'Available now' if days_remaining <= 0 else f'Available in {days_remaining} days'
+                        if days_remaining <= 0:
+                            available_info = 'Available now'
+                        else:
+                            available_info = f'Available in {days_remaining} days'
                     else:
                         available_info = 'Contact for availability'
                         days_remaining = 7
-                elif loan_status in ['completed', 'defaulted', 'claimed']:
-                    available_info = 'Available now'
-                    days_remaining = 0
+                elif loan_status in ['completed', 'defaulted']:
+                    should_include = True
                 else:
                     continue
+            
+            if not should_include:
+                continue
+            
+            # For client-owned livestock (collateral), use generic description
+            if item.client_id is not None and associated_loan:
+                if 'Collateral for' in description:
+                    description = 'Livestock for purchase'
             
             livestock_data.append({
                 'id': item.id,
@@ -596,31 +760,20 @@ def add_livestock():
     try:
         data = request.json
         
-        # Format: "description|location"
+        # Use separate description and location fields
         description = data.get('description', '').strip()
-        location = data.get('location', 'Isinya, Kajiado').strip()
-        
-        # If no description provided, create one based on livestock type
         if not description:
             livestock_type = data.get('type', '').capitalize()
             count = data.get('count', 1)
-            
-            if count == 1:
-                description = f"{livestock_type} available for purchase"
-            else:
-                if not livestock_type.endswith('s'):
-                    description = f"{livestock_type}s available for purchase"
-                else:
-                    description = f"{livestock_type} available for purchase"
-        
-        location_field = f"{description}|{location}"
+            description = generate_livestock_description(livestock_type, count)
         
         livestock = Livestock(
             client_id=None,
             livestock_type=data['type'],
             count=data['count'],
             estimated_value=Decimal(str(data['price'])),
-            location=location_field,  # Store as "description|location"
+            description=description,  # SEPARATE FIELD
+            location=data.get('location', 'Isinya, Kajiado'),  # SEPARATE FIELD
             photos=data.get('images', []),
             status='active'
         )
@@ -631,8 +784,8 @@ def add_livestock():
         log_audit('livestock_added', 'livestock', livestock.id, {
             'type': livestock.livestock_type,
             'count': livestock.count,
-            'description': description,
-            'location': location
+            'description': livestock.description,
+            'location': livestock.location
         })
         
         return jsonify({
@@ -666,29 +819,10 @@ def update_livestock(livestock_id):
             livestock.count = data['count']
         if 'price' in data:
             livestock.estimated_value = Decimal(str(data['price']))
-        
-        # Update the combined location field
-        if 'description' in data or 'location' in data:
-            # Get description and location from request
-            description = data.get('description', '').strip()
-            location = data.get('location', 'Isinya, Kajiado').strip()
-            
-            # If no description provided, create one based on livestock type
-            if not description:
-                livestock_type = data.get('type', livestock.livestock_type or '').capitalize()
-                count = data.get('count', livestock.count or 1)
-                
-                if count == 1:
-                    description = f"{livestock_type} available for purchase"
-                else:
-                    if not livestock_type.endswith('s'):
-                        description = f"{livestock_type}s available for purchase"
-                    else:
-                        description = f"{livestock_type} available for purchase"
-            
-            # Format: "description|location"
-            livestock.location = f"{description}|{location}"
-        
+        if 'description' in data:
+            livestock.description = data['description'].strip()
+        if 'location' in data:
+            livestock.location = data['location'].strip()
         if 'images' in data:
             livestock.photos = data['images']
         
@@ -697,8 +831,8 @@ def update_livestock(livestock_id):
         log_audit('livestock_updated', 'livestock', livestock.id, {
             'type': livestock.livestock_type,
             'count': livestock.count,
-            'description': description if 'description' in locals() else 'N/A',
-            'location': location if 'location' in locals() else 'N/A'
+            'description': livestock.description,
+            'location': livestock.location
         })
         
         return jsonify({
@@ -810,58 +944,16 @@ def claim_ownership():
         if livestock.client and livestock.client.location:
             client_location = livestock.client.location
         
-        # Get livestock type and format description with proper pluralization
+        # Generate proper description
         livestock_type = livestock.livestock_type or 'Livestock'
         
-        # Convert the plural livestock_type to singular for count = 1
-        # Common livestock types in the database and their singular forms
-        singular_forms = {
-            'cattle': 'cow',
-            'goats': 'goat',
-            'sheep': 'sheep',  # sheep is both singular and plural
-            'chickens': 'chicken',
-            'poultry': 'chicken',
-            'pigs': 'pig',
-            'rabbits': 'rabbit',
-            'turkeys': 'turkey',
-            'ducks': 'duck',
-            'geese': 'goose'
-        }
-        
-        # Handle pluralization based on count
-        if livestock.count == 1:
-            # SINGULAR: If we have a known singular form, use it
-            if livestock_type in singular_forms:
-                singular_type = singular_forms[livestock_type]
-                description = f"{singular_type.capitalize()} available for purchase"
-            else:
-                # Try to guess singular by removing 's' from the end
-                if livestock_type.endswith('s') and not livestock_type.endswith('ss'):
-                    # Remove trailing 's' for regular plurals
-                    singular_type = livestock_type[:-1]
-                    description = f"{singular_type.capitalize()} available for purchase"
-                else:
-                    # For irregular or unknown types, use as-is
-                    description = f"{livestock_type.capitalize()} available for purchase"
-        else:
-            # PLURAL
-            # Check if the type is already plural
-            if livestock_type.endswith('s') or livestock_type in ['sheep', 'deer', 'fish', 'cattle']:
-                # Already plural or irregular plural
-                description = f"{livestock_type.capitalize()} available for purchase"
-            else:
-                # Add 's' to make it plural
-                description = f"{livestock_type.capitalize()}s available for purchase"
-        
-        print(f"Generated description: {description} (count: {livestock.count}, type: {livestock_type})")
-        
-        # Format: "description|location"
-        new_location_field = f"{description}|{client_location}"
+        # Use separate fields instead of combined string
+        livestock.description = 'Livestock for purchase'
+        livestock.location = client_location
         
         # Update livestock - make it available for purchase
         livestock.status = 'active'
         livestock.client_id = None
-        livestock.location = new_location_field  # Store as "description|location"
         
         # Update loan status
         loan.status = 'claimed'
@@ -885,7 +977,8 @@ def claim_ownership():
             'livestock_id': livestock.id,
             'livestock_type': livestock.livestock_type,
             'count': livestock.count,
-            'location_set_to': new_location_field
+            'description_set_to': 'Livestock for purchase',
+            'location_set_to': client_location
         })
         
         return jsonify({
@@ -896,6 +989,7 @@ def claim_ownership():
                 'type': livestock.livestock_type,
                 'count': livestock.count,
                 'location': client_location,
+                'description': 'Livestock for purchase',
                 'status': 'active'
             }
         })
@@ -1307,41 +1401,691 @@ def get_all_clients():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-# Run this once in a Python shell or create a migration script
-# def fix_existing_claimed_livestock():
-#     """Fix existing claimed livestock with old format"""
-#     from app import db
-#     from app.models import Livestock, Client
-#     from datetime import datetime
+# investor routes
+
+# In admin.py, add this function near the top of the file after imports
+def calculate_investor_lent_amount(investor_id):
+    """
+    Calculate total amount of investor's money that has been lent out
+    """
+    # Sum all principal amounts of loans funded by this investor
+    lent_amount = db.session.query(db.func.sum(Loan.principal_amount)).filter(
+        Loan.investor_id == investor_id,
+        Loan.funding_source == 'investor',
+        Loan.status.in_(['active', 'completed'])
+    ).scalar() or 0
     
-#     # Find all claimed livestock with old format
-#     claimed_livestock = Livestock.query.filter(
-#         Livestock.status == 'active',
-#         Livestock.client_id.is_(None),
-#         Livestock.location.contains("Available (claimed from")
-#     ).all()
+    return lent_amount
+
+def calculate_investor_return_amount(investor, period_end_date):
+    """
+    Calculate 10% return based on the amount lent out by the investor
+    up to the specified period_end_date
     
-#     for item in claimed_livestock:
-#         print(f"Fixing livestock ID {item.id}: {item.livestock_type}")
-        
-#         # Try to find the original client to get location
-#         original_location = 'Isinya, Kajiado'
-        
-#         # Create proper description with pluralization
-#         livestock_type = item.livestock_type or 'Livestock'
-#         if item.count == 1:
-#             description = f"{livestock_type.capitalize()} available for purchase"
-#         else:
-#             if not livestock_type.endswith('s'):
-#                 description = f"{livestock_type.capitalize()}s available for purchase"
-#             else:
-#                 description = f"{livestock_type.capitalize()} available for purchase"
-        
-#         # Format: "description|location"
-#         new_location_field = f"{description}|{original_location}"
-        
-#         item.location = new_location_field
-#         print(f"  Updated to: {new_location_field}")
+    Args:
+        investor: Investor object
+        period_end_date: The end date of the return period (datetime)
+    """
+    # Calculate the start date of the period
+    if investor.last_return_date:
+        # Subsequent returns: last 7 days
+        period_start = investor.last_return_date
+    else:
+        # First return: last 14 days from investment date
+        period_start = investor.invested_date
     
-#     db.session.commit()
-#     print(f"Fixed {len(claimed_livestock)} claimed livestock records")
+    # Calculate the lent amount during this period
+    # Sum principal amounts of loans disbursed between period_start and period_end_date
+    lent_amount_in_period = db.session.query(db.func.sum(Loan.principal_amount)).filter(
+        Loan.investor_id == investor.id,
+        Loan.funding_source == 'investor',
+        Loan.disbursement_date >= period_start,
+        Loan.disbursement_date <= period_end_date,
+        Loan.status.in_(['active', 'completed'])
+    ).scalar() or 0
+    
+    # Calculate 10% return on the lent amount
+    return_amount = lent_amount_in_period * Decimal('0.10')
+    
+    return return_amount
+
+@admin_bp.route('/investors', methods=['GET', 'POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def manage_investors():
+    """Get all investors or create new investor"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+    
+    if request.method == 'GET':
+        try:
+            # Get all investors
+            investors = Investor.query.all()
+            investor_data = []
+            
+            for investor in investors:
+                # Calculate total money lent out (Active + Completed loans)
+                # This matches the logic used in investors.py dashboard
+                total_lent = db.session.query(db.func.sum(Loan.principal_amount)).filter(
+                    Loan.investor_id == investor.id,
+                    Loan.funding_source == 'investor',
+                    Loan.status.in_(['active', 'completed'])
+                ).scalar() or Decimal('0')
+                
+                # Calculate available balance
+                # Investment amount minus what is currently out in loans
+                available_balance = investor.investment_amount - total_lent
+                if available_balance < Decimal('0'):
+                    available_balance = Decimal('0')
+                
+                # Get basic dict and add the new calculated fields
+                investor_dict = investor.to_dict()
+                investor_dict['total_lent_amount'] = float(total_lent)
+                investor_dict['available_balance'] = float(available_balance)
+                investor_dict['investment_amount'] = float(investor.investment_amount)
+                
+                investor_data.append(investor_dict)
+                
+            return jsonify(investor_data), 200
+        except Exception as e:
+            print(f"Error fetching investors: {str(e)}")
+            import traceback
+            traceback.print_exc()  # Add this for debugging
+            return jsonify({'error': str(e)}), 500
+
+    if request.method == 'POST':
+        try:
+            data = request.json
+            # Validate required fields
+            required_fields = ['name', 'phone', 'id_number', 'investment_amount']
+            for field in required_fields:
+                if not data.get(field):
+                    return jsonify({'error': f'Missing required field: {field}'}), 400
+            # Check if investor already exists
+            existing_investor = Investor.query.filter(
+                (Investor.phone == data['phone']) |
+                (Investor.id_number == data['id_number'])
+            ).first()
+            if existing_investor:
+                return jsonify({'error': 'Investor with this phone or ID number already exists'}), 400
+            # Create investor with NEW return schedule (5 weeks for first return)
+            current_time = datetime.utcnow()
+            investor = Investor(
+                name=data['name'],
+                phone=data['phone'],
+                id_number=data['id_number'],
+                email=data.get('email', None),
+                investment_amount=Decimal(str(data['investment_amount'])),
+                invested_date=current_time,
+                # NEW: First return after 5 weeks (35 days)
+                expected_return_date=current_time + timedelta(days=35),
+                next_return_date=current_time + timedelta(days=35), # Changed to 35 days
+                account_status='pending',
+                notes=data.get('notes', '')
+            )
+            db.session.add(investor)
+            db.session.flush()
+            # Generate secure temporary password
+            random_chars = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
+            temp_password = f"inv{investor.id}_{random_chars}"
+            token = secrets.token_urlsafe(32)
+            investor.notes = (
+                f"Temporary Password: {temp_password}\n"
+                f"Registration Token: {token}\n"
+                f"{investor.notes or ''}"
+            )
+            # Generate agreement data with NEW return schedule
+            agreement_data = {
+                'investor_name': investor.name,
+                'investor_id': investor.id_number,
+                'phone': investor.phone,
+                'email': investor.email or 'Not provided',
+                'investment_amount': float(investor.investment_amount),
+                'date': current_time.strftime('%d/%m/%Y'),
+                'expected_return_period': '5 weeks for first return, then every 4 weeks thereafter',
+                'return_percentage': '40%',
+                'return_amount': float(investor.investment_amount * Decimal('0.40')),
+                'early_withdrawal_fee': '15%',
+                'early_withdrawal_receivable': '85%',
+                'agreement_date': current_time.strftime('%B %d, %Y'),
+                'agreement_terms': [
+                    'Investor shall receive 40% return on investment amount',
+                    'First return will be processed after 5 weeks from investment date',
+                    'Subsequent returns every 4 weeks',
+                    'Early withdrawals incur 15% fee, investor receives 85% of expected return',
+                    'All returns are processed via M-Pesa or bank transfer'
+                ]
+            }
+
+            investor.agreement_document = json.dumps(agreement_data)
+            db.session.commit()
+            frontend_url = request.headers.get('Origin', 'http://localhost:5173')
+            account_creation_link = f"{frontend_url}/investor/complete-registration/{investor.id}?token={token}"
+            log_audit('investor_created', 'investor', investor.id, {
+                'name': investor.name,
+                'amount': float(investor.investment_amount),
+                'email': investor.email
+            })
+            return jsonify({
+                'success': True,
+                'message': 'Investor created successfully',
+                'investor': investor.to_dict(),
+                'account_creation_link': account_creation_link,
+                'temporary_password': temp_password,
+                'agreement_data': agreement_data
+            }), 201
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error creating investor: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
+                
+# In admin.py, update the manage_investor function:
+@admin_bp.route('/investors/<int:investor_id>', methods=['GET', 'PUT', 'DELETE', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def manage_investor(investor_id):
+    """Get, update, or delete specific investor"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    investor = db.session.get(Investor, investor_id)
+    if not investor:
+        return jsonify({'error': 'Investor not found'}), 404
+    
+    if request.method == 'GET':
+        investor_data = investor.to_dict()
+        returns = InvestorReturn.query.filter_by(investor_id=investor.id).all()
+        investor_data['returns'] = [r.to_dict() for r in returns]
+        
+        return jsonify(investor_data), 200
+    
+    elif request.method == 'PUT':
+        try:
+            data = request.json
+            
+            # Update allowed fields
+            allowed_fields = ['name', 'phone', 'email', 'account_status', 'notes']
+            for field in allowed_fields:
+                if field in data:
+                    setattr(investor, field, data[field])
+            
+            # For account status change, also handle user account
+            if 'account_status' in data:
+                if investor.user:
+                    investor.user.is_active = (data['account_status'] == 'active')
+            
+            db.session.commit()
+            
+            log_audit('investor_updated', 'investor', investor.id, {
+                'fields_updated': [field for field in allowed_fields if field in data],
+                'status': investor.account_status
+            })
+            
+            return jsonify({
+                'success': True,
+                'message': 'Investor updated successfully',
+                'investor': investor.to_dict()
+            }), 200
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error updating investor: {str(e)}")
+            return jsonify({'error': str(e)}), 500
+    
+    elif request.method == 'DELETE':
+        try:
+            # Check if investor has returns
+            returns_count = InvestorReturn.query.filter_by(investor_id=investor.id).count()
+            
+            # Get investor name for audit log
+            investor_name = investor.name
+            
+            # Delete investor returns
+            InvestorReturn.query.filter_by(investor_id=investor.id).delete()
+            
+            # Delete user account if exists
+            if investor.user:
+                db.session.delete(investor.user)
+            
+            # Delete investor
+            db.session.delete(investor)
+            db.session.commit()
+            
+            log_audit('investor_deleted', 'investor', investor_id, {
+                'name': investor_name,
+                'returns_deleted': returns_count
+            })
+            
+            return jsonify({
+                'success': True,
+                'message': 'Investor and associated data deleted successfully'
+            }), 200
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error deleting investor: {str(e)}")
+            return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/investors/<int:investor_id>/calculate-return', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def calculate_investor_return(investor_id):
+    """Calculate the return amount for an investor - NEW: 40% of investment amount"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        investor = db.session.get(Investor, investor_id)
+        if not investor:
+            return jsonify({'error': 'Investor not found'}), 404
+        
+        # Calculate 40% return based on investment amount
+        return_amount = investor.investment_amount * Decimal('0.40')
+        
+        # Check if early withdrawal
+        is_early_withdrawal = request.args.get('early_withdrawal', 'false').lower() == 'true'
+        
+        if is_early_withdrawal:
+            # Apply 15% fee for early withdrawal
+            early_return_amount = return_amount * Decimal('0.85')
+            fee_amount = return_amount - early_return_amount
+        else:
+            early_return_amount = return_amount
+            fee_amount = Decimal('0')
+        
+        return jsonify({
+            'success': True,
+            'investor_id': investor.id,
+            'investor_name': investor.name,
+            'total_investment': float(investor.investment_amount),
+            'calculated_return': float(return_amount),
+            'is_early_withdrawal': is_early_withdrawal,
+            'early_return_amount': float(early_return_amount) if is_early_withdrawal else float(return_amount),
+            'early_withdrawal_fee': float(fee_amount),
+            'return_percentage': '40%',
+            'next_return_date': investor.next_return_date.isoformat() if investor.next_return_date else None,
+            'last_return_date': investor.last_return_date.isoformat() if investor.last_return_date else None,
+            'can_process_return': current_date.date() >= investor.next_return_date.date() if investor.next_return_date else False
+        }), 200
+        
+    except Exception as e:
+        print(f"Error calculating investor return: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/investors/<int:investor_id>/process-return', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def process_investor_return(investor_id):
+    """Process 40% return payment to investor based on investment amount"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        investor = db.session.get(Investor, investor_id)
+        if not investor:
+            return jsonify({'error': 'Investor not found'}), 404
+        
+        if investor.account_status != 'active':
+            return jsonify({'error': 'Investor account is not active'}), 400
+        
+        data = request.json
+        payment_method = data.get('payment_method', 'mpesa')
+        mpesa_receipt = data.get('mpesa_receipt', '')
+        notes = data.get('notes', '')
+        
+        # Check if this is an early withdrawal
+        is_early_withdrawal = data.get('is_early_withdrawal', False)
+        
+        # Get current date for return
+        current_date = datetime.utcnow()
+        
+        # Calculate 40% return based on investment amount
+        return_amount = investor.investment_amount * Decimal('0.40')
+        
+        # Apply early withdrawal fee if applicable
+        if is_early_withdrawal:
+            # 15% fee, investor gets 85% of expected amount
+            fee_amount = return_amount * Decimal('0.15')
+            return_amount = return_amount - fee_amount
+            notes = f"Early withdrawal with 15% fee applied. {notes}"
+        
+        if return_amount <= 0:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid return amount calculation.'
+            }), 400
+        
+        # Create return record
+        investor_return = InvestorReturn(
+            investor_id=investor.id,
+            amount=return_amount,
+            return_date=current_date,
+            payment_method=payment_method,
+            mpesa_receipt=mpesa_receipt.upper() if payment_method == 'mpesa' else '',
+            notes=notes,
+            status='completed',
+            is_early_withdrawal=is_early_withdrawal
+        )
+        
+        # Update investor stats
+        investor.total_returns_received += return_amount
+        investor.last_return_date = current_date
+        
+        # Calculate next return date
+        # FIRST RETURN: If this is the first return (no previous returns)
+        if investor.total_returns_received - return_amount <= 0:
+            # First return was after 5 weeks, now set next for 4 weeks after this return
+            investor.next_return_date = current_date + timedelta(days=28)
+        else:
+            # SUBSEQUENT RETURNS: Every 4 weeks (28 days) after last return
+            investor.next_return_date = current_date + timedelta(days=28)
+        
+        db.session.add(investor_return)
+        db.session.commit()
+        
+        log_audit('investor_return_processed', 'investor_return', investor_return.id, {
+            'investor': investor.name,
+            'return_amount': float(return_amount),
+            'is_early_withdrawal': is_early_withdrawal,
+            'investment_amount': float(investor.investment_amount),
+            'payment_method': payment_method
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Return of {format_currency(return_amount)} processed successfully',
+            'return': investor_return.to_dict(),
+            'investor': investor.to_dict(),
+            'calculated_based_on': {
+                'investment_amount': float(investor.investment_amount),
+                'return_percentage': '40%',
+                'is_early_withdrawal': is_early_withdrawal,
+                'next_return_date': investor.next_return_date.isoformat()
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error processing investor return: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/investors/stats', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_investor_stats():
+    """Get overall investor statistics"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        # Calculate total livestock value
+        total_livestock_value = db.session.query(db.func.sum(Livestock.estimated_value)).filter(
+            Livestock.status == 'active'
+        ).scalar() or 0
+        
+        # Get investor stats
+        active_investors = Investor.query.filter_by(account_status='active').all()
+        pending_investors = Investor.query.filter_by(account_status='pending').all()
+        inactive_investors = Investor.query.filter_by(account_status='inactive').all()
+        
+        total_investors = len(active_investors) + len(pending_investors) + len(inactive_investors)
+        total_investment = sum(float(inv.investment_amount) for inv in active_investors)
+        total_returns_paid = sum(float(inv.total_returns_received) for inv in active_investors)
+        
+        # Calculate coverage ratio
+        coverage_ratio = float(total_livestock_value) / total_investment if total_investment > 0 else 0
+        
+        # Get investors due for returns
+        today = datetime.utcnow().date()
+        due_for_returns = []
+        
+        for inv in active_investors:
+            if inv.next_return_date and inv.next_return_date.date() <= today:
+                due_for_returns.append({
+                    'id': inv.id,
+                    'name': inv.name,
+                    'phone': inv.phone,
+                    'next_return_date': inv.next_return_date.isoformat(),
+                    'expected_return': float(inv.investment_amount * Decimal('0.10')),
+                    'total_returns_received': float(inv.total_returns_received)
+                })
+        
+        return jsonify({
+            'total_livestock_value': float(total_livestock_value),
+            'total_investors': total_investors,
+            'active_investors': len(active_investors),
+            'pending_investors': len(pending_investors),
+            'inactive_investors': len(inactive_investors),
+            'total_investment': total_investment,
+            'total_returns_paid': total_returns_paid,
+            'coverage_ratio': coverage_ratio,
+            'due_for_returns': due_for_returns
+        }), 200
+        
+    except Exception as e:
+        print(f"Investor stats error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/investors/<int:investor_id>/create-user-account', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def create_investor_user_account(investor_id):
+    """Generate investor user account creation link with proper temporary password"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        investor = db.session.get(Investor, investor_id)
+        if not investor:
+            return jsonify({'error': 'Investor not found'}), 404
+        
+        # Check if already has user account
+        if investor.user:
+            return jsonify({'error': 'Investor already has a user account'}), 400
+        
+        # Check if account is pending
+        if investor.account_status != 'pending':
+            return jsonify({'error': 'Investor account is already active or inactive'}), 400
+        
+        # Parse existing credentials from notes
+        notes = investor.notes or ""
+        lines = notes.split('\n')
+        stored_temp_password = None
+        stored_token = None
+        stored_link = None
+        token_generated_time = None
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('Temporary Password:'):
+                stored_temp_password = line.split(': ', 1)[1] if ': ' in line else None
+            elif line.startswith('Registration Token:'):
+                stored_token = line.split(': ', 1)[1] if ': ' in line else None
+            elif line.startswith('Account Creation Link:'):
+                stored_link = line.split(': ', 1)[1] if ': ' in line else None
+            elif line.startswith('Token Generated:'):
+                try:
+                    token_generated_time_str = line.split(': ', 1)[1] if ': ' in line else None
+                    if token_generated_time_str:
+                        token_generated_time = datetime.strptime(token_generated_time_str, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    token_generated_time = None
+        
+        # Check if credentials exist and are less than 24 hours old
+        if stored_temp_password and stored_token and stored_link and token_generated_time:
+            time_diff = datetime.utcnow() - token_generated_time
+            if time_diff.total_seconds() < 24 * 60 * 60:  # 24 hours in seconds
+                # Use existing credentials (still valid)
+                return jsonify({
+                    'success': True,
+                    'message': 'Using existing credentials (valid for 24 hours)',
+                    'link': stored_link,
+                    'temporary_password': stored_temp_password,
+                    'investor': {
+                        'id': investor.id,
+                        'name': investor.name,
+                        'phone': investor.phone,
+                        'email': investor.email
+                    }
+                }), 200
+        
+        # Generate new credentials (either expired or first time)
+        import secrets
+        import string
+        
+        # Generate secure temporary password
+        random_chars = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
+        temp_password = f"inv{investor.id}_{random_chars}"
+        token = secrets.token_urlsafe(32)
+        
+        # Generate the frontend URL
+        frontend_url = request.headers.get('Origin', 'http://localhost:5173')
+        account_creation_link = f"{frontend_url}/investor/complete-registration/{investor_id}?token={token}"
+        
+        # Update notes with new credentials and timestamp
+        current_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Remove old credential lines if they exist
+        lines = notes.split('\n')
+        new_lines = []
+        for line in lines:
+            line = line.strip()
+            if not (line.startswith('Temporary Password:') or 
+                    line.startswith('Registration Token:') or 
+                    line.startswith('Account Creation Link:') or
+                    line.startswith('Token Generated:')):
+                new_lines.append(line)
+        
+        # Add new credential lines
+        new_lines.append(f'Temporary Password: {temp_password}')
+        new_lines.append(f'Registration Token: {token}')
+        new_lines.append(f'Account Creation Link: {account_creation_link}')
+        new_lines.append(f'Token Generated: {current_time}')
+        
+        investor.notes = '\n'.join(new_lines)
+        
+        db.session.commit()
+        
+        log_audit('investor_account_link_generated', 'investor', investor.id, {
+            'name': investor.name,
+            'link_generated': True,
+            'new_credentials': True
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': 'New account creation link generated',
+            'link': account_creation_link,
+            'temporary_password': temp_password,
+            'investor': {
+                'id': investor.id,
+                'name': investor.name,
+                'phone': investor.phone,
+                'email': investor.email
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error generating account link: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def generate_credentials(investor_id):
+    """Generate new temporary password and token."""
+    import secrets
+    import string
+    
+    random_chars = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
+    temp_password = f"inv{investor_id}_{random_chars}"
+    token = secrets.token_urlsafe(32)
+    return temp_password, token
+
+def update_notes_with_credentials(notes, temp_password, token):
+    """Update notes with new credentials and generation time."""
+    # Remove old credential lines
+    lines = notes.split('\n')
+    new_lines = []
+    for line in lines:
+        line = line.strip()
+        if not (line.startswith('Temporary Password:') or 
+                line.startswith('Registration Token:') or 
+                line.startswith('Token Generated:')):
+            new_lines.append(line)
+    
+    # Add new credential lines
+    new_lines.append(f'Temporary Password: {temp_password}')
+    new_lines.append(f'Registration Token: {token}')
+    new_lines.append(f'Token Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}')
+    
+    return '\n'.join(new_lines)
+
+@admin_bp.route('/investors/<int:investor_id>/adjust-investment', methods=['POST', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def adjust_investor_investment(investor_id):
+    """Adjust investor's investment amount (top-up or reduction)"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        data = request.json
+        adjustment_type = data.get('adjustment_type')  # 'topup' or 'adjust'
+        amount = Decimal(str(data.get('amount')))
+        notes = data.get('notes', '')
+        
+        if not adjustment_type or not amount:
+            return jsonify({'error': 'Missing adjustment_type or amount'}), 400
+        
+        investor = db.session.get(Investor, investor_id)
+        if not investor:
+            return jsonify({'error': 'Investor not found'}), 404
+        
+        old_amount = investor.investment_amount
+        
+        if adjustment_type == 'topup':
+            if amount <= 0:
+                return jsonify({'error': 'Top-up amount must be positive'}), 400
+            investor.investment_amount += amount
+            action = 'topped up'
+        else:  # adjust
+            if amount <= 0:
+                return jsonify({'error': 'Adjusted amount must be positive'}), 400
+            investor.investment_amount = amount
+            action = 'adjusted'
+        
+        # Update next return amount (still 10% of new investment)
+        # The return date schedule remains the same
+        
+        # Log the adjustment
+        adjustment_note = f"Investment {action} from {old_amount} to {investor.investment_amount}. {notes}"
+        if investor.notes:
+            investor.notes = f"{investor.notes}\n{adjustment_note}"
+        else:
+            investor.notes = adjustment_note
+        
+        db.session.commit()
+        
+        log_audit('investor_investment_adjusted', 'investor', investor.id, {
+            'investor': investor.name,
+            'old_amount': float(old_amount),
+            'new_amount': float(investor.investment_amount),
+            'adjustment_type': adjustment_type,
+            'difference': float(investor.investment_amount - old_amount)
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Investment {action} successfully',
+            'investor': investor.to_dict(),
+            'old_amount': float(old_amount),
+            'new_amount': float(investor.investment_amount),
+            'difference': float(investor.investment_amount - old_amount)
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error adjusting investor investment: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    

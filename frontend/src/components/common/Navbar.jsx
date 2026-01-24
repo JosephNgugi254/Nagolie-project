@@ -131,10 +131,10 @@ function Navbar() {
             <li className="nav-item ms-2">
               <Link
                 className="nav-link btn btn-outline-primary d-flex align-items-center"
-                to="/admin/login"
-                title="Admin Login"
+                to="/login"
+                title="Login"
                 onClick={() => {
-                  // Also close navbar when admin login is clicked
+                  // Also close navbar when login is clicked
                   if (navbarCollapseRef.current) {
                     const bsCollapse = bootstrap.Collapse.getInstance(navbarCollapseRef.current)
                     if (bsCollapse) {
@@ -143,8 +143,7 @@ function Navbar() {
                   }
                 }}
               >
-                <i className="fas fa-user"></i>
-                <span className="visually-hidden">Admin Login</span>
+                <i className="fas fa-user me-1"></i>
               </Link>
             </li>
           </ul>

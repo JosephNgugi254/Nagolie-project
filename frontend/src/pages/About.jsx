@@ -218,6 +218,32 @@ function About() {
               </div>
             </div>
 
+            {/* secretary */}
+            <div className="col-lg-4 col-md-6 mb-5">
+              <div className="team-card">
+                <div className="team-image">
+                  <img src="/flo.png" alt="secretary" className="img-fluid" />
+                  <div className="team-overlay">
+                    <div className="team-social">
+                      <a href="https://wa.me/0722370124" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
+                      </a>
+                      <a href="" className="social-link">
+                        <i className="fas fa-envelope"></i>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div className="team-info">
+                  <h4 className="team-name">Florence Wacuka</h4>
+                  <p className="team-role">Secretary</p>
+                  <p className="team-bio">
+                    Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises.
+                  </p>    
+                </div>
+              </div>
+            </div>
+
             {/* Technical Operation Manager */}
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
@@ -273,9 +299,11 @@ function About() {
                 </div>
               </div>
             </div>
+            
           </div>
         </div>
       </section>
+
       {/* Call to Action Section */}
       <section className="py-5 bg-primary text-white">
         <div className="container">

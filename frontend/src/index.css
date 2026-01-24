@@ -1895,3 +1895,32 @@ section {
     box-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
   }
 }
+
+
+.agreement-details {
+  font-size: 0.95rem;
+}
+
+.agreement-section {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 1rem;
+}
+
+.agreement-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.agreement-section h6 {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.agreement-details p {
+  margin-bottom: 0.5rem;
+}
+
+.agreement-details strong {
+  min-width: 160px;
+  display: inline-block;
+}
