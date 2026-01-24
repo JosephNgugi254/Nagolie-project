@@ -287,7 +287,7 @@ class Investor(db.Model):
     total_returns_received = db.Column(db.Numeric(12, 2), default=0)
     last_return_date = db.Column(db.DateTime)
     next_return_date = db.Column(db.DateTime)
-    agreement_document = db.Column(db.String(500))
+    agreement_document = db.Column(db.Text)
     account_status = db.Column(db.String(20), default='pending')
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
