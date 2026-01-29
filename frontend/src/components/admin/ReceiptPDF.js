@@ -1339,7 +1339,7 @@ function getNextWeekday(date) {
   return nextDate;
 }
 
-// export const generateNextOfKinConsentPDF = async () => {
+// export const generateNextOfKinConsentPDF = async (loanData) => {
 //   try {
 //     const doc = new jsPDF();
     
@@ -1390,7 +1390,7 @@ function getNextWeekday(date) {
 //     doc.setFont('helvetica', 'bold');
 //     doc.text("Loan Amount:", 20, yPos);
 //     doc.setFont('helvetica', 'normal');
-//     doc.text("KSh _________________", 55, yPos);
+//     doc.text("___________________", 55, yPos);
     
 //     doc.setFont('helvetica', 'bold');
 //     doc.text("Loan Date:", 120, yPos);
@@ -1406,7 +1406,7 @@ function getNextWeekday(date) {
 //     doc.text('CONSENT AND ACKNOWLEDGEMENT STATEMENT', 105, yPos, { align: 'center' });
 //     yPos += 12;
     
-//     // Consent Statement as a paragraph (to save space)
+//     // Consent Statement as a paragraph
 //     doc.setFontSize(11);
 //     doc.setFont('helvetica', 'normal');
 //     doc.setTextColor(...COLORS.textDark);
@@ -1518,8 +1518,175 @@ function getNextWeekday(date) {
 //     doc.setFontSize(9);
 //     doc.text(COMPANY_INFO.tagline, 105, 285, { align: 'center' });
     
+//     // ========== PAGE 2: TERMS AND CONDITIONS ONLY ==========
+//     doc.addPage();
+    
+//     // Add watermark to the new page
+//     addWatermarkToCurrentPage(doc, 'agreement');
+    
+//     // Reset yPos for new page
+//     yPos = 20;
+    
+//     // Terms and Conditions Title
+//     doc.setTextColor(...COLORS.primaryBlue);
+//     doc.setFontSize(16);
+//     doc.setFont('helvetica', 'bold');
+//     doc.text('LOAN AGREEMENT TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
+//     yPos += 8;
+    
+//     yPos = addDivider(doc, yPos);
+    
+//     // Simple note
+//     doc.setFontSize(10);
+//     doc.setFont('helvetica', 'italic');
+//     doc.setTextColor(...COLORS.textDark);
+//     doc.text("Reference copy for Next of Kin review", 105, yPos, { align: 'center' });
+//     yPos += 15;
+    
+//     // Terms and Conditions heading
+//     doc.setTextColor(...COLORS.primaryBlue);
+//     doc.setFontSize(13);
+//     doc.setFont('helvetica', 'bold');
+//     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
+//     yPos += 8;
+    
+//     // Terms and Conditions groups (simplified, without valuer comment)
+//     const termGroups = [
+//       // Group 1: Agreement Overview
+//       [
+//         { text: "1. Agreement Overview", bold: true },
+//         "This Livestock Financing Agreement (\"Agreement\") is entered into between the",
+//         "applicant (\"Recipient\") and Nagolie Enterprises Ltd (\"Company\"). The Recipient",
+//         "acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured by the",
+//         "specified livestock, which shall become the property of Nagolie Enterprises Ltd",
+//         "until the loan is fully repaid.",
+//         ""
+//       ],
+//       // Group 2: Ownership Transfer and Custody
+//       [
+//         { text: "2. Ownership Transfer and Custody", bold: true },
+//         "Upon disbursement of the loan, legal ownership of the specified livestock transfers",
+//         "to Nagolie Enterprises Ltd, with the Recipient maintaining physical custody. The",
+//         "Recipient agrees to:",
+//         "- Provide proper care and maintenance for the livestock",
+//         "- Ensure the livestock are kept in good health",
+//         "- Not sell, transfer, or dispose of the livestock without prior written consent",
+//         " from the Company",
+//         "- Allow Company representatives access to inspect the livestock at reasonable times",
+//         "",
+//         "2.1. Absolute Right of Claim Upon Default:",
+//         "In the event of default, the Company reserves the absolute right to claim, take",
+//         "possession of, and remove the collateral livestock without further notice.",
+//         "This right extends to claiming the livestock:",
+//         "- In the presence OR absence of the Recipient",
+//         "- In the presence OR absence of the Next of Kin or any family members",
+//         "- Without requirement for additional consent or permission from any party",
+//         "",
+//         "2.2. Immediate Action for Recovery:",
+//         "The Company shall not be delayed or hindered in its recovery efforts by the",
+//         "unavailability, resistance, or objections of the Recipient, Next of Kin, or any",
+//         "related parties. The Company's representatives, including livestock valuers and",
+//         "security personnel, are authorized to take immediate action to secure the",
+//         "Company's property and recover losses without legal impediment.",
+//         ""
+//       ],
+//       // Group 3: Repayment Terms
+//       [
+//         { text: "3. Repayment Terms and Interest", bold: true },
+//         "The loan is typically repayable within seven (7) days from the date of disbursement",
+//         "with an interest of 30%(negotiable) of the disbursed funds.",
+//         "The interest for this loan is KSh________",
+//         "",
+//         "Recognizing the circumstances of local communities, the CEO of Nagolie",
+//         "Enterprises Ltd may, at their discretion, grant an extension of the repayment",
+//         "period after consultation with the Recipient. Any extension must be agreed",
+//         "upon in writing by both parties, specifying the new repayment date.",
+//         ""
+//       ],
+//       // Group 4: Loan Settlement and Ownership Return
+//       [
+//         { text: "4. Loan Settlement and Ownership Return", bold: true },
+//         "Upon full repayment of the loan principal plus agreed interest:",
+//         "- Legal ownership of the livestock reverts to the Recipient",
+//         "- All rights and responsibilities regarding the livestock return to the Recipient",
+//         ""
+//       ],
+//       // Group 5: Livestock Valuation
+//       [
+//         { text: "5. Livestock Valuation", bold: true },
+//         "All livestock shall be valued by an authorized Livestock Valuer appointed by",
+//         "Nagolie Enterprises Ltd. The valuation shall be final and binding for determining",
+//         "the maximum loan amount.",
+//         ""
+//       ],
+//       // Group 6: Default and Remedies
+//       [
+//         { text: "6. Default and Remedies", bold: true },
+//         "Failure to repay the loan by the due date (including any agreed extension) shall",
+//         "constitute default, entitling Nagolie Enterprises Ltd to:",
+//         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
+//         "- Take immediate possession of the livestock",
+//         "- Sell the livestock to recover the outstanding loan amount",
+//         "- Initiate legal proceedings for recovery of any remaining balance",
+//         "- Charge interest on overdue amounts at the prevailing market rate",
+//         ""
+//       ],
+//       // Group 7: Governing Law
+//       [
+//         { text: "7. Governing Law", bold: true },
+//         "This agreement shall be governed by and construed in accordance with the laws of",
+//         "Kenya. Any disputes arising from this agreement shall be subject to the exclusive",
+//         "jurisdiction of the courts of Kajiado County.",
+//         ""
+//       ],
+//       // Group 8: Entire Agreement
+//       [
+//         { text: "8. Entire Agreement", bold: true },
+//         "This document constitutes the entire agreement between the parties and supersedes",
+//         "all prior discussions, negotiations, and agreements. No modification of this",
+//         "agreement shall be effective unless in writing and signed by both parties."
+//       ]
+//     ];
+    
+//     // Set font size and style explicitly before terms
+//     doc.setFontSize(10);
+//     doc.setFont('helvetica', 'normal');
+    
+//     termGroups.forEach((group, groupIndex) => {
+//       // Calculate group height
+//       const groupHeight = group.length * 4.2;
+      
+//       // Check if we need a new page for this group
+//       if (yPos + groupHeight > 250 && groupIndex > 0) {
+//         doc.addPage();
+//         // Add watermark to new page
+//         addWatermarkToCurrentPage(doc, 'agreement');
+//         // Reset font state after watermark
+//         doc.setFont('helvetica', 'normal');
+//         doc.setFontSize(10);
+//         yPos = 20;
+//       }
+      
+//       // Render the group
+//       group.forEach(line => {
+//         if (typeof line === 'object' && line.bold) {
+//           doc.setFont('helvetica', 'bold');
+//           doc.setTextColor(...COLORS.primaryBlue);
+//           doc.text(line.text, 20, yPos);
+//           // Reset to normal for next line
+//           doc.setFont('helvetica', 'normal');
+//           doc.setTextColor(...COLORS.textDark);
+//         } else {
+//           doc.setFont('helvetica', 'normal');
+//           doc.setTextColor(...COLORS.textDark);
+//           doc.text(line, 20, yPos);
+//         }
+//         yPos += 4.2;
+//       });
+//     });
+    
 //     // Save PDF
-//     const fileName = `Next_of_Kin_Consent_Form_${formattedDate.replace(/\//g, '-')}.pdf`;
+//     const fileName = `Next_of_Kin_Consent_${loanData?.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
 //     doc.save(fileName);
     
 //   } catch (error) {
@@ -1532,4 +1699,212 @@ function getNextWeekday(date) {
 
 const formatNumber = (num) => {
   return num ? num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "0";
+};
+
+
+// Generate Investor Statement PDF
+export const generateInvestorStatementPDF = async (investor, transactions = []) => {
+  try {
+    const doc = new jsPDF();
+    
+    // ADD OPTIMIZED WATERMARK FIRST
+    addOptimizedWatermark(doc, 'statement');
+    
+    let yPos = await addHeader(doc);
+    
+    // Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('INVESTOR STATEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    
+    yPos = addDivider(doc, yPos);
+    
+    // Investor Information Section
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('INVESTOR INFORMATION', 20, yPos);
+    yPos += 8;
+    
+    const investorDetails = [
+      { label: 'Full Name:', value: investor.name || 'N/A' },
+      { label: 'Phone Number:', value: investor.phone || 'N/A' },
+      { label: 'ID Number:', value: String(investor.id_number || 'N/A') },
+      { label: 'Email:', value: investor.email || 'N/A' }
+    ];
+    
+    investorDetails.forEach(({ label, value }) => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(value), 60, yPos);
+      yPos += 6;
+    });
+    
+    yPos += 10;
+    
+    // Investment Summary Section
+    doc.setFont('helvetica', 'bold');
+    doc.text('INVESTMENT SUMMARY', 20, yPos);
+    yPos += 8;
+    
+    const RETURN_PERCENTAGE = 40;
+    const expectedReturnAmount = (investor.investment_amount || 0) * (RETURN_PERCENTAGE / 100);
+    
+    const investmentDetails = [
+      { label: 'Investment Amount:', value: `KES ${Number(investor.investment_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Return Percentage:', value: `${RETURN_PERCENTAGE}%` },
+      { label: 'Expected Return per Period:', value: `KES ${expectedReturnAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Total Returns Received:', value: `KES ${Number(investor.total_returns_received || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Investment Date:', value: investor.invested_date ? new Date(investor.invested_date).toLocaleDateString('en-GB') : 'N/A' },
+      { label: 'Next Return Date:', value: investor.next_return_date ? new Date(investor.next_return_date).toLocaleDateString('en-GB') : 'N/A' },
+      { label: 'Last Return Date:', value: investor.last_return_date ? new Date(investor.last_return_date).toLocaleDateString('en-GB') : 'N/A' },
+      { label: 'Account Status:', value: investor.account_status ? investor.account_status.toUpperCase() : 'N/A' }
+    ];
+    
+    investmentDetails.forEach(({ label, value }) => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(value), 75, yPos);
+      yPos += 6;
+    });
+    
+    yPos += 15;
+    
+    // Transaction History Section
+    if (transactions.length > 0) {
+      // Filter transactions for this investor
+      const investorTxns = transactions.filter(txn => 
+        txn.investor_id === investor.id || 
+        (txn.investor && txn.investor.id === investor.id)
+      );
+      
+      const sortedTxns = [...investorTxns].sort((a, b) => 
+        new Date(b.date || b.return_date || b.created_at) - new Date(a.date || b.return_date || b.created_at)
+      );
+      
+      if (sortedTxns.length > 0) {
+        doc.setFont('helvetica', 'bold');
+        doc.text('TRANSACTION HISTORY', 20, yPos);
+        yPos += 10;
+        
+        // Table headers
+        doc.setFillColor(...COLORS.primaryBlue);
+        doc.setTextColor(...COLORS.white);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.rect(20, yPos, 170, 8, 'F');
+        doc.text('Date', 25, yPos + 5.5);
+        doc.text('Type', 55, yPos + 5.5);
+        doc.text('Method', 85, yPos + 5.5);
+        doc.text('Amount', 115, yPos + 5.5);
+        doc.text('Reference', 145, yPos + 5.5);
+        yPos += 8;
+        
+        // Transaction rows
+        sortedTxns.forEach((transaction, index) => {
+          if (yPos > 250) {
+            doc.addPage();
+            addWatermarkToCurrentPage(doc, 'statement');
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            yPos = 20;
+          }
+          
+          // Alternate row colors
+          if (index % 2 === 0) {
+            doc.setFillColor(...COLORS.border);
+            doc.rect(20, yPos, 170, 7, 'F');
+          }
+          
+          const date = new Date(transaction.date || transaction.return_date || transaction.created_at).toLocaleDateString('en-GB');
+          const type = formatInvestorTransactionType(transaction.transaction_type || transaction.type);
+          const method = transaction.payment_method || transaction.method || 'N/A';
+          const amount = `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+          const reference = getInvestorTransactionReference(transaction);
+          
+          // Set text color based on transaction type
+          doc.setTextColor(...COLORS.textDark);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.text(date, 25, yPos + 4.5);
+          
+          // Color for type
+          const typeLower = type.toLowerCase();
+          if (typeLower.includes('return')) {
+            doc.setTextColor(0, 128, 0); // Green for returns
+          } else if (typeLower.includes('topup') || typeLower.includes('adjustment')) {
+            doc.setTextColor(0, 0, 255); // Blue for adjustments
+          } else {
+            doc.setTextColor(...COLORS.textDark);
+          }
+          doc.text(type, 55, yPos + 4.5);
+          
+          // Reset for method and amount
+          doc.setTextColor(...COLORS.textDark);
+          doc.text(method.toUpperCase(), 85, yPos + 4.5);
+          doc.text(amount, 115, yPos + 4.5);
+          
+          // Color for reference
+          if (method.toLowerCase() === 'mpesa') {
+            doc.setTextColor(...COLORS.green);
+          } else {
+            doc.setTextColor(...COLORS.textDark);
+          }
+          doc.text(reference, 145, yPos + 4.5);
+          
+          yPos += 7;
+        });
+      } else {
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(...COLORS.textLight);
+        doc.text('No transactions recorded yet.', 25, yPos);
+        yPos += 10;
+      }
+    }
+    
+    // Footer
+    addFooter(doc, yPos);
+    
+    // Save PDF
+    doc.save(`Investor_Statement_${investor.name?.replace(/\s+/g, '_') || 'Investor'}_${new Date().toISOString().split('T')[0]}.pdf`);
+  } catch (error) {
+    console.error('Error generating investor statement:', error);
+    throw error;
+  }
+};
+
+// Helper function for investor transaction type
+const formatInvestorTransactionType = (type) => {
+  if (!type) return 'N/A';
+  
+  const typeLower = type.toLowerCase();
+  const typeMap = {
+    'return': 'Return Payment',
+    'topup': 'Investment Top-up',
+    'adjustment': 'Investment Adjustment',
+    'interest': 'Interest Payment',
+    'principal': 'Principal Payment'
+  };
+  
+  return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
+};
+
+// Helper function for investor transaction reference
+const getInvestorTransactionReference = (transaction) => {
+  const method = (transaction.payment_method || transaction.method || '').toUpperCase();
+  const type = transaction.transaction_type || transaction.type || '';
+  
+  if (method === 'MPESA' && transaction.mpesa_receipt) {
+    return transaction.mpesa_receipt;
+  } else if (method === 'CASH') {
+    return 'CASH';
+  } else if (method === 'BANK') {
+    return 'BANK TRANSFER';
+  } else {
+    return type === 'topup' ? 'TOP-UP' : 'MANUAL';
+  }
 };

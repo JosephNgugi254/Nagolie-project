@@ -12,7 +12,7 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF  } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 
@@ -121,6 +121,38 @@ function AdminPanel() {
   const [adjustmentType, setAdjustmentType] = useState("topup") // "topup" or "adjust"
   const [adjustmentAmount, setAdjustmentAmount] = useState("")
   const [isEarlyWithdrawal, setIsEarlyWithdrawal] = useState(false);
+
+
+  // Investor tabs and transactions state
+  const [investorTab, setInvestorTab] = useState('investors')
+  const [investorTransactions, setInvestorTransactions] = useState([])
+  const [investorTransactionsLoading, setInvestorTransactionsLoading] = useState(false)
+  const [investorTransactionSearch, setInvestorTransactionSearch] = useState("")
+  const [investorTransactionDate, setInvestorTransactionDate] = useState("")
+
+  const fetchInvestorTransactions = useCallback(async () => {
+    setInvestorTransactionsLoading(true)
+    try {
+      console.log("Fetching investor transactions...")
+      const response = await adminAPI.getInvestorTransactions()
+      console.log("Investor transactions response:", response.data)
+
+      // Sort transactions by date (newest first)
+      const sortedTransactions = (response.data || []).sort((a, b) => {
+        const dateA = new Date(a.created_at || a.date || a.return_date || 0)
+        const dateB = new Date(b.created_at || b.date || b.return_date || 0)
+        return dateB - dateA
+      })
+
+      setInvestorTransactions(sortedTransactions)
+    } catch (error) {
+      console.error("Failed to fetch investor transactions:", error)
+      showToast.error("Failed to load investor transactions: " + (error.response?.data?.error || error.message))
+      setInvestorTransactions([])
+    } finally {
+      setInvestorTransactionsLoading(false)
+    }
+  }, [])
 
   //state variables for creating investor
   const [investors, setInvestors] = useState([])
@@ -245,6 +277,10 @@ function AdminPanel() {
     return null;
   };
 
+  const [investorTopupMethod, setInvestorTopupMethod] = useState("cash");
+  const [investorTopupReference, setInvestorTopupReference] = useState("");
+  const [investorTopupNotes, setInvestorTopupNotes] = useState("");
+
   const handleProcessReturn = async (investor) => {
     // Calculate 40% return based on investment amount
     const expectedAmount = investor.investment_amount * 0.40;
@@ -254,13 +290,118 @@ function AdminPanel() {
     setReturnMethod("mpesa");
     setReturnReference("");
     setReturnNotes("");
+    setIsTopupAdjustmentMode(false); // Start in return mode
+    setAdjustmentType("topup");
+    setAdjustmentAmount("");
+    setInvestorTopupMethod("cash");
+    setInvestorTopupReference("");
+    setInvestorTopupNotes("");
     setIsEarlyWithdrawal(false);
     setShowProcessReturnModal(true);
     
-    showToast.info(
-      `Expected return: 40% of ${formatCurrency(investor.investment_amount)} = ${formatCurrency(expectedAmount)}`,
-      5000
-    );
+    // Show info about next return date
+    const currentDate = new Date();
+    const nextReturnDate = new Date(investor.next_return_date);
+    const canProcessNormally = currentDate >= nextReturnDate;
+    
+    if (canProcessNormally) {
+      showToast.info(
+        `Next return date has been reached. Processing normal 40% return.`,
+        5000
+      );
+    } else {
+      showToast.warning(
+        `Next return date is ${formatDate(investor.next_return_date)}. Early withdrawal option available.`,
+        5000
+      );
+    }
+  };
+
+  const handleProcessAction = async () => {
+    try {
+      if (!selectedInvestorForReturn) {
+        showToast.error("No investor selected");
+        return;
+      }
+  
+      // If we're in topup/adjustment mode
+      if (isTopupAdjustmentMode) {
+        if (!adjustmentAmount || parseFloat(adjustmentAmount) <= 0) {
+          showToast.error("Please enter a valid amount");
+          return;
+        }
+  
+        // Validate M-Pesa reference if needed
+        if (adjustmentType === 'topup' && investorTopupMethod === 'mpesa' && !investorTopupReference) {
+          showToast.error("Please enter M-Pesa reference for M-Pesa payment");
+          return;
+        }
+  
+        const data = {
+          adjustment_type: adjustmentType,
+          amount: parseFloat(adjustmentAmount),
+          notes: investorTopupNotes,
+          ...(adjustmentType === 'topup' && {
+            payment_method: investorTopupMethod,
+            mpesa_reference: investorTopupMethod === 'mpesa' ? investorTopupReference : null
+          })
+        };
+  
+        const response = await adminAPI.adjustInvestorInvestment(selectedInvestorForReturn.id, data);
+        
+        if (response.data.success) {
+          showToast.success(`Investment ${adjustmentType === 'topup' ? 'topped up' : 'adjusted'} successfully`);
+          setShowProcessReturnModal(false);
+          fetchInvestors(); // Refresh the list
+          fetchDashboardData(); // Update dashboard
+        }
+      } 
+      // If we're in return processing mode
+      else {
+        // Validate return amount
+        if (!returnAmount || parseFloat(returnAmount) <= 0) {
+          showToast.error("Please enter a valid return amount");
+          return;
+        }
+  
+        // Check if it's early withdrawal and validate
+        const currentDate = new Date();
+        const nextReturnDate = new Date(selectedInvestorForReturn.next_return_date);
+        
+        // If it's early withdrawal (before next return date)
+        const isEarly = currentDate < nextReturnDate || isEarlyWithdrawal;
+        
+        if (isEarly && !isEarlyWithdrawal) {
+          showToast.error("Cannot process return before next return date. Please check 'Early Withdrawal' option if investor requests early return.");
+          return;
+        }
+  
+        // Validate M-Pesa reference if needed
+        if (returnMethod === 'mpesa' && !returnReference) {
+          showToast.error("Please enter M-Pesa reference for M-Pesa payment");
+          return;
+        }
+  
+        const data = {
+          payment_method: returnMethod,
+          mpesa_receipt: returnMethod === 'mpesa' ? returnReference : null,
+          notes: returnNotes,
+          is_early_withdrawal: isEarly
+        };
+  
+        const response = await adminAPI.processInvestorReturn(selectedInvestorForReturn.id, data);
+        
+        if (response.data.success) {
+          showToast.success(`Return processed successfully! ${isEarly ? '(Early withdrawal with 15% fee applied)' : ''}`);
+          setShowProcessReturnModal(false);
+          fetchInvestors(); // Refresh the list
+          fetchDashboardData(); // Update dashboard
+        }
+      }
+    } catch (error) {
+      console.error("Error processing action:", error);
+      showToast.error(error.response?.data?.error || "Failed to process action");
+    }
   };
 
   const fetchInvestors = useCallback(async () => {
@@ -854,6 +995,60 @@ function AdminPanel() {
 
     return filtered
   }, [transactions, transactionSearch, transactionDate])
+
+  const filterInvestorTransactions = useCallback(() => {
+    let filtered = [...investorTransactions]
+
+    // Search filter (investor name)
+    if (investorTransactionSearch) {
+      const searchTerm = investorTransactionSearch.toLowerCase()
+      filtered = filtered.filter(transaction => 
+        transaction.investor_name?.toLowerCase().includes(searchTerm)
+      )
+    }
+
+    // Date filter
+    if (investorTransactionDate) {
+      filtered = filtered.filter(transaction => {
+        if (!transaction.date && !transaction.return_date && !transaction.created_at) return false
+
+        const transDate = new Date(
+          transaction.date || transaction.return_date || transaction.created_at
+        ).toISOString().split('T')[0]
+
+        return transDate === investorTransactionDate
+      })
+    }
+
+    return filtered
+  }, [investorTransactions, investorTransactionSearch, investorTransactionDate])
+
+  const filterInvestors = useCallback(() => {
+    let filtered = [...investors]
+
+    // Search filter
+    if (investorSearch) {
+      const searchTerm = investorSearch.toLowerCase()
+      filtered = filtered.filter(investor => 
+        investor.name?.toLowerCase().includes(searchTerm) ||
+        investor.phone?.toLowerCase().includes(searchTerm) ||
+        investor.id_number?.toLowerCase().includes(searchTerm)
+      )
+    }
+
+    // Status filter
+    if (investorFilter) {
+      filtered = filtered.filter(investor => investor.account_status === investorFilter)
+    }
+
+    return filtered
+  }, [investors, investorSearch, investorFilter])
+
+  // Get filtered data
+  const filteredInvestors = filterInvestors()
+
+  // Get filtered data
+  const filteredInvestorTransactions = filterInvestorTransactions()
 
   // Get filtered data
   const filteredClients = filterClients()
@@ -2661,6 +2856,22 @@ Thank you for choosing us.`;
                                       header: "Actions",
                                       render: (row) => (
                                         <div className="btn-group btn-group-sm">
+                                          {/* <button 
+                                            className="btn btn-outline-warning" 
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              try {
+                                                await generateNextOfKinConsentPDF(row);
+                                                showToast.success("Next of Kin consent form downloaded!");
+                                              } catch (error) {
+                                                console.error("Error generating next of kin consent:", error);
+                                                showToast.error("Failed to download next of kin consent form");
+                                              }
+                                            }}
+                                            title="Download Next of Kin Consent"
+                                          >
+                                            <i className="fas fa-user-friends"></i>
+                                          </button> */}
                                           <button 
                                             className="btn btn-outline-info" 
                                             onClick={(e) => {
@@ -2860,22 +3071,6 @@ Thank you for choosing us.`;
                 <div className="d-flex justify-content-between align-items-center mb-4">
                   <h2>Investor Management</h2>
                   <div className="d-flex gap-2">
-                    <input 
-                      type="text" 
-                      className="form-control" 
-                      placeholder="Search investors..." 
-                      value={investorSearch}
-                      onChange={(e) => setInvestorSearch(e.target.value)}
-                    />
-                    <select 
-                      className="form-select"
-                      value={investorFilter}
-                      onChange={(e) => setInvestorFilter(e.target.value)}
-                    >
-                      <option value="">All Investors</option>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
                     <button 
                       className="btn btn-primary"
                       onClick={() => setShowAddInvestorModal(true)}
@@ -2884,173 +3079,357 @@ Thank you for choosing us.`;
                     </button>
                   </div>
                 </div>
-            
-                <div className="card">
-                  <div className="card-body">
-                    {investorsLoading ? (
-                      <div className="text-center py-5">
-                        <div className="spinner-border text-primary" role="status">
-                          <span className="visually-hidden">Loading investors...</span>
-                        </div>
-                        <p className="mt-2">Loading investors...</p>
-                      </div>
-                    ) : investors.filter(investor => {
-                      // Filter by search
-                      if (investorSearch) {
-                        const searchTerm = investorSearch.toLowerCase()
-                        return (
-                          investor.name?.toLowerCase().includes(searchTerm) ||
-                          investor.phone?.toLowerCase().includes(searchTerm) ||
-                          investor.id_number?.toLowerCase().includes(searchTerm)
-                        )
-                      }
-                      // Filter by status
-                      if (investorFilter) {
-                        return investor.account_status === investorFilter
-                      }
-                      return true
-                    }).length === 0 ? (
-                      <div className="text-center py-5">
-                        <i className="fas fa-users fa-3x text-muted mb-3"></i>
-                        <h5 className="text-muted">
-                          {investors.length === 0 ? "No Investors Found" : "No Investors Match Your Filters"}
-                        </h5>
-                        <p className="text-muted">
-                          {investors.length === 0 
-                            ? "No investors in the system yet." 
-                            : "Try adjusting your search or filter criteria."}
-                        </p>
-                      </div>
-                    ) : (
-                      <AdminTable
-                        columns={[
-                          { header: "Name", field: "name" },
-                          { header: "Phone", field: "phone" },
-                          { header: "ID Number", field: "id_number" },
-                          { header: "Email", field: "email" },
-                          { header: "Investment Amount", field: "investment_amount", render: (row) => formatCurrency(row.investment_amount) },
-                          { header: "Investment Date", field: "invested_date", render: (row) => formatDate(row.invested_date) },
-                          { 
-                            header: "Next Return", 
-                            field: "next_return_date",
-                            render: (row) => {
-                              const nextDate = new Date(row.next_return_date);
-                              const today = new Date();
-                              const daysDiff = Math.ceil((nextDate - today) / (1000 * 60 * 60 * 24));
 
-                              let badgeClass = 'bg-success';
-                              if (daysDiff <= 0) {
-                                badgeClass = 'bg-danger';
-                              } else if (daysDiff <= 2) {
-                                badgeClass = 'bg-warning';
-                              }
-
-                              return (
-                                <span className={`badge ${badgeClass}`}>
-                                  {formatDate(row.next_return_date)}
-                                  {daysDiff <= 0 && ' (Due)'}
-                                </span>
-                              );
-                            }
-                          },
-                          { header: "Total Returns", field: "total_returns_received", render: (row) => formatCurrency(row.total_returns_received) },
-                          { 
-                            header: "Status", 
-                            field: "account_status",
-                            render: (row) => (
-                              <span className={`badge ${row.account_status === 'active' ? 'bg-success' : 'bg-warning'}`}>
-                                {row.account_status?.toUpperCase()}
-                              </span>
-                            )
-                          },
-                          {
-                            header: "Actions",
-                            render: (row) => (
-                              <div className="btn-group btn-group-sm">
-                                <button 
-                                  className="btn btn-outline-info"
-                                  onClick={() => {
-                                    setSelectedInvestor(row);          
-                                    setShowViewInvestorModal(true);    
-                                  }}
-                                  title="View Details"
-                                >
-                                  <i className="fas fa-eye"></i>
-                                </button>
-                                <button 
-                                  className="btn btn-outline-warning"
-                                  onClick={() => handleEditInvestor(row)}
-                                  title="Edit"
-                                >
-                                  <i className="fas fa-edit"></i>
-                                </button>
+                {/* Tab Navigation */}
+                <ul className="nav nav-tabs mb-4" id="investorsTab" role="tablist">
+                  <li className="nav-item" role="presentation">
+                    <button 
+                      className={`nav-link ${investorTab === 'investors' ? 'active' : ''}`}
+                      onClick={() => {
+                        setInvestorTab('investors')
+                        fetchInvestors()
+                      }}
+                      type="button"
+                    >
+                      <i className="fas fa-users me-2"></i>
+                      Investors
+                      <span className="badge bg-info ms-2">{investors.length}</span>
+                    </button>
+                  </li>
+                  <li className="nav-item" role="presentation">
+                    <button 
+                      className={`nav-link ${investorTab === 'transactions' ? 'active' : ''}`}
+                      onClick={() => {
+                        setInvestorTab('transactions')
+                        fetchInvestorTransactions()
+                      }}
+                      type="button"
+                    >
+                      <i className="fas fa-exchange-alt me-2"></i>
+                      Investor Transactions
+                      <span className="badge bg-success ms-2">{investorTransactions.length}</span>
+                    </button>
+                  </li>
+                </ul>
+                    
+                {/* Investors Tab */}
+                {investorTab === 'investors' && (
+                  <>
+                    <div className="search-filter-row mb-4">
+                      <div>
+                        <label className="form-label small text-muted mb-1">Search Investors</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          placeholder="Search by name, phone, ID..." 
+                          value={investorSearch}
+                          onChange={(e) => setInvestorSearch(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label small text-muted mb-1">Filter by Status</label>
+                        <select 
+                          className="form-select"
+                          value={investorFilter}
+                          onChange={(e) => setInvestorFilter(e.target.value)}
+                        >
+                          <option value="">All Investors</option>
+                          <option value="active">Active</option>
+                          <option value="pending">Pending</option>
+                          <option value="inactive">Inactive</option>
+                        </select>
+                      </div>
+                    </div>
+                
+                    <div className="card">
+                      <div className="card-body">
+                        {investorsLoading ? (
+                          <div className="text-center py-5">
+                            <div className="spinner-border text-primary" role="status">
+                              <span className="visually-hidden">Loading investors...</span>
+                            </div>
+                            <p className="mt-2">Loading investors...</p>
+                          </div>
+                        ) : filteredInvestors.length === 0 ? (
+                          <div className="text-center py-5">
+                            <i className="fas fa-users fa-3x text-muted mb-3"></i>
+                            <h5 className="text-muted">
+                              {investors.length === 0 ? "No Investors Found" : "No Investors Match Your Filters"}
+                            </h5>
+                            <p className="text-muted">
+                              {investors.length === 0 
+                                ? "No investors in the system yet." 
+                                : "Try adjusting your search or filter criteria."}
+                            </p>
+                          </div>
+                        ) : (
+                          <AdminTable
+                            columns={[
+                              { header: "Name", field: "name" },
+                              { header: "Phone", field: "phone" },
+                              { header: "ID Number", field: "id_number" },
+                              { header: "Email", field: "email" },
+                              { header: "Investment Amount", field: "investment_amount", render: (row) => formatCurrency(row.investment_amount) },
+                              { header: "Investment Date", field: "invested_date", render: (row) => formatDate(row.invested_date) },
+                              { 
+                                header: "Next Return", 
+                                field: "next_return_date",
+                                render: (row) => {
+                                  const nextDate = new Date(row.next_return_date);
+                                  const today = new Date();
+                                  const daysDiff = Math.ceil((nextDate - today) / (1000 * 60 * 60 * 24));
                                 
-                                {/* Share Link Button - Only for pending accounts */}
-                                {row.account_status === 'pending' && (
-                                  <button 
-                                    className="btn btn-outline-success"
-                                    onClick={() => handleGenerateShareLink(row)}
-                                    title="Share Account Creation Link"
-                                    disabled={generatingLink}
-                                  >
-                                    {generatingLink ? (
-                                      <span className="spinner-border spinner-border-sm"></span>
-                                    ) : (
-                                      <i className="fas fa-share-alt"></i>
+                                  let badgeClass = 'bg-success';
+                                  if (daysDiff <= 0) {
+                                    badgeClass = 'bg-danger';
+                                  } else if (daysDiff <= 2) {
+                                    badgeClass = 'bg-warning';
+                                  }
+                                
+                                  return (
+                                    <span className={`badge ${badgeClass}`}>
+                                      {formatDate(row.next_return_date)}
+                                      {daysDiff <= 0 && ' (Due)'}
+                                    </span>
+                                  );
+                                }
+                              },
+                              { header: "Total Returns", field: "total_returns_received", render: (row) => formatCurrency(row.total_returns_received) },
+                              { 
+                                header: "Status", 
+                                field: "account_status",
+                                render: (row) => (
+                                  <span className={`badge ${row.account_status === 'active' ? 'bg-success' : row.account_status === 'pending' ? 'bg-warning' : 'bg-secondary'}`}>
+                                    {row.account_status?.toUpperCase()}
+                                  </span>
+                                )
+                              },
+                              {
+                                header: "Actions",
+                                render: (row) => (
+                                  <div className="btn-group btn-group-sm">
+                                    <button 
+                                      className="btn btn-outline-info"
+                                      onClick={() => {
+                                        setSelectedInvestor(row);          
+                                        setShowViewInvestorModal(true);    
+                                      }}
+                                      title="View Details"
+                                    >
+                                      <i className="fas fa-eye"></i>
+                                    </button>
+                                    <button 
+                                      className="btn btn-outline-warning"
+                                      onClick={() => handleEditInvestor(row)}
+                                      title="Edit"
+                                    >
+                                      <i className="fas fa-edit"></i>
+                                    </button>
+                                    
+                                    {/* Share Link Button - Only for pending accounts */}
+                                    {row.account_status === 'pending' && (
+                                      <button 
+                                        className="btn btn-outline-success"
+                                        onClick={() => handleGenerateShareLink(row)}
+                                        title="Share Account Creation Link"
+                                        disabled={generatingLink}
+                                      >
+                                        {generatingLink ? (
+                                          <span className="spinner-border spinner-border-sm"></span>
+                                        ) : (
+                                          <i className="fas fa-share-alt"></i>
+                                        )}
+                                      </button>
                                     )}
-                                  </button>
-                                )}
 
-                                {/* Process Return Button - For active investors */}
-                                {row.account_status === 'active' && (
+                                    {/* Process Return Button - For active investors */}
+                                    {row.account_status === 'active' && (
+                                      <button 
+                                        className="btn btn-outline-primary"
+                                        onClick={() => handleProcessReturn(row)}
+                                        title="Process Return"
+                                      >
+                                        <i className="fas fa-money-bill-wave"></i>
+                                      </button>
+                                    )}
+
+                                    {/* NEW: Download Statement Button */}
+                                    {row.account_status === 'active' && (
+                                      <button 
+                                        className="btn btn-outline-secondary"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          try {
+                                            await generateInvestorStatementPDF(row, investorTransactions);
+                                            showToast.success("Investor statement downloaded!");
+                                          } catch (error) {
+                                            console.error("Error generating investor statement:", error);
+                                            showToast.error("Failed to download investor statement");
+                                          }
+                                        }}
+                                        title="Download Statement"
+                                      >
+                                        <i className="fas fa-file-alt"></i>
+                                      </button>
+                                    )}
+
+                                    {/* Deactivate/Activate Button */}
+                                    <button 
+                                      className={`btn btn-outline-${row.account_status === 'active' ? 'danger' : 'success'}`}
+                                      onClick={() => handleToggleAccountStatus(row)}
+                                      title={row.account_status === 'active' ? 'Deactivate' : 'Activate'}
+                                    >
+                                      <i className={`fas fa-${row.account_status === 'active' ? 'ban' : 'check'}`}></i>
+                                    </button>
+                                  
+                                    {/* Delete Button */}
+                                    <button 
+                                      className="btn btn-outline-danger"
+                                      onClick={() => handleDeleteInvestor(row)}
+                                      title="Delete"
+                                    >
+                                      <i className="fas fa-trash"></i>
+                                    </button>
+                                  </div>
+                                ),
+                              },
+                            ]}
+                            data={filteredInvestors}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Investor Transactions Tab */}
+                {investorTab === 'transactions' && (
+                  <>
+                    <div className="search-filter-row mb-4">
+                      <div>
+                        <label className="form-label small text-muted mb-1">Search Transactions</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          placeholder="Search by investor name..." 
+                          value={investorTransactionSearch}
+                          onChange={(e) => setInvestorTransactionSearch(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label small text-muted mb-1">Transaction Date</label>
+                        <input 
+                          type="date" 
+                          className="form-control" 
+                          value={investorTransactionDate}
+                          onChange={(e) => setInvestorTransactionDate(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                
+                    <div className="card">
+                      <div className="card-body">
+                        {investorTransactionsLoading ? (
+                          <div className="text-center py-5">
+                            <div className="spinner-border text-primary" role="status">
+                              <span className="visually-hidden">Loading transactions...</span>
+                            </div>
+                            <p className="mt-2">Loading investor transactions...</p>
+                          </div>
+                        ) : filteredInvestorTransactions.length === 0 ? (
+                          <div className="text-center py-5">
+                            <i className="fas fa-exchange-alt fa-3x text-muted mb-3"></i>
+                            <h5 className="text-muted">
+                              {investorTransactions.length === 0 ? "No Investor Transactions" : "No Transactions Match Your Filters"}
+                            </h5>
+                            <p className="text-muted">
+                              {investorTransactions.length === 0 
+                                ? "Investor transactions will appear here when returns or topups are processed." 
+                                : "Try adjusting your search or date criteria."}
+                            </p>
+                          </div>
+                        ) : (
+                          <AdminTable
+                            columns={[
+                              { header: "Date", field: "date", render: (row) => formatDate(row.date || row.return_date || row.created_at) },
+                              { header: "Investor", field: "investor_name" },
+                              { 
+                                header: "Type", 
+                                field: "type",
+                                render: (row) => {
+                                  const typeLower = (row.type || row.transaction_type || '').toLowerCase();
+                                  let badgeClass = 'bg-primary';
+                                  let displayType = 'N/A';
+
+                                  if (typeLower.includes('return')) {
+                                    badgeClass = 'bg-success';
+                                    displayType = row.is_early_withdrawal ? 'Early Return' : 'Return';
+                                  } else if (typeLower.includes('topup')) {
+                                    badgeClass = 'bg-info';
+                                    displayType = 'Top-up';
+                                  } else if (typeLower.includes('adjustment')) {
+                                    badgeClass = 'bg-warning';
+                                    displayType = 'Adjustment';
+                                  } else if (typeLower.includes('disbursement')) {
+                                    badgeClass = 'bg-primary';
+                                    displayType = 'Disbursement';
+                                  }
+
+                                  return <span className={`badge ${badgeClass}`}>{displayType}</span>;
+                                }
+                              },
+                              { header: "Amount", field: "amount", render: (row) => formatCurrency(row.amount) },
+                              { 
+                                header: "Method", 
+                                field: "method",
+                                render: (row) => (
+                                  <span className={`badge ${row.method === "mpesa" ? "bg-info" : row.method === "bank" ? "bg-primary" : "bg-secondary"}`}>
+                                    {row.method?.toUpperCase() || 'CASH'}
+                                  </span>
+                                )
+                              },
+                              { header: "Reference", field: "mpesa_receipt", render: (row) => row.mpesa_receipt || 'N/A' },
+                              { 
+                                header: "Status", 
+                                field: "status",
+                                render: (row) => (
+                                  <span className="badge bg-success">{row.status || 'completed'}</span>
+                                )
+                              },
+                              {
+                                header: "Actions",
+                                render: (row) => (
                                   <button 
-                                    className="btn btn-outline-primary"
-                                    onClick={() => handleProcessReturn(row)}
-                                    title="Process Return"
+                                    className="btn btn-sm btn-outline-info"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        // Generate receipt for this transaction
+                                        await generateTransactionReceipt({
+                                          ...row,
+                                          clientName: row.investor_name,
+                                          type: row.transaction_type || row.type
+                                        });
+                                        showToast.success(`Transaction receipt for ${row.investor_name} downloaded!`);
+                                      } catch (error) {
+                                        console.error("Error generating transaction receipt:", error);
+                                        showToast.error("Failed to download transaction receipt");
+                                      }
+                                    }}
+                                    title="Download Receipt"
                                   >
-                                    <i className="fas fa-money-bill-wave"></i>
+                                    <i className="fas fa-download"></i>
                                   </button>
-                                )}
-
-                                {/* Deactivate/Activate Button */}
-                                <button 
-                                  className={`btn btn-outline-${row.account_status === 'active' ? 'danger' : 'success'}`}
-                                  onClick={() => handleToggleAccountStatus(row)}
-                                  title={row.account_status === 'active' ? 'Deactivate' : 'Activate'}
-                                >
-                                  <i className={`fas fa-${row.account_status === 'active' ? 'ban' : 'check'}`}></i>
-                                </button>
-                              
-                                {/* Delete Button */}
-                                <button 
-                                  className="btn btn-outline-danger"
-                                  onClick={() => handleDeleteInvestor(row)}
-                                  title="Delete"
-                                >
-                                  <i className="fas fa-trash"></i>
-                                </button>
-                              </div>
-                            ),
-                          },
-                        ]}
-                      data={investors.filter(investor => {
-                        if (investorSearch) {
-                          const searchTerm = investorSearch.toLowerCase()
-                          return (
-                            investor.name?.toLowerCase().includes(searchTerm) ||
-                            investor.phone?.toLowerCase().includes(searchTerm) ||
-                            investor.id_number?.toLowerCase().includes(searchTerm)
-                          )
-                        }
-                        if (investorFilter) {
-                          return investor.account_status === investorFilter
-                        }
-                        return true
-                        })}
-                      />
-                    )}
-                  </div>
-                </div>
+                                ),
+                              },
+                            ]}
+                            data={filteredInvestorTransactions}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -4834,23 +5213,27 @@ Thank you for choosing us.`;
         />
       )}
 
-      {/* Process Return Modal */}
       {showProcessReturnModal && selectedInvestorForReturn && (
         <Modal
           isOpen={showProcessReturnModal}
           onClose={() => {
-            setShowProcessReturnModal(false)
-            setSelectedInvestorForReturn(null)
-            setReturnAmount("")
-            setReturnMethod("mpesa")
-            setReturnReference("")
-            setReturnNotes("")
-            setIsTopupAdjustmentMode(false)
+            setShowProcessReturnModal(false);
+            setSelectedInvestorForReturn(null);
+            setReturnAmount("");
+            setReturnMethod("mpesa");
+            setReturnReference("");
+            setReturnNotes("");
+            setIsTopupAdjustmentMode(false);
+            setAdjustmentType("topup");
+            setAdjustmentAmount("");
+            setInvestorTopupMethod("cash");
+            setInvestorTopupReference("");
+            setInvestorTopupNotes("");
+            setIsEarlyWithdrawal(false);
           }}
           title={isTopupAdjustmentMode ? "Top Up/Adjust Investment" : "Process Investor Return"}
           size="md"
         >
-          {/* Investor Name */}
           <div className="mb-3">
             <label className="form-label">Investor Name</label>
             <input
@@ -4861,7 +5244,6 @@ Thank you for choosing us.`;
             />
           </div>
         
-          {/* Total Investment */}
           <div className="mb-3">
             <label className="form-label">Total Investment</label>
             <input
@@ -4872,7 +5254,6 @@ Thank you for choosing us.`;
             />
           </div>
         
-          {/* Mode Selector */}
           <div className="mb-3">
             <div className="form-check form-check-inline">
               <input
@@ -4898,41 +5279,221 @@ Thank you for choosing us.`;
         
           {/* ================= PROCESS RETURN ================= */}
           {!isTopupAdjustmentMode && (
-            <div className="mb-3">
-              <div className="form-check">
+            <>
+              <div className="mb-3">
+                <label className="form-label">Return Amount (40% of investment)</label>
                 <input
-                  className="form-check-input"
-                  type="checkbox"
-                  checked={isEarlyWithdrawal}
-                  onChange={(e) => {
-                    setIsEarlyWithdrawal(e.target.checked);
-                    if (e.target.checked) {
-                      // Apply 15% fee, investor gets 85%
-                      const expectedAmount = selectedInvestorForReturn.investment_amount * 0.40;
-                      const earlyAmount = expectedAmount * 0.85;
-                      setReturnAmount(earlyAmount.toFixed(2));
-                    } else {
-                      // Full 40% amount
-                      const expectedAmount = selectedInvestorForReturn.investment_amount * 0.40;
-                      setReturnAmount(expectedAmount.toFixed(2));
-                    }
-                  }}
-                  id="earlyWithdrawalCheck"
+                  type="text"
+                  className="form-control"
+                  value={formatCurrency(returnAmount)}
+                  readOnly
                 />
-                <label className="form-check-label" htmlFor="earlyWithdrawalCheck">
-                  Early Withdrawal (15% fee applies - investor receives 85%)
-                </label>
+                <small className="text-muted">Fixed 40% return based on investment amount</small>
               </div>
-              {isEarlyWithdrawal && (
-                <div className="alert alert-warning mt-2">
-                  <i className="fas fa-exclamation-triangle me-2"></i>
-                  Early withdrawal fee of 15% will be applied. Investor will receive 85% of the expected return amount.
+
+              {/* Date Validation Warning */}
+              {(() => {
+                const currentDate = new Date();
+                const nextReturnDate = new Date(selectedInvestorForReturn.next_return_date);
+                const canProcessNormally = currentDate >= nextReturnDate;
+
+                if (!canProcessNormally) {
+                  return (
+                    <div className="alert alert-warning">
+                      <i className="fas fa-exclamation-triangle me-2"></i>
+                      Next return date is {formatDate(selectedInvestorForReturn.next_return_date)}.
+                      To process early return, check "Early Withdrawal" below.
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div className="mb-3">
+                <div className="form-check">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={isEarlyWithdrawal}
+                    onChange={(e) => {
+                      const isChecked = e.target.checked;
+                      setIsEarlyWithdrawal(isChecked);
+
+                      // Calculate amounts
+                      const expectedAmount = selectedInvestorForReturn.investment_amount * 0.40;
+                      if (isChecked) {
+                        // Apply 15% fee for early withdrawal (investor gets 85%)
+                        const earlyAmount = expectedAmount * 0.85;
+                        const feeAmount = expectedAmount * 0.15;
+                        setReturnAmount(earlyAmount.toFixed(2));
+                        showToast.info(
+                          `Early withdrawal: 15% fee (${formatCurrency(feeAmount)}) applied. Investor receives ${formatCurrency(earlyAmount)}`,
+                          5000
+                        );
+                      } else {
+                        // Full 40% amount
+                        setReturnAmount(expectedAmount.toFixed(2));
+                      }
+                    }}
+                    id="earlyWithdrawalCheck"
+                  />
+                  <label className="form-check-label" htmlFor="earlyWithdrawalCheck">
+                    Early Withdrawal (15% fee applies - investor receives 85%)
+                  </label>
+                </div>
+              </div>
+                  
+              <div className="mb-3">
+                <label className="form-label">Payment Method *</label>
+                <select
+                  className="form-control"
+                  value={returnMethod}
+                  onChange={(e) => setReturnMethod(e.target.value)}
+                  required
+                >
+                  <option value="mpesa">M-Pesa</option>
+                  <option value="bank">Bank Transfer</option>
+                  <option value="cash">Cash</option>
+                </select>
+              </div>
+                  
+              {returnMethod === 'mpesa' && (
+                <div className="mb-3">
+                  <label className="form-label">M-Pesa Reference *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={returnReference}
+                    onChange={(e) => setReturnReference(e.target.value)}
+                    required
+                    placeholder="Enter M-Pesa reference"
+                    style={{ textTransform: 'uppercase' }}
+                  />
                 </div>
               )}
-            </div>
+
+              <div className="mb-3">
+                <label className="form-label">Notes</label>
+                <textarea
+                  className="form-control"
+                  value={returnNotes}
+                  onChange={(e) => setReturnNotes(e.target.value)}
+                  rows="3"
+                  placeholder="Additional notes about this return"
+                />
+              </div>
+            </>
           )}
-      
-          {/* Buttons */}
+
+          {/* ================= TOP UP / ADJUST ================= */}
+          {isTopupAdjustmentMode && (
+            <>
+              <div className="mb-3">
+                <div className="form-check form-check-inline">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="adjustmentType"
+                    checked={adjustmentType === "topup"}
+                    onChange={() => setAdjustmentType("topup")}
+                  />
+                  <label className="form-check-label">Top Up</label>
+                </div>
+                <div className="form-check form-check-inline">
+                  <input
+                    className="form-check-input"
+                    type="radio"
+                    name="adjustmentType"
+                    checked={adjustmentType === "adjust"}
+                    onChange={() => setAdjustmentType("adjust")}
+                  />
+                  <label className="form-check-label">Adjust</label>
+                </div>
+              </div>
+
+              {adjustmentType === "topup" ? (
+                <div className="mb-3">
+                  <label className="form-label">Top-up Amount (KES) *</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={adjustmentAmount}
+                    onChange={(e) => setAdjustmentAmount(e.target.value)}
+                    min="1"
+                    required
+                    placeholder="Enter amount to add"
+                  />
+                </div>
+              ) : (
+                <div className="mb-3">
+                  <label className="form-label">New Investment Amount (KES) *</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={adjustmentAmount}
+                    onChange={(e) => setAdjustmentAmount(e.target.value)}
+                    min="1"
+                    required
+                    placeholder="Enter new total investment amount"
+                  />
+                </div>
+              )}
+
+              {adjustmentType === "topup" && (
+                <>
+                  <div className="mb-3">
+                    <label className="form-label">Payment Method *</label>
+                    <select
+                      className="form-control"
+                      value={investorTopupMethod}
+                      onChange={(e) => setInvestorTopupMethod(e.target.value)}
+                      required
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="mpesa">M-Pesa</option>
+                      <option value="bank">Bank Transfer</option>
+                    </select>
+                  </div>
+
+                  {investorTopupMethod === 'mpesa' && (
+                    <div className="mb-3">
+                      <label className="form-label">M-Pesa Reference *</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={investorTopupReference}
+                        onChange={(e) => setInvestorTopupReference(e.target.value)}
+                        required
+                        placeholder="Enter M-Pesa reference"
+                        style={{ textTransform: 'uppercase' }}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="mb-3">
+                <label className="form-label">Notes</label>
+                <textarea
+                  className="form-control"
+                  value={investorTopupNotes}
+                  onChange={(e) => setInvestorTopupNotes(e.target.value)}
+                  rows="3"
+                  placeholder="Additional notes"
+                />
+              </div>
+            </>
+          )}
+
+          <div className="alert alert-info">
+            <i className="fas fa-info-circle me-2"></i>
+            {!isTopupAdjustmentMode 
+              ? "Return amount is fixed at 40% of investment. Early withdrawals incur 15% fee."
+              : adjustmentType === "topup"
+                ? "Top-up will increase the investor's investment amount and affect future returns."
+                : "Adjustment will change the investor's total investment amount."}
+          </div>
+            
           <div className="d-flex gap-2">
             <button
               className="btn btn-primary"

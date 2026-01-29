@@ -1924,3 +1924,150 @@ section {
   min-width: 160px;
   display: inline-block;
 }
+
+/* Investor Tab Styling - Match Applications Section */
+#investorsTab {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+}
+
+#investorsTab .nav-item {
+  flex: 1;
+  min-width: 0; /* Allow text truncation */
+}
+
+#investorsTab .nav-link {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  padding: 0.5rem 0.75rem !important;
+  font-size: 0.875rem !important;
+  color: var(--text-light) !important;
+  font-weight: 500 !important;
+}
+
+#investorsTab .nav-link.active {
+  color: var(--primary-blue) !important;
+  font-weight: 600 !important;
+  border-bottom: 3px solid var(--primary-blue) !important;
+  background-color: transparent !important;
+}
+
+#investorsTab .nav-link:hover {
+  color: var(--primary-blue) !important;
+}
+
+/* Badge alignment for investor tabs */
+#investorsTab .badge {
+  margin-left: 0.5rem !important;
+  flex-shrink: 0; /* Prevent badge from shrinking */
+}
+
+/* Ensure consistent spacing and layout */
+#investorsTab {
+  border-bottom: 1px solid #dee2e6;
+  margin-bottom: 1.5rem;
+}
+
+#investorsTab .nav-item {
+  margin-bottom: -1px;
+}
+
+/* Responsive adjustments for investor tabs */
+.investors-tab-text-long {
+  display: none;
+}
+
+.investors-tab-text-short {
+  display: inline;
+}
+
+/* Show long text on larger screens */
+@media (min-width: 768px) {
+  .investors-tab-text-long {
+    display: inline;
+  }
+  
+  .investors-tab-text-short {
+    display: none;
+  }
+}
+
+/* Enhanced Search Filter Styles for Investor Section */
+.search-filter-row {
+  display: flex;
+  gap: 16px;
+  align-items: end;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  padding: 0.75rem 0;
+}
+
+.search-filter-row > div {
+  flex: 1;
+  min-width: 200px;
+  max-width: 300px;
+}
+
+.search-filter-row .form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #495057;
+  font-size: 0.875rem;
+}
+
+/* Tablet optimization */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .search-filter-row {
+    gap: 12px;
+  }
+  
+  .search-filter-row > div {
+    min-width: 180px;
+    max-width: 250px;
+  }
+}
+
+/* Mobile optimization */
+@media (max-width: 767px) {
+  .search-filter-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .search-filter-row > div {
+    min-width: 100%;
+    max-width: 100%;
+  }
+}
+
+/* Small mobile devices */
+@media (max-width: 480px) {
+  .search-filter-row {
+    gap: 10px;
+  }
+  
+  .search-filter-row > div {
+    min-width: 100%;
+  }
+}
+
+/* Optional: Add some visual enhancement */
+.search-filter-row > div {
+  transition: all 0.2s ease-in-out;
+}
+
+.search-filter-row > div:focus-within {
+  transform: translateY(-1px);
+}
+
+.search-filter-row > div:focus-within .form-label {
+  color: #007bff;
+  font-weight: 600;
+}

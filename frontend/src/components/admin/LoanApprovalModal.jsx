@@ -60,21 +60,21 @@ function LoanApprovalModal({
 
   const handleSubmit = () => {
     if (fundingSource === 'investor' && !selectedInvestor) {
-      alert('Please select an investor')
-      return
+      alert('Please select an investor');
+      return;
     }
-    
+
     // Check if investor has enough balance
     if (fundingSource === 'investor' && investorStats.available < parseFloat(application.loanAmount)) {
-      alert(`Insufficient funds! Selected investor only has KSh ${investorStats.available.toLocaleString()} available`)
-      return
+      alert(`Insufficient funds! Selected investor only has KSh ${investorStats.available.toLocaleString()} available`);
+      return;
     }
-    
+
     onApprove(application.id, {
       funding_source: fundingSource,
       investor_id: fundingSource === 'investor' ? selectedInvestor : null
-    })
-  }
+    });
+  };
 
   if (!application) return null
 

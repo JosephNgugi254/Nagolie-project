@@ -215,8 +215,7 @@ def approve_application(loan_id):
     try:
         data = request.get_json()
         
-        # Get funding source data
-        funding_source = data.get('funding_source', 'company')  # 'company' or 'investor'
+        funding_source = data.get('funding_source', 'company')
         investor_id = data.get('investor_id')
         
         loan = db.session.get(Loan, loan_id)
@@ -226,15 +225,13 @@ def approve_application(loan_id):
         if loan.status != 'pending':
             return jsonify({'error': 'Loan application already processed'}), 400
         
-        # Validate investor if funding source is investor
         investor = None
         if funding_source == 'investor' and investor_id:
             investor = db.session.get(Investor, investor_id)
             if not investor or investor.account_status != 'active':
                 return jsonify({'error': 'Invalid or inactive investor selected'}), 400
             
-            # Calculate investor's available balance (investment_amount - all loans funded by this investor)
-            from sqlalchemy import func
+            # Calculate available balance
             total_lent = db.session.query(func.sum(Loan.principal_amount)).filter(
                 Loan.investor_id == investor.id,
                 Loan.funding_source == 'investor',
@@ -243,14 +240,12 @@ def approve_application(loan_id):
             
             available_balance = investor.investment_amount - total_lent
             
-            # Check if investor has sufficient funds
             if loan.principal_amount > available_balance:
                 return jsonify({
                     'error': f'Insufficient funds! Investor only has {available_balance} available, but loan requires {loan.principal_amount}'
                 }), 400
         
-        # Rest of the function remains the same...
-        # Update loan status and details
+        # Rest of the approval logic...
         loan.interest_rate = Decimal('30.0')
         interest_amount = loan.principal_amount * (loan.interest_rate / 100)
         loan.total_amount = loan.principal_amount + interest_amount
@@ -264,24 +259,23 @@ def approve_application(loan_id):
         loan.disbursement_date = datetime.utcnow()
         loan.due_date = datetime.utcnow() + timedelta(days=7)
         
-        # Record funding source
         loan.funding_source = funding_source
         if funding_source == 'investor' and investor:
             loan.investor_id = investor.id
         
+        # Create transaction
         transaction = Transaction(
             loan_id=loan.id,
             transaction_type='disbursement',
             amount=loan.principal_amount,
             payment_method='cash',
-            notes='Loan approved and disbursed',
+            notes=f'Loan approved and disbursed. Funding source: {funding_source}',
             status='completed',
             created_at=datetime.utcnow()
         )
-        
         db.session.add(transaction)
         
-        # Update livestock with ownership information
+        # Update livestock ownership
         if loan.livestock:
             if funding_source == 'investor' and investor:
                 loan.livestock.investor_id = investor.id
@@ -295,16 +289,15 @@ def approve_application(loan_id):
             'client': loan.client.full_name if loan.client else 'Unknown',
             'amount': float(loan.principal_amount),
             'funding_source': funding_source,
-            'investor_id': investor.id if investor else None,
-            'interest_rate': float(loan.interest_rate),
-            'total_amount': float(loan.total_amount)
+            'investor_id': investor.id if investor else None
         })
         
         return jsonify({
             'success': True,
             'message': 'Loan approved successfully',
             'loan': loan.to_dict(),
-            'transaction': transaction.to_dict()
+            'transaction': transaction.to_dict(),
+            'investor_available_balance': float(available_balance - loan.principal_amount) if investor else None
         }), 200
     except Exception as e:
         db.session.rollback()
@@ -2089,3 +2082,74 @@ def adjust_investor_investment(investor_id):
         print(f"Error adjusting investor investment: {str(e)}")
         return jsonify({'error': str(e)}), 500
     
+@admin_bp.route('/investor-transactions', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_investor_transactions():
+    """Get all investor transactions (returns, topups, adjustments)"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        # Get investor returns
+        investor_returns = InvestorReturn.query.order_by(InvestorReturn.return_date.desc()).all()
+        
+        # We'll also get loan disbursements to investors (loans funded by investors)
+        investor_loans = Loan.query.filter(
+            Loan.funding_source == 'investor',
+            Loan.investor_id.isnot(None)
+        ).order_by(Loan.disbursement_date.desc()).all()
+        
+        transactions_data = []
+        
+        # Process investor returns
+        for inv_return in investor_returns:
+            investor = inv_return.investor
+            if not investor:
+                continue
+                
+            transactions_data.append({
+                'id': inv_return.id,
+                'date': inv_return.return_date.isoformat() if inv_return.return_date else None,
+                'type': 'return',
+                'transaction_type': 'return',
+                'investor_id': investor.id,
+                'investor_name': investor.name,
+                'amount': float(inv_return.amount),
+                'method': inv_return.payment_method,
+                'payment_method': inv_return.payment_method,
+                'mpesa_receipt': inv_return.mpesa_receipt,
+                'notes': inv_return.notes,
+                'status': inv_return.status,
+                'is_early_withdrawal': inv_return.is_early_withdrawal,
+                'created_at': inv_return.return_date.isoformat() if inv_return.return_date else None
+            })
+        
+        # Process investor-funded loans (disbursements)
+        for loan in investor_loans:
+            investor = loan.investor
+            if not investor:
+                continue
+                
+            transactions_data.append({
+                'id': f"loan_{loan.id}",
+                'date': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
+                'type': 'disbursement',
+                'transaction_type': 'disbursement',
+                'investor_id': investor.id,
+                'investor_name': investor.name,
+                'amount': float(loan.principal_amount),
+                'method': 'bank',
+                'payment_method': 'bank',
+                'notes': f'Loan disbursement to {loan.client.full_name if loan.client else "Unknown"}',
+                'status': 'completed',
+                'created_at': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
+                'client_name': loan.client.full_name if loan.client else 'Unknown'
+            })
+        
+        return jsonify(transactions_data), 200
+        
+    except Exception as e:
+        print(f"Investor transactions error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+

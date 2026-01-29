@@ -195,6 +195,7 @@ export const adminAPI = {
   deleteInvestor: (id) => api.delete(`/admin/investors/${id}`),
   getInvestorStats: () => api.get("/admin/investors/stats"),
   createInvestorAccountLink: (id) => api.post(`/admin/investors/${id}/create-user-account`),
+  getInvestorTransactions: () => api.get("/admin/investor-transactions"),
   calculateInvestorReturn: (investorId, date = null) => {
     let url = `/admin/investors/${investorId}/calculate-return`
     if (date) {
@@ -203,10 +204,8 @@ export const adminAPI = {
     return api.get(url)
   },
   processInvestorReturn: async (investorId, data) => {
-    return axios.post(`/admin/investors/${investorId}/process-return`, data, {
-      headers: getAuthHeader()
-    })
-  },
+  return api.post(`/admin/investors/${investorId}/process-return`, data);
+  },  
   
   adjustInvestorInvestment: async (investorId, data) => {
     return axios.post(`/admin/investors/${investorId}/adjust-investment`, data, {
@@ -274,17 +273,6 @@ export const investorAPI = {
     return response;
   }
 
-};
-
-export const adminInvestorAPI = {
-  getInvestors: () => api.get("/admin/investors"),
-  createInvestor: (data) => api.post("/admin/investors", data),
-  getInvestor: (id) => api.get(`/admin/investors/${id}`),
-  updateInvestor: (id, data) => api.put(`/admin/investors/${id}`, data),
-  deleteInvestor: (id) => api.delete(`/admin/investors/${id}`),
-  processReturn: (id, data) => api.post(`/admin/investors/${id}/process-return`, data),
-  getInvestorStats: () => api.get("/admin/investors/stats"),
-  createInvestorAccountLink: (id) => api.post(`/admin/investors/${id}/create-user-account`),
 };
 
 export default api;
