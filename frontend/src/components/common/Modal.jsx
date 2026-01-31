@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 
-function Modal({ isOpen, onClose, title, children, size = "md" }) {
+function Modal({ isOpen, onClose, title, children, size = "md", className = "" }) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden"
@@ -19,7 +19,7 @@ function Modal({ isOpen, onClose, title, children, size = "md" }) {
 
   return (
     <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-      <div className={`modal-dialog modal-dialog-centered modal-${size}`}>
+      <div className={`modal-dialog modal-dialog-centered modal-${size} ${className}`}>
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title">{title}</h5>

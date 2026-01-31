@@ -174,9 +174,10 @@ class Transaction(db.Model):
     __tablename__ = 'transactions'
     
     id = db.Column(db.Integer, primary_key=True)
-    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
-    transaction_type = db.Column(db.String(20), nullable=False)  # disbursement, payment, topup, adjustment
-    payment_type = db.Column(db.String(20))  # NEW: principal, interest, or null for non-payments
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=True)  # Made nullable for non-loan transactions
+    investor_id = db.Column(db.Integer, db.ForeignKey('investors.id'), nullable=True)  # NEW: For investor transactions
+    transaction_type = db.Column(db.String(20), nullable=False)  # disbursement, payment, topup, adjustment, investor_topup, investor_adjustment, investor_return
+    payment_type = db.Column(db.String(20))  # principal, interest, investment, return
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     payment_method = db.Column(db.String(20))
     mpesa_receipt = db.Column(db.String(50))
@@ -189,7 +190,9 @@ class Transaction(db.Model):
     checkout_request_id = db.Column(db.String(50))
     phone_number = db.Column(db.String(20))
     
+    # Relationships
     loan = db.relationship('Loan', backref=db.backref('transactions', lazy=True))
+    investor = db.relationship('Investor', backref=db.backref('transactions', lazy=True))  # NEW
     
     def to_dict(self):
         created_at_iso = self.created_at.isoformat() if self.created_at else datetime.utcnow().isoformat()
@@ -197,6 +200,7 @@ class Transaction(db.Model):
         return {
             'id': self.id,
             'loan_id': self.loan_id,
+            'investor_id': self.investor_id,
             'transaction_type': self.transaction_type,
             'payment_type': self.payment_type,
             'amount': float(self.amount),
@@ -210,7 +214,8 @@ class Transaction(db.Model):
             'merchant_request_id': self.merchant_request_id,
             'checkout_request_id': self.checkout_request_id,
             'phone_number': self.phone_number,
-            'date': created_at_iso
+            'date': created_at_iso,
+            'investor_name': self.investor.name if self.investor else None
         }
 
 class Payment(db.Model):
@@ -281,7 +286,12 @@ class Investor(db.Model):
     phone = db.Column(db.String(20), nullable=False, unique=True, index=True)
     email = db.Column(db.String(100), nullable=True)  
     id_number = db.Column(db.String(20), unique=True, nullable=False, index=True)
-    investment_amount = db.Column(db.Numeric(12, 2), nullable=False)
+    
+    # CHANGED: Store original investment separately
+    initial_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Original amount
+    current_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Current total (initial + topups)
+    total_topups = db.Column(db.Numeric(12, 2), default=0)  # NEW: Track total topups
+    
     invested_date = db.Column(db.DateTime, default=datetime.utcnow)
     expected_return_date = db.Column(db.DateTime)
     total_returns_received = db.Column(db.Numeric(12, 2), default=0)
@@ -307,8 +317,14 @@ class Investor(db.Model):
             self.next_return_date = self.invested_date + timedelta(days=35)
         if not self.expected_return_date:
             # FIRST RETURN: After 5 weeks (35 days) from investment
-            self.expected_return_date = self.invested_date + timedelta(days=35)  
-
+            self.expected_return_date = self.invested_date + timedelta(days=35)
+        
+        # Initialize investment tracking
+        if not self.initial_investment and 'investment_amount' in kwargs:
+            self.initial_investment = Decimal(str(kwargs['investment_amount']))
+            self.current_investment = Decimal(str(kwargs['investment_amount']))
+            self.total_topups = Decimal('0')
+    
     def to_dict(self):
         return {
             'id': self.id,
@@ -317,7 +333,10 @@ class Investor(db.Model):
             'phone': self.phone,
             'email': self.email or 'N/A',
             'id_number': self.id_number,
-            'investment_amount': float(self.investment_amount),
+            'initial_investment': float(self.initial_investment),  # NEW
+            'current_investment': float(self.current_investment),  # NEW
+            'total_topups': float(self.total_topups),  # NEW
+            'investment_amount': float(self.current_investment),  # Keep for backward compatibility
             'invested_date': self.invested_date.isoformat() if self.invested_date else None,
             'expected_return_date': self.expected_return_date.isoformat() if self.expected_return_date else None,
             'total_returns_received': float(self.total_returns_received),

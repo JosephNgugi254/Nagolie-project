@@ -2071,3 +2071,278 @@ section {
   color: #007bff;
   font-weight: 600;
 }
+
+
+/* Investor Login Modal Responsive Styles */
+@media (max-width: 768px) {
+  .investor-login-modal .modal-dialog {
+    max-width: 95%;
+    margin: 1rem auto;
+  }
+  
+  .investor-login-modal .modal-content {
+    padding: 1rem;
+  }
+  
+  .investor-login-modal .modal-header {
+    padding: 1rem;
+  }
+  
+  .investor-login-modal .modal-body {
+    padding: 1rem;
+  }
+  
+  .investor-login-modal input[type="password"] {
+    font-size: 1rem !important;
+    padding: 0.75rem !important;
+  }
+}
+
+@media (max-width: 576px) {
+  .investor-login-modal .modal-dialog {
+    max-width: 100%;
+    margin: 0.5rem;
+  }
+  
+  .investor-login-modal .modal-content {
+    margin: 0;
+    border-radius: 8px;
+  }
+  
+  .investor-login-modal .btn {
+    padding: 0.75rem;
+  }
+}
+
+/* Make sure the form elements are responsive inside the modal */
+.investor-login-modal form {
+  width: 100%;
+}
+
+.investor-login-modal .form-label {
+  font-size: 0.9rem;
+}
+
+.investor-login-modal .form-control {
+  width: 100%;
+  padding: 0.5rem;
+  font-size: 1rem;
+}
+
+/* Investor PIN Modal Responsive Styles */
+.modal-dialog {
+  max-width: 400px;
+  margin: 1.75rem auto;
+}
+
+.modal-content {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .modal-dialog {
+    max-width: 95%;
+    margin: 1rem auto;
+  }
+  
+  .modal-content {
+    margin: 0.5rem;
+  }
+  
+  .modal-header {
+    padding: 1rem 1.25rem;
+  }
+  
+  .modal-body {
+    padding: 1.25rem;
+  }
+  
+  .modal-title {
+    font-size: 1.25rem;
+  }
+  
+  /* Adjust PIN input for mobile */
+  #investorPin {
+    font-size: 1.25rem !important;
+    height: 55px !important;
+    padding: 0.75rem !important;
+    letter-spacing: 0.3rem !important;
+  }
+}
+
+@media (max-width: 576px) {
+  .modal-dialog {
+    max-width: 100%;
+    margin: 0;
+    padding: 0.5rem;
+  }
+  
+  .modal-content {
+    margin: 0;
+    border-radius: 8px;
+  }
+  
+  .modal-body {
+    padding: 1rem;
+  }
+  
+  /* Stack buttons vertically on small screens */
+  .d-flex.flex-column.flex-sm-row {
+    flex-direction: column !important;
+  }
+  
+  .d-flex.flex-column.flex-sm-row .btn {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+  
+  /* Smaller icons on mobile */
+  .fa-3x {
+    font-size: 2.5em !important;
+  }
+  
+  /* Adjust text sizes */
+  h5 {
+    font-size: 1.1rem;
+  }
+  
+  p.text-muted {
+    font-size: 0.9rem;
+  }
+  
+  #investorPin {
+    font-size: 1.1rem !important;
+    height: 50px !important;
+    padding: 0.5rem !important;
+    letter-spacing: 0.25rem !important;
+  }
+}
+
+/* iPad specific adjustments */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .modal-dialog {
+    max-width: 450px;
+  }
+  
+  .modal-content {
+    max-width: 100%;
+    margin: 0 auto;
+  }
+  
+  /* Ensure proper horizontal alignment */
+  .modal-dialog-centered {
+    display: flex;
+    align-items: center;
+    min-height: calc(100% - 3.5rem);
+  }
+}
+
+/* Large screens */
+@media (min-width: 1200px) {
+  .modal-dialog {
+    max-width: 400px;
+  }
+}
+
+/* Form input focus states */
+#investorPin:focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Button hover effects */
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.25);
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  opacity: 0.5;
+}
+
+/* Ensure modal is above everything */
+.modal {
+  z-index: 1055;
+}
+
+/* Investor Login Modal Responsive Styles */
+.investor-login-modal .modal-dialog {
+  max-width: 400px;
+  margin: 1.75rem auto;
+}
+
+.investor-login-modal .modal-content {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.investor-login-modal .modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+}
+
+.investor-login-modal .modal-body {
+  padding: 1.5rem;
+}
+
+/* Ensure modal takes full viewport on mobile */
+@media (max-width: 768px) {
+  .investor-login-modal .modal-dialog {
+    max-width: 95%;
+    margin: 1rem auto;
+  }
+  
+  .investor-login-modal .modal-content {
+    margin: 0.5rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .investor-login-modal .modal-dialog {
+    max-width: 100%;
+    margin: 0;
+    padding: 0.5rem;
+  }
+  
+  .investor-login-modal .modal-content {
+    margin: 0;
+    border-radius: 8px;
+  }
+  
+  .investor-login-modal .modal-body {
+    padding: 1rem;
+  }
+}
+
+/* Make sure modal backdrop covers everything */
+.modal.show {
+  display: block;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Ensure sidebar is hidden when modal is shown on mobile */
+@media (max-width: 991.98px) {
+  .sidebar.show ~ .main-content,
+  .modal.show ~ .main-content {
+    transform: translateX(0) !important;
+  }
+  
+  .sidebar.show ~ .modal-backdrop,
+  .modal.show ~ .sidebar-backdrop {
+    display: none !important;
+  }
+}

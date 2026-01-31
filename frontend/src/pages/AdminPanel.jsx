@@ -12,7 +12,7 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 
@@ -129,6 +129,8 @@ function AdminPanel() {
   const [investorTransactionsLoading, setInvestorTransactionsLoading] = useState(false)
   const [investorTransactionSearch, setInvestorTransactionSearch] = useState("")
   const [investorTransactionDate, setInvestorTransactionDate] = useState("")
+  const [investorsError, setInvestorsError] = useState(null);
+
 
   const fetchInvestorTransactions = useCallback(async () => {
     setInvestorTransactionsLoading(true)
@@ -153,6 +155,72 @@ function AdminPanel() {
       setInvestorTransactionsLoading(false)
     }
   }, [])
+
+  const [showInvestorLoginModal, setShowInvestorLoginModal] = useState(false);
+  const [investorPin, setInvestorPin] = useState("");
+  const [isInvestorSectionAuthenticated, setIsInvestorSectionAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // Close sidebar when investor login modal opens on mobile
+    if (showInvestorLoginModal && window.innerWidth <= 991.98) {
+      setSidebarOpen(false);
+    }
+  }, [showInvestorLoginModal]);
+    
+  const handleInvestorSectionClick = () => {
+    // First, always close the sidebar on mobile
+    if (window.innerWidth <= 991.98) {
+      setSidebarOpen(false);
+    }
+
+    // If already authenticated, just navigate to investors section
+    if (isInvestorSectionAuthenticated) {
+      setActiveSection("investors");
+      navigate("/admin/investors");
+      return;
+    }
+
+    // Show PIN modal for authentication
+    setShowInvestorLoginModal(true);
+  };
+
+  const handleInvestorPinSubmit = (e) => {
+    e.preventDefault();
+    
+    // For demo purposes - set your PIN here
+    const correctPin = "123456"; // Change this to your desired PIN
+    
+    if (investorPin === correctPin) {
+      setIsInvestorSectionAuthenticated(true);
+      setShowInvestorLoginModal(false);
+      setInvestorPin("");
+    
+      // Navigate to investor section
+      setActiveSection("investors");
+      navigate("/admin/investors");
+
+      // Ensure sidebar is closed on mobile
+      if (window.innerWidth <= 991.98) {
+        setSidebarOpen(false);
+      }
+
+      showToast.success("Investor section unlocked");
+    } else {
+      showToast.error("Invalid PIN. Please try again.");
+      setInvestorPin("");
+    }
+  };
+
+  const handleInvestorSectionLogout = () => {
+    setIsInvestorSectionAuthenticated(false);
+
+    if (activeSection === "investors") {
+      setActiveSection("overview");
+      navigate("/admin");
+    }
+
+    showToast.info("Investor section locked");
+  };
 
   //state variables for creating investor
   const [investors, setInvestors] = useState([])
@@ -255,7 +323,6 @@ function AdminPanel() {
       showToast.error(error.response?.data?.error || "Failed to delete investor")
     }
   }
-
 
   const calculateReturnAmount = async (investor) => {
     try {
@@ -405,43 +472,101 @@ function AdminPanel() {
   };
 
   const fetchInvestors = useCallback(async () => {
-    setInvestorsLoading(true)
+    setInvestorsLoading(true);
+    setInvestorsError(null); // Now this will work since we declared it
+    
     try {
-      console.log("Fetching investors...")
-      console.log("Current admin token:", localStorage.getItem("admin_token"))
-      console.log("Current admin user:", JSON.parse(localStorage.getItem("admin_user") || '{}'))
-      console.log("adminUser state:", user)
-      
-      const response = await adminAPI.getInvestors()
-      console.log("Investors response:", response.data)
-      setInvestors(response.data || [])
-    } catch (error) {
-      console.error("Failed to fetch investors:", error)
-      console.error("Error details:", {
-        status: error.response?.status,
-        data: error.response?.data,
-        headers: error.response?.headers
-      })
-      
-      // Don't redirect on 401 if we're already authenticated
-      // The API interceptor will handle the redirect if needed
-      if (error.response?.status === 401) {
-        // Check if we still have a valid admin session
-        const adminToken = localStorage.getItem("admin_token")
-        if (!adminToken) {
-          navigate("/admin/login")
-          return
-        }
-        // If we have a token but still get 401, it might be a backend issue
-        showToast.error("Authentication error. Please try logging out and back in.")
-      } else {
-        showToast.error("Failed to load investors: " + (error.response?.data?.error || error.message))
+      console.log("Starting to fetch investors...");
+
+      // First, verify we have authentication
+      const adminToken = localStorage.getItem("admin_token");
+
+      if (!adminToken) {
+        console.warn("No admin token found in localStorage");
+        setInvestorsError("Your session has expired. Please login again.");
+        showToast.error("Your session has expired. Please login again.");
+        navigate("/admin/login");
+        return;
       }
-      setInvestors([])
+
+      // Fetch investors
+      console.log("Fetching investors from API...");
+      const response = await adminAPI.getInvestors();
+
+      console.log("Investors API response received:", {
+        status: response.status,
+        hasData: !!response.data,
+      });
+
+      if (Array.isArray(response.data)) {
+        console.log(`Setting ${response.data.length} investors`);
+        setInvestors(response.data);
+      } else if (response.data && response.data.investors) {
+        console.log(`Setting ${response.data.investors.length} investors from object`);
+        setInvestors(response.data.investors);
+      } else {
+        console.warn("Unexpected response format:", response.data);
+
+        // Try to extract investors from any format
+        const data = response.data || {};
+        let investorsList = [];
+
+        if (data.data && Array.isArray(data.data)) {
+          investorsList = data.data;
+        } else if (data.results && Array.isArray(data.results)) {
+          investorsList = data.results;
+        } else if (Array.isArray(data)) {
+          investorsList = data;
+        } else if (typeof data === 'object') {
+          // Try to find any array property
+          const arrayProperties = Object.values(data).filter(value => Array.isArray(value));
+          if (arrayProperties.length > 0) {
+            investorsList = arrayProperties[0];
+          }
+        }
+
+        console.log("Extracted investors list:", investorsList.length);
+        setInvestors(investorsList);
+      }
+
+    } catch (error) {
+      console.error("Failed to fetch investors:", error);
+
+      // Store the error for UI display
+      setInvestorsError(error.message);
+
+      // Handle different error types
+      if (error.response?.status === 401) {
+        console.log("Authentication failed (401)");
+        setInvestorsError("Your session has expired. Please login again.");
+        showToast.error("Your session has expired. Please login again.");
+
+        // Clear tokens
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_user");
+
+        navigate("/admin/login");
+      } else if (error.response?.status === 500) {
+        console.log("Server error (500)");
+        setInvestorsError("Server error occurred. Please check backend server logs.");
+        showToast.error("Server error occurred. Please check backend server logs.", 8000);
+      } else if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
+        console.log("Network error");
+        setInvestorsError("Network error. Please check your internet connection.");
+        showToast.error("Network error. Please check your internet connection and ensure the backend server is running.");
+      } else {
+        console.log("Other error");
+        setInvestorsError(error.message || 'Unknown error');
+        showToast.error(`Failed to load investors: ${error.message || 'Unknown error'}`);
+      }
+
+      // Set empty array on error
+      setInvestors([]);
     } finally {
-      setInvestorsLoading(false)
+      console.log("Finished fetching investors, setting loading to false");
+      setInvestorsLoading(false);
     }
-  }, [navigate])
+  }, [navigate]);
 
   const handleGenerateShareLink = async (investor) => {
     console.log("Generating share link for investor:", investor)
@@ -1069,31 +1194,44 @@ function AdminPanel() {
 
   //use effect for section selection in admin panel
   useEffect(() => {
-    const path = location.pathname
-    let section = "overview"
+    const path = location.pathname;
+    let section = "overview";
     if (path.includes("/admin/clients")) {
-      section = "clients"
+      section = "clients";
     } else if (path.includes("/admin/transactions")) {
-      section = "transactions"
+      section = "transactions";
     } else if (path.includes("/admin/gallery")) {
-      section = "gallery"
+      section = "gallery";
     } else if (path.includes("/admin/applications")) {
-      section = "applications"
+      section = "applications";
     } else if (path.includes("/admin/payment-stats")) {
-      section = "payment-stats"
+      section = "payment-stats";
     } else if (path.includes("/admin/investors")) { 
-      section = "investors" 
-    } 
+      section = "investors";
 
-    setActiveSection(section)
+      // Check authentication for investor section
+      if (isInvestorSectionAuthenticated) { // REMOVED: && investorSessionExpires
+        // Session is still valid, proceed
+        setActiveSection(section);
+        fetchInvestors();
+      } else {
+        // Not authenticated, show PIN modal
+        setShowInvestorLoginModal(true);
+        setActiveSection("overview"); // Fallback to overview
+        navigate("/admin");
+      }
+      return; // Don't set active section here
+    }
+
+    setActiveSection(section);
 
     // Fetch data for the detected section
     if (section === "payment-stats") {
-      fetchPaymentStats()
+      fetchPaymentStats();
     } else if (section === "investors") { 
-      fetchInvestors()
+      fetchInvestors();
     }
-  }, [location.pathname])
+  }, [location.pathname, isInvestorSectionAuthenticated]); 
 
 
   // Generate temporary password for new investor
@@ -1412,20 +1550,29 @@ const generateTemporaryPassword = (name, id) => {
   }
 
   const handleSectionChange = (section) => {
-    setActiveSection(section)
-    
+    // Close sidebar on mobile when any section is clicked
+    setSidebarOpen(false);
+
+    // If trying to access investor section, check authentication first
+    if (section === "investors") {
+      handleInvestorSectionClick(); // This will check auth and show modal if needed
+      return; // Don't proceed with normal section change
+    }
+
+    // For all other sections, proceed normally
+    setActiveSection(section);
+
     // Fetch payment stats when navigating to that section
     if (section === "payment-stats") {
-      fetchPaymentStats()
+      fetchPaymentStats();
     }
 
     if (section === "overview") {
-      navigate("/admin")
+      navigate("/admin");
     } else {
-      navigate(`/admin/${section}`)
+      navigate(`/admin/${section}`);
     }
-    setSidebarOpen(false)
-  }
+  };
 
   const formatAgreementData = (agreement) => {
     if (!agreement) return null;
@@ -1513,6 +1660,7 @@ const generateTemporaryPassword = (name, id) => {
 
   const handleLogout = useCallback(async () => {
     try {
+      handleInvestorSectionLogout();
       // Clear any pending requests or timeouts first
       setLoading(true);
 
@@ -1542,6 +1690,9 @@ const generateTemporaryPassword = (name, id) => {
         setTransactions([]);
         setApprovedLoans([]);
         setInvestors([]);
+
+        // Reset investor section authentication
+        setIsInvestorSectionAuthenticated(false); // ADD THIS LINE
       }
     } catch (error) {
       console.error("Logout error:", error)
@@ -2042,29 +2193,35 @@ Thank you for choosing us.`;
     )
   }
 
+  
   const formatTransactionType = (type, paymentType) => {
-  if (!type) return 'N/A';
-  
-  const typeLower = type.toLowerCase();
-  const paymentTypeLower = paymentType ? paymentType.toLowerCase() : '';
-  
-  // Handle payment types specifically
-  if (typeLower === 'payment') {
-    if (paymentTypeLower === 'principal') return 'Principal Payment';
-    if (paymentTypeLower === 'interest') return 'Interest Payment';
-    return 'Payment';
-  }
-  
-  const typeMap = {
-    'topup': 'Top-up',
-    'adjustment': 'Adjustment',
-    'payment': 'Payment',
-    'disbursement': 'Disbursement',
-    'claim': 'Claim'
+    if (!type) return 'N/A';
+    
+    const typeLower = type.toLowerCase();
+    const paymentTypeLower = paymentType ? paymentType.toLowerCase() : '';
+    
+    // Handle payment types specifically
+    if (typeLower === 'payment') {
+      if (paymentTypeLower === 'principal') return 'Principal Payment';
+      if (paymentTypeLower === 'interest') return 'Interest Payment';
+      return 'Payment';
+    }
+
+    const typeMap = {
+      'topup': 'Loan Top-up',
+      'adjustment': 'Loan Adjustment',
+      'payment': 'Payment',
+      'disbursement': 'Disbursement',
+      'claim': 'Claim',
+      'investor_topup': 'Investor Top-up',
+      'investor_adjustment_up': 'Investment Increase',
+      'investor_adjustment_down': 'Investment Decrease',
+      'investor_return': 'Investor Return',
+      'initial_investment': 'Initial Investment'
+    };
+
+    return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
   };
-  
-  return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
-};
 
   const getTransactionBadgeColor = (type) => {
     const typeLower = (type || '').toLowerCase();
@@ -2077,6 +2234,14 @@ Thank you for choosing us.`;
         return 'bg-info';
       case 'claim':
         return 'bg-danger';
+      case 'investor_topup':
+      case 'investor_adjustment_up':
+      case 'initial_investment':
+        return 'bg-success';
+      case 'investor_adjustment_down':
+        return 'bg-warning';
+      case 'investor_return':
+        return 'bg-secondary';
       case 'payment':
       default:
         return 'bg-success';
@@ -3065,369 +3230,352 @@ Thank you for choosing us.`;
               </div>
             )}
 
-            {/* Investors Section */}
+            {/* ================= INVESTORS SECTION ================= */}
             {activeSection === "investors" && (
               <div id="investors-section" className="content-section">
+              
+                {/* ================= HEADER WITH LOCK STATE ================= */}
                 <div className="d-flex justify-content-between align-items-center mb-4">
                   <h2>Investor Management</h2>
-                  <div className="d-flex gap-2">
-                    <button 
-                      className="btn btn-primary"
-                      onClick={() => setShowAddInvestorModal(true)}
-                    >
-                      <i className="fas fa-plus me-1"></i>Add Investor
-                    </button>
-                  </div>
-                </div>
-
-                {/* Tab Navigation */}
-                <ul className="nav nav-tabs mb-4" id="investorsTab" role="tablist">
-                  <li className="nav-item" role="presentation">
-                    <button 
-                      className={`nav-link ${investorTab === 'investors' ? 'active' : ''}`}
-                      onClick={() => {
-                        setInvestorTab('investors')
-                        fetchInvestors()
-                      }}
-                      type="button"
-                    >
-                      <i className="fas fa-users me-2"></i>
-                      Investors
-                      <span className="badge bg-info ms-2">{investors.length}</span>
-                    </button>
-                  </li>
-                  <li className="nav-item" role="presentation">
-                    <button 
-                      className={`nav-link ${investorTab === 'transactions' ? 'active' : ''}`}
-                      onClick={() => {
-                        setInvestorTab('transactions')
-                        fetchInvestorTransactions()
-                      }}
-                      type="button"
-                    >
-                      <i className="fas fa-exchange-alt me-2"></i>
-                      Investor Transactions
-                      <span className="badge bg-success ms-2">{investorTransactions.length}</span>
-                    </button>
-                  </li>
-                </ul>
-                    
-                {/* Investors Tab */}
-                {investorTab === 'investors' && (
-                  <>
-                    <div className="search-filter-row mb-4">
-                      <div>
-                        <label className="form-label small text-muted mb-1">Search Investors</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          placeholder="Search by name, phone, ID..." 
-                          value={investorSearch}
-                          onChange={(e) => setInvestorSearch(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="form-label small text-muted mb-1">Filter by Status</label>
-                        <select 
-                          className="form-select"
-                          value={investorFilter}
-                          onChange={(e) => setInvestorFilter(e.target.value)}
-                        >
-                          <option value="">All Investors</option>
-                          <option value="active">Active</option>
-                          <option value="pending">Pending</option>
-                          <option value="inactive">Inactive</option>
-                        </select>
-                      </div>
+            
+                  {isInvestorSectionAuthenticated ? (
+                    <div className="d-flex align-items-center gap-2">
+                                        
+                      <button
+                        className="btn btn-sm btn-outline-danger"
+                        onClick={handleInvestorSectionLogout}
+                      >
+                        <i className="fas fa-lock me-1"></i>
+                        Lock Section
+                      </button>
+                  
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => setShowAddInvestorModal(true)}
+                      >
+                        <i className="fas fa-plus me-1"></i>
+                        Add Investor
+                      </button>
                     </div>
+                  ) : (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setShowInvestorLoginModal(true)}
+                    >
+                      <i className="fas fa-unlock me-1"></i>
+                      Unlock Investor Section
+                    </button>
+                  )}
+                </div>
                 
-                    <div className="card">
-                      <div className="card-body">
-                        {investorsLoading ? (
-                          <div className="text-center py-5">
-                            <div className="spinner-border text-primary" role="status">
-                              <span className="visually-hidden">Loading investors...</span>
-                            </div>
-                            <p className="mt-2">Loading investors...</p>
+                {/* ================= LOCKED STATE ================= */}
+                {!isInvestorSectionAuthenticated ? (
+                  <div className="text-center py-5">
+                    <i className="fas fa-lock fa-3x text-muted mb-3"></i>
+                    <h5 className="text-muted">Investor Section Locked</h5>
+                    <p className="text-muted">
+                      Click "Unlock Investor Section" to access investor management
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    
+                    {/* ================= TAB NAVIGATION ================= */}
+                    <ul className="nav nav-tabs mb-4" id="investorsTab">
+                      <li className="nav-item">
+                        <button
+                          className={`nav-link ${investorTab === "investors" ? "active" : ""}`}
+                          onClick={() => {
+                            setInvestorTab("investors");
+                            fetchInvestors();
+                          }}
+                        >
+                          <i className="fas fa-users me-1"></i>
+                          <span className="investors-tab-text-long">Investors</span>
+                          <span className="investors-tab-text-short">Investors</span>
+                          <span className="badge bg-info ms-1">
+                            {investors.length}
+                          </span>
+                        </button>
+                      </li>
+                        
+                      <li className="nav-item">
+                        <button
+                          className={`nav-link ${investorTab === "transactions" ? "active" : ""}`}
+                          onClick={() => {
+                            setInvestorTab("transactions");
+                            fetchInvestorTransactions();
+                          }}
+                        >
+                          <i className="fas fa-exchange-alt me-1"></i>
+                          <span className="investors-tab-text-long">Transactions</span>
+                          <span className="investors-tab-text-short">Transactions</span>
+                          <span className="badge bg-success ms-1">
+                            {investorTransactions.length}
+                          </span>
+                        </button>
+                      </li>
+                    </ul>
+                        
+                    {/* ================= INVESTORS TAB ================= */}
+                    {investorTab === "investors" && (
+                      <>
+                        <div className="search-filter-row mb-4">
+                          <div>
+                            <label className="form-label small text-muted mb-1">
+                              Search Investors
+                            </label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Search by name, phone, ID..."
+                              value={investorSearch}
+                              onChange={(e) => setInvestorSearch(e.target.value)}
+                            />
                           </div>
-                        ) : filteredInvestors.length === 0 ? (
-                          <div className="text-center py-5">
-                            <i className="fas fa-users fa-3x text-muted mb-3"></i>
-                            <h5 className="text-muted">
-                              {investors.length === 0 ? "No Investors Found" : "No Investors Match Your Filters"}
-                            </h5>
-                            <p className="text-muted">
-                              {investors.length === 0 
-                                ? "No investors in the system yet." 
-                                : "Try adjusting your search or filter criteria."}
-                            </p>
+                    
+                          <div>
+                            <label className="form-label small text-muted mb-1">
+                              Filter by Status
+                            </label>
+                            <select
+                              className="form-select"
+                              value={investorFilter}
+                              onChange={(e) => setInvestorFilter(e.target.value)}
+                            >
+                              <option value="">All Investors</option>
+                              <option value="active">Active</option>
+                              <option value="pending">Pending</option>
+                              <option value="inactive">Inactive</option>
+                            </select>
                           </div>
-                        ) : (
-                          <AdminTable
-                            columns={[
-                              { header: "Name", field: "name" },
-                              { header: "Phone", field: "phone" },
-                              { header: "ID Number", field: "id_number" },
-                              { header: "Email", field: "email" },
-                              { header: "Investment Amount", field: "investment_amount", render: (row) => formatCurrency(row.investment_amount) },
-                              { header: "Investment Date", field: "invested_date", render: (row) => formatDate(row.invested_date) },
-                              { 
-                                header: "Next Return", 
-                                field: "next_return_date",
-                                render: (row) => {
-                                  const nextDate = new Date(row.next_return_date);
-                                  const today = new Date();
-                                  const daysDiff = Math.ceil((nextDate - today) / (1000 * 60 * 60 * 24));
-                                
-                                  let badgeClass = 'bg-success';
-                                  if (daysDiff <= 0) {
-                                    badgeClass = 'bg-danger';
-                                  } else if (daysDiff <= 2) {
-                                    badgeClass = 'bg-warning';
-                                  }
-                                
-                                  return (
-                                    <span className={`badge ${badgeClass}`}>
-                                      {formatDate(row.next_return_date)}
-                                      {daysDiff <= 0 && ' (Due)'}
-                                    </span>
-                                  );
-                                }
-                              },
-                              { header: "Total Returns", field: "total_returns_received", render: (row) => formatCurrency(row.total_returns_received) },
-                              { 
-                                header: "Status", 
-                                field: "account_status",
-                                render: (row) => (
-                                  <span className={`badge ${row.account_status === 'active' ? 'bg-success' : row.account_status === 'pending' ? 'bg-warning' : 'bg-secondary'}`}>
-                                    {row.account_status?.toUpperCase()}
+                        </div>
+                    
+                        <AdminTable
+                          columns={[
+                            { header: "Name", field: "name" },
+                            { header: "Phone", field: "phone" },
+                            { header: "ID Number", field: "id_number" },
+                            { header: "Email", field: "email" },
+                            {
+                              header: "Investment Amount",
+                              render: (row) =>
+                                formatCurrency(row.investment_amount),
+                            },
+                            {
+                              header: "Investment Date",
+                              render: (row) =>
+                                formatDate(row.invested_date),
+                            },
+                            {
+                              header: "Next Return",
+                              render: (row) => {
+                                const nextDate = new Date(row.next_return_date);
+                                const today = new Date();
+                                const daysDiff = Math.ceil(
+                                  (nextDate - today) / (1000 * 60 * 60 * 24)
+                                );
+                              
+                                let badgeClass = "bg-success";
+                                if (daysDiff <= 0) badgeClass = "bg-danger";
+                                else if (daysDiff <= 2) badgeClass = "bg-warning";
+                              
+                                return (
+                                  <span className={`badge ${badgeClass}`}>
+                                    {formatDate(row.next_return_date)}
+                                    {daysDiff <= 0 && " (Due)"}
                                   </span>
-                                )
+                                );
                               },
-                              {
-                                header: "Actions",
-                                render: (row) => (
-                                  <div className="btn-group btn-group-sm">
-                                    <button 
-                                      className="btn btn-outline-info"
-                                      onClick={() => {
-                                        setSelectedInvestor(row);          
-                                        setShowViewInvestorModal(true);    
-                                      }}
-                                      title="View Details"
+                            },
+                            {
+                              header: "Total Returns",
+                              render: (row) =>
+                                formatCurrency(row.total_returns_received),
+                            },
+                            {
+                              header: "Status",
+                              render: (row) => (
+                                <span
+                                  className={`badge ${
+                                    row.account_status === "active"
+                                      ? "bg-success"
+                                      : row.account_status === "pending"
+                                      ? "bg-warning"
+                                      : "bg-secondary"
+                                  }`}
+                                >
+                                  {row.account_status?.toUpperCase()}
+                                </span>
+                              ),
+                            },
+                            {
+                              header: "Actions",
+                              render: (row) => (
+                                <div className="btn-group btn-group-sm">
+                                  <button
+                                    className="btn btn-outline-info"
+                                    onClick={() => {
+                                      setSelectedInvestor(row);
+                                      setShowViewInvestorModal(true);
+                                    }}
+                                  >
+                                    <i className="fas fa-eye"></i>
+                                  </button>
+                                  
+                                  <button
+                                    className="btn btn-outline-warning"
+                                    onClick={() => handleEditInvestor(row)}
+                                  >
+                                    <i className="fas fa-edit"></i>
+                                  </button>
+                                  
+                                  {row.account_status === "pending" && (
+                                    <button
+                                      className="btn btn-outline-success"
+                                      onClick={() =>
+                                        handleGenerateShareLink(row)
+                                      }
+                                      disabled={generatingLink}
                                     >
-                                      <i className="fas fa-eye"></i>
+                                      <i className="fas fa-share-alt"></i>
                                     </button>
-                                    <button 
-                                      className="btn btn-outline-warning"
-                                      onClick={() => handleEditInvestor(row)}
-                                      title="Edit"
-                                    >
-                                      <i className="fas fa-edit"></i>
-                                    </button>
-                                    
-                                    {/* Share Link Button - Only for pending accounts */}
-                                    {row.account_status === 'pending' && (
-                                      <button 
-                                        className="btn btn-outline-success"
-                                        onClick={() => handleGenerateShareLink(row)}
-                                        title="Share Account Creation Link"
-                                        disabled={generatingLink}
-                                      >
-                                        {generatingLink ? (
-                                          <span className="spinner-border spinner-border-sm"></span>
-                                        ) : (
-                                          <i className="fas fa-share-alt"></i>
-                                        )}
-                                      </button>
-                                    )}
+                                  )}
 
-                                    {/* Process Return Button - For active investors */}
-                                    {row.account_status === 'active' && (
-                                      <button 
+                                  {row.account_status === "active" && (
+                                    <>
+                                      <button
                                         className="btn btn-outline-primary"
-                                        onClick={() => handleProcessReturn(row)}
-                                        title="Process Return"
+                                        onClick={() =>
+                                          handleProcessReturn(row)
+                                        }
                                       >
                                         <i className="fas fa-money-bill-wave"></i>
                                       </button>
-                                    )}
-
-                                    {/* NEW: Download Statement Button */}
-                                    {row.account_status === 'active' && (
-                                      <button 
+                                      
+                                      <button
                                         className="btn btn-outline-secondary"
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          try {
-                                            await generateInvestorStatementPDF(row, investorTransactions);
-                                            showToast.success("Investor statement downloaded!");
-                                          } catch (error) {
-                                            console.error("Error generating investor statement:", error);
-                                            showToast.error("Failed to download investor statement");
-                                          }
-                                        }}
-                                        title="Download Statement"
+                                        onClick={() =>
+                                          generateInvestorStatementPDF(
+                                            row,
+                                            investorTransactions
+                                          )
+                                        }
                                       >
                                         <i className="fas fa-file-alt"></i>
                                       </button>
-                                    )}
+                                    </>
+                                  )}
 
-                                    {/* Deactivate/Activate Button */}
-                                    <button 
-                                      className={`btn btn-outline-${row.account_status === 'active' ? 'danger' : 'success'}`}
-                                      onClick={() => handleToggleAccountStatus(row)}
-                                      title={row.account_status === 'active' ? 'Deactivate' : 'Activate'}
-                                    >
-                                      <i className={`fas fa-${row.account_status === 'active' ? 'ban' : 'check'}`}></i>
-                                    </button>
-                                  
-                                    {/* Delete Button */}
-                                    <button 
-                                      className="btn btn-outline-danger"
-                                      onClick={() => handleDeleteInvestor(row)}
-                                      title="Delete"
-                                    >
-                                      <i className="fas fa-trash"></i>
-                                    </button>
-                                  </div>
-                                ),
-                              },
-                            ]}
-                            data={filteredInvestors}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Investor Transactions Tab */}
-                {investorTab === 'transactions' && (
-                  <>
-                    <div className="search-filter-row mb-4">
-                      <div>
-                        <label className="form-label small text-muted mb-1">Search Transactions</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          placeholder="Search by investor name..." 
-                          value={investorTransactionSearch}
-                          onChange={(e) => setInvestorTransactionSearch(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="form-label small text-muted mb-1">Transaction Date</label>
-                        <input 
-                          type="date" 
-                          className="form-control" 
-                          value={investorTransactionDate}
-                          onChange={(e) => setInvestorTransactionDate(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                
-                    <div className="card">
-                      <div className="card-body">
-                        {investorTransactionsLoading ? (
-                          <div className="text-center py-5">
-                            <div className="spinner-border text-primary" role="status">
-                              <span className="visually-hidden">Loading transactions...</span>
-                            </div>
-                            <p className="mt-2">Loading investor transactions...</p>
-                          </div>
-                        ) : filteredInvestorTransactions.length === 0 ? (
-                          <div className="text-center py-5">
-                            <i className="fas fa-exchange-alt fa-3x text-muted mb-3"></i>
-                            <h5 className="text-muted">
-                              {investorTransactions.length === 0 ? "No Investor Transactions" : "No Transactions Match Your Filters"}
-                            </h5>
-                            <p className="text-muted">
-                              {investorTransactions.length === 0 
-                                ? "Investor transactions will appear here when returns or topups are processed." 
-                                : "Try adjusting your search or date criteria."}
-                            </p>
-                          </div>
-                        ) : (
-                          <AdminTable
-                            columns={[
-                              { header: "Date", field: "date", render: (row) => formatDate(row.date || row.return_date || row.created_at) },
-                              { header: "Investor", field: "investor_name" },
-                              { 
-                                header: "Type", 
-                                field: "type",
-                                render: (row) => {
-                                  const typeLower = (row.type || row.transaction_type || '').toLowerCase();
-                                  let badgeClass = 'bg-primary';
-                                  let displayType = 'N/A';
-
-                                  if (typeLower.includes('return')) {
-                                    badgeClass = 'bg-success';
-                                    displayType = row.is_early_withdrawal ? 'Early Return' : 'Return';
-                                  } else if (typeLower.includes('topup')) {
-                                    badgeClass = 'bg-info';
-                                    displayType = 'Top-up';
-                                  } else if (typeLower.includes('adjustment')) {
-                                    badgeClass = 'bg-warning';
-                                    displayType = 'Adjustment';
-                                  } else if (typeLower.includes('disbursement')) {
-                                    badgeClass = 'bg-primary';
-                                    displayType = 'Disbursement';
-                                  }
-
-                                  return <span className={`badge ${badgeClass}`}>{displayType}</span>;
-                                }
-                              },
-                              { header: "Amount", field: "amount", render: (row) => formatCurrency(row.amount) },
-                              { 
-                                header: "Method", 
-                                field: "method",
-                                render: (row) => (
-                                  <span className={`badge ${row.method === "mpesa" ? "bg-info" : row.method === "bank" ? "bg-primary" : "bg-secondary"}`}>
-                                    {row.method?.toUpperCase() || 'CASH'}
-                                  </span>
-                                )
-                              },
-                              { header: "Reference", field: "mpesa_receipt", render: (row) => row.mpesa_receipt || 'N/A' },
-                              { 
-                                header: "Status", 
-                                field: "status",
-                                render: (row) => (
-                                  <span className="badge bg-success">{row.status || 'completed'}</span>
-                                )
-                              },
-                              {
-                                header: "Actions",
-                                render: (row) => (
-                                  <button 
-                                    className="btn btn-sm btn-outline-info"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      try {
-                                        // Generate receipt for this transaction
-                                        await generateTransactionReceipt({
-                                          ...row,
-                                          clientName: row.investor_name,
-                                          type: row.transaction_type || row.type
-                                        });
-                                        showToast.success(`Transaction receipt for ${row.investor_name} downloaded!`);
-                                      } catch (error) {
-                                        console.error("Error generating transaction receipt:", error);
-                                        showToast.error("Failed to download transaction receipt");
-                                      }
-                                    }}
-                                    title="Download Receipt"
+                                  <button
+                                    className={`btn btn-outline-${
+                                      row.account_status === "active"
+                                        ? "danger"
+                                        : "success"
+                                    }`}
+                                    onClick={() =>
+                                      handleToggleAccountStatus(row)
+                                    }
                                   >
-                                    <i className="fas fa-download"></i>
+                                    <i
+                                      className={`fas fa-${
+                                        row.account_status === "active"
+                                          ? "ban"
+                                          : "check"
+                                      }`}
+                                    ></i>
                                   </button>
-                                ),
-                              },
-                            ]}
-                            data={filteredInvestorTransactions}
-                          />
-                        )}
-                      </div>
-                    </div>
+                                    
+                                  <button
+                                    className="btn btn-outline-danger"
+                                    onClick={() => handleDeleteInvestor(row)}
+                                  >
+                                    <i className="fas fa-trash"></i>
+                                  </button>
+                                </div>
+                              ),
+                            },
+                          ]}
+                          data={filteredInvestors}
+                        />
+                      </>
+                    )}
+
+                    {/* ================= TRANSACTIONS TAB ================= */}
+                    {investorTab === "transactions" && (
+                      <AdminTable
+                        columns={[
+                          {
+                            header: "Date",
+                            render: (row) =>
+                              formatDate(
+                                row.date ||
+                                  row.return_date ||
+                                  row.created_at
+                              ),
+                          },
+                          { header: "Investor", field: "investor_name" },
+                          {
+                            header: "Type",
+                            render: (row) => {
+                              const type = (row.type || "").toLowerCase();
+                              const map = {
+                                return: "bg-success",
+                                topup: "bg-info",
+                                adjustment: "bg-warning",
+                                disbursement: "bg-primary",
+                              };
+                              const key =
+                                Object.keys(map).find((k) =>
+                                  type.includes(k)
+                                ) || "disbursement";
+                              
+                              return (
+                                <span className={`badge ${map[key]}`}>
+                                  {row.type}
+                                </span>
+                              );
+                            },
+                          },
+                          {
+                            header: "Amount",
+                            render: (row) =>
+                              formatCurrency(row.amount),
+                          },
+                          {
+                            header: "Method",
+                            render: (row) => (
+                              <span className="badge bg-secondary">
+                                {row.method?.toUpperCase() || "CASH"}
+                              </span>
+                            ),
+                          },
+                          { header: "Reference", field: "mpesa_receipt" },
+                          {
+                            header: "Actions",
+                            render: (row) => (
+                              <button 
+                                className="btn btn-sm btn-outline-info"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await generateInvestorTransactionReceipt(row);
+                                    showToast.success(`Transaction receipt for ${row.investor_name} downloaded!`);
+                                  } catch (error) {
+                                    console.error("Error generating transaction receipt:", error);
+                                    showToast.error("Failed to download transaction receipt");
+                                  }
+                                }}
+                                title="Download Receipt"
+                              >
+                                <i className="fas fa-download"></i>
+                              </button>
+                            ),
+                          },
+                        ]}
+                        data={filteredInvestorTransactions}
+                      />
+                    )}
                   </>
                 )}
               </div>
@@ -5515,6 +5663,116 @@ Thank you for choosing us.`;
         </Modal>
       )}
 
+      {/* Investor Section PIN Modal - UPDATED for proper centering and sidebar handling */}
+      {showInvestorLoginModal && (
+        <div 
+          className="modal fade show d-block investor-login-modal" 
+          tabIndex="-1" 
+          style={{ 
+            backgroundColor: 'rgba(0,0,0,0.5)', 
+            zIndex: 1050,
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%'
+          }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">Investor Section Access</h5>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => {
+                    setShowInvestorLoginModal(false);
+                    setInvestorPin("");
+                    // Reset to overview if PIN entry is cancelled
+                    setActiveSection("overview");
+                    navigate("/admin");
+                  }}
+                ></button>
+              </div>
+                
+              <div className="modal-body">
+                <div className="text-center mb-4">
+                  <i className="fas fa-lock fa-3x text-primary mb-3"></i>
+                  <h5>Additional Security Required</h5>
+                  <p className="text-muted">
+                    Enter 6-digit PIN to access investor section
+                  </p>
+                </div>
+                
+                <form onSubmit={handleInvestorPinSubmit}>
+                  <div className="mb-4">
+                    <label htmlFor="investorPin" className="form-label">
+                      <strong>6-Digit PIN</strong>
+                    </label>
+                    <input
+                      type="password"
+                      className="form-control text-center"
+                      id="investorPin"
+                      value={investorPin}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, "").slice(0, 6);
+                        setInvestorPin(value);
+                      }}
+                      placeholder="000000"
+                      maxLength={6}
+                      required
+                      autoFocus
+                      style={{
+                        fontSize: "1.5rem",
+                        letterSpacing: "0.5rem",
+                        height: "60px",
+                        padding: "1rem",
+                        borderRadius: "8px",
+                        border: "1px solid #dee2e6"
+                      }}
+                    />
+                    <small className="text-muted d-block mt-2">
+                      Enter the 6-digit security PIN
+                    </small>
+                  </div>
+                    
+                  <div className="d-flex flex-column flex-sm-row gap-2">
+                    <button 
+                      type="submit" 
+                      className="btn btn-primary flex-grow-1"
+                      style={{
+                        height: "50px",
+                        fontSize: "1.1rem",
+                        fontWeight: "600"
+                      }}
+                    >
+                      <i className="fas fa-unlock me-2"></i>
+                      Unlock Investor Section
+                    </button>
+                    
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setShowInvestorLoginModal(false);
+                        setInvestorPin("");
+                        setActiveSection("overview");
+                        navigate("/admin");
+                      }}
+                      style={{
+                        height: "50px",
+                        fontSize: "1rem"
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>  
   )

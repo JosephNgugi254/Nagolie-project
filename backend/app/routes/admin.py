@@ -238,7 +238,7 @@ def approve_application(loan_id):
                 Loan.status.in_(['active', 'completed'])
             ).scalar() or Decimal('0')
             
-            available_balance = investor.investment_amount - total_lent
+            available_balance = investor.current_investment - total_lent
             
             if loan.principal_amount > available_balance:
                 return jsonify({
@@ -1467,7 +1467,7 @@ def manage_investors():
                 
                 # Calculate available balance
                 # Investment amount minus what is currently out in loans
-                available_balance = investor.investment_amount - total_lent
+                available_balance = investor.current_investment - total_lent
                 if available_balance < Decimal('0'):
                     available_balance = Decimal('0')
                 
@@ -1475,7 +1475,7 @@ def manage_investors():
                 investor_dict = investor.to_dict()
                 investor_dict['total_lent_amount'] = float(total_lent)
                 investor_dict['available_balance'] = float(available_balance)
-                investor_dict['investment_amount'] = float(investor.investment_amount)
+                investor_dict['investment_amount'] = float(investor.current_investment)
                 
                 investor_data.append(investor_dict)
                 
@@ -1508,7 +1508,8 @@ def manage_investors():
                 phone=data['phone'],
                 id_number=data['id_number'],
                 email=data.get('email', None),
-                investment_amount=Decimal(str(data['investment_amount'])),
+                initial_investment=Decimal(str(data['investment_amount'])),
+                current_investment=Decimal(str(data['investment_amount'])),
                 invested_date=current_time,
                 # NEW: First return after 5 weeks (35 days)
                 expected_return_date=current_time + timedelta(days=35),
@@ -1533,11 +1534,11 @@ def manage_investors():
                 'investor_id': investor.id_number,
                 'phone': investor.phone,
                 'email': investor.email or 'Not provided',
-                'investment_amount': float(investor.investment_amount),
+                'investment_amount': float(investor.initial_investment),
                 'date': current_time.strftime('%d/%m/%Y'),
                 'expected_return_period': '5 weeks for first return, then every 4 weeks thereafter',
                 'return_percentage': '40%',
-                'return_amount': float(investor.investment_amount * Decimal('0.40')),
+                'return_amount': float(investor.initial_investment  * Decimal('0.40')),
                 'early_withdrawal_fee': '15%',
                 'early_withdrawal_receivable': '85%',
                 'agreement_date': current_time.strftime('%B %d, %Y'),
@@ -1675,7 +1676,7 @@ def calculate_investor_return(investor_id):
             return jsonify({'error': 'Investor not found'}), 404
         
         # Calculate 40% return based on investment amount
-        return_amount = investor.investment_amount * Decimal('0.40')
+        return_amount = investor.current_investment * Decimal('0.40')
         
         # Check if early withdrawal
         is_early_withdrawal = request.args.get('early_withdrawal', 'false').lower() == 'true'
@@ -1692,7 +1693,7 @@ def calculate_investor_return(investor_id):
             'success': True,
             'investor_id': investor.id,
             'investor_name': investor.name,
-            'total_investment': float(investor.investment_amount),
+            'total_investment': float(investor.current_investment),
             'calculated_return': float(return_amount),
             'is_early_withdrawal': is_early_withdrawal,
             'early_return_amount': float(early_return_amount) if is_early_withdrawal else float(return_amount),
@@ -1735,7 +1736,7 @@ def process_investor_return(investor_id):
         current_date = datetime.utcnow()
         
         # Calculate 40% return based on investment amount
-        return_amount = investor.investment_amount * Decimal('0.40')
+        return_amount = investor.current_investment  * Decimal('0.40')
         
         # Apply early withdrawal fee if applicable
         if is_early_withdrawal:
@@ -1782,7 +1783,7 @@ def process_investor_return(investor_id):
             'investor': investor.name,
             'return_amount': float(return_amount),
             'is_early_withdrawal': is_early_withdrawal,
-            'investment_amount': float(investor.investment_amount),
+            'investment_amount': float(investor.current_investment ),
             'payment_method': payment_method
         })
         
@@ -1792,7 +1793,7 @@ def process_investor_return(investor_id):
             'return': investor_return.to_dict(),
             'investor': investor.to_dict(),
             'calculated_based_on': {
-                'investment_amount': float(investor.investment_amount),
+                'investment_amount': float(investor.current_investment ),
                 'return_percentage': '40%',
                 'is_early_withdrawal': is_early_withdrawal,
                 'next_return_date': investor.next_return_date.isoformat()
@@ -1824,7 +1825,7 @@ def get_investor_stats():
         inactive_investors = Investor.query.filter_by(account_status='inactive').all()
         
         total_investors = len(active_investors) + len(pending_investors) + len(inactive_investors)
-        total_investment = sum(float(inv.investment_amount) for inv in active_investors)
+        total_investment = sum(float(inv.current_investment ) for inv in active_investors)
         total_returns_paid = sum(float(inv.total_returns_received) for inv in active_investors)
         
         # Calculate coverage ratio
@@ -1841,7 +1842,7 @@ def get_investor_stats():
                     'name': inv.name,
                     'phone': inv.phone,
                     'next_return_date': inv.next_return_date.isoformat(),
-                    'expected_return': float(inv.investment_amount * Decimal('0.10')),
+                    'expected_return': float(inv.current_investment  * Decimal('0.10')),
                     'total_returns_received': float(inv.total_returns_received)
                 })
         
@@ -2018,7 +2019,7 @@ def update_notes_with_credentials(notes, temp_password, token):
 @jwt_required()
 @admin_required
 def adjust_investor_investment(investor_id):
-    """Adjust investor's investment amount (top-up or reduction)"""
+    """Adjust investor's investment amount (top-up or reduction) with transaction tracking"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
         
@@ -2026,6 +2027,8 @@ def adjust_investor_investment(investor_id):
         data = request.json
         adjustment_type = data.get('adjustment_type')  # 'topup' or 'adjust'
         amount = Decimal(str(data.get('amount')))
+        payment_method = data.get('payment_method', 'cash')
+        mpesa_reference = data.get('mpesa_reference', '')
         notes = data.get('notes', '')
         
         if not adjustment_type or not amount:
@@ -2035,24 +2038,59 @@ def adjust_investor_investment(investor_id):
         if not investor:
             return jsonify({'error': 'Investor not found'}), 404
         
-        old_amount = investor.investment_amount
+        old_amount = investor.current_investment 
         
         if adjustment_type == 'topup':
             if amount <= 0:
                 return jsonify({'error': 'Top-up amount must be positive'}), 400
-            investor.investment_amount += amount
+
+            # Record transaction for the top-up
+            transaction = Transaction(
+                loan_id=None,
+                transaction_type='investor_topup',
+                payment_type='investment',
+                amount=amount,
+                payment_method=payment_method,
+                mpesa_receipt=mpesa_reference.upper() if payment_method == 'mpesa' else None,
+                notes=f"Investment top-up for {investor.name}. {notes}",
+                status='completed'
+            )
+            db.session.add(transaction)
+
+            investor.current_investment += amount
+            investor.total_topups += amount
             action = 'topped up'
         else:  # adjust
             if amount <= 0:
                 return jsonify({'error': 'Adjusted amount must be positive'}), 400
-            investor.investment_amount = amount
+
+            # Calculate the difference
+            difference = amount - investor.current_investment
+
+            # Only create transaction if there's a change
+            if difference != 0:
+                transaction_type = 'investor_adjustment_up' if difference > 0 else 'investor_adjustment_down'
+                transaction = Transaction(
+                    loan_id=None,
+                    transaction_type=transaction_type,
+                    payment_type='investment',
+                    amount=abs(difference),
+                    payment_method=payment_method,
+                    mpesa_receipt=mpesa_reference.upper() if payment_method == 'mpesa' else None,
+                    notes=f"Investment adjustment for {investor.name}. Old: {investor.current_investment}, New: {amount}. {notes}",
+                    status='completed'
+                )
+                db.session.add(transaction)
+
+            investor.current_investment = amount
+            # Recalculate total_topups based on the new current_investment
+            investor.total_topups = investor.current_investment - investor.initial_investment
+            if investor.total_topups < 0:
+                investor.total_topups = Decimal('0')
             action = 'adjusted'
         
-        # Update next return amount (still 10% of new investment)
-        # The return date schedule remains the same
-        
-        # Log the adjustment
-        adjustment_note = f"Investment {action} from {old_amount} to {investor.investment_amount}. {notes}"
+        # Update investor's notes
+        adjustment_note = f"Investment {action} from {old_amount} to {investor.current_investment}. {notes}"
         if investor.notes:
             investor.notes = f"{investor.notes}\n{adjustment_note}"
         else:
@@ -2063,9 +2101,10 @@ def adjust_investor_investment(investor_id):
         log_audit('investor_investment_adjusted', 'investor', investor.id, {
             'investor': investor.name,
             'old_amount': float(old_amount),
-            'new_amount': float(investor.investment_amount),
+            'new_amount': float(investor.current_investment),
             'adjustment_type': adjustment_type,
-            'difference': float(investor.investment_amount - old_amount)
+            'difference': float(investor.current_investment - old_amount),
+            'payment_method': payment_method
         })
         
         return jsonify({
@@ -2073,20 +2112,21 @@ def adjust_investor_investment(investor_id):
             'message': f'Investment {action} successfully',
             'investor': investor.to_dict(),
             'old_amount': float(old_amount),
-            'new_amount': float(investor.investment_amount),
-            'difference': float(investor.investment_amount - old_amount)
+            'new_amount': float(investor.current_investment),
+            'difference': float(investor.current_investment - old_amount),
+            'transaction': transaction.to_dict() if 'transaction' in locals() else None
         }), 200
         
     except Exception as e:
         db.session.rollback()
         print(f"Error adjusting investor investment: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
+        
 @admin_bp.route('/investor-transactions', methods=['GET', 'OPTIONS'])
 @jwt_required()
 @admin_required
 def get_investor_transactions():
-    """Get all investor transactions (returns, topups, adjustments)"""
+    """Get all investor transactions (returns, topups, adjustments, initial investments)"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
         
@@ -2094,11 +2134,19 @@ def get_investor_transactions():
         # Get investor returns
         investor_returns = InvestorReturn.query.order_by(InvestorReturn.return_date.desc()).all()
         
-        # We'll also get loan disbursements to investors (loans funded by investors)
+        # Get investment transactions (top-ups, adjustments)
+        investment_transactions = Transaction.query.filter(
+            Transaction.transaction_type.in_(['investor_topup', 'investor_adjustment_up', 'investor_adjustment_down'])
+        ).order_by(Transaction.created_at.desc()).all()
+        
+        # Get loan disbursements to investors (loans funded by investors)
         investor_loans = Loan.query.filter(
             Loan.funding_source == 'investor',
             Loan.investor_id.isnot(None)
         ).order_by(Loan.disbursement_date.desc()).all()
+        
+        # Get initial investments (from Investor table)
+        investors = Investor.query.all()
         
         transactions_data = []
         
@@ -2109,7 +2157,7 @@ def get_investor_transactions():
                 continue
                 
             transactions_data.append({
-                'id': inv_return.id,
+                'id': f"return_{inv_return.id}",
                 'date': inv_return.return_date.isoformat() if inv_return.return_date else None,
                 'type': 'return',
                 'transaction_type': 'return',
@@ -2123,6 +2171,41 @@ def get_investor_transactions():
                 'status': inv_return.status,
                 'is_early_withdrawal': inv_return.is_early_withdrawal,
                 'created_at': inv_return.return_date.isoformat() if inv_return.return_date else None
+            })
+        
+        # Process investment transactions (top-ups, adjustments)
+        for txn in investment_transactions:
+            # Get investor from transaction
+            investor = txn.investor
+            investor_name = "Unknown Investor"
+            investor_id = None
+            
+            if investor:
+                investor_name = investor.name
+                investor_id = investor.id
+            else:
+                # Fallback: Try to extract investor name from notes
+                if txn.notes:
+                    for inv in investors:
+                        if inv.name in txn.notes:
+                            investor_name = inv.name
+                            investor_id = inv.id
+                            break
+            
+            transactions_data.append({
+                'id': f"inv_txn_{txn.id}",
+                'date': txn.created_at.isoformat() if txn.created_at else None,
+                'type': 'investment',
+                'transaction_type': txn.transaction_type,
+                'investor_id': investor_id,
+                'investor_name': investor_name,
+                'amount': float(txn.amount),
+                'method': txn.payment_method,
+                'payment_method': txn.payment_method,
+                'mpesa_receipt': txn.mpesa_receipt,
+                'notes': txn.notes,
+                'status': txn.status,
+                'created_at': txn.created_at.isoformat() if txn.created_at else None
             })
         
         # Process investor-funded loans (disbursements)
@@ -2147,9 +2230,145 @@ def get_investor_transactions():
                 'client_name': loan.client.full_name if loan.client else 'Unknown'
             })
         
+        # Add initial investments - FIXED: Use initial_investment instead of initial_amount
+        for investor in investors:
+            transactions_data.append({
+                'id': f"initial_{investor.id}",
+                'date': investor.invested_date.isoformat() if investor.invested_date else None,
+                'type': 'initial_investment',
+                'transaction_type': 'initial_investment',
+                'investor_id': investor.id,
+                'investor_name': investor.name,
+                'amount': float(investor.initial_investment),  # FIXED: Use initial_investment
+                'method': 'bank',
+                'payment_method': 'bank',
+                'notes': f'Initial investment from {investor.name}',
+                'status': 'completed',
+                'created_at': investor.invested_date.isoformat() if investor.invested_date else None
+            })
+        
+        # Sort all transactions by date (newest first)
+        transactions_data.sort(key=lambda x: (
+            x['date'] if x['date'] else '0',
+        ), reverse=True)
+        
         return jsonify(transactions_data), 200
         
     except Exception as e:
         print(f"Investor transactions error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
+    
+@admin_bp.route('/investors/<int:investor_id>/statement', methods=['GET', 'OPTIONS'])
+@jwt_required()
+@admin_required
+def get_investor_statement(investor_id):
+    """Get comprehensive statement for an investor including all transactions"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'OK'}), 200
+        
+    try:
+        investor = db.session.get(Investor, investor_id)
+        if not investor:
+            return jsonify({'error': 'Investor not found'}), 404
+        
+        # Get all transactions related to this investor
+        transactions = []
+        
+        # 1. Initial investment
+        transactions.append({
+            'date': investor.invested_date,
+            'type': 'initial_investment',
+            'transaction_type': 'initial_investment',  # ADD THIS LINE
+            'description': 'Initial Investment',
+            'amount': float(investor.initial_investment),
+            'balance': float(investor.initial_investment)
+        })
+        
+        # 2. Top-ups and adjustments from Transaction table
+        investment_txns = Transaction.query.filter(
+            Transaction.investor_id == investor_id,
+            Transaction.transaction_type.in_(['investor_topup', 'investor_adjustment_up', 'investor_adjustment_down'])
+        ).order_by(Transaction.created_at).all()
+        
+        current_balance = investor.initial_investment
+        for txn in investment_txns:
+            if txn.transaction_type == 'investor_adjustment_down':
+                current_balance -= txn.amount
+            else:
+                current_balance += txn.amount
+            
+            transactions.append({
+                'date': txn.created_at,
+                'type': txn.transaction_type,  # Make sure this is set
+                'transaction_type': txn.transaction_type,  # Add explicit transaction_type
+                'description': txn.notes,
+                'amount': float(txn.amount),
+                'balance': float(current_balance)
+            })
+        
+        # 3. Returns paid
+        returns = InvestorReturn.query.filter_by(investor_id=investor_id).order_by(InvestorReturn.return_date).all()
+        for inv_return in returns:
+            current_balance -= inv_return.amount  # Returns reduce the balance
+            transactions.append({
+                'date': inv_return.return_date,
+                'type': 'return',
+                'transaction_type': 'investor_return',  # Add this for consistency
+                'description': f'Return payment - {inv_return.notes}' if inv_return.notes else 'Return payment',
+                'amount': float(-inv_return.amount),
+                'balance': float(current_balance),
+                'is_early_withdrawal': inv_return.is_early_withdrawal
+            })
+        
+        # 4. Loans funded by this investor
+        funded_loans = Loan.query.filter_by(
+            investor_id=investor_id,
+            funding_source='investor'
+        ).all()
+        
+        for loan in funded_loans:
+            # Calculate amount recovered from this loan
+            principal_recovered = loan.principal_paid or Decimal('0')
+            
+            transactions.append({
+                'date': loan.disbursement_date,
+                'type': 'loan_disbursement',
+                'transaction_type': 'disbursement',  # Add this for consistency
+                'description': f'Loan to {loan.client.full_name if loan.client else "Unknown"}',
+                'amount': float(-loan.principal_amount),  # Negative as it's money out
+                'balance': float(current_balance - loan.principal_amount + principal_recovered)
+            })
+        
+        # Sort all transactions by date
+        transactions.sort(key=lambda x: x['date'] if x['date'] else datetime.min)
+        
+        # Calculate summary
+        total_invested = investor.initial_investment
+        for txn in investment_txns:
+            if txn.transaction_type in ['investor_topup', 'investor_adjustment_up']:
+                total_invested += txn.amount
+            elif txn.transaction_type == 'investor_adjustment_down':
+                total_invested -= txn.amount
+        
+        total_returns = sum(float(r.amount) for r in returns)
+        total_disbursed = sum(float(l.principal_amount) for l in funded_loans)
+        
+        return jsonify({
+            'success': True,
+            'investor': investor.to_dict(),
+            'transactions': transactions,
+            'summary': {
+                'total_invested': float(total_invested),
+                'total_returns_paid': float(total_returns),
+                'total_amount_disbursed': float(total_disbursed),
+                'current_balance': float(current_balance),
+                'available_for_investment': float(total_invested - total_disbursed),
+                'total_loans_funded': len(funded_loans)
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"Investor statement error: {str(e)}")
+        return jsonify({'error': str(e)}), 500

@@ -204,13 +204,11 @@ export const adminAPI = {
     return api.get(url)
   },
   processInvestorReturn: async (investorId, data) => {
-  return api.post(`/admin/investors/${investorId}/process-return`, data);
+    return api.post(`/admin/investors/${investorId}/process-return`, data);
   },  
   
   adjustInvestorInvestment: async (investorId, data) => {
-    return axios.post(`/admin/investors/${investorId}/adjust-investment`, data, {
-      headers: getAuthHeader()
-    })
+    return api.post(`/admin/investors/${investorId}/adjust-investment`, data)
   }
 };
 

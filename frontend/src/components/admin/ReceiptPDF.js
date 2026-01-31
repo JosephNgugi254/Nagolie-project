@@ -1701,7 +1701,6 @@ const formatNumber = (num) => {
   return num ? num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "0";
 };
 
-
 // Generate Investor Statement PDF
 export const generateInvestorStatementPDF = async (investor, transactions = []) => {
   try {
@@ -1774,17 +1773,51 @@ export const generateInvestorStatementPDF = async (investor, transactions = []) 
     
     yPos += 15;
     
-    // Transaction History Section
-    if (transactions.length > 0) {
-      // Filter transactions for this investor
-      const investorTxns = transactions.filter(txn => 
-        txn.investor_id === investor.id || 
-        (txn.investor && txn.investor.id === investor.id)
-      );
+    // Transaction History Section - FIXED FILTERING
+    if (transactions && transactions.length > 0) {
+      // Filter transactions for this investor - IMPROVED FILTERING
+      const investorTxns = transactions.filter(txn => {
+        // Check multiple possible ways the investor could be linked
+        const txnInvestorId = txn.investor_id || txn.investorId || (txn.investor ? txn.investor.id : null);
+        const txnInvestorName = txn.investor_name || (txn.investor ? txn.investor.name : null);
+        
+        console.log("Transaction filtering:", {
+          txnId: txn.id,
+          txnInvestorId,
+          txnInvestorName,
+          investorId: investor.id,
+          investorName: investor.name,
+          match: txnInvestorId === investor.id || 
+                 (txnInvestorId && investor.id && txnInvestorId.toString() === investor.id.toString()) ||
+                 txnInvestorName === investor.name ||
+                 (txnInvestorName && investor.name && txnInvestorName.toLowerCase().includes(investor.name.toLowerCase()))
+        });
+        
+        return (
+          txnInvestorId === investor.id ||
+          (txnInvestorId && investor.id && txnInvestorId.toString() === investor.id.toString()) ||
+          txnInvestorName === investor.name ||
+          (txnInvestorName && investor.name && txnInvestorName.toLowerCase().includes(investor.name.toLowerCase()))
+        );
+      });
       
-      const sortedTxns = [...investorTxns].sort((a, b) => 
-        new Date(b.date || b.return_date || b.created_at) - new Date(a.date || b.return_date || b.created_at)
-      );
+      const sortedTxns = [...investorTxns].sort((a, b) => {
+        const dateA = new Date(a.date || a.return_date || a.created_at || a.createdAt || 0);
+        const dateB = new Date(b.date || b.return_date || b.created_at || b.createdAt || 0);
+        return dateB - dateA; // Newest first
+      });
+      
+      console.log("Filtered investor transactions:", {
+        totalTransactions: transactions.length,
+        filteredCount: investorTxns.length,
+        investorTxns: investorTxns.map(t => ({
+          id: t.id,
+          type: t.type,
+          amount: t.amount,
+          investor_id: t.investor_id,
+          investor_name: t.investor_name
+        }))
+      });
       
       if (sortedTxns.length > 0) {
         doc.setFont('helvetica', 'bold');
@@ -1820,9 +1853,15 @@ export const generateInvestorStatementPDF = async (investor, transactions = []) 
             doc.rect(20, yPos, 170, 7, 'F');
           }
           
-          const date = new Date(transaction.date || transaction.return_date || transaction.created_at).toLocaleDateString('en-GB');
-          const type = formatInvestorTransactionType(transaction.transaction_type || transaction.type);
-          const method = transaction.payment_method || transaction.method || 'N/A';
+          const date = new Date(transaction.date || transaction.return_date || transaction.created_at || transaction.createdAt || Date.now()).toLocaleDateString('en-GB');
+          
+          // Get transaction type
+          const transactionType = transaction.transaction_type || transaction.type || '';
+          const type = formatInvestorTransactionTypeForStatement(transactionType);
+          
+          // Get payment method
+          const method = transaction.payment_method || transaction.method || transaction.paymentMethod || 'N/A';
+          
           const amount = `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
           const reference = getInvestorTransactionReference(transaction);
           
@@ -1836,8 +1875,12 @@ export const generateInvestorStatementPDF = async (investor, transactions = []) 
           const typeLower = type.toLowerCase();
           if (typeLower.includes('return')) {
             doc.setTextColor(0, 128, 0); // Green for returns
-          } else if (typeLower.includes('topup') || typeLower.includes('adjustment')) {
+          } else if (typeLower.includes('topup') || typeLower.includes('adjustment') || typeLower.includes('increase') || typeLower.includes('decrease')) {
             doc.setTextColor(0, 0, 255); // Blue for adjustments
+          } else if (typeLower.includes('initial')) {
+            doc.setTextColor(139, 0, 139); // Purple for initial investment
+          } else if (typeLower.includes('disbursement')) {
+            doc.setTextColor(255, 140, 0); // Orange for disbursements
           } else {
             doc.setTextColor(...COLORS.textDark);
           }
@@ -1861,33 +1904,50 @@ export const generateInvestorStatementPDF = async (investor, transactions = []) 
       } else {
         doc.setFont('helvetica', 'italic');
         doc.setTextColor(...COLORS.textLight);
-        doc.text('No transactions recorded yet.', 25, yPos);
+        doc.text('No transactions recorded yet for this investor.', 25, yPos);
         yPos += 10;
       }
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(...COLORS.textLight);
+      doc.text('No transactions recorded yet.', 25, yPos);
+      yPos += 10;
     }
     
     // Footer
     addFooter(doc, yPos);
     
     // Save PDF
-    doc.save(`Investor_Statement_${investor.name?.replace(/\s+/g, '_') || 'Investor'}_${new Date().toISOString().split('T')[0]}.pdf`);
+    const fileName = `Investor_Statement_${investor.name?.replace(/\s+/g, '_') || 'Investor'}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
   } catch (error) {
     console.error('Error generating investor statement:', error);
     throw error;
   }
 };
 
-// Helper function for investor transaction type
-const formatInvestorTransactionType = (type) => {
+const formatInvestorTransactionTypeForStatement = (type) => {
   if (!type) return 'N/A';
   
   const typeLower = type.toLowerCase();
+  
   const typeMap = {
-    'return': 'Return Payment',
+    'return': 'Investor Return',
+    'investor_return': 'Investor Return',
     'topup': 'Investment Top-up',
-    'adjustment': 'Investment Adjustment',
-    'interest': 'Interest Payment',
-    'principal': 'Principal Payment'
+    'investor_topup': 'Investment Top-up',
+    'adjustment_up': 'Investment Increase',
+    'investor_adjustment_up': 'Investment Increase',
+    'adjustment_down': 'Investment Decrease',
+    'investor_adjustment_down': 'Investment Decrease',
+    'initial_investment': 'Initial Investment',
+    'initial': 'Initial Investment',
+    'disbursement': 'Loan Disbursement',
+    'loan_disbursement': 'Loan Disbursement',
+    'investor_topup': 'Investment Top-up',
+    'mpesa': 'M-Pesa Payment',
+    'bank': 'Bank Transfer',
+    'cash': 'Cash Payment'
   };
   
   return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
@@ -1898,13 +1958,147 @@ const getInvestorTransactionReference = (transaction) => {
   const method = (transaction.payment_method || transaction.method || '').toUpperCase();
   const type = transaction.transaction_type || transaction.type || '';
   
-  if (method === 'MPESA' && transaction.mpesa_receipt) {
-    return transaction.mpesa_receipt;
+  if (method === 'MPESA' && (transaction.mpesa_receipt || transaction.mpesa_reference)) {
+    return transaction.mpesa_receipt || transaction.mpesa_reference || 'MPESA';
   } else if (method === 'CASH') {
     return 'CASH';
   } else if (method === 'BANK') {
     return 'BANK TRANSFER';
+  } else if (type === 'topup' || type === 'investor_topup') {
+    return 'TOP-UP';
+  } else if (type === 'initial_investment') {
+    return 'INITIAL';
+  } else if (type === 'return' || type === 'investor_return') {
+    return 'RETURN';
   } else {
-    return type === 'topup' ? 'TOP-UP' : 'MANUAL';
+    return `TXN-${transaction.id || 'REF'}`;
   }
+};
+
+export const generateInvestorTransactionReceipt = async (transaction) => {
+  try {
+    const doc = new jsPDF();
+    
+    // ADD OPTIMIZED WATERMARK FIRST
+    addOptimizedWatermark(doc, 'receipt');
+    
+    let yPos = await addHeader(doc);
+  
+    // Title: Investor Transaction Receipt
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('INVESTOR TRANSACTION RECEIPT', 105, yPos, { align: 'center' });
+    yPos += 8;
+  
+    yPos = addDivider(doc, yPos);
+  
+    // Transaction Details in a clean layout
+    doc.setFontSize(10);
+  
+    // Determine transaction type for display
+    const transactionType = formatInvestorTransactionType(transaction);
+    
+    const details = [
+      { label: 'Transaction ID:', value: String(transaction.id || 'N/A') },
+      { label: 'Date:', value: transaction.date || transaction.created_at || transaction.return_date ? 
+        new Date(transaction.date || transaction.created_at || transaction.return_date).toLocaleDateString('en-GB') : 'N/A' },
+      { label: 'Investor Name:', value: transaction.investor_name || 'N/A' },
+      { label: 'Transaction Type:', value: transactionType },
+      { label: 'Amount:', value: `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Payment Method:', value: formatInvestorPaymentMethod(transaction) },
+      { label: 'Status:', value: formatInvestorStatus(transaction.status) }
+    ];
+    
+    // Render details with proper spacing
+    details.forEach(({ label, value }) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, 25, yPos);
+      doc.setFont('helvetica', 'normal');
+     
+      // Special coloring for Payment Method
+      const methodLower = (transaction.payment_method || transaction.method || '').toLowerCase();
+      const methodColor = methodLower === 'mpesa' ? COLORS.green : COLORS.textDark;
+      doc.setTextColor(...methodColor);
+     
+      doc.text(String(value), 70, yPos);
+      yPos += 8;
+    });
+    
+    // Add M-Pesa reference if applicable
+    if ((transaction.method?.toLowerCase() === 'mpesa' || transaction.payment_method?.toLowerCase() === 'mpesa') && 
+        (transaction.mpesa_receipt || transaction.mpesa_reference)) {
+      yPos += 5;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'bold');
+      doc.text('M-Pesa Reference:', 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.green);
+      doc.text(transaction.mpesa_receipt || transaction.mpesa_reference, 70, yPos);
+      yPos += 8;
+    }
+
+    // Add notes if available
+    if (transaction.notes) {
+      yPos += 5;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Notes:', 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      
+      // Split notes into multiple lines if too long
+      const notesLines = doc.splitTextToSize(transaction.notes, 150);
+      notesLines.forEach(line => {
+        doc.text(line, 25, yPos + 5);
+        yPos += 5;
+      });
+    }
+  
+    yPos += 15;
+  
+    // Footer section
+    addFooter(doc, yPos);
+  
+    // Save PDF with appropriate filename
+    const investorName = (transaction.investor_name || 'Investor').replace(/\s+/g, '_');
+    const transType = (transaction.type || transaction.transaction_type || '').replace(/\s+/g, '_');
+    doc.save(`Investor_Receipt_${investorName}_${transType}_${transaction.id || Date.now()}.pdf`);
+  } catch (error) {
+    console.error('Error generating investor transaction receipt:', error);
+    throw error;
+  }
+};
+
+const formatInvestorTransactionType = (transaction) => {
+  if (!transaction) return 'N/A';
+  
+  const type = transaction.transaction_type || transaction.type || '';
+  const typeLower = type.toLowerCase();
+  
+  const typeMap = {
+    'return': 'Investor Return',
+    'investor_return': 'Investor Return',
+    'topup': 'Investment Top-up',
+    'investor_topup': 'Investment Top-up',
+    'adjustment_up': 'Investment Increase',
+    'investor_adjustment_up': 'Investment Increase',
+    'adjustment_down': 'Investment Decrease',
+    'investor_adjustment_down': 'Investment Decrease',
+    'initial_investment': 'Initial Investment',
+    'disbursement': 'Loan Disbursement'
+  };
+  
+  return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
+};
+
+const formatInvestorPaymentMethod = (transaction) => {
+  const method = transaction.payment_method || transaction.method || '';
+  if (!method) return 'N/A';
+  return method.toUpperCase();
+};
+
+const formatInvestorStatus = (status) => {
+  if (!status) return 'Completed'; // Default for investor transactions
+  return status.charAt(0).toUpperCase() + status.slice(1);
 };
