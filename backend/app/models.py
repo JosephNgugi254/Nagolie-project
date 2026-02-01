@@ -362,6 +362,7 @@ class InvestorReturn(db.Model):
     status = db.Column(db.String(20), default='completed')  # completed, pending, failed
     is_early_withdrawal = db.Column(db.Boolean, default=False)  # NEW: Track early withdrawals
     early_withdrawal_fee = db.Column(db.Numeric(12, 2), default=0)  # NEW: Fee amount
+    transaction_type = db.Column(db.String(50), default='return')  # 'return', 'topup', 'adjustment_up', 'adjustment_down'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):

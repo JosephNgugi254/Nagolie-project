@@ -2102,3 +2102,20 @@ const formatInvestorStatus = (status) => {
   if (!status) return 'Completed'; // Default for investor transactions
   return status.charAt(0).toUpperCase() + status.slice(1);
 };
+
+const filterInvestorTransactions = (transactions, investorId, investorName) => {
+  return transactions.filter(txn => {
+    // Check multiple possible ways the investor could be linked
+    const txnInvestorId = txn.investor_id || txn.investorId || (txn.investor ? txn.investor.id : null);
+    const txnInvestorName = txn.investor_name || (txn.investor ? txn.investor.name : null);
+    
+    return (
+      txnInvestorId === investorId ||
+      (txnInvestorId && investorId && txnInvestorId.toString() === investorId.toString()) ||
+      txnInvestorName === investorName ||
+      (txnInvestorName && investorName && txnInvestorName.toLowerCase().includes(investorName.toLowerCase()))
+    );
+  });
+};
+
+// const investorTxns = filterInvestorTransactions(transactions, investor.id, investor.name);

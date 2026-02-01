@@ -2019,7 +2019,7 @@ def update_notes_with_credentials(notes, temp_password, token):
 @jwt_required()
 @admin_required
 def adjust_investor_investment(investor_id):
-    """Adjust investor's investment amount (top-up or reduction) with transaction tracking"""
+    """Adjust investor's investment amount (top-up or reduction) with SEPARATE tracking for investor transactions"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
         
@@ -2038,28 +2038,30 @@ def adjust_investor_investment(investor_id):
         if not investor:
             return jsonify({'error': 'Investor not found'}), 404
         
-        old_amount = investor.current_investment 
+        old_amount = investor.current_investment
         
         if adjustment_type == 'topup':
             if amount <= 0:
                 return jsonify({'error': 'Top-up amount must be positive'}), 400
 
-            # Record transaction for the top-up
-            transaction = Transaction(
-                loan_id=None,
-                transaction_type='investor_topup',
-                payment_type='investment',
+            # DO NOT create transaction in main Transaction table
+            # Instead, create an InvestorReturn record for tracking in investor transactions
+            investor_return = InvestorReturn(
+                investor_id=investor.id,
                 amount=amount,
+                return_date=datetime.utcnow(),
                 payment_method=payment_method,
-                mpesa_receipt=mpesa_reference.upper() if payment_method == 'mpesa' else None,
-                notes=f"Investment top-up for {investor.name}. {notes}",
-                status='completed'
+                mpesa_receipt=mpesa_reference.upper() if payment_method == 'mpesa' else '',
+                notes=f"Investment top-up. {notes}",
+                status='completed',
+                transaction_type='topup'  # Add this field or use notes to distinguish
             )
-            db.session.add(transaction)
+            db.session.add(investor_return)
 
             investor.current_investment += amount
             investor.total_topups += amount
             action = 'topped up'
+            
         else:  # adjust
             if amount <= 0:
                 return jsonify({'error': 'Adjusted amount must be positive'}), 400
@@ -2067,20 +2069,20 @@ def adjust_investor_investment(investor_id):
             # Calculate the difference
             difference = amount - investor.current_investment
 
-            # Only create transaction if there's a change
+            # Only create investor return record if there's a change
             if difference != 0:
-                transaction_type = 'investor_adjustment_up' if difference > 0 else 'investor_adjustment_down'
-                transaction = Transaction(
-                    loan_id=None,
-                    transaction_type=transaction_type,
-                    payment_type='investment',
+                transaction_type = 'adjustment_up' if difference > 0 else 'adjustment_down'
+                investor_return = InvestorReturn(
+                    investor_id=investor.id,
                     amount=abs(difference),
+                    return_date=datetime.utcnow(),
                     payment_method=payment_method,
-                    mpesa_receipt=mpesa_reference.upper() if payment_method == 'mpesa' else None,
-                    notes=f"Investment adjustment for {investor.name}. Old: {investor.current_investment}, New: {amount}. {notes}",
-                    status='completed'
+                    mpesa_receipt=mpesa_receipt.upper() if payment_method == 'mpesa' else '',
+                    notes=f"Investment adjustment from {old_amount} to {amount}. {notes}",
+                    status='completed',
+                    transaction_type=transaction_type  # Add this field or use notes to distinguish
                 )
-                db.session.add(transaction)
+                db.session.add(investor_return)
 
             investor.current_investment = amount
             # Recalculate total_topups based on the new current_investment
@@ -2104,7 +2106,8 @@ def adjust_investor_investment(investor_id):
             'new_amount': float(investor.current_investment),
             'adjustment_type': adjustment_type,
             'difference': float(investor.current_investment - old_amount),
-            'payment_method': payment_method
+            'payment_method': payment_method,
+            'mpesa_reference': mpesa_reference
         })
         
         return jsonify({
@@ -2114,7 +2117,7 @@ def adjust_investor_investment(investor_id):
             'old_amount': float(old_amount),
             'new_amount': float(investor.current_investment),
             'difference': float(investor.current_investment - old_amount),
-            'transaction': transaction.to_dict() if 'transaction' in locals() else None
+            'investor_transaction': investor_return.to_dict() if 'investor_return' in locals() else None
         }), 200
         
     except Exception as e:
@@ -2126,18 +2129,13 @@ def adjust_investor_investment(investor_id):
 @jwt_required()
 @admin_required
 def get_investor_transactions():
-    """Get all investor transactions (returns, topups, adjustments, initial investments)"""
+    """Get all investor transactions (returns, topups, adjustments, initial investments) - FIXED"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
         
     try:
-        # Get investor returns
+        # Get ALL investor returns including topups and adjustments
         investor_returns = InvestorReturn.query.order_by(InvestorReturn.return_date.desc()).all()
-        
-        # Get investment transactions (top-ups, adjustments)
-        investment_transactions = Transaction.query.filter(
-            Transaction.transaction_type.in_(['investor_topup', 'investor_adjustment_up', 'investor_adjustment_down'])
-        ).order_by(Transaction.created_at.desc()).all()
         
         # Get loan disbursements to investors (loans funded by investors)
         investor_loans = Loan.query.filter(
@@ -2150,17 +2148,22 @@ def get_investor_transactions():
         
         transactions_data = []
         
-        # Process investor returns
+        # Process ALL investor returns (including topups, adjustments, returns)
         for inv_return in investor_returns:
             investor = inv_return.investor
             if not investor:
                 continue
-                
+            
+            # Determine display type based on transaction_type
+            display_type = inv_return.transaction_type if inv_return.transaction_type else 'return'
+            if display_type == 'return':
+                display_type = 'return' if not inv_return.is_early_withdrawal else 'early_withdrawal'
+            
             transactions_data.append({
-                'id': f"return_{inv_return.id}",
+                'id': f"investor_{inv_return.id}",
                 'date': inv_return.return_date.isoformat() if inv_return.return_date else None,
-                'type': 'return',
-                'transaction_type': 'return',
+                'type': display_type,
+                'transaction_type': display_type,
                 'investor_id': investor.id,
                 'investor_name': investor.name,
                 'amount': float(inv_return.amount),
@@ -2169,43 +2172,8 @@ def get_investor_transactions():
                 'mpesa_receipt': inv_return.mpesa_receipt,
                 'notes': inv_return.notes,
                 'status': inv_return.status,
-                'is_early_withdrawal': inv_return.is_early_withdrawal,
+                'is_early_withdrawal': inv_return.is_early_withdrawal if display_type == 'return' else False,
                 'created_at': inv_return.return_date.isoformat() if inv_return.return_date else None
-            })
-        
-        # Process investment transactions (top-ups, adjustments)
-        for txn in investment_transactions:
-            # Get investor from transaction
-            investor = txn.investor
-            investor_name = "Unknown Investor"
-            investor_id = None
-            
-            if investor:
-                investor_name = investor.name
-                investor_id = investor.id
-            else:
-                # Fallback: Try to extract investor name from notes
-                if txn.notes:
-                    for inv in investors:
-                        if inv.name in txn.notes:
-                            investor_name = inv.name
-                            investor_id = inv.id
-                            break
-            
-            transactions_data.append({
-                'id': f"inv_txn_{txn.id}",
-                'date': txn.created_at.isoformat() if txn.created_at else None,
-                'type': 'investment',
-                'transaction_type': txn.transaction_type,
-                'investor_id': investor_id,
-                'investor_name': investor_name,
-                'amount': float(txn.amount),
-                'method': txn.payment_method,
-                'payment_method': txn.payment_method,
-                'mpesa_receipt': txn.mpesa_receipt,
-                'notes': txn.notes,
-                'status': txn.status,
-                'created_at': txn.created_at.isoformat() if txn.created_at else None
             })
         
         # Process investor-funded loans (disbursements)
@@ -2239,7 +2207,7 @@ def get_investor_transactions():
                 'transaction_type': 'initial_investment',
                 'investor_id': investor.id,
                 'investor_name': investor.name,
-                'amount': float(investor.initial_investment),  # FIXED: Use initial_investment
+                'amount': float(investor.initial_investment),
                 'method': 'bank',
                 'payment_method': 'bank',
                 'notes': f'Initial investment from {investor.name}',
@@ -2264,7 +2232,7 @@ def get_investor_transactions():
 @jwt_required()
 @admin_required
 def get_investor_statement(investor_id):
-    """Get comprehensive statement for an investor including all transactions"""
+    """Get comprehensive statement for an investor including all transactions - FIXED"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'OK'}), 200
         
@@ -2273,86 +2241,141 @@ def get_investor_statement(investor_id):
         if not investor:
             return jsonify({'error': 'Investor not found'}), 404
         
-        # Get all transactions related to this investor
+        # Initialize transactions list
         transactions = []
         
         # 1. Initial investment
         transactions.append({
-            'date': investor.invested_date,
+            'date': investor.invested_date.isoformat() if investor.invested_date else None,
             'type': 'initial_investment',
-            'transaction_type': 'initial_investment',  # ADD THIS LINE
+            'transaction_type': 'initial_investment',
             'description': 'Initial Investment',
             'amount': float(investor.initial_investment),
             'balance': float(investor.initial_investment)
         })
         
-        # 2. Top-ups and adjustments from Transaction table
-        investment_txns = Transaction.query.filter(
-            Transaction.investor_id == investor_id,
-            Transaction.transaction_type.in_(['investor_topup', 'investor_adjustment_up', 'investor_adjustment_down'])
-        ).order_by(Transaction.created_at).all()
-        
         current_balance = investor.initial_investment
-        for txn in investment_txns:
-            if txn.transaction_type == 'investor_adjustment_down':
-                current_balance -= txn.amount
+        
+        # 2. Get all InvestorReturn records (returns, topups, adjustments)
+        investor_returns = InvestorReturn.query.filter_by(
+            investor_id=investor_id
+        ).order_by(InvestorReturn.return_date).all()
+        
+        for inv_return in investor_returns:
+            # Determine transaction type and amount sign
+            if inv_return.transaction_type == 'return':
+                # Return payment to investor: negative amount (money leaving company)
+                amount = -float(inv_return.amount)
+                transaction_type = 'return'
+                description = f'Return payment - {inv_return.notes}' if inv_return.notes else 'Return payment'
+            elif inv_return.transaction_type in ['topup', 'adjustment_up']:
+                # Top-up or adjustment up: positive amount (money coming in)
+                amount = float(inv_return.amount)
+                transaction_type = 'topup' if inv_return.transaction_type == 'topup' else 'adjustment'
+                description = f'Investment {inv_return.transaction_type} - {inv_return.notes}' if inv_return.notes else f'Investment {inv_return.transaction_type}'
+            elif inv_return.transaction_type == 'adjustment_down':
+                # Adjustment down: negative amount (money leaving)
+                amount = -float(inv_return.amount)
+                transaction_type = 'adjustment'
+                description = f'Investment adjustment (decrease) - {inv_return.notes}' if inv_return.notes else 'Investment adjustment (decrease)'
             else:
-                current_balance += txn.amount
+                # Default to return
+                amount = -float(inv_return.amount)
+                transaction_type = 'return'
+                description = inv_return.notes if inv_return.notes else 'Return payment'
             
+            current_balance += amount
             transactions.append({
-                'date': txn.created_at,
-                'type': txn.transaction_type,  # Make sure this is set
-                'transaction_type': txn.transaction_type,  # Add explicit transaction_type
-                'description': txn.notes,
-                'amount': float(txn.amount),
-                'balance': float(current_balance)
-            })
-        
-        # 3. Returns paid
-        returns = InvestorReturn.query.filter_by(investor_id=investor_id).order_by(InvestorReturn.return_date).all()
-        for inv_return in returns:
-            current_balance -= inv_return.amount  # Returns reduce the balance
-            transactions.append({
-                'date': inv_return.return_date,
-                'type': 'return',
-                'transaction_type': 'investor_return',  # Add this for consistency
-                'description': f'Return payment - {inv_return.notes}' if inv_return.notes else 'Return payment',
-                'amount': float(-inv_return.amount),
+                'date': inv_return.return_date.isoformat() if inv_return.return_date else None,
+                'type': transaction_type,
+                'transaction_type': transaction_type,
+                'description': description,
+                'amount': amount,
                 'balance': float(current_balance),
-                'is_early_withdrawal': inv_return.is_early_withdrawal
+                'method': inv_return.payment_method,
+                'mpesa_receipt': inv_return.mpesa_receipt,
+                'notes': inv_return.notes
             })
         
-        # 4. Loans funded by this investor
+        # 3. Get loan disbursements funded by this investor
         funded_loans = Loan.query.filter_by(
             investor_id=investor_id,
             funding_source='investor'
-        ).all()
+        ).order_by(Loan.disbursement_date).all()
         
         for loan in funded_loans:
-            # Calculate amount recovered from this loan
-            principal_recovered = loan.principal_paid or Decimal('0')
+            amount = -float(loan.principal_amount)  # Negative: money going out for loan
+            current_balance += amount
+            
+            # Calculate principal recovered from this loan
+            principal_recovered = float(loan.principal_paid or 0)
             
             transactions.append({
-                'date': loan.disbursement_date,
-                'type': 'loan_disbursement',
-                'transaction_type': 'disbursement',  # Add this for consistency
+                'date': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
+                'type': 'disbursement',
+                'transaction_type': 'disbursement',
                 'description': f'Loan to {loan.client.full_name if loan.client else "Unknown"}',
-                'amount': float(-loan.principal_amount),  # Negative as it's money out
-                'balance': float(current_balance - loan.principal_amount + principal_recovered)
+                'amount': amount,
+                'balance': float(current_balance),
+                'method': 'bank',
+                'notes': f'Loan disbursement. Principal recovered: {principal_recovered}'
+            })
+        
+        # 4. Also get any transactions from Transaction table related to this investor
+        # (for backwards compatibility)
+        investment_txns = Transaction.query.filter(
+            Transaction.investor_id == investor_id,
+            Transaction.transaction_type.in_(['investor_topup', 'investor_adjustment'])
+        ).order_by(Transaction.created_at).all()
+        
+        for txn in investment_txns:
+            if txn.transaction_type == 'investor_adjustment':
+                # Check if it's up or down adjustment
+                if txn.amount > 0:
+                    amount = float(txn.amount)
+                    description = 'Investment adjustment (increase)'
+                else:
+                    amount = float(txn.amount)
+                    description = 'Investment adjustment (decrease)'
+            else:
+                amount = float(txn.amount)
+                description = 'Investment top-up'
+            
+            current_balance += amount
+            transactions.append({
+                'date': txn.created_at.isoformat() if txn.created_at else None,
+                'type': 'topup' if txn.transaction_type == 'investor_topup' else 'adjustment',
+                'transaction_type': txn.transaction_type,
+                'description': description,
+                'amount': amount,
+                'balance': float(current_balance),
+                'method': txn.payment_method,
+                'mpesa_receipt': txn.mpesa_receipt,
+                'notes': txn.notes
             })
         
         # Sort all transactions by date
-        transactions.sort(key=lambda x: x['date'] if x['date'] else datetime.min)
+        transactions.sort(key=lambda x: x['date'] if x['date'] else '0')
         
         # Calculate summary
         total_invested = investor.initial_investment
-        for txn in investment_txns:
-            if txn.transaction_type in ['investor_topup', 'investor_adjustment_up']:
-                total_invested += txn.amount
-            elif txn.transaction_type == 'investor_adjustment_down':
-                total_invested -= txn.amount
         
-        total_returns = sum(float(r.amount) for r in returns)
+        # Add topups and adjustments from investor returns
+        for inv_return in investor_returns:
+            if inv_return.transaction_type in ['topup', 'adjustment_up']:
+                total_invested += inv_return.amount
+            elif inv_return.transaction_type == 'adjustment_down':
+                total_invested -= inv_return.amount
+        
+        # Add from Transaction table (backwards compatibility)
+        for txn in investment_txns:
+            if txn.transaction_type in ['investor_topup', 'investor_adjustment']:
+                if txn.amount > 0:
+                    total_invested += txn.amount
+                else:
+                    total_invested -= abs(txn.amount)
+        
+        total_returns = sum(float(r.amount) for r in investor_returns if r.transaction_type == 'return')
         total_disbursed = sum(float(l.principal_amount) for l in funded_loans)
         
         return jsonify({

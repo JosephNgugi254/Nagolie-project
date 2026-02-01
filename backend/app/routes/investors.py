@@ -33,8 +33,9 @@ def get_investor_dashboard():
             Loan.status.in_(['active', 'completed'])
         ).scalar() or 0
         
-        # Calculate investment balance: investment_amount - total_money_lent
-        investment_balance = investor.investment_amount - total_money_lent
+        # Calculate investment balance: current_investment - total_money_lent
+        # FIXED: Use current_investment instead of investment_amount
+        investment_balance = investor.current_investment - total_money_lent
         if investment_balance < 0:
             investment_balance = Decimal('0')
         
@@ -50,14 +51,16 @@ def get_investor_dashboard():
             Livestock.status == 'active'
         ).scalar() or 0
         
-        # NEW: Calculate security coverage ratio: (livestock value + investment balance) / investment amount * 100
+        # NEW: Calculate security coverage ratio: (livestock value + investment balance) / current_investment * 100
+        # FIXED: Use current_investment instead of investment_amount
         coverage_ratio = 0
-        if investor.investment_amount > 0:
+        if investor.current_investment > 0:
             total_coverage_value = total_livestock_value + investment_balance
-            coverage_ratio = (total_coverage_value / investor.investment_amount) * 100
+            coverage_ratio = (total_coverage_value / investor.current_investment) * 100
         
-        # NEW: Calculate next return amount - 40% of investment amount
-        next_return_amount = investor.investment_amount * Decimal('0.40')
+        # NEW: Calculate next return amount - 40% of current_investment
+        # FIXED: Use current_investment instead of investment_amount
+        next_return_amount = investor.current_investment * Decimal('0.40')
         
         # Get investor's return history
         returns_history = InvestorReturn.query.filter_by(
@@ -121,7 +124,7 @@ def get_investor_dashboard():
                     'livestock_value': float(total_livestock_value),
                     'investment_balance': float(investment_balance),
                     'total_coverage': float(total_livestock_value + investment_balance),
-                    'investment_amount': float(investor.investment_amount)
+                    'investment_amount': float(investor.current_investment)  # FIXED: Use current_investment
                 }
             },
             'livestock': livestock_data,
