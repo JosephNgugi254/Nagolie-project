@@ -4978,7 +4978,7 @@ Thank you for choosing us.`;
                 phone: newInvestor.phone,
                 id_number: newInvestor.id_number,
                 email: newInvestor.email || "",
-                investment_amount: newInvestor.investment_amount,
+                investment_amount: parseFloat(newInvestor.investment_amount),
                 temporary_password: tempPassword
               }
             

@@ -1538,7 +1538,7 @@ def manage_investors():
                 'date': current_time.strftime('%d/%m/%Y'),
                 'expected_return_period': '5 weeks for first return, then every 4 weeks thereafter',
                 'return_percentage': '40%',
-                'return_amount': float(investor.initial_investment  * Decimal('0.40')),
+                'return_amount': float(Decimal(str(investor.initial_investment)) * Decimal('0.40')),
                 'early_withdrawal_fee': '15%',
                 'early_withdrawal_receivable': '85%',
                 'agreement_date': current_time.strftime('%B %d, %Y'),

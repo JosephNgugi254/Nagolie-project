@@ -287,6 +287,7 @@ class Investor(db.Model):
     email = db.Column(db.String(100), nullable=True)  
     id_number = db.Column(db.String(20), unique=True, nullable=False, index=True)
     
+    
     # CHANGED: Store original investment separately
     initial_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Original amount
     current_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Current total (initial + topups)
@@ -310,10 +311,10 @@ class Investor(db.Model):
     def __init__(self, **kwargs):
         # Extract investment_amount if provided
         investment_amount = kwargs.pop('investment_amount', None)
-        
+
         # Call parent constructor
         super(Investor, self).__init__(**kwargs)
-        
+
         # Set default dates if not provided
         if not self.invested_date:
             self.invested_date = datetime.utcnow()
@@ -323,7 +324,7 @@ class Investor(db.Model):
         if not self.expected_return_date:
             # FIRST RETURN: After 5 weeks (35 days) from investment
             self.expected_return_date = self.invested_date + timedelta(days=35)
-        
+
         # Initialize investment tracking - FIXED LOGIC
         if investment_amount is not None:
             # If investment_amount is provided in kwargs
@@ -333,7 +334,7 @@ class Investor(db.Model):
             # If initial_investment is not set, set defaults
             self.initial_investment = Decimal('0')
             self.current_investment = Decimal('0')
-        
+
         # Always ensure total_topups is set
         if self.total_topups is None:
             self.total_topups = Decimal('0')

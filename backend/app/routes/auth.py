@@ -367,7 +367,7 @@ def get_investor_info(investor_id):
             'investor': {
                 'id': investor.id,
                 'name': investor.name,
-                'investment_amount': float(investor.investment_amount),
+                'investment_amount': float(investor.current_investment),
                 'phone': investor.phone,
                 'email': investor.email,
                 'account_status': investor.account_status,
