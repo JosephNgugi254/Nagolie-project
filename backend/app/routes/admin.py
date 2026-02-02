@@ -1630,36 +1630,57 @@ def manage_investor(investor_id):
     
     elif request.method == 'DELETE':
         try:
-            # Check if investor has returns
-            returns_count = InvestorReturn.query.filter_by(investor_id=investor.id).count()
+            print(f"DEBUG: Starting delete for investor ID: {investor_id}")
             
-            # Get investor name for audit log
+            # Get investor with user relationship
+            investor = Investor.query.options(db.joinedload(Investor.user)).get(investor_id)
+            if not investor:
+                return jsonify({'error': 'Investor not found'}), 404
+            
             investor_name = investor.name
+            user_id = investor.user.id if investor.user else None
             
-            # Delete investor returns
+            print(f"DEBUG: Investor: {investor_name}, User ID: {user_id}")
+            
+            # STEP 1: Delete investor returns
             InvestorReturn.query.filter_by(investor_id=investor.id).delete()
+            print(f"DEBUG: Deleted investor returns")
             
-            # Delete user account if exists
-            if investor.user:
-                db.session.delete(investor.user)
-            
-            # Delete investor
+            # STEP 2: Delete investor
             db.session.delete(investor)
-            db.session.commit()
+            print(f"DEBUG: Investor marked for deletion")
             
-            log_audit('investor_deleted', 'investor', investor_id, {
-                'name': investor_name,
-                'returns_deleted': returns_count
-            })
+            # STEP 3: Delete user if exists
+            if investor.user:
+                print(f"DEBUG: Attempting to delete user {user_id}")
+                
+                # Clean up any remaining references (constraints should handle it, but be safe)
+                if user_id:
+                    # Set transactions.created_by to NULL (constraint should do this, but explicit is safer)
+                    db.session.execute(
+                        "UPDATE transactions SET created_by = NULL WHERE created_by = :user_id",
+                        {"user_id": user_id}
+                    )
+                    print(f"DEBUG: Set transactions.created_by to NULL for user {user_id}")
+                
+                # Delete the user (constraints will cascade/delete related records)
+                db.session.delete(investor.user)
+                print(f"DEBUG: User marked for deletion")
+            
+            # Commit transaction
+            db.session.commit()
+            print(f"DEBUG: Transaction committed successfully")
             
             return jsonify({
                 'success': True,
-                'message': 'Investor and associated data deleted successfully'
+                'message': 'Investor deleted successfully'
             }), 200
             
         except Exception as e:
             db.session.rollback()
-            print(f"Error deleting investor: {str(e)}")
+            print(f"DEBUG: Error in transaction: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': str(e)}), 500
 
 @admin_bp.route('/investors/<int:investor_id>/calculate-return', methods=['GET', 'OPTIONS'])
