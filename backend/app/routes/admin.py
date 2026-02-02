@@ -1557,7 +1557,7 @@ def manage_investors():
             account_creation_link = f"{frontend_url}/investor/complete-registration/{investor.id}?token={token}"
             log_audit('investor_created', 'investor', investor.id, {
                 'name': investor.name,
-                'amount': float(investor.investment_amount),
+                'amount': float(investor.current_investment),
                 'email': investor.email
             })
             return jsonify({

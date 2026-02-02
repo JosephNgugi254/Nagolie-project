@@ -5,10 +5,10 @@ services:
     plan: free
     buildCommand: |
       pip install -r backend/requirements.txt
-      cd backend
-      flask db upgrade || echo "Migrations may fail on fresh database, continuing..."
-    startCommand: cd backend && gunicorn wsgi:app --bind 0.0.0.0:$PORT --timeout 120
-    releaseCommand: cd backend && flask deploy
+    startCommand: |
+      cd backend &&
+      bash scripts/ensure_migrations.sh &&
+      gunicorn manage:app --bind 0.0.0.0:$PORT --timeout 120
     envVars:
       - key: FLASK_APP
         value: manage.py

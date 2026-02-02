@@ -308,7 +308,12 @@ class Investor(db.Model):
     returns = db.relationship('InvestorReturn', backref='investor', lazy='dynamic', cascade='all, delete-orphan')
     
     def __init__(self, **kwargs):
+        # Extract investment_amount if provided
+        investment_amount = kwargs.pop('investment_amount', None)
+        
+        # Call parent constructor
         super(Investor, self).__init__(**kwargs)
+        
         # Set default dates if not provided
         if not self.invested_date:
             self.invested_date = datetime.utcnow()
@@ -319,10 +324,18 @@ class Investor(db.Model):
             # FIRST RETURN: After 5 weeks (35 days) from investment
             self.expected_return_date = self.invested_date + timedelta(days=35)
         
-        # Initialize investment tracking
-        if not self.initial_investment and 'investment_amount' in kwargs:
-            self.initial_investment = Decimal(str(kwargs['investment_amount']))
-            self.current_investment = Decimal(str(kwargs['investment_amount']))
+        # Initialize investment tracking - FIXED LOGIC
+        if investment_amount is not None:
+            # If investment_amount is provided in kwargs
+            self.initial_investment = Decimal(str(investment_amount))
+            self.current_investment = Decimal(str(investment_amount))
+        elif self.initial_investment is None:
+            # If initial_investment is not set, set defaults
+            self.initial_investment = Decimal('0')
+            self.current_investment = Decimal('0')
+        
+        # Always ensure total_topups is set
+        if self.total_topups is None:
             self.total_topups = Decimal('0')
     
     def to_dict(self):
