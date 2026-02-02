@@ -160,9 +160,19 @@ function AdminLoginPage() {
                       "Login"
                     )}
                   </button>
+                  <div className="mt-2 text-center">
+                    <button 
+                      type="button" 
+                      className="btn btn-link p-0"
+                      onClick={() => navigate("/forgot-password")}
+                    >
+                      <i className="fas fa-key me-1"></i>
+                      Forgot Password?
+                    </button>
+                  </div>
                 </form>
                 
-                <div className="mt-4 text-center">
+                <div className="mt-3 text-center">
                   <p className="text-muted">
                     Having trouble? Contact support at 
                     <a href="mailto:nagolie7@gmail.com" className="ms-1">nagolie7@gmail.com</a>

@@ -3,15 +3,22 @@ services:
     name: nagolie-backend
     env: python
     plan: free
-    buildCommand: pip install -r backend/requirements.txt && cd backend && flask db upgrade
-    startCommand: cd backend && gunicorn manage:app --bind 0.0.0.0:$PORT --timeout 120
+    buildCommand: |
+      pip install -r backend/requirements.txt
+      cd backend
+      flask db upgrade || echo "Migrations may fail on fresh database, continuing..."
+    startCommand: cd backend && gunicorn wsgi:app --bind 0.0.0.0:$PORT --timeout 120
+    releaseCommand: cd backend && flask deploy
     envVars:
+      - key: FLASK_APP
+        value: manage.py
       - key: FLASK_ENV
         value: production
       - key: DATABASE_URL
         fromDatabase:
           name: nagolie-db
           property: connectionString
+    healthCheckPath: /api/health
 
   - type: static
     name: nagolie-frontend

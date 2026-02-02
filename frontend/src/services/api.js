@@ -146,6 +146,10 @@ export const authAPI = {
   getCurrentUser: () => api.get("/auth/me"),
   completeInvestorRegistration: (investorId, data) => api.post(`/auth/investor/register/${investorId}`, data),
   getInvestorInfo: (investorId) => api.get(`/auth/investor/info/${investorId}`),
+  //new endpoints for password reset
+  forgotPassword: (data) => api.post("/auth/forgot-password", data),
+  validateResetToken: (data) => api.post("/auth/validate-reset-token", data),
+  resetPassword: (data) => api.post("/auth/reset-password", data),
 };
 
 export const loanAPI = {
@@ -155,7 +159,7 @@ export const loanAPI = {
   create: (loanData) => api.post("/loans", loanData),
   updateStatus: (id, status) => api.patch(`/loans/${id}/status`, { status }),
   approve: (id) => api.post(`/loans/${id}/approve`),
-  reject: (id) => api.post(`/loans/${id}/reject`),
+  reject: (id) => api.post(`/loans/${id}/reject`),  
 };
 
 export const clientAPI = {

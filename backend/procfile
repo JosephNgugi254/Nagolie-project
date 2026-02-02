@@ -1,2 +1,2 @@
-web: gunicorn wsgi:app
-release: flask db upgrade
+web: gunicorn wsgi:app --bind 0.0.0.0:$PORT --timeout 120
+release: flask deploy
