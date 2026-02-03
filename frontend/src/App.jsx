@@ -8,6 +8,7 @@ import InvestorPanel from "./pages/InvestorPanel" // NEW
 import AdminLoginPage from './features/auth/AdminLoginPage'
 import InvestorRegistration from './features/auth/InvestorRegistration' // NEW
 import About from "./pages/About"
+import CompanyGallery from "./pages/CompanyGallery";
 import "./index.css"
 
 import ForgotPasswordPage from "./features/auth/ForgotPasswordPage"
@@ -30,6 +31,7 @@ function App() {
             <Route path="/investor/*" element={<InvestorPanel />} /> 
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/company-gallery" element={<CompanyGallery />} />
           </Routes>
         </Router>
       </AuthProvider>

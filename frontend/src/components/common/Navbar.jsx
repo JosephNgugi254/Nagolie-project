@@ -112,7 +112,12 @@ function Navbar() {
                   }
                 }}
               >
-                Contact
+                Contacts
+              </Link>
+            </li>
+            <li className="nav-item">
+              <Link className="nav-link" to="/company-gallery">
+                Company Gallery
               </Link>
             </li>
             <li className="nav-item ms-2">
