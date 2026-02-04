@@ -157,7 +157,7 @@ function AdminPanel() {
   }, [])
 
   const [showInvestorLoginModal, setShowInvestorLoginModal] = useState(false);
-  const [investorPin, setInvestorPin] = useState("");
+  const [investorPassword, setInvestorPassword] = useState("");
   const [isInvestorSectionAuthenticated, setIsInvestorSectionAuthenticated] = useState(false);
 
   useEffect(() => {
@@ -184,16 +184,14 @@ function AdminPanel() {
     setShowInvestorLoginModal(true);
   };
 
-  const handleInvestorPinSubmit = (e) => {
-    e.preventDefault();
-    
-    // For demo purposes - set your PIN here
-    const correctPin = "123456"; // Change this to your desired PIN
-    
-    if (investorPin === correctPin) {
+  // Replace the existing handleInvestorPinSubmit function with this:
+const handleInvestorPasswordSubmit = (e) => {
+  e.preventDefault();  
+  const correctPassword = "n@g0l13";    
+    if (investorPassword === correctPassword) {
       setIsInvestorSectionAuthenticated(true);
       setShowInvestorLoginModal(false);
-      setInvestorPin("");
+      setInvestorPassword("");
     
       // Navigate to investor section
       setActiveSection("investors");
@@ -206,8 +204,8 @@ function AdminPanel() {
 
       showToast.success("Investor section unlocked");
     } else {
-      showToast.error("Invalid PIN. Please try again.");
-      setInvestorPin("");
+      showToast.error("Invalid password. Please try again.");
+      setInvestorPassword("");
     }
   };
 
@@ -5663,117 +5661,112 @@ Thank you for choosing us.`;
         </Modal>
       )}
 
-      {/* Investor Section PIN Modal - UPDATED for proper centering and sidebar handling */}
-      {showInvestorLoginModal && (
-        <div 
-          className="modal fade show d-block investor-login-modal" 
-          tabIndex="-1" 
-          style={{ 
-            backgroundColor: 'rgba(0,0,0,0.5)', 
-            zIndex: 1050,
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%'
-          }}
-        >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header bg-primary text-white">
-                <h5 className="modal-title">Investor Section Access</h5>
-                <button 
-                  type="button" 
-                  className="btn-close btn-close-white" 
-                  onClick={() => {
-                    setShowInvestorLoginModal(false);
-                    setInvestorPin("");
-                    // Reset to overview if PIN entry is cancelled
-                    setActiveSection("overview");
-                    navigate("/admin");
-                  }}
-                ></button>
-              </div>
-                
-              <div className="modal-body">
-                <div className="text-center mb-4">
-                  <i className="fas fa-lock fa-3x text-primary mb-3"></i>
-                  <h5>Additional Security Required</h5>
-                  <p className="text-muted">
-                    Enter 6-digit PIN to access investor section
-                  </p>
-                </div>
-                
-                <form onSubmit={handleInvestorPinSubmit}>
-                  <div className="mb-4">
-                    <label htmlFor="investorPin" className="form-label">
-                      <strong>6-Digit PIN</strong>
-                    </label>
-                    <input
-                      type="password"
-                      className="form-control text-center"
-                      id="investorPin"
-                      value={investorPin}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/\D/g, "").slice(0, 6);
-                        setInvestorPin(value);
-                      }}
-                      placeholder="000000"
-                      maxLength={6}
-                      required
-                      autoFocus
-                      style={{
-                        fontSize: "1.5rem",
-                        letterSpacing: "0.5rem",
-                        height: "60px",
-                        padding: "1rem",
-                        borderRadius: "8px",
-                        border: "1px solid #dee2e6"
-                      }}
-                    />
-                    <small className="text-muted d-block mt-2">
-                      Enter the 6-digit security PIN
-                    </small>
-                  </div>
-                    
-                  <div className="d-flex flex-column flex-sm-row gap-2">
-                    <button 
-                      type="submit" 
-                      className="btn btn-primary flex-grow-1"
-                      style={{
-                        height: "50px",
-                        fontSize: "1.1rem",
-                        fontWeight: "600"
-                      }}
-                    >
-                      <i className="fas fa-unlock me-2"></i>
-                      Unlock Investor Section
-                    </button>
-                    
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setShowInvestorLoginModal(false);
-                        setInvestorPin("");
-                        setActiveSection("overview");
-                        navigate("/admin");
-                      }}
-                      style={{
-                        height: "50px",
-                        fontSize: "1rem"
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
+      {/* Investor Section Password Modal - UPDATED */}
+{showInvestorLoginModal && (
+  <div 
+    className="modal fade show d-block investor-login-modal" 
+    tabIndex="-1" 
+    style={{ 
+      backgroundColor: 'rgba(0,0,0,0.5)', 
+      zIndex: 1050,
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%'
+    }}
+  >
+    <div className="modal-dialog modal-dialog-centered">
+      <div className="modal-content">
+        <div className="modal-header bg-primary text-white">
+          <h5 className="modal-title">Investor Section Access</h5>
+          <button 
+            type="button" 
+            className="btn-close btn-close-white" 
+            onClick={() => {
+              setShowInvestorLoginModal(false);
+              setInvestorPassword("");
+              // Reset to overview if password entry is cancelled
+              setActiveSection("overview");
+              navigate("/admin");
+            }}
+          ></button>
         </div>
-      )}
-
+          
+        <div className="modal-body">
+          <div className="text-center mb-4">
+            <i className="fas fa-lock fa-3x text-primary mb-3"></i>
+            <h5>Additional Security Required</h5>
+            <p className="text-muted">
+              Enter password to access investor section
+            </p>
+          </div>
+          
+          <form onSubmit={handleInvestorPasswordSubmit}>
+            <div className="mb-4">
+              <label htmlFor="investorPassword" className="form-label">
+                <strong>Password</strong>
+              </label>
+              <input
+                type="password"
+                className="form-control"
+                id="investorPassword"
+                value={investorPassword}
+                onChange={(e) => {
+                  setInvestorPassword(e.target.value);
+                }}
+                placeholder="Enter password"
+                required
+                autoFocus
+                style={{
+                  height: "50px",
+                  padding: "1rem",
+                  borderRadius: "8px",
+                  border: "1px solid #dee2e6"
+                }}
+              />
+              <small className="text-muted d-block mt-2">
+                Enter the investor section password
+              </small>
+            </div>
+              
+            <div className="d-flex flex-column flex-sm-row gap-2">
+              <button 
+                type="submit" 
+                className="btn btn-primary flex-grow-1"
+                style={{
+                  height: "50px",
+                  fontSize: "1.1rem",
+                  fontWeight: "600"
+                }}
+              >
+                <i className="fas fa-unlock me-2"></i>
+                Unlock Investor Section
+              </button>
+              
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowInvestorLoginModal(false);
+                  setInvestorPassword("");
+                  setActiveSection("overview");
+                  navigate("/admin");
+                }}
+                style={{
+                  height: "50px",
+                  fontSize: "1rem"
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
     </div>  
   )
 }
