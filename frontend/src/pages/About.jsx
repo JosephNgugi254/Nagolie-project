@@ -320,7 +320,7 @@ function About() {
                   <h4 className="team-name">Joshua Partapipi</h4>
                   <p className="team-role">Livestock Production Officer</p>
                   <p className="team-bio">
-                      Provides expert veterinary care  and health checks for the company’s collateral livestock, oversees all animal health services, and offers farmers guidance on best practices for effective livestock management.
+                      Provides expert care and health checks for the company’s collateral livestock, oversees all animal health services, and offers farmers guidance on best practices for effective livestock management.
                   </p>
                 </div>
               </div>
