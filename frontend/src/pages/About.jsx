@@ -300,11 +300,11 @@ function About() {
               </div>
             </div>
 
-            {/* veterinarian */}
+            {/* livestock production officer*/}
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="" alt="Veterinarian" className="img-fluid" />
+                  <img src="./Joshua.png" alt="livestock production officer" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
                       <a href="https://wa.me/" className="social-link">
@@ -317,8 +317,8 @@ function About() {
                   </div>
                 </div>
                 <div className="team-info">
-                  <h4 className="team-name">Philip Luyiana</h4>
-                  <p className="team-role">Veterinarian</p>
+                  <h4 className="team-name">Joshua Partapipi</h4>
+                  <p className="team-role">Livestock Production Officer</p>
                   <p className="team-bio">
                       Provides expert veterinary care  and health checks for the company’s collateral livestock, oversees all animal health services, and offers farmers guidance on best practices for effective livestock management.
                   </p>
