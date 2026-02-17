@@ -39,7 +39,7 @@ const CompanyGallery = () => {
   // Filter categories
   const categories = [
     { id: "all", name: "All Photos", count: galleryImages.length },
-    { id: "events", name: "Grand Opening Ceremony", count: 127 },
+    { id: "events", name: "Grand Opening Ceremony", count: 125 },
     { id: "operations", name: "Operations", count: 0 },
     { id: "services", name: "Services", count: 0 },
     { id: "team", name: "Team", count: 0 },

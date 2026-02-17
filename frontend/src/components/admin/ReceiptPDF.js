@@ -10,7 +10,7 @@ const COMPANY_INFO = {
   email: 'nagolie7@gmail.com',
   hours: 'Everyday: 8:00 AM - 6:00 PM',
   poBox: 'P.O BOX 359-01100',
-  logoUrl: '/logo.png' // Your logo path
+  logoUrl: '/logo.png',
 };
 
 // Colors from your :root (converted to RGB for jsPDF)
@@ -2119,3 +2119,231 @@ const filterInvestorTransactions = (transactions, investorId, investorName) => {
 };
 
 // const investorTxns = filterInvestorTransactions(transactions, investor.id, investor.name);
+
+
+
+
+// ========== PROPOSAL PDF GENERATOR ==========
+export const generateProposalPDF = async () => {
+  try {
+    const doc = new jsPDF();
+
+    // Add watermark (type 'proposal')
+    addOptimizedWatermark(doc, 'proposal');
+
+    // Add company header
+    let yPos = await addHeader(doc, 15);
+
+    doc.setFontSize(15);
+    doc.setTextColor(...COLORS.secondaryBlue);
+    doc.text('Digital Growth & Operational Enhancement Proposal', 105, yPos, { align: 'center' });
+    yPos += 3;
+    yPos = addDivider(doc, yPos, COLORS.secondaryBlue);
+    const proposalLines = [
+      // ===== 1. INTRODUCTION =====
+      { text: '1. Introduction', style: 'section' },
+      { text: 'This proposal outlines a structured plan to enhance Nagolie Enterprises’ digital presence, operational reporting systems, investor engagement strategy, and local brand dominance.', style: 'normal' },
+      { text: 'The objective is to:', style: 'normal' },
+      { text: 'Increase visibility and client acquisition', style: 'bullet' },
+      { text: 'Improve internal decision-making through data reporting', style: 'bullet' },
+      { text: 'Strengthen investor confidence', style: 'bullet' },
+      { text: 'Enhance brand recognition within Kajiado County and beyond', style: 'bullet' },
+      // ===== 2. PROPOSED INITIATIVES =====
+      { text: '2. Proposed Initiatives', style: 'section' },
+      // A. Digital Marketing Expansion
+      { text: 'A. Digital Marketing Expansion', style: 'subsection' },
+      { text: '1. Official Facebook Page Launch', style: 'subsubsection' },
+      { text: 'Creation and management of Nagolie Enterprises’ official Facebook page to increase brand awareness and client engagement.', style: 'normal' },
+      { text: 'Content Strategy:', style: 'bold' },
+      { text: 'Valuation process overview', style: 'bullet' },
+      { text: 'Client success stories', style: 'bullet' },
+      { text: 'Testimonials (photo/video)', style: 'bullet' },
+      { text: 'Promotional flyers', style: 'bullet' },
+      { text: 'Educational livestock content', style: 'bullet' },
+      { text: 'Advertising Strategy:', style: 'bold' },
+      { text: 'Weekly boosted posts', style: 'bullet' },
+      { text: 'Budget: KSh 300–500 per week', style: 'bullet' },
+      { text: 'Targeted local audience (Isinya, Kajiado County and surrounding areas)', style: 'bullet' },
+      { text: 'Expected Impact:', style: 'bold' },
+      { text: 'Increased inquiries', style: 'bullet' },
+      { text: 'Higher walk-in clients', style: 'bullet' },
+      { text: 'Stronger brand credibility', style: 'bullet' },
+      { text: '', style: 'normal' },
+
+      // B. Website & System Improvements
+      { text: 'B. Website & System Improvements', style: 'subsection' },
+      { text: '2. Performance Report Generation System', style: 'subsubsection' },
+      { text: 'Development of a reporting feature within the website system to generate:', style: 'normal' },
+      { text: 'Reports Available:', style: 'bold' },
+      { text: 'Weekly reports', style: 'bullet' },
+      { text: 'Monthly reports', style: 'bullet' },
+      { text: 'Yearly reports', style: 'bullet' },
+      { text: 'Report Contents:', style: 'bold' },
+      { text: 'Total money disbursed', style: 'bullet' },
+      { text: 'Investor payout information', style: 'bullet' },
+      { text: 'Estimated profit margin', style: 'bullet' },
+      { text: 'Livestock claimed vs. company-owned livestock', style: 'bullet' },
+      { text: 'Collateral livestock tracking and ownership', style: 'bullet' },
+      { text: 'Location-based loan distribution analysis', style: 'bullet' },
+      { text: 'Graph-based data visualization for better insights', style: 'bullet' },
+      { text: 'Benefits:', style: 'bold' },
+      { text: 'Improved strategic planning', style: 'bullet' },
+      { text: 'Clear financial oversight', style: 'bullet' },
+      { text: 'Better marketing targeting based on location data', style: 'bullet' },
+      { text: 'Increased transparency for management and investors', style: 'bullet' },
+      // C. Future System Integrations
+      { text: 'C. Future System Integrations', style: 'subsection' },
+      { text: '3. SMS Reminder & STK Push Integration (Future Phase)', style: 'subsubsection' },
+      { text: 'Once capital allows, implement:', style: 'normal' },
+      { text: 'Automated SMS reminders for:', style: 'bold' },
+      { text: 'Investor payouts', style: 'bullet' },
+      { text: 'Loan due dates', style: 'bullet' },
+      { text: 'New investment opportunities', style: 'bullet' },
+      { text: 'STK Push integration for seamless payment collection', style: 'bullet' },
+      { text: 'Benefits:', style: 'bold' },
+      { text: 'Improved payment efficiency', style: 'bullet' },
+      { text: 'Reduced manual follow-up', style: 'bullet' },
+      { text: 'Increased professionalism and automation', style: 'bullet' },
+      // D. Investor Growth Strategy
+      { text: 'D. Investor Growth Strategy', style: 'subsection' },
+      { text: '4. Professional Investor Pitch Deck', style: 'subsubsection' },
+      { text: 'Creation of a structured investor presentation (PowerPoint and/or Canva format) including:', style: 'normal' },
+      { text: 'Financial model projections', style: 'bullet' },
+      { text: 'Growth forecasts', style: 'bullet' },
+      { text: 'Risk management strategy', style: 'bullet' },
+      { text: 'Collateral system explanation', style: 'bullet' },
+      { text: 'Livestock insurance information', style: 'bullet' },
+      { text: 'Company performance highlights', style: 'bullet' },
+      { text: 'Purpose:', style: 'bold' },
+      { text: 'Attract serious investors', style: 'bullet' },
+      { text: 'Increase investment capital', style: 'bullet' },
+      { text: 'Improve trust and professionalism', style: 'bullet' },
+      // E. Branding & Local Market Dominance
+      { text: 'E. Branding & Local Market Dominance', style: 'subsection' },
+      { text: '5. Branding Upgrade (In Progress)', style: 'subsubsection' },
+      { text: 'Reflectors for brand recognition (in progress)', style: 'bullet' },
+      { text: 'Reprocure branded caps and T-shirts', style: 'bullet' },
+      { text: 'Proposal:', style: 'bold' },
+      { text: 'Introduce “Nagolie Branding Days” (2 days per week)', style: 'bullet' },
+      { text: 'Staff wear official merchandise', style: 'bullet' },
+      { text: 'Increase visibility and brand authority', style: 'bullet' },
+      // F. Referral Program Strategy
+      { text: 'F. Referral Program Strategy', style: 'subsection' },
+      { text: '6. Client Referral Incentive Program', style: 'subsubsection' },
+      { text: 'Introduce a structured referral program:', style: 'normal' },
+      { text: 'When an existing client refers a new client, the client receives a small discount on their loan', style: 'bullet' },
+      { text: 'Expected Impact:', style: 'bold' },
+      { text: 'Increased word-of-mouth marketing', style: 'bullet' },
+      { text: 'Faster client growth', style: 'bullet' },
+      { text: 'Strengthened community loyalty', style: 'bullet' },
+      // ===== 3. EXPECTED OVERALL IMPACT =====
+      { text: '3. Expected Overall Impact', style: 'section' },
+      { text: 'If implemented effectively, these initiatives will:', style: 'normal' },
+      { text: 'Increase client acquisition', style: 'bullet' },
+      { text: 'Improve operational efficiency', style: 'bullet' },
+      { text: 'Strengthen investor confidence', style: 'bullet' },
+      { text: 'Enhance brand dominance in Isinya and its surroundings, Kajiado County and beyond', style: 'bullet' },
+      { text: 'Position Nagolie Enterprises for scalable growth', style: 'bullet' },
+      // ===== 4. CONCLUSION =====
+      { text: '4. Conclusion', style: 'section' },
+      { text: 'This proposal aims to strategically position Nagolie Enterprises as:', style: 'normal' },
+      { text: 'A digitally organized company', style: 'bullet' },
+      { text: 'A trusted investment partner', style: 'bullet' },
+      { text: 'A locally dominant livestock acquisition enterprise', style: 'bullet' },
+      { text: 'A scalable rural financial solutions leader', style: 'bullet' },
+      { text: '', style: 'normal' },
+      { text: 'Prepared by:', style: 'bold' },
+      { text: 'Joseph Ngugi', style: 'normal' },
+      { text: 'Sign: ___________', style: 'normal' },
+      { text: 'Technical Operations Manager', style: 'normal' }
+    ];
+
+    // ---- Render lines with formatting ----
+    const marginLeft = 20;
+    const bulletIndent = 10; // extra indent for bullets
+    const lineHeight = 6;
+
+    proposalLines.forEach((lineObj) => {
+      // Check if we need a new page
+      if (yPos > 270) {
+        doc.addPage();
+        addWatermarkToCurrentPage(doc, 'proposal');
+        yPos = 20;
+      }
+
+      const { text, style } = lineObj;
+
+      if (text === '') {
+        yPos += lineHeight * 0.8; // blank line spacing
+        return;
+      }
+
+      // Set font and color based on style
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.textDark);
+      let xPos = marginLeft;
+      let fontSize = 10;
+
+      if (style === 'section') {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.primaryBlue);
+        doc.setFontSize(12);
+        fontSize = 12;
+      } else if (style === 'subsection') {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.secondaryBlue);
+        doc.setFontSize(11);
+        fontSize = 11;
+      } else if (style === 'subsubsection') {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.setFontSize(10.5);
+        fontSize = 10.5;
+      } else if (style === 'bold') {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.setFontSize(10);
+      } else if (style === 'bullet') {
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+        doc.setFontSize(10);
+        xPos = marginLeft + bulletIndent;
+        // Draw bullet character
+        doc.setFontSize(8); // bullet slightly smaller
+        doc.text('•', marginLeft + 5, yPos - 1);
+        doc.setFontSize(10);
+      } else {
+        // normal text
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+        doc.setFontSize(10);
+      }
+
+      // Wrap long text
+      const maxWidth = 170 - (xPos - marginLeft);
+      const lines = doc.splitTextToSize(text, maxWidth);
+      lines.forEach((line, index) => {
+        if (index > 0) {
+          yPos += lineHeight;
+          if (yPos > 270) {
+            doc.addPage();
+            addWatermarkToCurrentPage(doc, 'proposal');
+            yPos = 20;
+          }
+        }
+        doc.text(line, xPos, yPos);
+      });
+
+      yPos += lineHeight;
+    });
+
+    // Add final footer
+    addFooter(doc, yPos);
+
+    // Save the PDF
+    doc.save('Nagolie_Enterprises_Proposal.pdf');
+  } catch (error) {
+    console.error('Error generating proposal PDF:', error);
+    throw error;
+  }
+};

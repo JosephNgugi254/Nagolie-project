@@ -12,7 +12,7 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt,  generateProposalPDF  } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 
@@ -2305,6 +2305,25 @@ Thank you for choosing us.`;
                     <span>{new Date().toLocaleDateString()}</span>
                   </div>
                 </div>
+                {/* ===== TEMPORARY PROPOSAL DOWNLOAD BUTTON ===== */}
+                {/* Uncomment the button below to download the proposal PDF */}                
+                {/* <div className="mb-4 text-center">
+                  <button
+                    className="btn btn-outline-primary btn-lg"
+                    onClick={async () => {
+                      try {
+                        await generateProposalPDF();
+                        showToast.success("Proposal PDF downloaded successfully!");
+                      } catch (error) {
+                        console.error("Error generating proposal:", error);
+                        showToast.error("Failed to download proposal");
+                      }
+                    }}
+                  >
+                    <i className="fas fa-file-pdf me-2"></i>
+                    📄 Download Digital Growth Proposal
+                  </button>
+                </div>               */}
 
                 {loading ? (
                   <div className="text-center py-5">
