@@ -976,7 +976,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
     doc.setTextColor(...COLORS.textDark);
 
     const investmentAmount = investor.investment_amount ? parseFloat(investor.investment_amount) : 0;
-    const returnAmount = investmentAmount * 0.10; // 10% return
+    const returnAmount = investmentAmount * 0.40; // 10% return
 
     const firstReturnDate  = getFirstReturnDate(agreementDate);
     const secondReturnDate = getNextReturnDate(firstReturnDate);
