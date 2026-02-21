@@ -189,7 +189,7 @@ function About() {
                   </p>
                 </div>
               </div>
-            </div>
+            </div>            
 
             {/* Head Accountant */}
             <div className="col-lg-4 col-md-6 mb-5">
@@ -321,6 +321,32 @@ function About() {
                   <p className="team-role">Livestock Production Officer</p>
                   <p className="team-bio">
                       Provides expert veterinary care  and health checks for the company’s collateral livestock, oversees all animal health services, and offers farmers guidance on best practices for effective livestock management.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Livestock Valuer - Emarti Branch */}
+            <div className="col-lg-4 col-md-6 mb-5">
+              <div className="team-card">
+                <div className="team-image">
+                  <img src="/robert.jpeg" alt="Livestock Valuer Emarti" className="img-fluid" />
+                  <div className="team-overlay">
+                    <div className="team-social">
+                      <a href="" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
+                      </a>
+                      <a href="" className="social-link"> 
+                        <i className="fas fa-envelope"></i>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div className="team-info">
+                  <h4 className="team-name">Robert Kalama</h4>
+                  <p className="team-role">Livestock Valuer</p>
+                  <p className="team-bio">
+                    Livestock Valuer leading our Emarti branch providing accurate and fair assessments for loans and purchases.
                   </p>
                 </div>
               </div>
