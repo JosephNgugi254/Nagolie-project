@@ -298,27 +298,38 @@ def reject_application(loan_id):
         return jsonify({'error': str(e)}), 500
 
 # -------------------------------------------------------------------
-# Livestock (admin only)
+# Livestock (admin only) - Paginated
 # -------------------------------------------------------------------
 @admin_bp.route('/livestock', methods=['GET'])
 @jwt_required()
 @admin_required
 def get_all_livestock():
     try:
-        livestock = Livestock.query.options(
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+
+        # Base query with eager loading
+        base_query = Livestock.query.options(
             selectinload(Livestock.client),
             selectinload(Livestock.loan),
             selectinload(Livestock.investor)
-        ).filter_by(status='active').all()
+        ).filter_by(status='active')
+
+        # Paginate
+        pagination = base_query.paginate(page=page, per_page=per_page, error_out=False)
+        livestock_items = pagination.items
+
         livestock_data = []
         today = datetime.now().date()
-        for item in livestock:
+
+        for item in livestock_items:
             description = item.description or 'Available for purchase'
             actual_location = item.location or 'Isinya, Kajiado'
             ownership_type = item.ownership_type or 'company'
             investor_name = None
             if item.investor:
                 investor_name = item.investor.name
+
             if item.client_id is None:
                 available_info = 'Available now'
                 days_remaining = 0
@@ -334,7 +345,7 @@ def get_all_livestock():
                 if not client_loan:
                     client_loan = Loan.query.filter_by(livestock_id=item.id, status='active').first()
                 if not client_loan:
-                    continue
+                    continue  # skip if no active loan (should not happen for client-owned)
                 client_name = item.client.full_name if item.client else 'Unknown'
                 description = f"Collateral for {client_name}'s loan"
                 is_admin_added = False
@@ -355,6 +366,7 @@ def get_all_livestock():
                 else:
                     available_info = 'Available after loan repayment'
                     days_remaining = 7
+
             livestock_data.append({
                 'id': item.id,
                 'title': f"{item.livestock_type.capitalize()} - {item.count} head",
@@ -371,13 +383,20 @@ def get_all_livestock():
                 'ownership_type': ownership_type,
                 'investor_name': investor_name
             })
-        return jsonify(livestock_data), 200
+
+        return jsonify({
+            'items': livestock_data,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': page,
+            'per_page': per_page
+        }), 200
+
     except Exception as e:
         print(f"Livestock error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
 # -------------------------------------------------------------------
 # Public livestock gallery (allows any origin)
 # -------------------------------------------------------------------

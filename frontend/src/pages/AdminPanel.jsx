@@ -12,7 +12,7 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt,  generateProposalPDF  } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF   } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 
@@ -22,6 +22,7 @@ function AdminPanel() {
   const location = useLocation()
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  
   
   const [dashboardData, setDashboardData] = useState({
     total_clients: 0,
@@ -98,6 +99,11 @@ function AdminPanel() {
   const [clientsLoading, setClientsLoading] = useState(false)
   const [transactionsLoading, setTransactionsLoading] = useState(false)
 
+  //livestock pagination state- (admin gallery)
+  const [livestockPage, setLivestockPage] = useState(1);
+  const [livestockTotalPages, setLivestockTotalPages] = useState(1);
+  const [livestockHasMore, setLivestockHasMore] = useState(false);
+
   // Data state variables 
   const [livestock, setLivestock] = useState([])
   const [applications, setApplications] = useState([])
@@ -166,6 +172,7 @@ function AdminPanel() {
       fetchInvestorTransactions();
     }
   }, [isInvestorSectionAuthenticated, activeSection]);
+
 
   useEffect(() => {
     // Close sidebar when investor login modal opens on mobile
@@ -1336,7 +1343,7 @@ const generateTemporaryPassword = (name, id) => {
 
             // Then load heavier datasets with delay
             setTimeout(() => {
-              fetchLivestock()
+              fetchLivestock(1, false)
               fetchApprovedLoans()
               fetchTransactions()
             }, 1000)
@@ -1354,6 +1361,7 @@ const generateTemporaryPassword = (name, id) => {
 
     initializeData()
   }, [isAuthenticated])
+  
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -1386,35 +1394,46 @@ const generateTemporaryPassword = (name, id) => {
     } finally {
       setLoading(false)
     }
-  }, [navigate])
+  }, [navigate])  
 
-  const fetchLivestock = useCallback(async () => {
-    setLivestockLoading(true)
+  const fetchLivestock = useCallback(async (page = 1, append = false) => {
+    setLivestockLoading(true);
     try {
-      console.log("Fetching livestock...")
-      const response = await adminAPI.getLivestock()
-      console.log("Livestock response:", response.data)
-      
-      // Ensure it's always an array
-      const data = Array.isArray(response.data) ? response.data : []
-      setLivestock(data)
-    } catch (error) {
-      console.error("Failed to fetch livestock:", error)
-      if (error.response?.status === 401) {
-        navigate("/admin/login")
-        return
+      console.log(`Fetching livestock page ${page}...`);
+      const response = await adminAPI.getLivestock(page, 10); // we need to modify adminAPI to accept page param
+      console.log("Livestock response:", response.data);
+
+      const { items, total, pages, current_page } = response.data;
+      setLivestockTotalPages(pages);
+      setLivestockHasMore(current_page < pages);
+
+      if (append) {
+        setLivestock(prev => [...prev, ...items]);
+      } else {
+        setLivestock(items);
       }
-      // Always set empty array on error to prevent .map() crashes
-      setLivestock([])
-      
-      // Only show toast if no data loaded yet
+    } catch (error) {
+      console.error("Failed to fetch livestock:", error);
+      if (error.response?.status === 401) {
+        navigate("/admin/login");
+        return;
+      }
+      setLivestock([]);
       if (livestock.length === 0) {
         showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message));
       }
     } finally {
-      setLivestockLoading(false)
+      setLivestockLoading(false);
     }
-  }, [navigate, livestock.length])  // Note: Remove livestock.length from deps if causing infinite loops
+  }, [navigate, livestock.length]);
+
+// Livestock gallery section use effect
+  useEffect(() => {
+    if (activeSection === 'gallery') {
+      setLivestockPage(1);
+      fetchLivestock(1, false);
+    }
+  }, [activeSection, fetchLivestock]);
 
   const fetchApplications = useCallback(async () => {
     setApplicationsLoading(true)
@@ -2325,6 +2344,25 @@ Thank you for choosing us.`;
                   </button>
                 </div>               */}
 
+                {/* ===== TEMPORARY MANUAL LOAN AGREEMENT DOWNLOAD BUTTON ===== */}
+                {/* <div className="mb-4 text-center">
+                  <button
+                    className="btn btn-outline-primary btn-lg"
+                    onClick={async () => {
+                      try {
+                        await generateManualLoanAgreementPDF();
+                        showToast.success("Manual loan agreement downloaded successfully!");
+                      } catch (error) {
+                        console.error("Error generating manual agreement:", error);
+                        showToast.error("Failed to download manual agreement");
+                      }
+                    }}
+                  >
+                    <i className="fas fa-file-pdf me-2"></i>
+                    📄 Download Manual Loan Agreement Form
+                  </button>
+                </div> */}
+                  
                 {loading ? (
                   <div className="text-center py-5">
                     <div className="spinner-border text-primary" role="status">
@@ -2757,69 +2795,90 @@ Thank you for choosing us.`;
                         </div>
                       </div>
                     ) : (
-                      <div className="row" id="adminGallery">
-                        {livestock.map((item) => (
-                          <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4">
-                            <div className="card gallery-card h-100">
-                              {/* Image Carousel */}
-                              <ImageCarousel images={item.images} title={item.title} />
-
-                              <div className="card-body d-flex flex-column">
-                                <h5 className="card-title">{item.title}</h5>
-                                <p className="card-text flex-grow-1">{item.description}</p>
-                                <div className="d-flex justify-content-between align-items-center mb-2">
-                                  <span className="h6 text-primary">{formatCurrency(item.price)}</span>
-                                  <span className={`badge ${
-                                    item.daysRemaining > 1 ? 'bg-warning' : 
-                                    item.daysRemaining === 1 ? 'bg-info' : 
-                                    'bg-success'
-                                  }`}>
-                                    {item.availableInfo}
-                                  </span>
-                                </div>
-                                
-                                {/* Add ownership display */}
-                                {item.ownership_type === 'investor' && item.investor_name && (
-                                  <small className="text-muted mb-2">
-                                    <i className="fas fa-user-tie me-1"></i>Owned by Investor: {item.investor_name}
-                                  </small>
-                                )}
-                                {item.ownership_type === 'company' && !item.isAdminAdded && (
-                                  <small className="text-muted mb-2">
-                                    <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral (Company Owned)
-                                  </small>
-                                )}
-                                {item.isAdminAdded && (
-                                  <small className="text-muted mb-2">
-                                    <i className="fas fa-user-tie me-1"></i>Admin Added
-                                  </small>
-                                )}
-
-                                <div className="mt-auto">
-                                  <button 
-                                    className="btn btn-sm btn-outline-primary me-2"
-                                    onClick={() => handleEditLivestock(item)}
-                                  >
-                                    <i className="fas fa-edit"></i> Edit
-                                  </button>
-                                  <button 
-                                    className="btn btn-sm btn-outline-info me-2"  // NEW: Share button
-                                    onClick={() => openShareModal(item)}
-                                  >
-                                    <i className="fas fa-share-alt"></i> Share
-                                  </button>
-                                  <button 
-                                    className="btn btn-sm btn-outline-danger"
-                                    onClick={() => confirmDeleteLivestock(item.id)}
-                                  >
-                                    <i className="fas fa-trash"></i> Delete
-                                  </button>
+                      <>
+                        <div className="row" id="adminGallery">
+                          {livestock.map((item) => (
+                            <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4">
+                              <div className="card gallery-card h-100">
+                                <ImageCarousel images={item.images} title={item.title} />
+                                <div className="card-body d-flex flex-column">
+                                  <h5 className="card-title">{item.title}</h5>
+                                  <p className="card-text flex-grow-1">{item.description}</p>
+                                  <div className="d-flex justify-content-between align-items-center mb-2">
+                                    <span className="h6 text-primary">{formatCurrency(item.price)}</span>
+                                    <span className={`badge ${
+                                      item.daysRemaining > 1 ? 'bg-warning' : 
+                                      item.daysRemaining === 1 ? 'bg-info' : 
+                                      'bg-success'
+                                    }`}>
+                                      {item.availableInfo}
+                                    </span>
+                                  </div>
+                                  {item.ownership_type === 'investor' && item.investor_name && (
+                                    <small className="text-muted mb-2">
+                                      <i className="fas fa-user-tie me-1"></i>Owned by Investor: {item.investor_name}
+                                    </small>
+                                  )}
+                                  {item.ownership_type === 'company' && !item.isAdminAdded && (
+                                    <small className="text-muted mb-2">
+                                      <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral (Company Owned)
+                                    </small>
+                                  )}
+                                  {item.isAdminAdded && (
+                                    <small className="text-muted mb-2">
+                                      <i className="fas fa-user-tie me-1"></i>Admin Added
+                                    </small>
+                                  )}
+                                  <div className="mt-auto">
+                                    <button 
+                                      className="btn btn-sm btn-outline-primary me-2"
+                                      onClick={() => handleEditLivestock(item)}
+                                    >
+                                      <i className="fas fa-edit"></i> Edit
+                                    </button>
+                                    <button 
+                                      className="btn btn-sm btn-outline-info me-2"
+                                      onClick={() => openShareModal(item)}
+                                    >
+                                      <i className="fas fa-share-alt"></i> Share
+                                    </button>
+                                    <button 
+                                      className="btn btn-sm btn-outline-danger"
+                                      onClick={() => confirmDeleteLivestock(item.id)}
+                                    >
+                                      <i className="fas fa-trash"></i> Delete
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
+                          ))}
+                        </div>
+                        
+                        {/* Load More Button */}
+                        {livestockHasMore && (
+                          <div className="text-center mt-4">
+                            <button
+                              className="btn btn-outline-primary"
+                              onClick={() => {
+                                const nextPage = livestockPage + 1;
+                                setLivestockPage(nextPage);
+                                fetchLivestock(nextPage, true);
+                              }}
+                              disabled={livestockLoading}
+                            >
+                              {livestockLoading ? (
+                                <>
+                                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                  Loading...
+                                </>
+                              ) : (
+                                'Load More'
+                              )}
+                            </button>
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
                     )}
                   </>
                 )}
@@ -3045,12 +3104,31 @@ Thank you for choosing us.`;
                                       header: "Actions",
                                       render: (row) => (
                                         <div className="btn-group btn-group-sm">
+                                          {/* =========NEXT OF KIN CONSENT FORM BUTTON(WITHOUT STAMP)============= */}
                                           {/* <button 
                                             className="btn btn-outline-warning" 
                                             onClick={async (e) => {
                                               e.stopPropagation();
                                               try {
                                                 await generateNextOfKinConsentPDF(row);
+                                                showToast.success("Next of Kin consent form downloaded!");
+                                              } catch (error) {
+                                                console.error("Error generating next of kin consent:", error);
+                                                showToast.error("Failed to download next of kin consent form");
+                                              }
+                                            }}
+                                            title="Download Next of Kin Consent"
+                                          >
+                                            <i className="fas fa-user-friends"></i>
+                                          </button> */}
+                                          
+                                          {/* =========NEXT OF KIN MANUAL FORM BUTTON(WITH STAMP DIGITAL)============= */}
+                                          {/* <button 
+                                            className="btn btn-outline-warning" 
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              try {
+                                                await generateManualNextOfKinConsentPDF(row);
                                                 showToast.success("Next of Kin consent form downloaded!");
                                               } catch (error) {
                                                 console.error("Error generating next of kin consent:", error);
