@@ -26,6 +26,10 @@ function Home() {
   const [livestockLoading, setLivestockLoading] = useState(true);
   const [livestockError, setLivestockError] = useState(false);
 
+  const [livestockPage, setLivestockPage] = useState(1);
+  const [livestockHasMore, setLivestockHasMore] = useState(false);
+  const [livestockTotalPages, setLivestockTotalPages] = useState(1);
+
   // image clicks handler
   const handleImageClick = (livestock, imageIndex = 0) => {
     setSelectedLivestockItem(livestock);
@@ -211,25 +215,33 @@ function Home() {
     }
   }
 
-  const fetchLivestock = async () => {
+  const fetchLivestock = async (page = 1, append = false) => {
     try {
       setLivestockLoading(true);
       setLivestockError(false);
-      console.log('Fetching livestock gallery...');
-      const response = await adminAPI.getLivestockGallery();
+      console.log(`Fetching livestock gallery page ${page}...`);
+      const response = await adminAPI.getPublicLivestockGallery(page, 12);
 
       console.log('Full API response:', response);
       console.log('Response data:', response.data);
 
-      // Check if response has items
       if (response.data && response.data.items) {
         console.log('Items count:', response.data.items.length);
         console.log('Livestock items:', response.data.items);
-        setLivestock(response.data.items);
+
+        setLivestockTotalPages(response.data.pages);
+        setLivestockHasMore(page < response.data.pages);
+
+        if (append) {
+          setLivestock(prev => [...prev, ...response.data.items]);
+        } else {
+          setLivestock(response.data.items);
+        }
       } else if (Array.isArray(response.data)) {
-        // If the response is directly an array (fallback)
+        // Fallback if the API changes (unlikely)
         console.log('Direct array response, items count:', response.data.length);
         setLivestock(response.data);
+        setLivestockHasMore(false); // no pagination info, assume no more
       } else {
         console.error('Unexpected response format:', response.data);
         setLivestock([]);
@@ -246,9 +258,9 @@ function Home() {
     }
   };
 
-  // Add useEffect to fetch livestock on component mount
+  //useEffect to fetch livestock on component mount
   useEffect(() => {
-    fetchLivestock();
+    fetchLivestock(1, false);
   }, []);
 
   const formatCurrency = (amount) => {
@@ -684,7 +696,7 @@ function Home() {
         </div>
       </section>
 
-      {/* Livestock Gallery in */}
+      {/* Livestock Gallery */}
       <section id="gallery" className="py-5">
         <div className="container">
           <div className="text-center mb-5">
@@ -714,51 +726,77 @@ function Home() {
               </div>
             </div>
           ) : (
-            <div className="row" id="livestock-gallery">
-              {livestock.map((item) => (
-                <div key={item.id} className="col-md-4 mb-4" data-livestock-id={item.id}>
-                  <div className="card h-100">
-                    <ImageCarousel 
-                      images={item.images} 
-                      title={item.title}
-                      height="200px"
-                      onImageClick={(index) => handleImageClick(item, index)} 
-                    />
-
-                    <div className="card-body d-flex flex-column">
-                      <h5 className="card-title">{item.title}</h5>
-                      <p className="card-text flex-grow-1 livestock-description">{item.description || 'Available for purchase'}</p>
-                      <div className="d-flex justify-content-between align-items-center mb-2">
-                        <span className="h5 text-primary">{formatCurrency(item.price)}</span>
-                        <span className={`badge ${
-                          item.daysRemaining > 1 ? 'bg-warning' : 
-                          item.daysRemaining === 1 ? 'bg-info' : 
-                          'bg-success'
-                        }`}>
-                          {item.availableInfo}
-                        </span>
+            <>
+              <div className="row" id="livestock-gallery">
+                {livestock.map((item) => (
+                  <div key={item.id} className="col-md-4 mb-4" data-livestock-id={item.id}>
+                    <div className="card h-100">
+                      <ImageCarousel 
+                        images={item.images} 
+                        title={item.title}
+                        height="200px"
+                        onImageClick={(index) => handleImageClick(item, index)} 
+                      />
+      
+                      <div className="card-body d-flex flex-column">
+                        <h5 className="card-title">{item.title}</h5>
+                        <p className="card-text flex-grow-1 livestock-description">{item.description || 'Available for purchase'}</p>
+                        <div className="d-flex justify-content-between align-items-center mb-2">
+                          <span className="h5 text-primary">{formatCurrency(item.price)}</span>
+                          <span className={`badge ${
+                            item.daysRemaining > 1 ? 'bg-warning' : 
+                            item.daysRemaining === 1 ? 'bg-info' : 
+                            'bg-success'
+                          }`}>
+                            {item.availableInfo}
+                          </span>
+                        </div>
+                        <button 
+                          className="btn btn-primary mt-auto"
+                          onClick={() => {
+                            const message = `Hello team, I am interested in the ${item.title} going for ${formatCurrency(item.price)}. Could you kindly provide more information regarding its availability and purchase process?`
+                            const encodedMessage = encodeURIComponent(message)
+                            window.open(`https://wa.me/254721451707?text=${encodedMessage}`, '_blank')
+                          }}
+                        >
+                          <i className="fab fa-whatsapp me-2"></i>Inquire on WhatsApp
+                        </button>
                       </div>
-                      <button 
-                        className="btn btn-primary mt-auto"
-                        onClick={() => {
-                          const message = `Hello team, I am interested in the ${item.title} going for ${formatCurrency(item.price)}. Could you kindly provide more information regarding its availability and purchase process?`
-                          const encodedMessage = encodeURIComponent(message)
-                          window.open(`https://wa.me/254721451707?text=${encodedMessage}`, '_blank')
-                        }}
-                      >
-                        <i className="fab fa-whatsapp me-2"></i>Inquire on WhatsApp
-                      </button>
-                    </div>
-                    <div className="card-footer">
-                      <small className="text-muted livestock-location">
-                        <i className="fas fa-map-marker-alt me-1"></i>
-                        {item.location || 'Isinya, Kajiado'}
-                      </small>
+                      <div className="card-footer">
+                        <small className="text-muted livestock-location">
+                          <i className="fas fa-map-marker-alt me-1"></i>
+                          {item.location || 'Isinya, Kajiado'}
+                        </small>
+                      </div>
                     </div>
                   </div>
+                ))}
+              </div>
+              
+              {/* Load More Button */}
+              {livestockHasMore && (
+                <div className="text-center mt-4">
+                  <button
+                    className="btn btn-outline-primary"
+                    onClick={() => {
+                      const nextPage = livestockPage + 1;
+                      setLivestockPage(nextPage);
+                      fetchLivestock(nextPage, true);
+                    }}
+                    disabled={livestockLoading}
+                  >
+                    {livestockLoading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        Loading...
+                      </>
+                    ) : (
+                      'Load More'
+                    )}
+                  </button>
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -812,8 +850,8 @@ function Home() {
                 </div>
                 <div className="contact-item mb-3">
                   <i className="fas fa-envelope me-3"></i>
-                  <a href="mailto:nagolie7@gmail.com" className="text-white text-decoration-none">
-                    nagolie7@gmail.com
+                  <a href="mailto:nagolieenterprises@gmail.com" className="text-white text-decoration-none">
+                    nagolieenterprises@gmail.com
                   </a>
                 </div>
                 <div className="contact-item mb-3">
