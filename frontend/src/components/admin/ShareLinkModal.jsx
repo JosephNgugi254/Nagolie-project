@@ -6,11 +6,11 @@ import Toast,{ showToast } from "../common/Toast";
 // Company constants (same as in ReceiptPDF.js)
 const COMPANY_INFO = {
   name: 'NAGOLIE ENTERPRISES LTD',
-  tagline: 'Giving livestock farmers another chance',
+  tagline: 'Investing in Living Assets',
   address: 'Target - Isinya, Kajiado County, Kenya',
   phone1: '+254 721 451 707',
   phone2: '+254 763 003 182',
-  email: 'nagolie7@gmail.com',
+  email: 'nagolieenterprises@gmail.com',
   hours: 'Everyday: 8:00 AM - 6:00 PM',
   poBox: 'P.O BOX 359-01100',
   logoUrl: '/logo.png'

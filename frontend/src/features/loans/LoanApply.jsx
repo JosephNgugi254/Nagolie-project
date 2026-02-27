@@ -4,32 +4,31 @@ import { useState } from "react"
 import FormInput from "../../components/common/FormInput"
 import Button from "../../components/common/Button"
 import TermsModal from "../../components/common/TermsModal"
+import imageCompression from 'browser-image-compression'
 
 function LoanApply({ onSubmit }) {
   const [formData, setFormData] = useState({
     fullName: "",
     phoneNumber: "",
     idNumber: "",
-    email: "", // ADDED: Missing email field
+    email: "",
     loanAmount: "",
     livestockType: "",
-    count: "", // CHANGED: from livestockCount to count (matches backend)
+    count: "",
     estimatedValue: "",
-    location: "", // CHANGED: from livestockLocation to location (matches backend)
-    notes: "", // CHANGED: from additionalInfo to notes (matches backend)
+    location: "",
+    notes: "",
     agreeTerms: false,
   })
 
-  const [photos, setPhotos] = useState([]) // CHANGED: from livestockPhotos to photos
-
+  const [photos, setPhotos] = useState([])
   const [showTermsModal, setShowTermsModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
-  // Mobile-responsive select style helper
   const getSelectStyle = () => ({
     width: '100%',
-    fontSize: window.innerWidth < 768 ? '14px' : '16px', // Smaller font on mobile
-    padding: window.innerWidth < 768 ? '8px 36px 8px 8px' : '12px 40px 12px 12px', // Reduced padding on mobile
+    fontSize: window.innerWidth < 768 ? '14px' : '16px',
+    padding: window.innerWidth < 768 ? '8px 36px 8px 8px' : '12px 40px 12px 12px',
     borderRadius: '8px',
     backgroundColor: 'white',
     border: '1px solid #ddd',
@@ -38,9 +37,9 @@ function LoanApply({ onSubmit }) {
     MozAppearance: 'none',
     backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
     backgroundRepeat: 'no-repeat',
-    backgroundPosition: window.innerWidth < 768 ? 'right 8px center' : 'right 12px center', // Adjust arrow position
-    backgroundSize: window.innerWidth < 768 ? '12px' : '16px', // Smaller arrow on mobile
-  });
+    backgroundPosition: window.innerWidth < 768 ? 'right 8px center' : 'right 12px center',
+    backgroundSize: window.innerWidth < 768 ? '12px' : '16px',
+  })
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -50,25 +49,35 @@ function LoanApply({ onSubmit }) {
     })
   }
 
-  // FIXED: Convert files to base64 for backend
   const handleFileChange = async (e) => {
     const files = Array.from(e.target.files)
+    if (files.length === 0) return
     setUploading(true)
-    
+
     try {
-      const photoPromises = files.map(file => {
+      const options = {
+        maxSizeMB: 1,          // max 1MB per image
+        maxWidthOrHeight: 1024, // resize to max 1024px
+        useWebWorker: true,
+      }
+
+      const compressedFiles = await Promise.all(
+        files.map(file => imageCompression(file, options))
+      )
+
+      const photoPromises = compressedFiles.map(file => {
         return new Promise((resolve) => {
           const reader = new FileReader()
           reader.onload = (e) => resolve(e.target.result)
           reader.readAsDataURL(file)
         })
       })
-      
+
       const base64Photos = await Promise.all(photoPromises)
       setPhotos(base64Photos)
-      console.log("Converted photos to base64:", base64Photos.length)
+      console.log("Compressed and converted photos to base64:", base64Photos.length)
     } catch (error) {
-      console.error("Error converting photos:", error)
+      console.error("Error processing photos:", error)
       alert("Error uploading photos. Please try again.")
     } finally {
       setUploading(false)
@@ -76,16 +85,16 @@ function LoanApply({ onSubmit }) {
   }
 
   const handleSubmit = (e) => {
-    e.preventDefault();
+    e.preventDefault()
 
     if (!formData.agreeTerms) {
-      alert("Please agree to the terms and conditions before submitting your application.");
-      return;
+      alert("Please agree to the terms and conditions before submitting your application.")
+      return
     }
 
     if (photos.length === 0) {
-      alert("Please upload at least one photo of your livestock.");
-      return;
+      alert("Please upload at least one photo of your livestock.")
+      return
     }
 
     const submissionData = {
@@ -100,14 +109,12 @@ function LoanApply({ onSubmit }) {
       location: formData.location,
       notes: formData.notes,
       photos: photos,
-    };
+    }
 
-    console.log("Submitting data:", submissionData);
+    console.log("Submitting data:", submissionData)
 
-    // Call parent submit function
-    onSubmit(submissionData);
+    onSubmit(submissionData)
 
-    // ✅ Reset the form after successful submission
     setFormData({
       fullName: "",
       phoneNumber: "",
@@ -120,13 +127,9 @@ function LoanApply({ onSubmit }) {
       location: "",
       notes: "",
       agreeTerms: false,
-    });
-
-    // Clear photo uploads
-    setPhotos([]);  
-   
-  };
-
+    })
+    setPhotos([])
+  }
 
   return (
     <>
@@ -164,7 +167,6 @@ function LoanApply({ onSubmit }) {
             />
           </div>
           <div className="col-md-6">
-            {/* ADDED: Email field */}
             <FormInput
               label="Email Address"
               name="email"
@@ -215,7 +217,6 @@ function LoanApply({ onSubmit }) {
 
         <div className="row">
           <div className="col-md-6">
-            {/* CHANGED: name from livestockCount to count */}
             <FormInput
               label="Number of Livestock"
               name="count"
@@ -241,7 +242,6 @@ function LoanApply({ onSubmit }) {
         </div>
 
         <div className="mb-3">
-          {/* CHANGED: name from livestockLocation to location */}
           <label htmlFor="location" className="form-label">
             Location <span className="text-danger">*</span>
           </label>
@@ -272,7 +272,7 @@ function LoanApply({ onSubmit }) {
             required
           />
           <small className="form-text text-muted">
-            {uploading ? "Uploading photos..." : `Upload clear photos of your livestock (${photos.length} photos selected)`}
+            {uploading ? "Compressing and uploading photos..." : `Upload clear photos of your livestock (${photos.length} photos selected)`}
           </small>
           {photos.length > 0 && (
             <div className="mt-2">
@@ -332,7 +332,7 @@ function LoanApply({ onSubmit }) {
             className="px-5"
             disabled={uploading}
           >
-            {uploading ? "Uploading..." : "Submit Application"}
+            {uploading ? "Processing..." : "Submit Application"}
           </Button>
         </div>
       </form>

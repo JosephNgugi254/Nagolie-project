@@ -565,6 +565,47 @@ def get_all_transactions():
 # -------------------------------------------------------------------
 # Add livestock (admin only)
 # -------------------------------------------------------------------
+# @admin_bp.route('/livestock', methods=['POST'])
+# @jwt_required()
+# @admin_required
+# def add_livestock():
+#     try:
+#         data = request.json
+#         description = data.get('description', '').strip()
+#         if not description:
+#             livestock_type = data.get('type', '').capitalize()
+#             count = data.get('count', 1)
+#             description = generate_livestock_description(livestock_type, count)
+#         livestock = Livestock(
+#             client_id=None,
+#             livestock_type=data['type'],
+#             count=data['count'],
+#             estimated_value=Decimal(str(data['price'])),
+#             description=description,
+#             location=data.get('location', 'Isinya, Kajiado'),
+#             photos=data.get('images', []),
+#             status='active'
+#         )
+#         db.session.add(livestock)
+#         db.session.commit()
+#         log_audit('livestock_added', 'livestock', livestock.id, {
+#             'type': livestock.livestock_type,
+#             'count': livestock.count,
+#             'description': livestock.description,
+#             'location': livestock.location
+#         })
+#         return jsonify({
+#             'success': True,
+#             'message': 'Livestock added successfully',
+#             'livestock': livestock.to_dict()
+#         }), 201
+#     except Exception as e:
+#         db.session.rollback()
+#         print(f"Error adding livestock: {str(e)}")
+#         return jsonify({'error': str(e)}), 500
+
+
+#new add livestock with cloudinary 
 @admin_bp.route('/livestock', methods=['POST'])
 @jwt_required()
 @admin_required
@@ -576,6 +617,20 @@ def add_livestock():
             livestock_type = data.get('type', '').capitalize()
             count = data.get('count', 1)
             description = generate_livestock_description(livestock_type, count)
+
+        # Upload images to Cloudinary
+        image_urls = []
+        if data.get('images'):
+            from app.utils.cloudinary_upload import upload_base64_image
+            for img in data['images']:
+                try:
+                    url = upload_base64_image(img, folder='livestock')
+                    image_urls.append(url)
+                except Exception as e:
+                    print(f"Failed to upload image: {str(e)}")
+                    # Continue with other images, or return error if you prefer
+                    continue
+
         livestock = Livestock(
             client_id=None,
             livestock_type=data['type'],
@@ -583,17 +638,19 @@ def add_livestock():
             estimated_value=Decimal(str(data['price'])),
             description=description,
             location=data.get('location', 'Isinya, Kajiado'),
-            photos=data.get('images', []),
+            photos=image_urls,          # Store URLs, not base64
             status='active'
         )
         db.session.add(livestock)
         db.session.commit()
+
         log_audit('livestock_added', 'livestock', livestock.id, {
             'type': livestock.livestock_type,
             'count': livestock.count,
             'description': livestock.description,
             'location': livestock.location
         })
+
         return jsonify({
             'success': True,
             'message': 'Livestock added successfully',
@@ -607,6 +664,44 @@ def add_livestock():
 # -------------------------------------------------------------------
 # Update livestock
 # -------------------------------------------------------------------
+# @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
+# @jwt_required()
+# @admin_required
+# def update_livestock(livestock_id):
+#     try:
+#         livestock = db.session.get(Livestock, livestock_id)
+#         if not livestock:
+#             return jsonify({'error': 'Livestock not found'}), 404
+#         data = request.json
+#         if 'type' in data:
+#             livestock.livestock_type = data['type']
+#         if 'count' in data:
+#             livestock.count = data['count']
+#         if 'price' in data:
+#             livestock.estimated_value = Decimal(str(data['price']))
+#         if 'description' in data:
+#             livestock.description = data['description'].strip()
+#         if 'location' in data:
+#             livestock.location = data['location'].strip()
+#         if 'images' in data:
+#             livestock.photos = data['images']
+#         db.session.commit()
+#         log_audit('livestock_updated', 'livestock', livestock.id, {
+#             'type': livestock.livestock_type,
+#             'count': livestock.count,
+#             'description': livestock.description,
+#             'location': livestock.location
+#         })
+#         return jsonify({
+#             'success': True,
+#             'message': 'Livestock updated successfully',
+#             'livestock': livestock.to_dict()
+#         }), 200
+#     except Exception as e:
+#         db.session.rollback()
+#         print(f"Error updating livestock: {str(e)}")
+#         return jsonify({'error': str(e)}), 500
+
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
 @jwt_required()
 @admin_required
@@ -615,7 +710,9 @@ def update_livestock(livestock_id):
         livestock = db.session.get(Livestock, livestock_id)
         if not livestock:
             return jsonify({'error': 'Livestock not found'}), 404
+
         data = request.json
+
         if 'type' in data:
             livestock.livestock_type = data['type']
         if 'count' in data:
@@ -626,15 +723,35 @@ def update_livestock(livestock_id):
             livestock.description = data['description'].strip()
         if 'location' in data:
             livestock.location = data['location'].strip()
+
+        # Handle images
         if 'images' in data:
-            livestock.photos = data['images']
+            image_urls = []
+            from app.utils.cloudinary_upload import upload_base64_image
+            for img in data['images']:
+                # If it's already a URL (starts with http), keep it
+                if isinstance(img, str) and (img.startswith('http://') or img.startswith('https://')):
+                    image_urls.append(img)
+                else:
+                    # Assume it's a base64 string, upload to Cloudinary
+                    try:
+                        url = upload_base64_image(img, folder='livestock')
+                        image_urls.append(url)
+                    except Exception as e:
+                        print(f"Failed to upload image during update: {str(e)}")
+                        # Optionally skip this image
+                        continue
+            livestock.photos = image_urls
+
         db.session.commit()
+
         log_audit('livestock_updated', 'livestock', livestock.id, {
             'type': livestock.livestock_type,
             'count': livestock.count,
             'description': livestock.description,
             'location': livestock.location
         })
+
         return jsonify({
             'success': True,
             'message': 'Livestock updated successfully',

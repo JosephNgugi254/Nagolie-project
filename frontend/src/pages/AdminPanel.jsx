@@ -15,6 +15,7 @@ import Toast, { showToast } from "../components/common/Toast"
 import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF   } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
+import imageCompression from 'browser-image-compression'
 
 function AdminPanel() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth()
@@ -22,6 +23,7 @@ function AdminPanel() {
   const location = useLocation()
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [imageUploading, setImageUploading] = useState(false);
   
   
   const [dashboardData, setDashboardData] = useState({
@@ -1397,35 +1399,34 @@ const generateTemporaryPassword = (name, id) => {
   }, [navigate])  
 
   const fetchLivestock = useCallback(async (page = 1, append = false) => {
-    setLivestockLoading(true);
-    try {
-      console.log(`Fetching livestock page ${page}...`);
-      const response = await adminAPI.getLivestock(page, 10); // we need to modify adminAPI to accept page param
-      console.log("Livestock response:", response.data);
+  setLivestockLoading(true);
+  try {
+    console.log(`Fetching livestock page ${page}...`);
+    const response = await adminAPI.getLivestock(page, 10);
+    console.log("Livestock response:", response.data);
 
-      const { items, total, pages, current_page } = response.data;
-      setLivestockTotalPages(pages);
-      setLivestockHasMore(current_page < pages);
+    const { items, total, pages, current_page } = response.data;
+    setLivestockTotalPages(pages);
+    setLivestockHasMore(current_page < pages);
 
-      if (append) {
-        setLivestock(prev => [...prev, ...items]);
-      } else {
-        setLivestock(items);
-      }
-    } catch (error) {
-      console.error("Failed to fetch livestock:", error);
-      if (error.response?.status === 401) {
-        navigate("/admin/login");
-        return;
-      }
-      setLivestock([]);
-      if (livestock.length === 0) {
-        showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message));
-      }
-    } finally {
-      setLivestockLoading(false);
+    if (append) {
+      setLivestock(prev => [...prev, ...items]);
+    } else {
+      setLivestock(items);
     }
-  }, [navigate, livestock.length]);
+  } catch (error) {
+    console.error("Failed to fetch livestock:", error);
+    if (error.response?.status === 401) {
+      navigate("/admin/login");
+      return;
+    }
+    setLivestock([]);
+    // Always show error toast when fetch fails
+    showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message));
+  } finally {
+    setLivestockLoading(false);
+  }
+}, [navigate]); 
 
 // Livestock gallery section use effect
   useEffect(() => {
@@ -2168,21 +2169,38 @@ Thank you for choosing us.`;
     }
   };  
 
-  const handleImageUpload = (event) => {
+  const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files)
     if (files.length === 0) return
 
-    const newImages = []
-    files.forEach(file => {
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        newImages.push(e.target.result)
-        if (newImages.length === files.length) {
-          setSelectedImages(prev => [...prev, ...newImages])
-        }
+    setImageUploading(true)
+    try {
+      const options = {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1024,
+        useWebWorker: true,
       }
-      reader.readAsDataURL(file)
-    })
+
+      const compressedFiles = await Promise.all(
+        files.map(file => imageCompression(file, options))
+      )
+
+      const photoPromises = compressedFiles.map(file => {
+        return new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (e) => resolve(e.target.result)
+          reader.readAsDataURL(file)
+        })
+      })
+
+      const newImages = await Promise.all(photoPromises)
+      setSelectedImages(prev => [...prev, ...newImages])
+    } catch (error) {
+      console.error("Error compressing images:", error)
+      showToast.error("Failed to process images")
+    } finally {
+      setImageUploading(false)
+    }
   }
 
   const removeImage = (index) => {

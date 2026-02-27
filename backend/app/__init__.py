@@ -6,6 +6,9 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -40,6 +43,15 @@ def create_app(config_class=Config):
      methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     
     limiter.init_app(app)
+
+
+     # Cloudinary configuration
+    cloudinary.config(
+        cloud_name=app.config['CLOUDINARY_CLOUD_NAME'],
+        api_key=app.config['CLOUDINARY_API_KEY'],
+        api_secret=app.config['CLOUDINARY_API_SECRET'],
+        secure=True
+    )
 
     # Register blueprints
     from app.routes.auth import auth_bp

@@ -179,22 +179,36 @@ def update_loan_status(loan_id):
 def apply_for_loan():
     """Public endpoint for loan applications"""
     data = request.json
-    
+   
     print("Received loan application data:", data)  # Debug log
-    
+   
     # Validate required fields
     required_fields = ['full_name', 'phone_number', 'id_number', 'loan_amount', 'livestock_type']
     for field in required_fields:
         if not data.get(field):
             return jsonify({'error': f'Missing required field: {field}'}), 400
-    
+   
     try:
+        # Upload photos to Cloudinary if provided
+        photo_urls = []
+        if data.get('photos'):
+            from app.utils.cloudinary_upload import upload_base64_image
+            
+            for img in data['photos']:
+                try:
+                    url = upload_base64_image(img, folder='loan_applications')
+                    photo_urls.append(url)
+                except Exception as upload_error:
+                    print(f"Failed to upload one loan photo: {str(upload_error)}")
+                    # Continue with remaining photos instead of failing the whole request
+                    continue
+        
         # Check if client already exists
         client = Client.query.filter_by(id_number=data['id_number']).first()
-
+        
         # Get location from data or use default
         location = data.get('location', 'Isinya, Kajiado')
-        
+       
         if not client:
             # Create new client
             client = Client(
@@ -207,38 +221,38 @@ def apply_for_loan():
             db.session.add(client)
             db.session.flush()
         else:
-            # Update client information
+            # Update existing client information
             client.full_name = data['full_name']
             client.phone_number = data['phone_number']
             client.email = data.get('email', client.email)
             client.location = location
-            
+           
             print(f"Updated existing client: {client.full_name}, ID: {client.id_number}")
             db.session.add(client)
             db.session.flush()
-        
-        # Create livestock record
+       
+        # Create livestock record with Cloudinary URLs
         livestock = Livestock(
             client_id=client.id,
             livestock_type=data['livestock_type'],
             count=data.get('count', 1),
             estimated_value=Decimal(str(data.get('estimated_value', 0))),
             location=location,
-            photos=data.get('photos', [])
+            photos=photo_urls  # Now storing Cloudinary secure URLs
         )
         db.session.add(livestock)
         db.session.flush()
-        
+       
         # Calculate loan details with 30% interest
         principal_amount = Decimal(str(data['loan_amount']))
         interest_rate = Decimal('30.0')  # 30% interest
         interest_amount = principal_amount * (interest_rate / 100)
         total_amount = principal_amount + interest_amount
-        
+       
         # Set due date to 7 days from now
         due_date = datetime.now() + timedelta(days=7)
-        
-        # FIX: Create loan application with ALL required fields initialized
+       
+        # Create loan application
         loan = Loan(
             client_id=client.id,
             livestock_id=livestock.id,
@@ -249,30 +263,31 @@ def apply_for_loan():
             due_date=due_date,
             status='pending',
             notes=data.get('notes', ''),
-            # FIX: Initialize tracking fields to prevent NULL constraint violation
+            # Tracking fields
             current_principal=principal_amount,
             principal_paid=Decimal('0'),
             interest_paid=Decimal('0')
         )
-        
+       
         db.session.add(loan)
         db.session.commit()
-        
+       
         print(f"Loan application created: ID {loan.id}")
         print(f"Client: {client.full_name}, ID: {client.id_number}")
         print(f"Client location: {client.location}")
         print(f"Livestock photos: {livestock.photos}")
         print(f"Loan notes: {loan.notes}")
-        
+       
         return jsonify({
             'success': True,
             'message': 'Loan application submitted successfully',
             'application_id': loan.id,
             'total_amount': float(total_amount),
             'interest_rate': float(interest_rate),
-            'client_name': client.full_name
+            'client_name': client.full_name,
+            'photos_uploaded': len(photo_urls)
         }), 201
-        
+       
     except Exception as e:
         db.session.rollback()
         print(f"Error creating loan application: {str(e)}")
@@ -282,6 +297,114 @@ def apply_for_loan():
             'success': False,
             'error': f'Failed to create loan application: {str(e)}'
         }), 500
+
+# @loans_bp.route('/apply', methods=['POST'])
+# def apply_for_loan():
+#     """Public endpoint for loan applications"""
+#     data = request.json
+    
+#     print("Received loan application data:", data)  # Debug log
+    
+#     # Validate required fields
+#     required_fields = ['full_name', 'phone_number', 'id_number', 'loan_amount', 'livestock_type']
+#     for field in required_fields:
+#         if not data.get(field):
+#             return jsonify({'error': f'Missing required field: {field}'}), 400
+    
+#     try:
+#         # Check if client already exists
+#         client = Client.query.filter_by(id_number=data['id_number']).first()
+
+#         # Get location from data or use default
+#         location = data.get('location', 'Isinya, Kajiado')
+        
+#         if not client:
+#             # Create new client
+#             client = Client(
+#                 full_name=data['full_name'],
+#                 phone_number=data['phone_number'],
+#                 id_number=data['id_number'],
+#                 email=data.get('email', ''),
+#                 location=location
+#             )
+#             db.session.add(client)
+#             db.session.flush()
+#         else:
+#             # Update client information
+#             client.full_name = data['full_name']
+#             client.phone_number = data['phone_number']
+#             client.email = data.get('email', client.email)
+#             client.location = location
+            
+#             print(f"Updated existing client: {client.full_name}, ID: {client.id_number}")
+#             db.session.add(client)
+#             db.session.flush()
+        
+#         # Create livestock record
+#         livestock = Livestock(
+#             client_id=client.id,
+#             livestock_type=data['livestock_type'],
+#             count=data.get('count', 1),
+#             estimated_value=Decimal(str(data.get('estimated_value', 0))),
+#             location=location,
+#             photos=data.get('photos', [])
+#         )
+#         db.session.add(livestock)
+#         db.session.flush()
+        
+#         # Calculate loan details with 30% interest
+#         principal_amount = Decimal(str(data['loan_amount']))
+#         interest_rate = Decimal('30.0')  # 30% interest
+#         interest_amount = principal_amount * (interest_rate / 100)
+#         total_amount = principal_amount + interest_amount
+        
+#         # Set due date to 7 days from now
+#         due_date = datetime.now() + timedelta(days=7)
+        
+#         # FIX: Create loan application with ALL required fields initialized
+#         loan = Loan(
+#             client_id=client.id,
+#             livestock_id=livestock.id,
+#             principal_amount=principal_amount,
+#             interest_rate=interest_rate,
+#             total_amount=total_amount,
+#             balance=total_amount,
+#             due_date=due_date,
+#             status='pending',
+#             notes=data.get('notes', ''),
+#             # FIX: Initialize tracking fields to prevent NULL constraint violation
+#             current_principal=principal_amount,
+#             principal_paid=Decimal('0'),
+#             interest_paid=Decimal('0')
+#         )
+        
+#         db.session.add(loan)
+#         db.session.commit()
+        
+#         print(f"Loan application created: ID {loan.id}")
+#         print(f"Client: {client.full_name}, ID: {client.id_number}")
+#         print(f"Client location: {client.location}")
+#         print(f"Livestock photos: {livestock.photos}")
+#         print(f"Loan notes: {loan.notes}")
+        
+#         return jsonify({
+#             'success': True,
+#             'message': 'Loan application submitted successfully',
+#             'application_id': loan.id,
+#             'total_amount': float(total_amount),
+#             'interest_rate': float(interest_rate),
+#             'client_name': client.full_name
+#         }), 201
+        
+#     except Exception as e:
+#         db.session.rollback()
+#         print(f"Error creating loan application: {str(e)}")
+#         import traceback
+#         traceback.print_exc()
+#         return jsonify({
+#             'success': False,
+#             'error': f'Failed to create loan application: {str(e)}'
+#         }), 500
 
 @loans_bp.route('/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()

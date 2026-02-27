@@ -34,3 +34,15 @@ class Config:
     # Africa's Talking sms configs
     AFRICAS_TALKING_USERNAME = os.getenv('AFRICAS_TALKING_USERNAME', 'sandbox')
     AFRICAS_TALKING_API_KEY = os.getenv('AFRICAS_TALKING_API_KEY', 'your_api_key_here')
+
+    # Rate limiting
+    RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'redis://localhost:6379/0')
+
+    # Celery
+    CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/1')
+    CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1')
+
+    # Cloudinary
+    CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
+    CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
+    CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
