@@ -36,7 +36,7 @@ class Config:
     AFRICAS_TALKING_API_KEY = os.getenv('AFRICAS_TALKING_API_KEY', 'your_api_key_here')
 
     # Rate limiting
-    RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'redis://localhost:6379/0')
+    RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
 
     # Celery
     CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/1')
