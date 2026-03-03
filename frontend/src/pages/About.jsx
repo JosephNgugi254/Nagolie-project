@@ -330,10 +330,10 @@ function About() {
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="/robert.jpeg" alt="Livestock Valuer Emarti" className="img-fluid" />
+                  <img src="/kalama-valuer-emarti.jpeg" alt="Livestock Valuer Emarti" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
-                      <a href="" className="social-link">
+                      <a href="https://wa.me/+254711744388" className="social-link">
                         <i className="fab fa-whatsapp"></i>
                       </a>
                       <a href="" className="social-link"> 

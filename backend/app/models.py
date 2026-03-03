@@ -123,6 +123,8 @@ class Loan(db.Model):
     total_amount = db.Column(db.Numeric(10, 2), nullable=False)
     amount_paid = db.Column(db.Numeric(10, 2), default=0)
     balance = db.Column(db.Numeric(10, 2), nullable=False)
+    # NEW: Track total accrued interest over life of loan (simple, no compounding)
+    accrued_interest = db.Column(db.Numeric(10, 2), default=0, nullable=False)
 
     # NEW: Track funding source
     funding_source = db.Column(db.String(20), default='company')  # 'company' or 'investor'
@@ -156,6 +158,7 @@ class Loan(db.Model):
                 'total_amount': float(self.total_amount),
                 'amount_paid': float(self.amount_paid),
                 'balance': float(self.balance),
+                'accrued_interest': float(self.accrued_interest),
                 'funding_source': self.funding_source,
                 'investor_id': self.investor_id,
                 'investor_name': self.investor.name if self.investor else None,

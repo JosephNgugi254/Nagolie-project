@@ -13,7 +13,7 @@ function LoanApply({ onSubmit }) {
     idNumber: "",
     email: "",
     loanAmount: "",
-    livestockType: "",
+    livestockType: "", // Final value: simple type or combination
     count: "",
     estimatedValue: "",
     location: "",
@@ -21,6 +21,8 @@ function LoanApply({ onSubmit }) {
     agreeTerms: false,
   })
 
+  // New state for main dropdown selection
+  const [mainLivestockType, setMainLivestockType] = useState("")
   const [photos, setPhotos] = useState([])
   const [showTermsModal, setShowTermsModal] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -40,6 +42,27 @@ function LoanApply({ onSubmit }) {
     backgroundPosition: window.innerWidth < 768 ? 'right 8px center' : 'right 12px center',
     backgroundSize: window.innerWidth < 768 ? '12px' : '16px',
   })
+
+  // Handle main dropdown change
+  const handleMainTypeChange = (e) => {
+    const value = e.target.value
+    setMainLivestockType(value)
+
+    if (value !== "other") {
+      // If selecting a simple type, update livestockType to that value
+      setFormData({ ...formData, livestockType: value })
+    } else {
+      // If selecting "other", clear livestockType (user must pick combination)
+      setFormData({ ...formData, livestockType: "" })
+    }
+  }
+
+  // Handle combination selection
+  const handleCombinationChange = (e) => {
+    const value = e.target.value
+    setFormData({ ...formData, livestockType: value })
+    // Keep mainLivestockType as "other" so dropdown stays visible
+  }
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -97,6 +120,12 @@ function LoanApply({ onSubmit }) {
       return
     }
 
+    // Validate that if "other" is selected, a combination must be chosen
+    if (mainLivestockType === "other" && !formData.livestockType) {
+      alert("Please select a livestock combination.")
+      return
+    }
+
     const submissionData = {
       fullName: formData.fullName,
       phoneNumber: formData.phoneNumber,
@@ -115,6 +144,7 @@ function LoanApply({ onSubmit }) {
 
     onSubmit(submissionData)
 
+    // Reset form
     setFormData({
       fullName: "",
       phoneNumber: "",
@@ -128,6 +158,7 @@ function LoanApply({ onSubmit }) {
       notes: "",
       agreeTerms: false,
     })
+    setMainLivestockType("")
     setPhotos([])
   }
 
@@ -193,25 +224,58 @@ function LoanApply({ onSubmit }) {
             />
           </div>
           <div className="col-md-6">
-            <label htmlFor="livestockType" className="form-label">
+            <label htmlFor="mainLivestockType" className="form-label">
               Livestock Type <span className="text-danger">*</span>
             </label>
             <select
               className="form-control"
-              id="livestockType"
-              name="livestockType"
-              value={formData.livestockType}
-              onChange={handleChange}
+              id="mainLivestockType"
+              name="mainLivestockType"
+              value={mainLivestockType}
+              onChange={handleMainTypeChange}
               required
               style={getSelectStyle()}
-              >         
+            >         
               <option value="">Select livestock type</option>
               <option value="cattle">Cattle</option>
               <option value="goats">Goats</option>
               <option value="sheep">Sheep</option>
               <option value="chickens">Chickens</option>
-              <option value="other">Other</option>
+              <option value="other">Other (combination)</option>
             </select>
+
+            {/* Combination dropdown appears when "other" is selected */}
+            {mainLivestockType === "other" && (
+              <div className="mt-3">
+                <label htmlFor="combination" className="form-label">
+                  Select Combination <span className="text-danger">*</span>
+                </label>
+                <select
+                  className="form-control"
+                  id="combination"
+                  value={formData.livestockType}
+                  onChange={handleCombinationChange}
+                  required
+                  style={getSelectStyle()}
+                >
+                  <option value="">-- Choose a combination --</option>
+                  <option value="cattle & sheep">Cattle & Sheep</option>
+                  <option value="cattle & goats">Cattle & Goats</option>
+                  <option value="goats & sheep">Goats & Sheep</option>
+                  <option value="cattle, goats & sheep">Cattle, Goats & Sheep</option>
+                  <option value="cattle & chickens">Cattle & Chickens</option>
+                  <option value="goats & chickens">Goats & Chickens</option>
+                  <option value="sheep & chickens">Sheep & Chickens</option>
+                  <option value="cattle, goats & chickens">Cattle, Goats & Chickens</option>
+                  <option value="goats, sheep & chickens">Goats, Sheep & Chickens</option>
+                  <option value="cattle, sheep & chickens">Cattle, Sheep & Chickens</option>
+                  <option value="cattle, goats, sheep & chickens">All types</option>
+                </select>
+                <small className="form-text text-muted">
+                  Choose the combination that matches your collateral.
+                </small>
+              </div>
+            )}
           </div>
         </div>
 

@@ -232,6 +232,11 @@ def approve_application(loan_id):
         loan.status = 'active'
         loan.disbursement_date = datetime.utcnow()
         loan.due_date = datetime.utcnow() + timedelta(days=7)
+
+        # Added initialization of new interest tracking fields
+        loan.accrued_interest = Decimal('0')
+        loan.last_interest_payment_date = datetime.utcnow()
+
         loan.funding_source = funding_source
         if funding_source == 'investor' and investor:
             loan.investor_id = investor.id
@@ -563,49 +568,8 @@ def get_all_transactions():
         return jsonify({'error': str(e)}), 500
 
 # -------------------------------------------------------------------
-# Add livestock (admin only)
+# Add new livestock with cloudinary
 # -------------------------------------------------------------------
-# @admin_bp.route('/livestock', methods=['POST'])
-# @jwt_required()
-# @admin_required
-# def add_livestock():
-#     try:
-#         data = request.json
-#         description = data.get('description', '').strip()
-#         if not description:
-#             livestock_type = data.get('type', '').capitalize()
-#             count = data.get('count', 1)
-#             description = generate_livestock_description(livestock_type, count)
-#         livestock = Livestock(
-#             client_id=None,
-#             livestock_type=data['type'],
-#             count=data['count'],
-#             estimated_value=Decimal(str(data['price'])),
-#             description=description,
-#             location=data.get('location', 'Isinya, Kajiado'),
-#             photos=data.get('images', []),
-#             status='active'
-#         )
-#         db.session.add(livestock)
-#         db.session.commit()
-#         log_audit('livestock_added', 'livestock', livestock.id, {
-#             'type': livestock.livestock_type,
-#             'count': livestock.count,
-#             'description': livestock.description,
-#             'location': livestock.location
-#         })
-#         return jsonify({
-#             'success': True,
-#             'message': 'Livestock added successfully',
-#             'livestock': livestock.to_dict()
-#         }), 201
-#     except Exception as e:
-#         db.session.rollback()
-#         print(f"Error adding livestock: {str(e)}")
-#         return jsonify({'error': str(e)}), 500
-
-
-#new add livestock with cloudinary 
 @admin_bp.route('/livestock', methods=['POST'])
 @jwt_required()
 @admin_required
@@ -662,46 +626,8 @@ def add_livestock():
         return jsonify({'error': str(e)}), 500
 
 # -------------------------------------------------------------------
-# Update livestock
+# Update livestock with new cloudinary image handling
 # -------------------------------------------------------------------
-# @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
-# @jwt_required()
-# @admin_required
-# def update_livestock(livestock_id):
-#     try:
-#         livestock = db.session.get(Livestock, livestock_id)
-#         if not livestock:
-#             return jsonify({'error': 'Livestock not found'}), 404
-#         data = request.json
-#         if 'type' in data:
-#             livestock.livestock_type = data['type']
-#         if 'count' in data:
-#             livestock.count = data['count']
-#         if 'price' in data:
-#             livestock.estimated_value = Decimal(str(data['price']))
-#         if 'description' in data:
-#             livestock.description = data['description'].strip()
-#         if 'location' in data:
-#             livestock.location = data['location'].strip()
-#         if 'images' in data:
-#             livestock.photos = data['images']
-#         db.session.commit()
-#         log_audit('livestock_updated', 'livestock', livestock.id, {
-#             'type': livestock.livestock_type,
-#             'count': livestock.count,
-#             'description': livestock.description,
-#             'location': livestock.location
-#         })
-#         return jsonify({
-#             'success': True,
-#             'message': 'Livestock updated successfully',
-#             'livestock': livestock.to_dict()
-#         }), 200
-#     except Exception as e:
-#         db.session.rollback()
-#         print(f"Error updating livestock: {str(e)}")
-#         return jsonify({'error': str(e)}), 500
-
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
 @jwt_required()
 @admin_required

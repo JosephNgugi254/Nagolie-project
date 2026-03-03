@@ -11,73 +11,55 @@ payments_bp = Blueprint('payments', __name__)
 
 def recalculate_loan(loan):
     """
-    Recalculate loan with proper compound interest logic.
-    
-    Logic:
-    - Each 7-day period requires 30% interest on current principal
-    - If interest not paid by due date -> compounds into principal for next period
-    - Balance always = current_principal + (current_period_interest_due - current_period_interest_paid)
-    - When full interest paid -> due date extends by 7 days
+    Recalculate loan with simple interest per week.
+    Interest accrues weekly on current principal, no compounding.
     """
     if loan.status != 'active':
         return loan
-    
+
     today = datetime.now().date()
     
     # Initialize dates if missing
     if not loan.disbursement_date:
         loan.disbursement_date = datetime.now()
     
-    if not loan.due_date:
-        loan.due_date = loan.disbursement_date + timedelta(days=7)
+    if not loan.last_interest_payment_date:
+        loan.last_interest_payment_date = loan.disbursement_date
     
-    # Get current state
-    due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
-    current_principal = loan.current_principal if loan.current_principal is not None else loan.principal_amount
+    # Ensure last_interest_payment_date is a date object for comparison
+    last_interest_date = loan.last_interest_payment_date
+    if hasattr(last_interest_date, 'date'):
+        last_interest_date = last_interest_date.date()
     
-    # Initialize new field for existing loans
-    if not hasattr(loan, 'current_period_interest_paid') or loan.current_period_interest_paid is None:
-        loan.current_period_interest_paid = Decimal('0')
+    # Calculate weeks since last interest payment (full weeks only)
+    days_since = (today - last_interest_date).days
+    weeks_passed = days_since // 7  # full weeks
     
-    current_period_interest_paid = loan.current_period_interest_paid
-    
-    # Compound all missed periods
-    periods_missed = 0
-    while today > due_date:
-        # Calculate interest that was due for this period
-        expected_interest = (Decimal('0.30') * current_principal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    if weeks_passed > 0:
+        # Accrue interest for each full week
+        weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        new_accrued = weekly_interest * weeks_passed
+        loan.accrued_interest += new_accrued
         
-        # Calculate unpaid interest
-        unpaid_interest = expected_interest - current_period_interest_paid
+        # Update last interest payment date to the start of the current week
+        loan.last_interest_payment_date += timedelta(days=weeks_passed * 7)
         
-        # Compound unpaid interest into principal
-        if unpaid_interest > 0:
-            current_principal += unpaid_interest
-            current_principal = current_principal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        
-        # Reset for next period
-        current_period_interest_paid = Decimal('0')
-        due_date += timedelta(days=7)
-        periods_missed += 1
+        # Update due_date to next week from that date
+        loan.due_date = loan.last_interest_payment_date + timedelta(days=7)
     
-    # Calculate interest due for current period
-    current_period_interest_due = (Decimal('0.30') * current_principal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    # Calculate unpaid interest
+    unpaid_interest = loan.accrued_interest - loan.interest_paid
+    if unpaid_interest < 0:
+        unpaid_interest = Decimal('0')
     
-    # Calculate remaining interest for current period
-    remaining_interest = max(Decimal('0'), current_period_interest_due - current_period_interest_paid)
+    # Balance = current principal + unpaid interest
+    loan.balance = (loan.current_principal + unpaid_interest).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     
-    # Balance = principal + remaining interest for current period
-    balance = current_principal + remaining_interest
-    balance = balance.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-    
-    # Update loan
-    loan.current_principal = current_principal
-    loan.current_period_interest_paid = current_period_interest_paid
-    loan.due_date = due_date
-    loan.balance = balance
-    
-    # Update total amount (this is informational, showing total that could be owed)
-    loan.total_amount = loan.principal_amount + loan.interest_paid + current_period_interest_due
+    # Check if loan is fully paid (principal and all accrued interest)
+    if loan.current_principal <= Decimal('0.01') and unpaid_interest <= Decimal('0.01'):
+        loan.status = 'completed'
+        loan.current_principal = Decimal('0')
+        loan.balance = Decimal('0')
     
     return loan
 
@@ -85,7 +67,7 @@ def recalculate_loan(loan):
 @jwt_required()
 @admin_required
 def process_cash_payment():
-    """Process cash payment with proper compound interest logic"""
+    """Process cash payment with simple interest logic"""
     try:
         data = request.json
         loan_id = data.get('loan_id')
@@ -106,32 +88,28 @@ def process_cash_payment():
         payment_amount = Decimal(str(amount)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         
         if payment_type == 'interest':
-            # Calculate interest due for current period
-            current_period_interest_due = (Decimal('0.30') * loan.current_principal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            
-            # Calculate how much interest is still unpaid this period
-            unpaid_interest = current_period_interest_due - loan.current_period_interest_paid
+            # Calculate unpaid interest
+            unpaid_interest = loan.accrued_interest - loan.interest_paid
+            if unpaid_interest < 0:
+                unpaid_interest = Decimal('0')
             
             # Validate payment amount
             if payment_amount > unpaid_interest:
                 return jsonify({
-                    'error': f'Interest payment cannot exceed unpaid interest of {float(unpaid_interest)}. You cannot pay interest twice in the same 7-day period.'
+                    'error': f'Interest payment cannot exceed unpaid interest of {float(unpaid_interest)}'
                 }), 400
             
             # Record interest payment
-            loan.current_period_interest_paid += payment_amount
             loan.interest_paid += payment_amount
             loan.amount_paid += payment_amount
             loan.last_interest_payment_date = datetime.utcnow()
             
-            # Check if full interest for period is now paid
-            if loan.current_period_interest_paid >= current_period_interest_due:
-                # Full interest paid -> extend due date by 7 days
+            # If all accrued interest is now paid, reset the last interest payment date to today
+            # so that future accrual starts fresh (extends due date)
+            if loan.interest_paid >= loan.accrued_interest:
+                # Move last_interest_payment_date to today to start new period
+                loan.last_interest_payment_date = datetime.utcnow()
                 loan.due_date = datetime.utcnow() + timedelta(days=7)
-                
-                # Carry over any excess to next period (edge case)
-                excess = loan.current_period_interest_paid - current_period_interest_due
-                loan.current_period_interest_paid = excess
             
             notes_text = notes or f'Cash interest payment of KSh {float(payment_amount)}'
             
@@ -148,18 +126,8 @@ def process_cash_payment():
             
             notes_text = notes or f'Cash principal payment of KSh {float(payment_amount)}'
         
-        # Recalculate after payment
+        # Recalculate after payment (accrued interest doesn't change, but balance may update)
         loan = recalculate_loan(loan)
-        
-        # Check if loan is fully paid (both principal AND all interest)
-        if loan.current_principal <= Decimal('0.01') and loan.balance <= Decimal('0.01'):
-            loan.status = 'completed'
-            loan.current_principal = Decimal('0')
-            loan.balance = Decimal('0')
-            
-            # Delete associated livestock
-            if loan.livestock:
-                db.session.delete(loan.livestock)
         
         # Create transaction record
         transaction = Transaction(
@@ -205,6 +173,7 @@ def process_cash_payment():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @payments_bp.route('/mpesa/stk-push', methods=['POST'])
 @jwt_required()
 @admin_required
@@ -230,16 +199,18 @@ def stk_push():
         loan = recalculate_loan(loan)
         
         # Validate amount based on payment type
+        loan = recalculate_loan(loan)
+
         if payment_type == 'interest':
-            current_period_interest_due = (Decimal('0.30') * loan.current_principal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            unpaid_interest = current_period_interest_due - loan.current_period_interest_paid
-            
+            unpaid_interest = loan.accrued_interest - loan.interest_paid
+            if unpaid_interest < 0:
+                unpaid_interest = Decimal('0')
             if payment_amount > unpaid_interest:
                 return jsonify({
                     'success': False, 
                     'error': f'Interest payment cannot exceed unpaid interest of {float(unpaid_interest)}'
                 }), 400
-        elif payment_type == 'principal':
+        else:  # principal
             if payment_amount > loan.current_principal:
                 return jsonify({
                     'success': False, 
@@ -247,7 +218,7 @@ def stk_push():
                 }), 400
         
         daraja = DarajaAPI()
-        account_reference = f"NAGOLIE{loan.id}"
+        account_reference = f"NAGOLIE ENTERPRISES{loan.id}"
         
         result = daraja.stk_push(
             phone_number=phone_number,
@@ -330,10 +301,12 @@ def mpesa_callback():
             loan = payment.loan
             payment_type = payment.payment_type or 'principal'
             
+            # Recalculate loan before processing (as requested)
             loan = recalculate_loan(loan)
             
             # Process payment based on type
             if payment_type == 'interest':
+                # Keep your original validation (more strict/safe)
                 current_period_interest_due = (Decimal('0.30') * loan.current_principal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 unpaid_interest = current_period_interest_due - loan.current_period_interest_paid
                 
@@ -345,19 +318,22 @@ def mpesa_callback():
                     db.session.commit()
                     return jsonify({'ResultCode': 1, 'ResultDesc': 'Payment validation failed'}), 200
                 
+                # Apply interest payment
                 loan.current_period_interest_paid += callback_amount
                 loan.interest_paid += callback_amount
                 loan.amount_paid += callback_amount
                 loan.last_interest_payment_date = datetime.utcnow()
                 
-                # Check if full interest paid
+                # Check if full interest paid for the period
                 if loan.current_period_interest_paid >= current_period_interest_due:
                     loan.due_date = datetime.utcnow() + timedelta(days=7)
                     excess = loan.current_period_interest_paid - current_period_interest_due
                     loan.current_period_interest_paid = excess
                 
                 notes_text = f'M-Pesa interest payment: {mpesa_receipt_number}'
+                
             else:
+                # principal
                 if callback_amount > loan.current_principal:
                     payment.status = 'failed'
                     payment.result_code = '1'
@@ -372,7 +348,7 @@ def mpesa_callback():
                 
                 notes_text = f'M-Pesa principal payment: {mpesa_receipt_number}'
             
-            # Recalculate after payment
+            # Recalculate after payment (as requested)
             loan = recalculate_loan(loan)
             
             # Check completion
@@ -424,12 +400,12 @@ def mpesa_callback():
         current_app.logger.error(f"Callback processing error: {str(e)}")
         db.session.rollback()
         return jsonify({'ResultCode': 1, 'ResultDesc': 'Callback processing failed'}), 500
-
+    
 @payments_bp.route('/mpesa/manual', methods=['POST'])
 @jwt_required()
 @admin_required
 def process_mpesa_manual():
-    """Process manual M-Pesa payment with compound interest logic"""
+    """Process manual M-Pesa payment with simple interest logic"""
     try:
         data = request.json
         
@@ -446,13 +422,16 @@ def process_mpesa_manual():
         if not loan or loan.status != 'active':
             return jsonify({'error': 'Loan not found or not active'}), 404
         
-        payment_amount = Decimal(str(amount)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        # Recalculate to get current accurate state
         loan = recalculate_loan(loan)
+        
+        payment_amount = Decimal(str(amount)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         
         # Validate amount
         if payment_type == 'interest':
-            current_period_interest_due = (Decimal('0.30') * loan.current_principal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            unpaid_interest = current_period_interest_due - loan.current_period_interest_paid
+            unpaid_interest = loan.accrued_interest - loan.interest_paid
+            if unpaid_interest < 0:
+                unpaid_interest = Decimal('0')
             
             if payment_amount > unpaid_interest:
                 return jsonify({'error': f'Interest payment cannot exceed unpaid interest of {float(unpaid_interest)}'}), 400
@@ -462,16 +441,14 @@ def process_mpesa_manual():
         
         # Process payment
         if payment_type == 'interest':
-            loan.current_period_interest_paid += payment_amount
             loan.interest_paid += payment_amount
             loan.amount_paid += payment_amount
             loan.last_interest_payment_date = datetime.utcnow()
             
-            current_period_interest_due = (Decimal('0.30') * loan.current_principal).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            if loan.current_period_interest_paid >= current_period_interest_due:
+            # If all accrued interest is now paid, reset the last interest payment date
+            if loan.interest_paid >= loan.accrued_interest:
+                loan.last_interest_payment_date = datetime.utcnow()
                 loan.due_date = datetime.utcnow() + timedelta(days=7)
-                excess = loan.current_period_interest_paid - current_period_interest_due
-                loan.current_period_interest_paid = excess
             
             notes_text = notes or f'M-Pesa interest payment: {mpesa_reference}'
         else:
@@ -483,14 +460,6 @@ def process_mpesa_manual():
         
         # Recalculate
         loan = recalculate_loan(loan)
-        
-        # Check completion
-        if loan.current_principal <= Decimal('0.01') and loan.balance <= Decimal('0.01'):
-            loan.status = 'completed'
-            loan.current_principal = Decimal('0')
-            loan.balance = Decimal('0')
-            if loan.livestock:
-                db.session.delete(loan.livestock)
         
         transaction = Transaction(
             loan_id=loan.id,
