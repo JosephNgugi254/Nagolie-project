@@ -334,7 +334,7 @@ function Home() {
           <div className="row align-items-center min-vh-100">
             <div className="col-lg-8 mx-auto text-center text-white">
               <div className="hero-content">
-                <h1 className="display-3 fw-bold mb-4">Giving livestock farmers another chance</h1>
+                <h1 className="display-3 fw-bold mb-4">Investing in Living Assets</h1>
                 <p className="lead mb-5">
                   Transform your livestock into immediate financial opportunities. Quick, secure, reliable and trusted
                   services in Isinya, Kajiado County.
