@@ -1912,8 +1912,8 @@ const generateTemporaryPassword = (name, id) => {
 
       // Generate professional reminder message
      const messageText = `Hello ${client.client_name || client.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience. Please make your payment via: 
-     Paybill: 247247
-     Account: 651259
+     Paybill: 400200
+     Account: 1132192
 Thank you for choosing us.`;
 
       // Format phone number - ensure it has +254 prefix
