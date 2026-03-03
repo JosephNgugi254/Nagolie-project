@@ -10,6 +10,7 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 import click
+import pytz
 from flask.cli import with_appcontext
 
 db = SQLAlchemy()
@@ -47,7 +48,7 @@ def create_app(config_class=Config):
     limiter.init_app(app)
 
 
-     # Cloudinary configuration
+    # Cloudinary configuration
     cloudinary.config(
         cloud_name=app.config['CLOUDINARY_CLOUD_NAME'],
         api_key=app.config['CLOUDINARY_API_KEY'],
@@ -90,195 +91,133 @@ def create_app(config_class=Config):
 
 
 def register_commands(app):
-    @app.cli.command('update-accrued-interest')
+    @app.cli.command('fix-all')
     @with_appcontext
-    def update_accrued_interest():
-        """Set accrued_interest for all active loans."""
+    def fix_all():
+        """
+        Resets all active loans to REDUCING BALANCE simple interest.
+
+        Replays transaction history week by week so that accrued interest
+        reflects 30% of the remaining principal at each week — not the original.
+
+        Run ONCE after switching to reducing-balance logic.
+        """
         from app import db
-        from app.models import Loan
+        from app.models import Loan, Transaction
         from datetime import datetime, timedelta
         from decimal import Decimal, ROUND_HALF_UP
+        import pytz
+
+        RATE = Decimal('0.30')
+        local_tz = pytz.timezone('Africa/Nairobi')
+        now_local = datetime.now(local_tz)
+        today = now_local.date()
 
         loans = Loan.query.filter(Loan.status == 'active').all()
-        print(f"Found {len(loans)} active loans.")
-
-        if not loans:
-            print("No active loans to update.")
-            return
-
-        today = datetime.now().date()
+        print(f"Found {len(loans)} active loans.\n")
         updated_count = 0
 
         for loan in loans:
-            if not loan.last_interest_payment_date:
-                loan.last_interest_payment_date = loan.disbursement_date or loan.created_at
+            client_name = loan.client.full_name if loan.client else 'Unknown'
+            print(f"Processing Loan ID {loan.id} - {client_name}")
 
-            last_date = loan.last_interest_payment_date
-            if hasattr(last_date, 'date'):
-                last_date = last_date.date()
-
-            days_since = (today - last_date).days
-            weeks = days_since // 7
-
-            weekly_interest = loan.current_principal * Decimal('0.30')
-            weekly_interest = weekly_interest.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            new_accrued = loan.interest_paid + (weekly_interest * weeks)
-            if new_accrued < loan.interest_paid:
-                new_accrued = loan.interest_paid
-
-            loan.accrued_interest = new_accrued.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-
-            if not loan.due_date:
-                loan.due_date = loan.last_interest_payment_date + timedelta(days=7)
-
-            updated_count += 1
-
-        db.session.commit()
-        print(f"Updated accrued_interest for {updated_count} active loans.")
-
-    @app.cli.command('fix-loan-balances')
-    @with_appcontext
-    def fix_loan_balances():
-        """Recalculate accrued_interest for all active loans using simple interest."""
-        from app import db
-        from app.models import Loan
-        from datetime import datetime, timedelta
-        from decimal import Decimal, ROUND_HALF_UP
-
-        loans = Loan.query.filter(Loan.status == 'active').all()
-        print(f"Found {len(loans)} active loans.")
-        today = datetime.now().date()
-        updated_count = 0
-
-        for loan in loans:
-            start_date = loan.disbursement_date or loan.created_at
-            if hasattr(start_date, 'date'):
-                start_date = start_date.date()
-
-            days_since = (today - start_date).days
-            weeks = days_since // 7
-
-            weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            )
-
-            new_accrued = (weekly_interest * weeks).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            )
-
-            loan.accrued_interest = new_accrued
-            loan.last_interest_payment_date = today
-            loan.due_date = today + timedelta(days=7)
-
-            updated_count += 1
-
-        db.session.commit()
-        print(f"Updated accrued_interest for {updated_count} active loans.")
-        print("Now run the standard recalculate function to update balances.")
-
-    @app.cli.command('reset-loan-principals')
-    @with_appcontext
-    def reset_loan_principals():
-        """Reset current_principal to original principal for loans with no principal payments,
-        then recalculate accrued_interest and due_date."""
-        from app import db
-        from app.models import Loan
-        from datetime import datetime, timedelta
-        from decimal import Decimal, ROUND_HALF_UP
-
-        loans = Loan.query.filter(Loan.status == 'active').all()
-        print(f"Found {len(loans)} active loans.")
-        today = datetime.now().date()
-        updated_count = 0
-
-        for loan in loans:
-            # Only reset if no principal payments have been made
-            if loan.principal_paid == 0:
-                old_principal = loan.current_principal
-                loan.current_principal = loan.principal_amount
-                print(f"Loan {loan.id}: reset current_principal from {old_principal} to {loan.principal_amount}")
-
-            # Recalculate accrued_interest from disbursement date
-            start_date = loan.disbursement_date or loan.created_at
-            if hasattr(start_date, 'date'):
-                start_date = start_date.date()
-
-            days_since = (today - start_date).days
-            weeks = days_since // 7
-
-            weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            )
-            new_accrued = (weekly_interest * weeks).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            )
-
-            # Ensure we don't set accrued less than what's already paid (should be zero for most)
-            if new_accrued < loan.interest_paid:
-                new_accrued = loan.interest_paid
-
-            loan.accrued_interest = new_accrued
-            loan.last_interest_payment_date = today
-            loan.due_date = today + timedelta(days=7)
-
-            updated_count += 1
-
-        db.session.commit()
-        print(f"Updated {updated_count} loans.")
-
-    @app.cli.command('fix-loan-dates')
-    @with_appcontext
-    def fix_loan_dates():
-        """Recalculate due_date, last_interest_payment_date and accrued_interest for all active loans."""
-        from app import db
-        from app.models import Loan
-        from datetime import datetime, timedelta
-        from decimal import Decimal, ROUND_HALF_UP
-    
-        loans = Loan.query.filter(Loan.status == 'active').all()
-        print(f"Found {len(loans)} active loans.")
-        today = datetime.now().date()
-        updated_count = 0
-    
-        for loan in loans:
-            start_date = loan.disbursement_date or loan.created_at
-            if hasattr(start_date, 'date'):
-                start_date = start_date.date()
-    
-            if loan.interest_paid == 0:
-                loan.last_interest_payment_date = start_date
+            disburse = loan.disbursement_date or loan.created_at
+            if hasattr(disburse, 'date'):
+                disburse_date = disburse.date()
             else:
-                loan.last_interest_payment_date = today
-    
-            last_date = loan.last_interest_payment_date
-            if hasattr(last_date, 'date'):
-                last_date = last_date.date()
-    
-            weeks = ((today - last_date).days) // 7
-    
-            weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            )
-    
-            new_accrued = loan.interest_paid + (weekly_interest * weeks)
-            if new_accrued < loan.interest_paid:
-                new_accrued = loan.interest_paid
-            loan.accrued_interest = new_accrued.quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            )
-    
-            next_due = last_date + timedelta(days=7 * (weeks + 1))
-            loan.due_date = datetime.combine(next_due, datetime.min.time())
-    
-            unpaid_interest = loan.accrued_interest - loan.interest_paid
-            if unpaid_interest < 0:
+                disburse_date = disburse
+            print(f"   Disbursed: {disburse_date}")
+
+            transactions = Transaction.query.filter(
+                Transaction.loan_id == loan.id,
+                Transaction.transaction_type == 'payment',
+                Transaction.status == 'completed'
+            ).order_by(Transaction.created_at.asc()).all()
+
+            principal_payments = []
+            interest_payments  = []
+
+            for txn in transactions:
+                ptype = (txn.payment_type or '').lower()
+                txn_date = txn.created_at
+                if hasattr(txn_date, 'date'):
+                    txn_date = txn_date.date()
+                if ptype == 'principal':
+                    principal_payments.append((txn_date, txn.amount))
+                elif ptype == 'interest':
+                    interest_payments.append((txn_date, txn.amount))
+
+            total_principal_paid = sum(a for _, a in principal_payments) if principal_payments else Decimal('0')
+            total_interest_paid  = sum(a for _, a in interest_payments)  if interest_payments  else Decimal('0')
+
+            print(f"   Principal paid: {total_principal_paid}")
+            print(f"   Interest paid:  {total_interest_paid}")
+
+            original_principal = loan.principal_amount
+            days_since_disbursement = (today - disburse_date).days
+            total_weeks = days_since_disbursement // 7
+
+            # Replay week by week with reducing balance
+            running_principal = original_principal
+            total_accrued = Decimal('0')
+
+            for week_num in range(1, total_weeks + 1):
+                week_start = disburse_date + timedelta(days=(week_num - 1) * 7)
+                week_end   = disburse_date + timedelta(days=week_num * 7)
+
+                # Apply principal payments that fell in this week window
+                for pay_date, pay_amount in principal_payments:
+                    if week_start <= pay_date < week_end:
+                        running_principal -= pay_amount
+                        if running_principal < Decimal('0'):
+                            running_principal = Decimal('0')
+
+                weekly_interest = (running_principal * RATE).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                total_accrued += weekly_interest
+
+            print(f"   Weeks replayed: {total_weeks}")
+            print(f"   Total accrued (reducing balance): {total_accrued}")
+
+            current_principal = original_principal - total_principal_paid
+            if current_principal < Decimal('0'):
+                current_principal = Decimal('0')
+
+            unpaid_interest = total_accrued - total_interest_paid
+            if unpaid_interest < Decimal('0'):
                 unpaid_interest = Decimal('0')
-            loan.balance = (loan.current_principal + unpaid_interest).quantize(
+
+            balance = (current_principal + unpaid_interest).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
-    
+
+            # Set last_interest_payment_date to start of CURRENT week
+            # so recalculate_loan sees 0 full weeks on next load
+            current_week_start = today - timedelta(days=days_since_disbursement % 7)
+            loan.last_interest_payment_date = datetime.combine(
+                current_week_start, datetime.min.time()
+            )
+            next_due = current_week_start + timedelta(days=7)
+            loan.due_date = datetime.combine(next_due, datetime.min.time())
+
+            loan.current_principal = current_principal
+            loan.principal_paid    = total_principal_paid
+            loan.interest_paid     = total_interest_paid
+            loan.accrued_interest  = total_accrued
+            loan.balance           = balance
+            loan.amount_paid       = total_principal_paid + total_interest_paid
+
+            print(f"   current_principal:          {loan.current_principal}")
+            print(f"   accrued_interest:           {loan.accrued_interest}")
+            print(f"   unpaid_interest:            {unpaid_interest}")
+            print(f"   balance:                    {loan.balance}")
+            print(f"   last_interest_payment_date: {loan.last_interest_payment_date.date()}")
+            print(f"   next due_date:              {loan.due_date.date()}")
+            print("   ---")
+
             updated_count += 1
-    
+
         db.session.commit()
-        print(f"Updated {updated_count} loans.")
+        print(f"\nDone. Updated {updated_count} active loans.")
+        print("Future interest will accrue on current_principal (reducing balance).")

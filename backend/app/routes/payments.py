@@ -37,7 +37,7 @@ def recalculate_loan(loan):
     
     if weeks_passed > 0:
         # Accrue interest for each full week
-        weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        weekly_interest = (loan.current_principal* Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         new_accrued = weekly_interest * weeks_passed
         loan.accrued_interest += new_accrued
         
