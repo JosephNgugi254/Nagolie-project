@@ -26,3 +26,12 @@ def upload_base64_image(base64_string, folder='livestock'):
     except Exception as e:
         print(f"Cloudinary upload error: {str(e)}")
         raise
+
+def delete_image(public_id):
+    """Delete an image from Cloudinary by its public_id."""
+    try:
+        result = cloudinary.uploader.destroy(public_id)
+        return result
+    except Exception as e:
+        print(f"Cloudinary delete error: {str(e)}")
+        raise

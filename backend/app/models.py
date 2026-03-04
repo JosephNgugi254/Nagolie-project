@@ -425,3 +425,27 @@ class PasswordResetToken(db.Model):
             'used': self.used,
             'is_valid': self.is_valid()
         }
+    
+class CompanyGalleryImage(db.Model):
+    __tablename__ = 'company_gallery_images'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    category = db.Column(db.String(50), nullable=False)      # e.g. 'event', 'operations', 'services', 'team'
+    title = db.Column(db.String(200), nullable=False)        # e.g. 'Grand Opening Ceremony'
+    description = db.Column(db.Text, nullable=True)          # optional description
+    image_url = db.Column(db.String(500), nullable=False)    # Cloudinary URL
+    public_id = db.Column(db.String(200), nullable=True)     # Cloudinary public_id (for deletion)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    date_taken = db.Column(db.Date, nullable=True)           # optional custom date, falls back to created_at
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'category': self.category,
+            'title': self.title,
+            'description': self.description or '',
+            'src': self.image_url,
+            'thumbnail': self.image_url,
+            'date': (self.date_taken or self.created_at.date()).isoformat(),
+            'created_at': self.created_at.isoformat()
+        }

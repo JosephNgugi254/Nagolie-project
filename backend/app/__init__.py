@@ -65,6 +65,7 @@ def create_app(config_class=Config):
     from app.routes.investors import investor_bp
     from app.routes.test_daraja import test_bp
     from app.routes.password_reset import password_reset_bp
+    from app.routes.company_gallery import company_gallery_bp
 
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -73,8 +74,9 @@ def create_app(config_class=Config):
     app.register_blueprint(payments_bp, url_prefix='/api/payments')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(investor_bp, url_prefix='/api/investor')
-    app.register_blueprint(password_reset_bp, url_prefix='/api/auth')
-    app.register_blueprint(test_bp, url_prefix='/api/test')  # Register test routes
+    app.register_blueprint(password_reset_bp, url_prefix='/api/auth')    
+    app.register_blueprint(company_gallery_bp, url_prefix='/api/company-gallery')
+    app.register_blueprint(test_bp, url_prefix='/api/test')
 
     @app.before_request
     def before_request():

@@ -7,6 +7,7 @@ import { adminAPI, paymentAPI } from "../services/api"
 import AdminSidebar from "../components/admin/AdminSidebar"
 import AdminCard from "../components/admin/AdminCard"
 import AdminTable from "../components/admin/AdminTable"
+import AdminCompanyGallery from "../components/admin/AdminCompanyGallery"
 import TakeActionModal from "../components/admin/TakeActionModal"
 import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
@@ -1216,6 +1217,8 @@ const handleInvestorPasswordSubmit = (e) => {
       section = "transactions";
     } else if (path.includes("/admin/gallery")) {
       section = "gallery";
+    } else if (path.includes("/admin/company-gallery")) {
+      section = "company-gallery";
     } else if (path.includes("/admin/applications")) {
       section = "applications";
     } else if (path.includes("/admin/payment-stats")) {
@@ -1594,6 +1597,8 @@ const generateTemporaryPassword = (name, id) => {
 
     if (section === "overview") {
       navigate("/admin");
+    } else if (section === "company-gallery") {
+      navigate("admin/company-gallery");
     } else {
       navigate(`/admin/${section}`);
     }
@@ -2901,6 +2906,11 @@ Thank you for choosing us.`;
                   </>
                 )}
               </div>
+            )}
+
+            {/* Company gallery section */}
+            {activeSection === "company-gallery" && (
+              <AdminCompanyGallery />
             )}
 
             {/* Applications Section */}

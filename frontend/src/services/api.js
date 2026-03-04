@@ -209,11 +209,15 @@ export const adminAPI = {
   },
   processInvestorReturn: async (investorId, data) => {
     return api.post(`/admin/investors/${investorId}/process-return`, data);
-  },  
-  
+  },   
   adjustInvestorInvestment: async (investorId, data) => {
     return api.post(`/admin/investors/${investorId}/adjust-investment`, data)
-  }
+  },
+  //company gallery endpoints
+  getCompanyGallery: () => api.get("/company-gallery/public"), // public, but we'll use it in admin too
+  addCompanyGalleryImages: (data) => api.post("/company-gallery/admin", data),
+  deleteCompanyGalleryImage: (id) => api.delete(`/company-gallery/admin/${id}`),
+  updateCompanyGalleryImage: (id, data) => api.put(`/company-gallery/admin/${id}`, data),
 };
 
 export const paymentAPI = {
