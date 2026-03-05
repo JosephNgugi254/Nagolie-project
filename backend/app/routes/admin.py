@@ -7,7 +7,7 @@ from app import db
 from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func , text
 from app.routes.payments import recalculate_loan
 import json
 import secrets
@@ -1277,26 +1277,29 @@ def manage_investor(investor_id):
             investor = Investor.query.options(db.joinedload(Investor.user)).get(investor_id)
             if not investor:
                 return jsonify({'error': 'Investor not found'}), 404
+    
             investor_name = investor.name
             user_id = investor.user.id if investor.user else None
             print(f"DEBUG: Investor: {investor_name}, User ID: {user_id}")
+    
+            # Delete related investor returns
             InvestorReturn.query.filter_by(investor_id=investor.id).delete()
             print(f"DEBUG: Deleted investor returns")
+    
+            # Delete the investor
             db.session.delete(investor)
             print(f"DEBUG: Investor marked for deletion")
+    
+            # Delete the associated user (if any) – no need to update transactions
             if investor.user:
                 print(f"DEBUG: Attempting to delete user {user_id}")
-                if user_id:
-                    db.session.execute(
-                        "UPDATE transactions SET created_by = NULL WHERE created_by = :user_id",
-                        {"user_id": user_id}
-                    )
-                    print(f"DEBUG: Set transactions.created_by to NULL for user {user_id}")
                 db.session.delete(investor.user)
                 print(f"DEBUG: User marked for deletion")
+    
             db.session.commit()
             print(f"DEBUG: Transaction committed successfully")
             return jsonify({'success': True, 'message': 'Investor deleted successfully'}), 200
+    
         except Exception as e:
             db.session.rollback()
             print(f"DEBUG: Error in transaction: {str(e)}")

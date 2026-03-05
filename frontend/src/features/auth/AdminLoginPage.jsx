@@ -7,6 +7,7 @@ import Toast, { showToast } from "../../components/common/Toast"
 
 function AdminLoginPage() {
   const { login, user, userRole, isAuthenticated, loading: authLoading } = useAuth()
+  const [showPassword, setShowPassword] = useState(false)
   const navigate = useNavigate()
   const [formData, setFormData] = useState({
     username: "",
@@ -132,18 +133,28 @@ function AdminLoginPage() {
 
                   <div className="mb-4">
                     <label htmlFor="password" className="form-label">Password</label>
-                    <input 
-                      type="password" 
-                      className="form-control" 
-                      id="password"
-                      name="password" 
-                      value={formData.password} 
-                      onChange={handleChange} 
-                      required 
-                      disabled={loading}
-                      autoComplete="current-password"
-                      placeholder="Enter your password"
-                    />
+                    <div className="input-group">
+                      <input 
+                        type={showPassword ? "text" : "password"} 
+                        className="form-control" 
+                        id="password"
+                        name="password" 
+                        value={formData.password} 
+                        onChange={handleChange} 
+                        required 
+                        disabled={loading}
+                        autoComplete="current-password"
+                        placeholder="Enter your password"
+                      />
+                      <button 
+                        className="btn btn-outline-secondary" 
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        <i className={`fas fa-${showPassword ? 'eye-slash' : 'eye'}`}></i>
+                      </button>
+                    </div>
                   </div>
 
                   <button 

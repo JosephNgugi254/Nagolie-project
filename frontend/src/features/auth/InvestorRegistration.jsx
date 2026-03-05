@@ -11,6 +11,10 @@ function InvestorRegistration() {
   const navigate = useNavigate()
   const { setInvestorSession } = useAuth()
 
+  const [showTemporaryPassword, setShowTemporaryPassword] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+
   const [formData, setFormData] = useState({
     temporary_password: "",
     username: "",
@@ -162,17 +166,27 @@ function InvestorRegistration() {
                 <form onSubmit={handleSubmit}>
                   <div className="mb-3">
                     <label htmlFor="temporary_password" className="form-label">Temporary Password *</label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="temporary_password"
-                      value={formData.temporary_password}
-                      onChange={(e) => setFormData({...formData, temporary_password: e.target.value})}
-                      required
-                      minLength="8"
-                      placeholder="Enter the temporary password from admin"
-                      autoFocus
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showTemporaryPassword ? "text" : "password"}
+                        className="form-control"
+                        id="temporary_password"
+                        value={formData.temporary_password}
+                        onChange={(e) => setFormData({...formData, temporary_password: e.target.value})}
+                        required
+                        minLength="8"
+                        placeholder="Enter the temporary password from admin"
+                        autoFocus
+                      />
+                      <button 
+                        className="btn btn-outline-secondary" 
+                        type="button"
+                        onClick={() => setShowTemporaryPassword(!showTemporaryPassword)}
+                        aria-label={showTemporaryPassword ? "Hide temporary password" : "Show temporary password"}
+                      >
+                        <i className={`fas fa-${showTemporaryPassword ? 'eye-slash' : 'eye'}`}></i>
+                      </button>
+                    </div>
                     <small className="text-muted">Check your email/SMS from admin for the temporary password</small>
                   </div>
                   
@@ -193,30 +207,50 @@ function InvestorRegistration() {
                   
                   <div className="mb-3">
                     <label htmlFor="password" className="form-label">New Password *</label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="password"
-                      value={formData.password}
-                      onChange={(e) => setFormData({...formData, password: e.target.value})}
-                      required
-                      minLength="8"
-                      placeholder="Enter your new password"
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        className="form-control"
+                        id="password"
+                        value={formData.password}
+                        onChange={(e) => setFormData({...formData, password: e.target.value})}
+                        required
+                        minLength="8"
+                        placeholder="Enter your new password"
+                      />
+                      <button 
+                        className="btn btn-outline-secondary" 
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        <i className={`fas fa-${showPassword ? 'eye-slash' : 'eye'}`}></i>
+                      </button>
+                    </div>
                     <small className="text-muted">Minimum 8 characters</small>
                   </div>
                   
                   <div className="mb-4">
                     <label htmlFor="confirmPassword" className="form-label">Confirm New Password *</label>
-                    <input
-                      type="password"
-                      className="form-control"
-                      id="confirmPassword"
-                      value={formData.confirmPassword}
-                      onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                      required
-                      placeholder="Confirm your new password"
-                    />
+                    <div className="input-group">
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        className="form-control"
+                        id="confirmPassword"
+                        value={formData.confirmPassword}
+                        onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                        required
+                        placeholder="Confirm your new password"
+                      />
+                      <button 
+                        className="btn btn-outline-secondary" 
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        aria-label={showConfirmPassword ? "Hide confirmation" : "Show confirmation"}
+                      >
+                        <i className={`fas fa-${showConfirmPassword ? 'eye-slash' : 'eye'}`}></i>
+                      </button>
+                    </div>
                   </div>
                   
                   <div className="d-grid gap-2">
