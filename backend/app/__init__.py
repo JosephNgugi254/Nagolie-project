@@ -200,8 +200,6 @@ def register_commands(app):
             loan.last_interest_payment_date = datetime.combine(
                 current_week_start, datetime.min.time()
             )
-            next_due = current_week_start + timedelta(days=7)
-            loan.due_date = datetime.combine(next_due, datetime.min.time())
 
             loan.current_principal = current_principal
             loan.principal_paid    = total_principal_paid
