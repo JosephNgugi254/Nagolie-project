@@ -88,6 +88,8 @@ function AdminPanel() {
 
   const [showActionModal, setShowActionModal] = useState(false)
   const [mpesaReference, setMpesaReference] = useState("")
+  const [unpaidInterest, setUnpaidInterest] = useState(0);
+  const [mpesaUnpaidInterest, setMpesaUnpaidInterest] = useState(0);
 
   // SMS modal state
   const [showSmsModal, setShowSmsModal] = useState(false);
@@ -793,7 +795,8 @@ const handleInvestorPasswordSubmit = (e) => {
     console.log("Opening M-Pesa modal for client:", client)
     setSelectedClient(client)
     setMpesaAmount("")
-    setMpesaPaymentType('principal')  // NEW - Add this line
+    setMpesaPaymentType('principal')
+    setMpesaUnpaidInterest(client.unpaidInterest || 0)
     setShowMpesaModal(true)
   }
 
@@ -823,16 +826,15 @@ const handleInvestorPasswordSubmit = (e) => {
       return
     }
 
-    //  Validate based on payment type
+    // Validate based on payment type
     const currentPrincipal = selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0
-    const expectedInterest = currentPrincipal * 0.30
 
     if (mpesaPaymentType === 'interest') {
-      if (paymentAmount > expectedInterest) {
-        showToast.error(`Interest payment cannot exceed ${formatCurrency(expectedInterest)}`)
+      if (paymentAmount > mpesaUnpaidInterest) {
+        showToast.error(`Interest payment cannot exceed ${formatCurrency(mpesaUnpaidInterest)}`)
         return
       }
-    } else if (mpesaPaymentType === 'principal') {
+    } else {
       if (paymentAmount > currentPrincipal) {
         showToast.error(`Principal payment cannot exceed ${formatCurrency(currentPrincipal)}`)
         return
@@ -1074,10 +1076,9 @@ const handleInvestorPasswordSubmit = (e) => {
           })
           break
         case "overdue":
-          filtered = filtered.filter(client => {
-            const daysLeft = client.daysLeft || 0;
-            return daysLeft < 0;
-          })
+          // Overdue is now shown only in dashboard, so we can either remove this filter
+          // or keep it as a filter for "has unpaid interest" – but we'll keep it simple and remove
+          filtered = filtered.filter(client => false)
           break
         case "completed":
           // A loan is completed only when BOTH principal and interest are fully paid
@@ -1776,115 +1777,97 @@ const generateTemporaryPassword = (name, id) => {
   const openPaymentModal = (client) => {
     console.log("Opening payment modal for client:", client)
     setSelectedClient(client)
+    setUnpaidInterest(client.unpaidInterest || 0)
     setShowPaymentModal(true)
   }
 
   const handlePayment = async (paymentData) => {
-  try {
-    console.log("Processing payment with data:", paymentData)
-  
-    if (!selectedClient?.loan_id) {
-      showToast.error("Error: No active loan found for this client")
-      return
-    }
-  
+    try {
+      console.log("Processing payment with data:", paymentData)
+    
+      if (!selectedClient?.loan_id) {
+        showToast.error("Error: No active loan found for this client")
+        return
+      }
+    
     const paymentAmount = parseFloat(paymentData.amount)
-    if (isNaN(paymentAmount) || paymentAmount <= 0) {
-      showToast.error("Invalid payment amount")
-      return
-    }
-  
-    // Calculate expected interest and current principal
-    const currentPrincipal = selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0
-    const expectedInterest = currentPrincipal * 0.30
-  
-    // Validate amount based on payment type
-    if (paymentType === 'interest') {
-      // Calculate based on current principal, not original
+      if (isNaN(paymentAmount) || paymentAmount <= 0) {
+        showToast.error("Invalid payment amount")
+        return
+      }
+    
       const currentPrincipal = selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0
-      const expectedInterest = currentPrincipal * 0.30
-    
-      // Check if interest was already paid for this period
-      const lastInterestPayment = selectedClient.lastInterestPayment
-      if (lastInterestPayment) {
-          const lastPaymentDate = new Date(lastInterestPayment)
-          const today = new Date()
-          const daysSinceLastPayment = Math.floor((today - lastPaymentDate) / (1000 * 60 * 60 * 24))
-         
-          if (daysSinceLastPayment < 7 && selectedClient.interestPaid >= expectedInterest) {
-              showToast.error(`Interest for this period has already been paid. Next interest payment available in ${7 - daysSinceLastPayment} days.`)
-              return
-          }
-      }
-     
-      if (paymentAmount > expectedInterest) {
-          showToast.error(`Interest payment cannot exceed ${formatCurrency(expectedInterest)}`)
+
+      // Validate amount based on payment type
+      if (paymentType === 'interest') {
+        if (paymentAmount > unpaidInterest) {
+          showToast.error(`Interest payment cannot exceed ${formatCurrency(unpaidInterest)}`)
           return
-      }
-    } else if (paymentType === 'principal') {
-      if (paymentAmount > currentPrincipal) {
-        showToast.error(`Principal payment cannot exceed ${formatCurrency(currentPrincipal)}`)
-        return
-      }
-    }
-  
-    let response
-  
-    if (paymentData.method === 'cash') {
-      response = await paymentAPI.processCashPayment({
-        loan_id: selectedClient.loan_id,
-        amount: paymentAmount,
-        payment_type: paymentType,
-        notes: paymentData.notes || `Cash ${paymentType} payment of KSh ${paymentAmount}`
-      })
-    } else if (paymentData.method === 'mpesa') {
-      if (!mpesaReference.trim()) {
-        showToast.error("Please enter M-Pesa reference code")
-        return
+        }
+      } else if (paymentType === 'principal') {
+        if (paymentAmount > currentPrincipal) {
+          showToast.error(`Principal payment cannot exceed ${formatCurrency(currentPrincipal)}`)
+          return
+        }
       }
     
-      response = await paymentAPI.processMpesaManual({
-        loan_id: selectedClient.loan_id,
-        amount: paymentAmount,
-        payment_type: paymentType,
-        mpesa_reference: mpesaReference.toUpperCase().trim(),
-        notes: paymentData.notes || `M-Pesa ${paymentType} payment of KSh ${paymentAmount}`
-      })
-    }
-  
-    console.log("Payment response:", response.data)
-  
-    if (response.data.success) {
-      const loanData = response.data.loan
-      const interestPaid = loanData.interest_paid || 0;
-      const totalInterestDue = (selectedClient.borrowedAmount || 0) * 0.30;
-      const interestRemaining = totalInterestDue - interestPaid;
+      let response
+    
+      if (paymentData.method === 'cash') {
+        response = await paymentAPI.processCashPayment({
+          loan_id: selectedClient.loan_id,
+          amount: paymentAmount,
+          payment_type: paymentType,
+          notes: paymentData.notes || `Cash ${paymentType} payment of KSh ${paymentAmount}`
+        })
+      } else if (paymentData.method === 'mpesa') {
+        if (!mpesaReference.trim()) {
+          showToast.error("Please enter M-Pesa reference code")
+          return
+        }
       
-      showToast.success(
-        `${paymentType.charAt(0).toUpperCase() + paymentType.slice(1)} payment processed!\n` +
-        `Current Principal: ${formatCurrency(loanData.current_principal)}\n` +
-        `Interest Remaining: ${formatCurrency(interestRemaining)}\n` +
-        `New Balance: ${formatCurrency(loanData.balance)}`
-      )
-      setShowPaymentModal(false)
-      setSelectedClient(null)
-      setMpesaReference("")
-      setPaymentType('principal')  // Reset
+        response = await paymentAPI.processMpesaManual({
+          loan_id: selectedClient.loan_id,
+          amount: paymentAmount,
+          payment_type: paymentType,
+          mpesa_reference: mpesaReference.toUpperCase().trim(),
+          notes: paymentData.notes || `M-Pesa ${paymentType} payment of KSh ${paymentAmount}`
+        })
+      }
     
-      // Refresh all data including payment stats
-      await Promise.all([
-        fetchDashboardData(),
-        fetchClients(),
-        fetchTransactions(),
-        fetchPaymentStats()
-      ])
+      console.log("Payment response:", response.data)
+    
+      if (response.data.success) {
+        const loanData = response.data.loan
+        const interestPaid = loanData.interest_paid || 0;
+        const totalInterestDue = (selectedClient.borrowedAmount || 0) * 0.30;
+        const interestRemaining = totalInterestDue - interestPaid;
+
+        showToast.success(
+          `${paymentType.charAt(0).toUpperCase() + paymentType.slice(1)} payment processed!\n` +
+          `Current Principal: ${formatCurrency(loanData.current_principal)}\n` +
+          `Interest Remaining: ${formatCurrency(interestRemaining)}\n` +
+          `New Balance: ${formatCurrency(loanData.balance)}`
+        )
+        setShowPaymentModal(false)
+        setSelectedClient(null)
+        setMpesaReference("")
+        setPaymentType('principal')  // Reset
+      
+        // Refresh all data including payment stats
+        await Promise.all([
+          fetchDashboardData(),
+          fetchClients(),
+          fetchTransactions(),
+          fetchPaymentStats()
+        ])
+      }
+    } catch (error) {
+      console.error('Payment processing error:', error)
+      const errorMsg = error.response?.data?.error || error.message
+      showToast.error(`Failed to process payment: ${errorMsg}`)
     }
-  } catch (error) {
-    console.error('Payment processing error:', error)
-    const errorMsg = error.response?.data?.error || error.message
-    showToast.error(`Failed to process payment: ${errorMsg}`)
   }
-}
 
   const handleTakeAction = (client) => {
     setSelectedClient(client);
@@ -2488,32 +2471,36 @@ Thank you for choosing us.`;
                             {dashboardData.overdue.length === 0 ? (
                               <p className="text-muted">No overdue loans</p>
                             ) : (
-                              dashboardData.overdue.map((client) => (
-                                <div key={client.id} className="overdue-client-card alert alert-danger">
-                                  <div className="client-info">
-                                    <h6 className="fw-bold mb-1">{client.client_name}</h6>
-                                    <p className="mb-1">
-                                      <strong>KES {client.balance?.toLocaleString()}</strong> remaining
-                                    </p>
-                                    <small className="text-muted">
-                                      <i className="fas fa-phone me-1"></i>
-                                      {client.phone}
-                                      <span className="ms-2 badge bg-dark">
-                                        {client.days_overdue} days overdue
-                                      </span>
-                                    </small>
+                              dashboardData.overdue.map((client) => {
+                                // Use weeks_overdue from backend, fallback to days_overdue/7
+                                const weeksOverdue = client.weeks_overdue || Math.floor((client.days_overdue || 0) / 7);
+                                return (
+                                  <div key={client.id} className="overdue-client-card alert alert-danger">
+                                    <div className="client-info">
+                                      <h6 className="fw-bold mb-1">{client.client_name}</h6>
+                                      <p className="mb-1">
+                                        <strong>KES {client.balance?.toLocaleString()}</strong> remaining
+                                      </p>
+                                      <small className="text-muted">
+                                        <i className="fas fa-phone me-1"></i>
+                                        {client.phone}
+                                        <span className="ms-2 badge bg-dark">
+                                          {weeksOverdue} week{weeksOverdue !== 1 ? 's' : ''} overdue
+                                        </span>
+                                      </small>
+                                    </div>
+                                    <div className="client-actions">
+                                      <button
+                                        className="btn btn-primary btn-sm btn-action"
+                                        onClick={() => handleTakeAction(client)}
+                                      >
+                                        <i className="fas fa-bolt"></i>
+                                        Take Action
+                                      </button>
+                                    </div>
                                   </div>
-                                  <div className="client-actions">
-                                    <button
-                                      className="btn btn-primary btn-sm btn-action"
-                                      onClick={() => handleTakeAction(client)}
-                                    >
-                                      <i className="fas fa-bolt"></i>
-                                      Take Action
-                                    </button>
-                                  </div>
-                                </div>
-                              ))
+                                );
+                              })
                             )}
                           </div>
                         </div>
@@ -2545,8 +2532,8 @@ Thank you for choosing us.`;
                       <option value="">All Clients</option>
                       <option value="active">Active Loans</option>
                       <option value="due-today">Due Today</option>
-                      <option value="overdue">Overdue</option>
                       <option value="completed">Completed</option>
+                      {/* Removed "overdue" option */}
                     </select>
                     <input 
                       type="date" 
@@ -2600,10 +2587,6 @@ Thank you for choosing us.`;
                                 status = "completed";
                                 className += "bg-secondary";
                                 text = "Completed";
-                              } else if (days < 0) {
-                                status = "overdue";
-                                className += "bg-danger";
-                                text = `${Math.abs(days)} days overdue`;
                               } else if (days === 0) {
                                 status = "due-today";
                                 className += "bg-warning";
@@ -2615,7 +2598,7 @@ Thank you for choosing us.`;
                               } else {
                                 status = "active";
                                 className += "bg-success";
-                                text = `${days} days left`;
+                                text = `${days} day${days !== 1 ? 's' : ''} left`;
                               }
                               
                               return <span className={className}>{text}</span>;
@@ -4247,7 +4230,7 @@ Thank you for choosing us.`;
         </Modal>
       )}
 
-      {/* Payment Modal(CASH & MPESA MANUAL) */}
+      {/* Payment Modal (CASH & MPESA MANUAL) */}
       {showPaymentModal && selectedClient && (
         <Modal
           isOpen={showPaymentModal}
@@ -4263,7 +4246,7 @@ Thank you for choosing us.`;
             e.preventDefault()
             const formData = new FormData(e.target)
             const method = formData.get('method')
-
+          
             handlePayment({
               amount: formData.get('amount'),
               method: method,
@@ -4281,7 +4264,7 @@ Thank you for choosing us.`;
                 readOnly 
               />
             </div>
-
+        
             <div className="mb-3">
               <label className="form-label">Phone Number</label>
               <input 
@@ -4291,7 +4274,7 @@ Thank you for choosing us.`;
                 readOnly 
               />
             </div>
-
+        
             <div className="mb-3">
               <label className="form-label">Total Loan Amount</label>
               <input 
@@ -4301,7 +4284,7 @@ Thank you for choosing us.`;
                 readOnly 
               />
             </div>
-
+        
             <div className="mb-3">
               <label className="form-label">Amount Already Paid</label>
               <input 
@@ -4311,7 +4294,7 @@ Thank you for choosing us.`;
                 readOnly 
               />
             </div>
-
+        
             <div className="mb-3">
               <label className="form-label"><strong>Current Balance</strong></label>
               <input 
@@ -4321,8 +4304,8 @@ Thank you for choosing us.`;
                 readOnly 
               />
             </div>
-
-            {/* Payment Type Selection - NEW */}
+        
+            {/* Payment Type Selection */}
             <div className="mb-3">
               <label className="form-label"><strong>Payment Type</strong> <span className="text-danger">*</span></label>
               <div className="form-check">
@@ -4348,11 +4331,11 @@ Thank you for choosing us.`;
                   onChange={() => setPaymentType('interest')}
                 />
                 <label className="form-check-label" htmlFor="interestPayment">
-                  Interest Payment (Extends due date by 7 days)
+                  Interest Payment (Pays down accrued interest)
                 </label>
               </div>
             </div>
-                    
+        
             {/* Show different info based on payment type */}
             {paymentType === 'principal' ? (
               <div className="mb-3">
@@ -4366,11 +4349,11 @@ Thank you for choosing us.`;
               </div>
             ) : (
               <div className="mb-3">
-                <label className="form-label">Expected Interest (30%)</label>
+                <label className="form-label">Total Unpaid Interest</label>
                 <input 
                   type="text" 
                   className="form-control" 
-                  value={formatCurrency((selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) * 0.30)} 
+                  value={formatCurrency(unpaidInterest)} 
                   readOnly 
                 />
               </div>
@@ -4386,15 +4369,19 @@ Thank you for choosing us.`;
                 id="paymentAmount" 
                 name="amount"                 
                 min="1"
-                max={Math.floor(selectedClient.balance || 0)}
+                max={paymentType === 'principal' 
+                  ? Math.floor(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
+                  : Math.floor(unpaidInterest)}
                 placeholder="Enter amount"
                 required 
               />
               <small className="text-muted">
-                Maximum: {formatCurrency(Math.floor(selectedClient.balance || 0))}
+                Maximum: {formatCurrency(paymentType === 'principal' 
+                  ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
+                  : unpaidInterest)}
               </small>
             </div>
-
+                
             <div className="mb-3">
               <label htmlFor="paymentMethod" className="form-label">
                 Payment Method <span className="text-danger">*</span>
@@ -4437,7 +4424,7 @@ Thank you for choosing us.`;
                 Enter the M-Pesa transaction reference code from the client's payment
               </small>
             </div>
-
+          
             <div className="alert alert-info">
               <i className="fas fa-info-circle me-2"></i>
               {document.getElementById('paymentMethod')?.value === 'mpesa' 
@@ -4472,144 +4459,160 @@ Thank you for choosing us.`;
 
       {/* M-Pesa Payment Modal */}
       {showMpesaModal && selectedClient && (
-      <Modal
-        isOpen={showMpesaModal}
-        onClose={() => {
-          setShowMpesaModal(false)
-          setSelectedClient(null)
-          setMpesaAmount("")
-          setPaymentStatus('')
-        }}
-        title="Process M-Pesa Payment"
-        size="md"
-      >
-        <div className="mb-3">
-          <label className="form-label">Client Name</label>
-          <input 
-            type="text" 
-            className="form-control" 
-            value={selectedClient.name || 'N/A'} 
-            readOnly 
-          />
-        </div>
-      
-        <div className="mb-3">
-          <label className="form-label">Phone Number</label>
-          <input 
-            type="text" 
-            className="form-control" 
-            value={selectedClient.phone || 'N/A'} 
-            readOnly 
-          />
-        </div>
-      
-        <div className="mb-3">
-          <label className="form-label">Current Balance</label>
-          <input 
-            type="text" 
-            className="form-control fw-bold text-danger" 
-            value={formatCurrency(selectedClient.balance || 0)} 
-            readOnly 
-          />
-        </div>
-
-        {/* Payment Type Selection for M-Pesa - NEW */}
-        <div className="mb-3">
-          <label className="form-label"><strong>Payment Type</strong></label>
-          <div className="form-check">
+        <Modal
+          isOpen={showMpesaModal}
+          onClose={() => {
+            setShowMpesaModal(false)
+            setSelectedClient(null)
+            setMpesaAmount("")
+            setPaymentStatus('')
+          }}
+          title="Process M-Pesa Payment"
+          size="md"
+        >
+          <div className="mb-3">
+            <label className="form-label">Client Name</label>
             <input 
-              className="form-check-input" 
-              type="radio" 
-              name="mpesaPaymentType" 
-              id="mpesaPrincipal" 
-              checked={mpesaPaymentType === 'principal'}
-              onChange={() => setMpesaPaymentType('principal')}
+              type="text" 
+              className="form-control" 
+              value={selectedClient.name || 'N/A'} 
+              readOnly 
             />
-            <label className="form-check-label" htmlFor="mpesaPrincipal">
-              Principal Payment
-            </label>
           </div>
-          <div className="form-check">
+        
+          <div className="mb-3">
+            <label className="form-label">Phone Number</label>
             <input 
-              className="form-check-input" 
-              type="radio" 
-              name="mpesaPaymentType" 
-              id="mpesaInterest" 
-              checked={mpesaPaymentType === 'interest'}
-              onChange={() => setMpesaPaymentType('interest')}
+              type="text" 
+              className="form-control" 
+              value={selectedClient.phone || 'N/A'} 
+              readOnly 
             />
-            <label className="form-check-label" htmlFor="mpesaInterest">
-              Interest Payment
-            </label>
           </div>
-        </div>
+        
+          <div className="mb-3">
+            <label className="form-label">Current Balance</label>
+            <input 
+              type="text" 
+              className="form-control fw-bold text-danger" 
+              value={formatCurrency(selectedClient.balance || 0)} 
+              readOnly 
+            />
+          </div>
+        
+          {/* Payment Type Selection for M-Pesa */}
+          <div className="mb-3">
+            <label className="form-label"><strong>Payment Type</strong></label>
+            <div className="form-check">
+              <input 
+                className="form-check-input" 
+                type="radio" 
+                name="mpesaPaymentType" 
+                id="mpesaPrincipal" 
+                checked={mpesaPaymentType === 'principal'}
+                onChange={() => setMpesaPaymentType('principal')}
+              />
+              <label className="form-check-label" htmlFor="mpesaPrincipal">
+                Principal Payment
+              </label>
+            </div>
+            <div className="form-check">
+              <input 
+                className="form-check-input" 
+                type="radio" 
+                name="mpesaPaymentType" 
+                id="mpesaInterest" 
+                checked={mpesaPaymentType === 'interest'}
+                onChange={() => setMpesaPaymentType('interest')}
+              />
+              <label className="form-check-label" htmlFor="mpesaInterest">
+                Interest Payment
+              </label>
+            </div>
+          </div>
+        
+          {mpesaPaymentType === 'interest' && (
+            <div className="mb-3">
+              <label className="form-label">Total Unpaid Interest</label>
+              <input 
+                type="text" 
+                className="form-control" 
+                value={formatCurrency(mpesaUnpaidInterest)} 
+                readOnly 
+              />
+            </div>
+          )}
       
-        <div className="mb-3">
-          <label htmlFor="mpesaAmount" className="form-label">
-            Payment Amount (KSh) <span className="text-danger">*</span>
-          </label>
-          <input 
-            type="number" 
-            className="form-control" 
-            id="mpesaAmount" 
-            value={mpesaAmount}
-            onChange={(e) => setMpesaAmount(e.target.value)}
-            min="1"
-            max={selectedClient.balance || 0}
-            placeholder="Enter amount"
-            required 
-          />
-          <small className="text-muted">
-            Maximum: {formatCurrency(selectedClient.balance || 0)}
-          </small>
-        </div>
+          <div className="mb-3">
+            <label htmlFor="mpesaAmount" className="form-label">
+              Payment Amount (KSh) <span className="text-danger">*</span>
+            </label>
+            <input 
+              type="number" 
+              className="form-control" 
+              id="mpesaAmount" 
+              value={mpesaAmount}
+              onChange={(e) => setMpesaAmount(e.target.value)}
+              min="1"
+              max={mpesaPaymentType === 'principal' 
+                ? Math.floor(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
+                : Math.floor(mpesaUnpaidInterest)}
+              placeholder="Enter amount"
+              required 
+            />
+            <small className="text-muted">
+              Maximum: {formatCurrency(mpesaPaymentType === 'principal' 
+                ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
+                : mpesaUnpaidInterest)}
+            </small>
+          </div>
+              
+          {/* Payment Status Display */}
+          {paymentStatus && (
+            <div className="alert alert-info d-flex align-items-center">
+              <i className="fas fa-info-circle me-2"></i>
+              <span>{paymentStatus}</span>
+            </div>
+          )}
       
-        {/* Payment Status Display */}
-        {paymentStatus && (
-          <div className="alert alert-info d-flex align-items-center">
+          <div className="alert alert-info">
             <i className="fas fa-info-circle me-2"></i>
-            <span>{paymentStatus}</span>
+            This will send an STK push prompt to the client's phone. The client needs to enter their M-Pesa PIN to complete the payment.
           </div>
-        )}
-
-        <div className="alert alert-info">
-          <i className="fas fa-info-circle me-2"></i>
-          This will send an STK push prompt to the client's phone. The client needs to enter their M-Pesa PIN to complete the payment.
-        </div>
-      
-        <div className="d-flex gap-2">
-          <button 
-            type="button" 
-            className="btn btn-success"
-            onClick={handleMpesaPayment}
-            disabled={sendingStk || !mpesaAmount}
-          >
-            {sendingStk ? (
-              <>
-                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                Sending Prompt...
-              </>
-            ) : (
-              <>
-                <i className="fas fa-mobile-alt me-2"></i>Send STK Push
-              </>
-            )}
-          </button>
-          <button 
-            type="button" 
-            className="btn btn-secondary" 
-            onClick={() => {
-              setShowMpesaModal(false)
-              setSelectedClient(null)
-              setMpesaAmount("")
-              setPaymentStatus('')
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </Modal>
-      )}    
+        
+          <div className="d-flex gap-2">
+            <button 
+              type="button" 
+              className="btn btn-success"
+              onClick={handleMpesaPayment}
+              disabled={sendingStk || !mpesaAmount}
+            >
+              {sendingStk ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                  Sending Prompt...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-mobile-alt me-2"></i>Send STK Push
+                </>
+              )}
+            </button>
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={() => {
+                setShowMpesaModal(false)
+                setSelectedClient(null)
+                setMpesaAmount("")
+                setPaymentStatus('')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}   
 
       {/* Delete Confirmation Dialog */}
       <ConfirmationDialog
@@ -5847,111 +5850,111 @@ Thank you for choosing us.`;
       )}
 
       {/* Investor Section Password Modal - UPDATED */}
-{showInvestorLoginModal && (
-  <div 
-    className="modal fade show d-block investor-login-modal" 
-    tabIndex="-1" 
-    style={{ 
-      backgroundColor: 'rgba(0,0,0,0.5)', 
-      zIndex: 1050,
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100%'
-    }}
-  >
-    <div className="modal-dialog modal-dialog-centered">
-      <div className="modal-content">
-        <div className="modal-header bg-primary text-white">
-          <h5 className="modal-title">Investor Section Access</h5>
-          <button 
-            type="button" 
-            className="btn-close btn-close-white" 
-            onClick={() => {
-              setShowInvestorLoginModal(false);
-              setInvestorPassword("");
-              // Reset to overview if password entry is cancelled
-              setActiveSection("overview");
-              navigate("/admin");
-            }}
-          ></button>
-        </div>
-          
-        <div className="modal-body">
-          <div className="text-center mb-4">
-            <i className="fas fa-lock fa-3x text-primary mb-3"></i>
-            <h5>Additional Security Required</h5>
-            <p className="text-muted">
-              Enter password to access investor section
-            </p>
+      {showInvestorLoginModal && (
+        <div 
+          className="modal fade show d-block investor-login-modal" 
+          tabIndex="-1" 
+          style={{ 
+            backgroundColor: 'rgba(0,0,0,0.5)', 
+            zIndex: 1050,
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%'
+          }}
+        >
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">Investor Section Access</h5>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => {
+                    setShowInvestorLoginModal(false);
+                    setInvestorPassword("");
+                    // Reset to overview if password entry is cancelled
+                    setActiveSection("overview");
+                    navigate("/admin");
+                  }}
+                ></button>
+              </div>
+                
+              <div className="modal-body">
+                <div className="text-center mb-4">
+                  <i className="fas fa-lock fa-3x text-primary mb-3"></i>
+                  <h5>Additional Security Required</h5>
+                  <p className="text-muted">
+                    Enter password to access investor section
+                  </p>
+                </div>
+                
+                <form onSubmit={handleInvestorPasswordSubmit}>
+                  <div className="mb-4">
+                    <label htmlFor="investorPassword" className="form-label">
+                      <strong>Password</strong>
+                    </label>
+                    <input
+                      type="password"
+                      className="form-control"
+                      id="investorPassword"
+                      value={investorPassword}
+                      onChange={(e) => {
+                        setInvestorPassword(e.target.value);
+                      }}
+                      placeholder="Enter password"
+                      required
+                      autoFocus
+                      style={{
+                        height: "50px",
+                        padding: "1rem",
+                        borderRadius: "8px",
+                        border: "1px solid #dee2e6"
+                      }}
+                    />
+                    <small className="text-muted d-block mt-2">
+                      Enter the investor section password
+                    </small>
+                  </div>
+                    
+                  <div className="d-flex flex-column flex-sm-row gap-2">
+                    <button 
+                      type="submit" 
+                      className="btn btn-primary flex-grow-1"
+                      style={{
+                        height: "50px",
+                        fontSize: "1.1rem",
+                        fontWeight: "600"
+                      }}
+                    >
+                      <i className="fas fa-unlock me-2"></i>
+                      Unlock Investor Section
+                    </button>
+                    
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setShowInvestorLoginModal(false);
+                        setInvestorPassword("");
+                        setActiveSection("overview");
+                        navigate("/admin");
+                      }}
+                      style={{
+                        height: "50px",
+                        fontSize: "1rem"
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
-          
-          <form onSubmit={handleInvestorPasswordSubmit}>
-            <div className="mb-4">
-              <label htmlFor="investorPassword" className="form-label">
-                <strong>Password</strong>
-              </label>
-              <input
-                type="password"
-                className="form-control"
-                id="investorPassword"
-                value={investorPassword}
-                onChange={(e) => {
-                  setInvestorPassword(e.target.value);
-                }}
-                placeholder="Enter password"
-                required
-                autoFocus
-                style={{
-                  height: "50px",
-                  padding: "1rem",
-                  borderRadius: "8px",
-                  border: "1px solid #dee2e6"
-                }}
-              />
-              <small className="text-muted d-block mt-2">
-                Enter the investor section password
-              </small>
-            </div>
-              
-            <div className="d-flex flex-column flex-sm-row gap-2">
-              <button 
-                type="submit" 
-                className="btn btn-primary flex-grow-1"
-                style={{
-                  height: "50px",
-                  fontSize: "1.1rem",
-                  fontWeight: "600"
-                }}
-              >
-                <i className="fas fa-unlock me-2"></i>
-                Unlock Investor Section
-              </button>
-              
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => {
-                  setShowInvestorLoginModal(false);
-                  setInvestorPassword("");
-                  setActiveSection("overview");
-                  navigate("/admin");
-                }}
-                style={{
-                  height: "50px",
-                  fontSize: "1rem"
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
         </div>
-      </div>
-    </div>
-  </div>
-)}
+      )}
     </div>  
   )
 }

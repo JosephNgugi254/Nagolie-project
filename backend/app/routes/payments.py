@@ -10,52 +10,44 @@ from app.utils.security import log_audit, admin_required
 payments_bp = Blueprint('payments', __name__)
 
 def recalculate_loan(loan):
-    """
-    Recalculate loan with simple interest per week.
-    Interest accrues weekly on current principal, no compounding.
-    """
+    """Accrue interest for full weeks since last payment, but do NOT change due_date."""
     if loan.status != 'active':
         return loan
 
     today = datetime.now().date()
     
-    # Initialize dates if missing
     if not loan.disbursement_date:
         loan.disbursement_date = datetime.now()
     
     if not loan.last_interest_payment_date:
         loan.last_interest_payment_date = loan.disbursement_date
     
-    # Ensure last_interest_payment_date is a date object for comparison
     last_interest_date = loan.last_interest_payment_date
     if hasattr(last_interest_date, 'date'):
         last_interest_date = last_interest_date.date()
     
-    # Calculate weeks since last interest payment (full weeks only)
     days_since = (today - last_interest_date).days
-    weeks_passed = days_since // 7  # full weeks
+    weeks_passed = days_since // 7
     
     if weeks_passed > 0:
-        # Accrue interest for each full week
-        weekly_interest = (loan.current_principal* Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
         new_accrued = weekly_interest * weeks_passed
         loan.accrued_interest += new_accrued
         
-        # Update last interest payment date to the start of the current week
+        # Move last_interest_payment_date forward to the start of the current week
         loan.last_interest_payment_date += timedelta(days=weeks_passed * 7)
-        
-        # Update due_date to next week from that date
-        loan.due_date = loan.last_interest_payment_date + timedelta(days=7)
+        # DO NOT update due_date here
     
-    # Calculate unpaid interest
     unpaid_interest = loan.accrued_interest - loan.interest_paid
     if unpaid_interest < 0:
         unpaid_interest = Decimal('0')
     
-    # Balance = current principal + unpaid interest
-    loan.balance = (loan.current_principal + unpaid_interest).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    loan.balance = (loan.current_principal + unpaid_interest).quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP
+    )
     
-    # Check if loan is fully paid (principal and all accrued interest)
     if loan.current_principal <= Decimal('0.01') and unpaid_interest <= Decimal('0.01'):
         loan.status = 'completed'
         loan.current_principal = Decimal('0')
@@ -104,12 +96,9 @@ def process_cash_payment():
             loan.amount_paid += payment_amount
             loan.last_interest_payment_date = datetime.utcnow()
             
-            # If all accrued interest is now paid, reset the last interest payment date to today
-            # so that future accrual starts fresh (extends due date)
             if loan.interest_paid >= loan.accrued_interest:
-                # Move last_interest_payment_date to today to start new period
                 loan.last_interest_payment_date = datetime.utcnow()
-                loan.due_date = datetime.utcnow() + timedelta(days=7)
+                
             
             notes_text = notes or f'Cash interest payment of KSh {float(payment_amount)}'
             
@@ -326,7 +315,6 @@ def mpesa_callback():
                 
                 # Check if full interest paid for the period
                 if loan.current_period_interest_paid >= current_period_interest_due:
-                    loan.due_date = datetime.utcnow() + timedelta(days=7)
                     excess = loan.current_period_interest_paid - current_period_interest_due
                     loan.current_period_interest_paid = excess
                 

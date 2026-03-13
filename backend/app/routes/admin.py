@@ -960,7 +960,9 @@ def get_dashboard_stats():
         available_funds = float(total_principal_paid) - float(currently_lent)
         if available_funds < 0:
             available_funds = 0
+
         today = datetime.now().date()
+
         due_today = Loan.query.filter(
             Loan.status == 'active',
             db.func.date(Loan.due_date) == today
@@ -977,20 +979,33 @@ def get_dashboard_stats():
                 'current_principal': float(loan.current_principal),
                 'phone': loan.client.phone_number if loan.client else 'N/A'
             })
-        overdue = Loan.query.filter(
+
+        # --- Overdue loans (any unpaid interest) ---
+        overdue_loans = Loan.query.filter(
             Loan.status == 'active',
-            Loan.due_date < datetime.now()
+            Loan.accrued_interest > Loan.interest_paid
         ).all()
+
         overdue_data = []
-        for loan in overdue:
-            loan = recalculate_loan(loan)
-            if loan.due_date:
-                due_date_value = loan.due_date
-                if hasattr(due_date_value, 'date'):
-                    due_date_value = due_date_value.date()
-                days_overdue = (datetime.now().date() - due_date_value).days
+        for loan in overdue_loans:
+            loan = recalculate_loan(loan)   # ensure up-to-date
+            
+            # Find the most recent interest payment for this loan
+            last_interest_payment = Transaction.query.filter(
+                Transaction.loan_id == loan.id,
+                Transaction.transaction_type == 'payment',
+                Transaction.payment_type == 'interest',
+                Transaction.status == 'completed'
+            ).order_by(Transaction.created_at.desc()).first()
+
+            if last_interest_payment:
+                last_date = last_interest_payment.created_at.date()
             else:
-                days_overdue = 0
+                # No interest ever paid – use disbursement date
+                last_date = loan.disbursement_date.date() if loan.disbursement_date else loan.created_at.date()
+
+            weeks_overdue = (today - last_date).days // 7
+
             overdue_data.append({
                 'id': loan.id,
                 'client_id': loan.client_id,
@@ -998,9 +1013,10 @@ def get_dashboard_stats():
                 'client_name': loan.client.full_name if loan.client else 'Unknown',
                 'balance': float(loan.balance),
                 'current_principal': float(loan.current_principal),
-                'days_overdue': days_overdue,
+                'weeks_overdue': weeks_overdue,
                 'phone': loan.client.phone_number if loan.client else 'N/A'
             })
+
         return jsonify({
             'total_clients': total_clients,
             'total_lent': total_lent_adjusted,
@@ -1084,17 +1100,48 @@ def get_all_clients():
             if active_loan:
                 active_loan = recalculate_loan(active_loan)
                 db.session.commit()
+
                 current_principal = active_loan.current_principal if active_loan.current_principal is not None else active_loan.principal_amount
                 principal_paid = active_loan.principal_paid if active_loan.principal_paid is not None else Decimal('0')
                 interest_paid = active_loan.interest_paid if active_loan.interest_paid is not None else Decimal('0')
-                if active_loan.due_date:
-                    due_date = active_loan.due_date.date() if hasattr(active_loan.due_date, 'date') else active_loan.due_date
+
+                # Calculate unpaid interest from balance and current principal (more robust)
+                unpaid_interest = active_loan.balance - active_loan.current_principal
+                if unpaid_interest < 0:
+                    unpaid_interest = Decimal('0')
+
+                # --- Compute days left based on original disbursement weekday ---
+                disburse = active_loan.disbursement_date
+                if disburse:
+                    if hasattr(disburse, 'date'):
+                        disburse_date = disburse.date()
+                    else:
+                        disburse_date = disburse
+                    original_due = disburse_date + timedelta(days=7)  # first due date
                     today = datetime.now().date()
-                    days_left = (due_date - today).days
-                    days_overdue = abs(days_left) if days_left < 0 else 0
+                    days_since = (today - original_due).days
+                    if days_since < 0:
+                        # Not yet reached first due date
+                        next_due = original_due
+                    else:
+                        weeks = days_since // 7
+                        remainder = days_since % 7
+                        if remainder == 0:
+                            # today is exactly a due date
+                            next_due = original_due + timedelta(days=weeks * 7)
+                        else:
+                            next_due = original_due + timedelta(days=(weeks + 1) * 7)
+                    days_left = (next_due - today).days
                 else:
-                    days_left = 7
-                    days_overdue = 0
+                    days_left = 7  # fallback
+
+                # --- Weeks overdue (for dashboard) ---
+                last_interest = active_loan.last_interest_payment_date
+                weeks_overdue = 0
+                if last_interest:
+                    last_date = last_interest.date() if hasattr(last_interest, 'date') else last_interest
+                    weeks_overdue = (today - last_date).days // 7
+
                 clients_data.append({
                     'id': client.id,
                     'loan_id': active_loan.id,
@@ -1104,14 +1151,15 @@ def get_all_clients():
                     'borrowedDate': active_loan.disbursement_date.isoformat() if active_loan.disbursement_date else None,
                     'borrowedAmount': float(active_loan.principal_amount),
                     'currentPrincipal': float(current_principal),
-                    'expectedReturnDate': active_loan.due_date.isoformat(),
+                    'expectedReturnDate': active_loan.due_date.isoformat() if active_loan.due_date else None,
                     'amountPaid': float(active_loan.amount_paid),
                     'principalPaid': float(principal_paid),
                     'interestPaid': float(interest_paid),
                     'balance': float(active_loan.balance),
                     'daysLeft': days_left,
-                    'daysOverdue': days_overdue,
-                    'lastInterestPayment': active_loan.last_interest_payment_date.isoformat() if active_loan.last_interest_payment_date else None
+                    'weeks_overdue': weeks_overdue,
+                    'lastInterestPayment': last_interest.isoformat() if last_interest else None,
+                    'unpaidInterest': float(unpaid_interest),  # ← NEW FIELD
                 })
         return jsonify(clients_data), 200
     except Exception as e:
@@ -1119,7 +1167,6 @@ def get_all_clients():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
 # -------------------------------------------------------------------
 # Investors - GET, POST
 # -------------------------------------------------------------------
