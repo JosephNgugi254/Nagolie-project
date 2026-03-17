@@ -133,6 +133,8 @@ function AdminPanel() {
   const [adjustmentAmount, setAdjustmentAmount] = useState("")
   const [isEarlyWithdrawal, setIsEarlyWithdrawal] = useState(false);
 
+  const [maxReturnAmount, setMaxReturnAmount] = useState(0);
+
 
   // Investor tabs and transactions state
   const [investorTab, setInvestorTab] = useState('investors')
@@ -366,38 +368,28 @@ const handleInvestorPasswordSubmit = (e) => {
   const [investorTopupNotes, setInvestorTopupNotes] = useState("");
 
   const handleProcessReturn = async (investor) => {
-    // Calculate 40% return based on investment amount
-    const expectedAmount = investor.investment_amount * 0.40;
-    
-    setSelectedInvestorForReturn(investor);
-    setReturnAmount(expectedAmount.toFixed(2));
-    setReturnMethod("mpesa");
-    setReturnReference("");
-    setReturnNotes("");
-    setIsTopupAdjustmentMode(false); // Start in return mode
-    setAdjustmentType("topup");
-    setAdjustmentAmount("");
-    setInvestorTopupMethod("cash");
-    setInvestorTopupReference("");
-    setInvestorTopupNotes("");
-    setIsEarlyWithdrawal(false);
-    setShowProcessReturnModal(true);
-    
-    // Show info about next return date
-    const currentDate = new Date();
-    const nextReturnDate = new Date(investor.next_return_date);
-    const canProcessNormally = currentDate >= nextReturnDate;
-    
-    if (canProcessNormally) {
-      showToast.info(
-        `Next return date has been reached. Processing normal 40% return.`,
-        5000
-      );
-    } else {
-      showToast.warning(
-        `Next return date is ${formatDate(investor.next_return_date)}. Early withdrawal option available.`,
-        5000
-      );
+    try {
+      // Fetch current outstanding
+      const calcResponse = await adminAPI.calculateInvestorReturn(investor.id);
+      if (calcResponse.data.success) {
+        setSelectedInvestorForReturn(investor);
+        setReturnAmount("");   // user will enter amount
+        setMaxReturnAmount(calcResponse.data.outstanding_returns);
+        setReturnMethod("mpesa");
+        setReturnReference("");
+        setReturnNotes("");
+        setIsTopupAdjustmentMode(false);
+        setAdjustmentType("topup");
+        setAdjustmentAmount("");
+        setInvestorTopupMethod("cash");
+        setInvestorTopupReference("");
+        setInvestorTopupNotes("");
+        setIsEarlyWithdrawal(false);
+        setShowProcessReturnModal(true);
+      }
+    } catch (error) {
+      console.error("Error fetching investor return data:", error);
+      showToast.error("Failed to load investor return data");
     }
   };
 
@@ -407,20 +399,20 @@ const handleInvestorPasswordSubmit = (e) => {
         showToast.error("No investor selected");
         return;
       }
-  
+
       // If we're in topup/adjustment mode
       if (isTopupAdjustmentMode) {
         if (!adjustmentAmount || parseFloat(adjustmentAmount) <= 0) {
           showToast.error("Please enter a valid amount");
           return;
         }
-  
+
         // Validate M-Pesa reference if needed
         if (adjustmentType === 'topup' && investorTopupMethod === 'mpesa' && !investorTopupReference) {
           showToast.error("Please enter M-Pesa reference for M-Pesa payment");
           return;
         }
-  
+
         const data = {
           adjustment_type: adjustmentType,
           amount: parseFloat(adjustmentAmount),
@@ -430,9 +422,9 @@ const handleInvestorPasswordSubmit = (e) => {
             mpesa_reference: investorTopupMethod === 'mpesa' ? investorTopupReference : null
           })
         };
-  
+
         const response = await adminAPI.adjustInvestorInvestment(selectedInvestorForReturn.id, data);
-        
+
         if (response.data.success) {
           showToast.success(`Investment ${adjustmentType === 'topup' ? 'topped up' : 'adjusted'} successfully`);
           setShowProcessReturnModal(false);
@@ -447,36 +439,28 @@ const handleInvestorPasswordSubmit = (e) => {
           showToast.error("Please enter a valid return amount");
           return;
         }
-  
-        // Check if it's early withdrawal and validate
-        const currentDate = new Date();
-        const nextReturnDate = new Date(selectedInvestorForReturn.next_return_date);
-        
-        // If it's early withdrawal (before next return date)
-        const isEarly = currentDate < nextReturnDate || isEarlyWithdrawal;
-        
-        if (isEarly && !isEarlyWithdrawal) {
-          showToast.error("Cannot process return before next return date. Please check 'Early Withdrawal' option if investor requests early return.");
-          return;
-        }
-  
+
+        // Check if early withdrawal logic is needed (optional)
+        const isEarly = isEarlyWithdrawal; // already set by checkbox
+
         // Validate M-Pesa reference if needed
         if (returnMethod === 'mpesa' && !returnReference) {
           showToast.error("Please enter M-Pesa reference for M-Pesa payment");
           return;
         }
-  
+
         const data = {
+          amount: parseFloat(returnAmount),
           payment_method: returnMethod,
           mpesa_receipt: returnMethod === 'mpesa' ? returnReference : null,
           notes: returnNotes,
           is_early_withdrawal: isEarly
         };
-  
+
         const response = await adminAPI.processInvestorReturn(selectedInvestorForReturn.id, data);
-        
+
         if (response.data.success) {
-          showToast.success(`Return processed successfully! ${isEarly ? '(Early withdrawal with 15% fee applied)' : ''}`);
+          showToast.success(`Return of ${formatCurrency(parseFloat(returnAmount))} processed successfully!`);
           setShowProcessReturnModal(false);
           fetchInvestors(); // Refresh the list
           fetchDashboardData(); // Update dashboard
@@ -3350,7 +3334,7 @@ Thank you for choosing us.`;
                 {/* ================= HEADER WITH LOCK STATE ================= */}
                 <div className="d-flex justify-content-between align-items-center mb-4">
                   <h2>Investor Management</h2>
-            
+
                   {isInvestorSectionAuthenticated ? (
                     <div className="d-flex align-items-center gap-2">
                       <button
@@ -3521,6 +3505,10 @@ Thank you for choosing us.`;
                                   formatCurrency(row.total_returns_received),
                               },
                               {
+                                header: "Outstanding Returns",
+                                render: (row) => formatCurrency(row.outstanding_returns || 0),
+                              },
+                              {
                                 header: "Status",
                                 render: (row) => (
                                   <span
@@ -3631,101 +3619,129 @@ Thank you for choosing us.`;
 
                     {/* ================= TRANSACTIONS TAB ================= */}
                     {investorTab === "transactions" && (
-                      investorTransactionsLoading ? (
-                        <div className="text-center py-5">
-                          <div className="spinner-border text-primary" role="status">
-                            <span className="visually-hidden">Loading transactions...</span>
+                      <>
+                        {/* FILTER ROW – always visible */}
+                        <div className="search-filter-row mb-4">
+                          <div>
+                            <label className="form-label small text-muted mb-1">
+                              Search Transactions
+                            </label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Search by investor name..."
+                              value={investorTransactionSearch}
+                              onChange={(e) => setInvestorTransactionSearch(e.target.value)}
+                            />
                           </div>
-                          <p className="mt-2">Loading transactions...</p>
+                          <div>
+                            <label className="form-label small text-muted mb-1">
+                              Transaction Date
+                            </label>
+                            <input
+                              type="date"
+                              className="form-control"
+                              value={investorTransactionDate}
+                              onChange={(e) => setInvestorTransactionDate(e.target.value)}
+                            />
+                          </div>
                         </div>
-                      ) : filteredInvestorTransactions.length === 0 ? (
-                        <div className="text-center py-5">
-                          <i className="fas fa-exchange-alt fa-3x text-muted mb-3"></i>
-                          <h5 className="text-muted">No Transactions Found</h5>
-                          <p className="text-muted">
-                            Try adjusting your search or date criteria.
-                          </p>
-                        </div>
-                      ) : (
-                        <AdminTable
-                          columns={[
-                            {
-                              header: "Date",
-                              render: (row) =>
-                                formatDate(
-                                  row.date ||
-                                    row.return_date ||
-                                    row.created_at
-                                ),
-                            },
-                            { header: "Investor", field: "investor_name" },
-                            {
-                              header: "Type",
-                              render: (row) => {
-                                const type = (row.type || "").toLowerCase();
-                                const map = {
-                                  return: "bg-success",
-                                  topup: "bg-info",
-                                  adjustment: "bg-warning",
-                                  disbursement: "bg-primary",
-                                };
-                                const key =
-                                  Object.keys(map).find((k) =>
-                                    type.includes(k)
-                                  ) || "disbursement";
-                                
-                                return (
-                                  <span className={`badge ${map[key]}`}>
-                                    {row.type}
-                                  </span>
-                                );
+
+                        {investorTransactionsLoading ? (
+                          <div className="text-center py-5">
+                            <div className="spinner-border text-primary" role="status">
+                              <span className="visually-hidden">Loading transactions...</span>
+                            </div>
+                            <p className="mt-2">Loading transactions...</p>
+                          </div>
+                        ) : filteredInvestorTransactions.length === 0 ? (
+                          <div className="text-center py-5">
+                            <i className="fas fa-exchange-alt fa-3x text-muted mb-3"></i>
+                            <h5 className="text-muted">No Transactions Found</h5>
+                            <p className="text-muted">
+                              Try adjusting your search or date criteria.
+                            </p>
+                          </div>
+                        ) : (
+                          <AdminTable
+                            columns={[
+                              {
+                                header: "Date",
+                                render: (row) =>
+                                  formatDate(
+                                    row.date ||
+                                      row.return_date ||
+                                      row.created_at
+                                  ),
                               },
-                            },
-                            {
-                              header: "Amount",
-                              render: (row) =>
-                                formatCurrency(row.amount),
-                            },
-                            {
-                              header: "Method",
-                              render: (row) => (
-                                <span className="badge bg-secondary">
-                                  {row.method?.toUpperCase() || "CASH"}
-                                </span>
-                              ),
-                            },
-                            { header: "Reference", field: "mpesa_receipt" },
-                            {
-                              header: "Actions",
-                              render: (row) => (
-                                <button 
-                                  className="btn btn-sm btn-outline-info"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      await generateInvestorTransactionReceipt(row);
-                                      showToast.success(`Transaction receipt for ${row.investor_name} downloaded!`);
-                                    } catch (error) {
-                                      console.error("Error generating transaction receipt:", error);
-                                      showToast.error("Failed to download transaction receipt");
-                                    }
-                                  }}
-                                  title="Download Receipt"
-                                >
-                                  <i className="fas fa-download"></i>
-                                </button>
-                              ),
-                            },
-                          ]}
-                          data={filteredInvestorTransactions}
-                        />
-                      )
+                              { header: "Investor", field: "investor_name" },
+                              {
+                                header: "Type",
+                                render: (row) => {
+                                  const type = (row.type || "").toLowerCase();
+                                  const map = {
+                                    return: "bg-success",
+                                    topup: "bg-info",
+                                    adjustment: "bg-warning",
+                                    disbursement: "bg-primary",
+                                  };
+                                  const key =
+                                    Object.keys(map).find((k) =>
+                                      type.includes(k)
+                                    ) || "disbursement";
+                                  
+                                  return (
+                                    <span className={`badge ${map[key]}`}>
+                                      {row.type}
+                                    </span>
+                                  );
+                                },
+                              },
+                              {
+                                header: "Amount",
+                                render: (row) =>
+                                  formatCurrency(row.amount),
+                              },
+                              {
+                                header: "Method",
+                                render: (row) => (
+                                  <span className="badge bg-secondary">
+                                    {row.method?.toUpperCase() || "CASH"}
+                                  </span>
+                                ),
+                              },
+                              { header: "Reference", field: "mpesa_receipt" },
+                              {
+                                header: "Actions",
+                                render: (row) => (
+                                  <button 
+                                    className="btn btn-sm btn-outline-info"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        await generateInvestorTransactionReceipt(row);
+                                        showToast.success(`Transaction receipt for ${row.investor_name} downloaded!`);
+                                      } catch (error) {
+                                        console.error("Error generating transaction receipt:", error);
+                                        showToast.error("Failed to download transaction receipt");
+                                      }
+                                    }}
+                                    title="Download Receipt"
+                                  >
+                                    <i className="fas fa-download"></i>
+                                  </button>
+                                ),
+                              },
+                            ]}
+                            data={filteredInvestorTransactions}
+                          />
+                        )}
+                      </>
                     )}
                   </>
                 )}
               </div>
             )}
-
           </div>
         </div>
       </div>
@@ -5615,14 +5631,21 @@ Thank you for choosing us.`;
           {!isTopupAdjustmentMode && (
             <>
               <div className="mb-3">
-                <label className="form-label">Return Amount (40% of investment)</label>
+                <label className="form-label">Return Amount (KES) *</label>
                 <input
-                  type="text"
+                  type="number"
                   className="form-control"
-                  value={formatCurrency(returnAmount)}
-                  readOnly
+                  value={returnAmount}
+                  onChange={(e) => setReturnAmount(e.target.value)}
+                  min="1"
+                  max={maxReturnAmount}
+                  step="0.01"
+                  required
+                  placeholder={`Max: ${formatCurrency(maxReturnAmount)}`}
                 />
-                <small className="text-muted">Fixed 40% return based on investment amount</small>
+                <small className="text-muted">
+                  Maximum payable: {formatCurrency(maxReturnAmount)}
+                </small>
               </div>
 
               {/* Date Validation Warning */}
@@ -5630,7 +5653,7 @@ Thank you for choosing us.`;
                 const currentDate = new Date();
                 const nextReturnDate = new Date(selectedInvestorForReturn.next_return_date);
                 const canProcessNormally = currentDate >= nextReturnDate;
-
+              
                 if (!canProcessNormally) {
                   return (
                     <div className="alert alert-warning">
@@ -5652,7 +5675,7 @@ Thank you for choosing us.`;
                     onChange={(e) => {
                       const isChecked = e.target.checked;
                       setIsEarlyWithdrawal(isChecked);
-
+                    
                       // Calculate amounts
                       const expectedAmount = selectedInvestorForReturn.investment_amount * 0.40;
                       if (isChecked) {

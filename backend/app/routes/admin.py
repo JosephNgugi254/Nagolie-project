@@ -1365,27 +1365,35 @@ def calculate_investor_return(investor_id):
         investor = db.session.get(Investor, investor_id)
         if not investor:
             return jsonify({'error': 'Investor not found'}), 404
-        return_amount = investor.current_investment * Decimal('0.40')
+
+        # Update outstanding based on passed periods
+        investor.update_outstanding()
+        db.session.commit()
+
+        return_amount = investor.current_investment * Decimal('0.40')   # expected per period
         is_early_withdrawal = request.args.get('early_withdrawal', 'false').lower() == 'true'
+
         if is_early_withdrawal:
             early_return_amount = return_amount * Decimal('0.85')
             fee_amount = return_amount - early_return_amount
         else:
             early_return_amount = return_amount
             fee_amount = Decimal('0')
+
         return jsonify({
             'success': True,
             'investor_id': investor.id,
             'investor_name': investor.name,
             'total_investment': float(investor.current_investment),
-            'calculated_return': float(return_amount),
+            'outstanding_returns': float(investor.outstanding_returns),      # NEW
+            'calculated_return': float(return_amount),                       # keep for compatibility
             'is_early_withdrawal': is_early_withdrawal,
             'early_return_amount': float(early_return_amount) if is_early_withdrawal else float(return_amount),
             'early_withdrawal_fee': float(fee_amount),
             'return_percentage': '40%',
             'next_return_date': investor.next_return_date.isoformat() if investor.next_return_date else None,
             'last_return_date': investor.last_return_date.isoformat() if investor.last_return_date else None,
-            'can_process_return': datetime.now().date() >= investor.next_return_date.date() if investor.next_return_date else False
+            'can_process_return': investor.outstanding_returns > 0           # based on outstanding
         }), 200
     except Exception as e:
         print(f"Error calculating investor return: {str(e)}")
@@ -1404,55 +1412,73 @@ def process_investor_return(investor_id):
             return jsonify({'error': 'Investor not found'}), 404
         if investor.account_status != 'active':
             return jsonify({'error': 'Investor account is not active'}), 400
+
         data = request.json
+        amount = data.get('amount')
+        if amount is None:
+            return jsonify({'error': 'Amount is required'}), 400
+
+        amount = Decimal(str(amount))
         payment_method = data.get('payment_method', 'mpesa')
         mpesa_receipt = data.get('mpesa_receipt', '')
         notes = data.get('notes', '')
         is_early_withdrawal = data.get('is_early_withdrawal', False)
-        current_date = datetime.utcnow()
-        return_amount = investor.current_investment * Decimal('0.40')
+
+        # Update outstanding based on passed periods
+        investor.update_outstanding()
+        db.session.flush()
+
+        # Validate amount
+        if amount <= 0:
+            return jsonify({'error': 'Amount must be positive'}), 400
+        if amount > investor.outstanding_returns:
+            return jsonify({'error': f'Amount exceeds outstanding returns (KES {investor.outstanding_returns})'}), 400
+
+        # Early withdrawal logic (optional – you can keep or remove)
+        fee_amount = Decimal('0')
         if is_early_withdrawal:
-            fee_amount = return_amount * Decimal('0.15')
-            return_amount = return_amount - fee_amount
+            expected = investor.current_investment * Decimal('0.40')
+            if amount != expected:
+                return jsonify({'error': 'Early withdrawal must be for the full expected return amount'}), 400
+            fee_amount = amount * Decimal('0.15')
+            amount = amount - fee_amount
             notes = f"Early withdrawal with 15% fee applied. {notes}"
-        if return_amount <= 0:
-            return jsonify({'success': False, 'message': 'Invalid return amount calculation.'}), 400
+
+        # Record the return
         investor_return = InvestorReturn(
             investor_id=investor.id,
-            amount=return_amount,
-            return_date=current_date,
+            amount=amount,
+            return_date=datetime.utcnow(),
             payment_method=payment_method,
             mpesa_receipt=mpesa_receipt.upper() if payment_method == 'mpesa' else '',
             notes=notes,
             status='completed',
-            is_early_withdrawal=is_early_withdrawal
+            is_early_withdrawal=is_early_withdrawal,
+            early_withdrawal_fee=fee_amount
         )
-        investor.total_returns_received += return_amount
-        investor.last_return_date = current_date
-        if investor.total_returns_received - return_amount <= 0:
-            investor.next_return_date = current_date + timedelta(days=28)
-        else:
-            investor.next_return_date = current_date + timedelta(days=28)
         db.session.add(investor_return)
+
+        # Update investor totals
+        investor.total_returns_received += amount
+        investor.outstanding_returns -= amount
+        investor.last_return_date = datetime.utcnow()
+
         db.session.commit()
+
         log_audit('investor_return_processed', 'investor_return', investor_return.id, {
             'investor': investor.name,
-            'return_amount': float(return_amount),
+            'return_amount': float(amount),
             'is_early_withdrawal': is_early_withdrawal,
             'investment_amount': float(investor.current_investment),
             'payment_method': payment_method
         })
+
         return jsonify({
             'success': True,
-            'message': f'Return of {format_currency(return_amount)} processed successfully',
+            'message': f'Return of {format_currency(amount)} processed successfully',
             'return': investor_return.to_dict(),
             'investor': investor.to_dict(),
-            'calculated_based_on': {
-                'investment_amount': float(investor.current_investment),
-                'return_percentage': '40%',
-                'is_early_withdrawal': is_early_withdrawal,
-                'next_return_date': investor.next_return_date.isoformat()
-            }
+            'outstanding_remaining': float(investor.outstanding_returns)
         }), 200
     except Exception as e:
         db.session.rollback()

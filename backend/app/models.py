@@ -306,6 +306,7 @@ class Investor(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    outstanding_returns = db.Column(db.Numeric(12, 2), default=0)  # NEW
     
     user = db.relationship('User',foreign_keys=[user_id],back_populates='investor_profile',overlaps="investor,investor_user")
     investor_user = db.relationship('User',foreign_keys=[user_id],back_populates='investor',overlaps="investor_profile,user")
@@ -341,6 +342,22 @@ class Investor(db.Model):
         # Always ensure total_topups is set
         if self.total_topups is None:
             self.total_topups = Decimal('0')
+
+        if self.outstanding_returns is None:
+            self.outstanding_returns = Decimal('0')
+    
+    def update_outstanding(self):
+        """Check if next_return_date has passed and add expected return to outstanding."""
+        from datetime import datetime, timedelta
+        today = datetime.utcnow().date()
+        if self.next_return_date and self.next_return_date.date() <= today:
+            # While next_return_date is in the past, keep adding periods
+            while self.next_return_date.date() <= today:
+                expected = self.current_investment * Decimal('0.40')
+                self.outstanding_returns += expected
+                self.next_return_date += timedelta(days=28)
+            return True
+        return False
     
     def to_dict(self):
         return {
@@ -357,6 +374,7 @@ class Investor(db.Model):
             'invested_date': self.invested_date.isoformat() if self.invested_date else None,
             'expected_return_date': self.expected_return_date.isoformat() if self.expected_return_date else None,
             'total_returns_received': float(self.total_returns_received),
+            'outstanding_returns': float(self.outstanding_returns) if self.outstanding_returns is not None else 0.0,
             'last_return_date': self.last_return_date.isoformat() if self.last_return_date else None,
             'next_return_date': self.next_return_date.isoformat() if self.next_return_date else None,
             'agreement_document': self.agreement_document,
