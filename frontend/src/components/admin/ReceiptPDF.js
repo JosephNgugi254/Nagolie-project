@@ -565,6 +565,8 @@ export const generateLoanAgreementPDF = async (application) => {
         { text: "3. Repayment Terms and Interest", bold: true },
         "The loan is typically repayable within seven (7) days from the date of disbursement",
         "with an interest of 30%(negotiable) of the disbursed funds.",
+        "The interest shall be calculated on a compound basis, accruing weekly on any outstanding balance",
+        " until the loan is fully repaid.",
         "The interest for this loan is Ksh________",
         "",
         "Recognizing the circumstances of local communities, the CEO of Nagolie",
