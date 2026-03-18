@@ -1366,18 +1366,28 @@ def calculate_investor_return(investor_id):
         if not investor:
             return jsonify({'error': 'Investor not found'}), 404
 
-        # Update outstanding based on passed periods
+        # Update outstanding based on passed periods (now considers credit balance)
         investor.update_outstanding()
         db.session.commit()
 
-        return_amount = investor.current_investment * Decimal('0.40')   # expected per period
+        # Safely handle potential None values
+        outstanding = investor.outstanding_returns if investor.outstanding_returns is not None else Decimal('0')
+        credit_balance = investor.credit_balance if investor.credit_balance is not None else Decimal('0')
+
+        # Expected return for the next/current period
+        next_expected = investor.current_investment * Decimal('0.40')
+
+        # Maximum amount that could realistically be paid now
+        max_payable = outstanding + next_expected
+
+        # Early withdrawal logic (via query param ?early_withdrawal=true)
         is_early_withdrawal = request.args.get('early_withdrawal', 'false').lower() == 'true'
 
         if is_early_withdrawal:
-            early_return_amount = return_amount * Decimal('0.85')
-            fee_amount = return_amount - early_return_amount
+            early_return_amount = next_expected * Decimal('0.85')
+            fee_amount = next_expected - early_return_amount
         else:
-            early_return_amount = return_amount
+            early_return_amount = next_expected
             fee_amount = Decimal('0')
 
         return jsonify({
@@ -1385,20 +1395,25 @@ def calculate_investor_return(investor_id):
             'investor_id': investor.id,
             'investor_name': investor.name,
             'total_investment': float(investor.current_investment),
-            'outstanding_returns': float(investor.outstanding_returns),      # NEW
-            'calculated_return': float(return_amount),                       # keep for compatibility
+            'outstanding_returns': float(outstanding),
+            'credit_balance': float(credit_balance),
+            'next_expected_return': float(next_expected),
+            'max_payable': float(max_payable),
+            'calculated_return': float(next_expected),                       # kept for backward compatibility
             'is_early_withdrawal': is_early_withdrawal,
-            'early_return_amount': float(early_return_amount) if is_early_withdrawal else float(return_amount),
+            'early_return_amount': float(early_return_amount),
             'early_withdrawal_fee': float(fee_amount),
             'return_percentage': '40%',
             'next_return_date': investor.next_return_date.isoformat() if investor.next_return_date else None,
             'last_return_date': investor.last_return_date.isoformat() if investor.last_return_date else None,
-            'can_process_return': investor.outstanding_returns > 0           # based on outstanding
+            # More accurate condition: can pay something if there's either outstanding or next period due
+            'can_process_return': max_payable > 0
         }), 200
+
     except Exception as e:
         print(f"Error calculating investor return: {str(e)}")
         return jsonify({'error': str(e)}), 500
-
+    
 # -------------------------------------------------------------------
 # Process investor return
 # -------------------------------------------------------------------
@@ -1424,27 +1439,25 @@ def process_investor_return(investor_id):
         notes = data.get('notes', '')
         is_early_withdrawal = data.get('is_early_withdrawal', False)
 
-        # Update outstanding based on passed periods
+        if amount <= 0:
+            return jsonify({'error': 'Amount must be positive'}), 400
+
+        # Update outstanding based on passed periods (respects credit balance)
         investor.update_outstanding()
         db.session.flush()
 
-        # Validate amount
-        if amount <= 0:
-            return jsonify({'error': 'Amount must be positive'}), 400
-        if amount > investor.outstanding_returns:
-            return jsonify({'error': f'Amount exceeds outstanding returns (KES {investor.outstanding_returns})'}), 400
+        # Always add the full (gross) amount to total returns received
+        investor.total_returns_received += amount
 
-        # Early withdrawal logic (optional – you can keep or remove)
-        fee_amount = Decimal('0')
-        if is_early_withdrawal:
-            expected = investor.current_investment * Decimal('0.40')
-            if amount != expected:
-                return jsonify({'error': 'Early withdrawal must be for the full expected return amount'}), 400
-            fee_amount = amount * Decimal('0.15')
-            amount = amount - fee_amount
-            notes = f"Early withdrawal with 15% fee applied. {notes}"
+        # Split between outstanding reduction and credit increase
+        if amount <= investor.outstanding_returns:
+            investor.outstanding_returns -= amount
+        else:
+            remaining = amount - investor.outstanding_returns
+            investor.outstanding_returns = Decimal('0')
+            investor.credit_balance += remaining
 
-        # Record the return
+        # Record the return (amount = gross amount paid)
         investor_return = InvestorReturn(
             investor_id=investor.id,
             amount=amount,
@@ -1454,23 +1467,28 @@ def process_investor_return(investor_id):
             notes=notes,
             status='completed',
             is_early_withdrawal=is_early_withdrawal,
-            early_withdrawal_fee=fee_amount
+            # early_withdrawal_fee is kept but will be 0 unless you add fee logic later
+            early_withdrawal_fee=Decimal('0')
         )
         db.session.add(investor_return)
 
-        # Update investor totals
-        investor.total_returns_received += amount
-        investor.outstanding_returns -= amount
         investor.last_return_date = datetime.utcnow()
+        print(f"DEBUG: Before commit - total_returns_received = {investor.total_returns_received}")
+        print(f"DEBUG: outstanding_returns = {investor.outstanding_returns}")
+        print(f"DEBUG: credit_balance = {investor.credit_balance}")
 
         db.session.commit()
 
+        # Optional: keep audit logging (you can remove if not needed)
         log_audit('investor_return_processed', 'investor_return', investor_return.id, {
             'investor': investor.name,
             'return_amount': float(amount),
             'is_early_withdrawal': is_early_withdrawal,
+            'outstanding_before': float(investor.outstanding_returns + amount if amount <= investor.outstanding_returns else investor.outstanding_returns),
+            'credit_added': float(remaining) if 'remaining' in locals() else 0.0,
             'investment_amount': float(investor.current_investment),
-            'payment_method': payment_method
+            'payment_method': payment_method,
+            'mpesa_receipt': mpesa_receipt
         })
 
         return jsonify({
@@ -1478,8 +1496,10 @@ def process_investor_return(investor_id):
             'message': f'Return of {format_currency(amount)} processed successfully',
             'return': investor_return.to_dict(),
             'investor': investor.to_dict(),
-            'outstanding_remaining': float(investor.outstanding_returns)
+            'outstanding_remaining': float(investor.outstanding_returns),
+            'credit_balance': float(investor.credit_balance)
         }), 200
+
     except Exception as e:
         db.session.rollback()
         print(f"Error processing investor return: {str(e)}")

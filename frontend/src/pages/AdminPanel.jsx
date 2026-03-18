@@ -369,12 +369,11 @@ const handleInvestorPasswordSubmit = (e) => {
 
   const handleProcessReturn = async (investor) => {
     try {
-      // Fetch current outstanding
       const calcResponse = await adminAPI.calculateInvestorReturn(investor.id);
       if (calcResponse.data.success) {
         setSelectedInvestorForReturn(investor);
         setReturnAmount("");   // user will enter amount
-        setMaxReturnAmount(calcResponse.data.outstanding_returns);
+        setMaxReturnAmount(calcResponse.data.max_payable);   // ← changed
         setReturnMethod("mpesa");
         setReturnReference("");
         setReturnNotes("");
@@ -3505,8 +3504,12 @@ Thank you for choosing us.`;
                                   formatCurrency(row.total_returns_received),
                               },
                               {
-                                header: "Outstanding Returns",
+                                header: "Returns Owed (Outstanding)",
                                 render: (row) => formatCurrency(row.outstanding_returns || 0),
+                              },
+                              {
+                                header: "Credit Balance",
+                                render: (row) => formatCurrency(row.credit_balance || 0),
                               },
                               {
                                 header: "Status",
@@ -5646,6 +5649,12 @@ Thank you for choosing us.`;
                 <small className="text-muted">
                   Maximum payable: {formatCurrency(maxReturnAmount)}
                 </small>
+              </div>
+
+              {/* NEW: Info about advance payments */}
+              <div className="alert alert-info mt-2">
+                <i className="fas fa-info-circle me-2"></i>
+                Amounts above outstanding returns will be recorded as advance credit for future periods (Return periods not yet due).
               </div>
 
               {/* Date Validation Warning */}

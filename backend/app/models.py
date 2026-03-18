@@ -290,7 +290,6 @@ class Investor(db.Model):
     email = db.Column(db.String(100), nullable=True)  
     id_number = db.Column(db.String(20), unique=True, nullable=False, index=True)
     
-    
     # CHANGED: Store original investment separately
     initial_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Original amount
     current_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Current total (initial + topups)
@@ -308,8 +307,11 @@ class Investor(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     outstanding_returns = db.Column(db.Numeric(12, 2), default=0)  # NEW
     
-    user = db.relationship('User',foreign_keys=[user_id],back_populates='investor_profile',overlaps="investor,investor_user")
-    investor_user = db.relationship('User',foreign_keys=[user_id],back_populates='investor',overlaps="investor_profile,user")
+    # NEW: prepaid credit for future periods
+    credit_balance = db.Column(db.Numeric(12, 2), default=0)
+    
+    user = db.relationship('User', foreign_keys=[user_id], back_populates='investor_profile', overlaps="investor,investor_user")
+    investor_user = db.relationship('User', foreign_keys=[user_id], back_populates='investor', overlaps="investor_profile,user")
     returns = db.relationship('InvestorReturn', backref='investor', lazy='dynamic', cascade='all, delete-orphan')
     
     def __init__(self, **kwargs):
@@ -339,25 +341,35 @@ class Investor(db.Model):
             self.initial_investment = Decimal('0')
             self.current_investment = Decimal('0')
 
-        # Always ensure total_topups is set
+        # Always ensure these are set
         if self.total_topups is None:
             self.total_topups = Decimal('0')
-
         if self.outstanding_returns is None:
             self.outstanding_returns = Decimal('0')
+        if self.credit_balance is None:
+            self.credit_balance = Decimal('0')
     
     def update_outstanding(self):
-        """Check if next_return_date has passed and add expected return to outstanding."""
-        from datetime import datetime, timedelta
+        """Check if next_return_date has passed and add expected return to outstanding, applying credit first."""
         today = datetime.utcnow().date()
-        if self.next_return_date and self.next_return_date.date() <= today:
-            # While next_return_date is in the past, keep adding periods
-            while self.next_return_date.date() <= today:
-                expected = self.current_investment * Decimal('0.40')
-                self.outstanding_returns += expected
-                self.next_return_date += timedelta(days=28)
-            return True
-        return False
+        updated = False
+        
+        while self.next_return_date and self.next_return_date.date() <= today:
+            expected = self.current_investment * Decimal('0.40')
+            
+            # Apply credit first
+            if self.credit_balance >= expected:
+                self.credit_balance -= expected
+                # No addition to outstanding
+            else:
+                remaining = expected - self.credit_balance
+                self.outstanding_returns += remaining
+                self.credit_balance = Decimal('0')
+                
+            self.next_return_date += timedelta(days=28)
+            updated = True
+            
+        return updated
     
     def to_dict(self):
         return {
@@ -367,9 +379,9 @@ class Investor(db.Model):
             'phone': self.phone,
             'email': self.email or 'N/A',
             'id_number': self.id_number,
-            'initial_investment': float(self.initial_investment),  # NEW
-            'current_investment': float(self.current_investment),  # NEW
-            'total_topups': float(self.total_topups),  # NEW
+            'initial_investment': float(self.initial_investment),
+            'current_investment': float(self.current_investment),
+            'total_topups': float(self.total_topups),
             'investment_amount': float(self.current_investment),  # Keep for backward compatibility
             'invested_date': self.invested_date.isoformat() if self.invested_date else None,
             'expected_return_date': self.expected_return_date.isoformat() if self.expected_return_date else None,
@@ -381,7 +393,8 @@ class Investor(db.Model):
             'account_status': self.account_status,
             'notes': self.notes,
             'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            'updated_at': self.updated_at.isoformat(),
+            'credit_balance': float(self.credit_balance) if self.credit_balance is not None else 0.0,
         }
 
 class InvestorReturn(db.Model):
