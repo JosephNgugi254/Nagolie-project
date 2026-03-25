@@ -1105,8 +1105,8 @@ def get_all_clients():
                 principal_paid = active_loan.principal_paid if active_loan.principal_paid is not None else Decimal('0')
                 interest_paid = active_loan.interest_paid if active_loan.interest_paid is not None else Decimal('0')
 
-                # Calculate unpaid interest from balance and current principal (more robust)
-                unpaid_interest = active_loan.balance - active_loan.current_principal
+                # NEW: Correct unpaid interest calculation for compound model
+                unpaid_interest = active_loan.accrued_interest - active_loan.interest_paid
                 if unpaid_interest < 0:
                     unpaid_interest = Decimal('0')
 
@@ -1159,7 +1159,7 @@ def get_all_clients():
                     'daysLeft': days_left,
                     'weeks_overdue': weeks_overdue,
                     'lastInterestPayment': last_interest.isoformat() if last_interest else None,
-                    'unpaidInterest': float(unpaid_interest),  # ← NEW FIELD
+                    'unpaidInterest': float(unpaid_interest),  # ← Updated correctly
                 })
         return jsonify(clients_data), 200
     except Exception as e:
@@ -1167,6 +1167,7 @@ def get_all_clients():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    
 # -------------------------------------------------------------------
 # Investors - GET, POST
 # -------------------------------------------------------------------

@@ -1,6 +1,6 @@
 from functools import wraps
 from flask import request, jsonify
-from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity, jwt_required
 from app.models import User
 from app import db
 import traceback
@@ -109,4 +109,34 @@ def investor_required(fn):
             traceback.print_exc()
             return jsonify({'error': f'Invalid authentication: {str(e)}'}), 401
             
+    return wrapper
+
+def director_required(fn):
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        user_id = get_jwt_identity()
+        user = User.query.get(int(user_id))
+        if not user or user.role != 'admin':
+            return jsonify({'error': 'Director (admin) access required'}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+def secretary_or_director(fn):
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        user_id = get_jwt_identity()
+        user = User.query.get(int(user_id))
+        if not user or user.role not in ['admin', 'secretary']:
+            return jsonify({'error': 'Secretary or director access required'}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+def any_authenticated(fn):
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        # only checks that user is logged in, no role restriction
+        return fn(*args, **kwargs)
     return wrapper

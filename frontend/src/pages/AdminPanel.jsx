@@ -13,7 +13,7 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF   } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
@@ -2351,6 +2351,25 @@ Thank you for choosing us.`;
                     📄 Download Manual Loan Agreement Form
                   </button>
                 </div> */}
+
+                {/* ===== TEMPORARY LOAN RENEWAL AGREEMENT DOWNLOAD BUTTON ===== */}
+                {/* <div className="mb-4 text-center">
+                  <button
+                    className="btn btn-outline-primary btn-lg"
+                    onClick={async () => {
+                      try {
+                        await generateManualLoanRenewalAgreementPDF();
+                        showToast.success("Loan renewal agreement downloaded successfully!");
+                      } catch (error) {
+                        console.error("Error generating renewal agreement:", error);
+                        showToast.error("Failed to download renewal agreement");
+                      }
+                    }}
+                  >
+                    <i className="fas fa-file-pdf me-2"></i>
+                    📄 Download Manual Loan Renewal Form
+                  </button>
+                </div> */}
                   
                 {loading ? (
                   <div className="text-center py-5">
@@ -2360,8 +2379,7 @@ Thank you for choosing us.`;
                     <p className="mt-2">Loading dashboard data...</p>
                   </div>
                 ) : (
-                  <>
-                    
+                  <>                    
                     <div className="row mb-4">
                       <div className="col-md-3 mb-3">
                         <AdminCard
@@ -2396,7 +2414,6 @@ Thank you for choosing us.`;
                         />
                       </div>
                     </div>
-
                     {/* Due Today Section */}
                     <div className="row mb-4">
                       <div className="col-12">
@@ -2439,7 +2456,7 @@ Thank you for choosing us.`;
                         </div>
                       </div>
                     </div>
-                          
+                                              
                     {/* Overdue Section */}
                     <div className="row">
                       <div className="col-12">
