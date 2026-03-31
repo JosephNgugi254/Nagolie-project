@@ -1,4 +1,6 @@
 import jsPDF from 'jspdf';
+import path from 'path';
+import fs from 'fs';
 
 // Company constants (branded info)
 const COMPANY_INFO = {
@@ -440,8 +442,20 @@ export const generateClientStatement = async (client, allTransactions) => {
 };
 
 // Generate Professional Loan Agreement PDF
+// Generate Professional Loan Agreement PDF
 export const generateLoanAgreementPDF = async (application) => {
   try {
+    // Load the signature image (if available)
+    let signatureImageBase64 = null;
+    try {
+      const imagePath = path.join(process.cwd(), 'public', 'joseph-sign-removebg-preview.png');
+      const imageBuffer = fs.readFileSync(imagePath);
+      signatureImageBase64 = imageBuffer.toString('base64');
+    } catch (err) {
+      console.error('Could not load signature image:', err);
+      // Continue without image – will fall back to underscore placeholder
+    }
+
     const doc = new jsPDF();
     
     // ADD OPTIMIZED WATERMARK FIRST (before any content)
@@ -721,7 +735,17 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.text('Signature:', 25, yPos + 21);
     doc.setFont('helvetica', 'normal');
-    doc.text('___________________', 65, yPos + 21);
+    
+    // Place the signature image instead of the underscore placeholder
+    if (signatureImageBase64) {
+      const imgWidth = 35;   // width in mm
+      const imgHeight = 15;  // height in mm – adjust to match the size of the placeholder
+      // Adjust Y position slightly to align visually with the "Signature:" text
+      const signatureY = yPos + 21 - 2; // lift image a bit
+      doc.addImage(`data:image/png;base64,${signatureImageBase64}`, 'PNG', 65, signatureY, imgWidth, imgHeight);
+    } else {
+      doc.text('___________________', 65, yPos + 21);
+    }
     
     yPos += 35; // Adjusted spacing
     
@@ -796,7 +820,7 @@ export const generateLoanAgreementPDF = async (application) => {
     const footerY = 280; // Moved to bottom
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
-    doc.text(`Generated on: 19/02/2026`, 20, footerY);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
