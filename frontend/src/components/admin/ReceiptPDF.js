@@ -761,7 +761,7 @@ export const generateLoanAgreementPDF = async (application) => {
     const footerY = 280; // Moved to bottom
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
+    doc.text(`Generated on: 19/02/2026`, 20, footerY);
     
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
@@ -3210,7 +3210,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LOAN RENEWAL AGREEMENT', 105, yPos, { align: 'center' });
-    yPos += 8;
+    yPos += 3;
     yPos = addDivider(doc, yPos);
 
     // Blank fields
@@ -3218,7 +3218,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'bold');
     doc.text('Borrower Information:', 20, yPos);
-    yPos += 6;
+    yPos += 5;
 
     doc.setFont('helvetica', 'normal');
     doc.text('Name: _________________________', 25, yPos);
@@ -3226,11 +3226,11 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.text('ID Number: _________________________', 25, yPos);
     yPos += 6;
     doc.text('Phone: _________________________', 25, yPos);
-    yPos += 12;
+    yPos += 6;
 
     doc.setFont('helvetica', 'bold');
     doc.text('Loan Details:', 20, yPos);
-    yPos += 6;
+    yPos += 5;
 
     doc.setFont('helvetica', 'normal');
     doc.text('Original Loan Amount: KES _________________________', 25, yPos);
@@ -3238,21 +3238,21 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.text('Outstanding Balance: KES _________________________', 25, yPos);
     yPos += 6;
     doc.text('Original Due Date: _________________________', 25, yPos);
-    yPos += 12;
+    yPos += 8;
 
     // Renewal Terms
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
     doc.text('RENEWAL TERMS', 105, yPos, { align: 'center' });
-    yPos += 8;
-    doc.setFontSize(10);
+    yPos += 6;
+    doc.setFontSize(10); // Restored original font size
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'normal');
 
-    // Define renewal terms with proper strings (no line breaks inside strings)
     const renewalTerms = [
       "1. The Borrower acknowledges that the original loan is overdue and that the Company has agreed to renew the loan under the following terms.",
-      "2. The Borrower shall repay the outstanding balance as follows: ___________________",
+      "2. The Borrower shall repay the outstanding balance as follows:",
+      "   Principal____________ + Interest____________ = Total Amount ____________",
       "3. The interest rate remains 30% on the original principal. No further interest will accrue during the renewal period.",
       "4. All terms and conditions of the original Livestock Advance Payment Agreement (including the collateral provisions) remain in full force and effect.",
       "5. The Borrower agrees that failure to comply with this renewal agreement will constitute immediate default, and the Company may take possession of the collateral livestock without further notice.",
@@ -3260,44 +3260,38 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
       ""
     ];
 
-    // Helper to add wrapped text and update yPos
+    // Helper to add wrapped text with original line height (5)
     const addWrappedText = (text, x, y, maxWidth = 170) => {
       const lines = doc.splitTextToSize(text, maxWidth);
       lines.forEach(line => {
         doc.text(line, x, y);
-        y += 5;
+        y += 5; // Restored original line height
       });
       return y;
     };
 
-    // Add each renewal term with wrapping
+    // Add each renewal term with spacing
     for (const term of renewalTerms) {
       if (term.trim() === "") {
-        yPos += 2;
+        yPos += 2; // Restored spacing between blocks
         continue;
       }
       yPos = addWrappedText(term, 20, yPos);
-      yPos += 2; // extra spacing between terms
+      yPos += 2; // Restored spacing between terms
     }
 
     // Signature section
-    if (yPos > 180) {
-      doc.addPage();
-      addWatermarkToCurrentPage(doc, 'agreement');
-      yPos = 20;
-    }
-
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
     doc.text('SIGNATURES', 105, yPos, { align: 'center' });
-    yPos += 12;
+    yPos += 6;
 
     doc.setFontSize(11);
     doc.text('CLIENT:', 20, yPos);
     doc.text('Name: _________________________', 25, yPos + 6);
-    doc.text('Signature: ___________________', 25, yPos + 12);
-    doc.text(`Date: ${formattedDate}`, 25, yPos + 18);
-    yPos += 30;
+    doc.text('Signature: ____________________', 25, yPos + 12);
+    doc.text(`Date: _________________________`, 25, yPos + 18);
+    yPos += 25; // Original spacing restored
 
     const pageWidth = 190;
     const columnWidth = pageWidth / 2;
@@ -3305,21 +3299,21 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     const rightX = 20 + columnWidth;
 
     doc.text('CONFIRMED BY:', 20, yPos);
-    yPos += 10;
+    yPos += 6;
 
     doc.setFont('helvetica', 'bold');
     doc.text('Shadrack Kesumet', leftX, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text('Director', leftX, yPos + 5);
-    doc.text('Sign: ___________________', leftX, yPos + 12);
+    doc.text('Sign: ___________________', leftX, yPos + 10);
 
     doc.setFont('helvetica', 'bold');
     doc.text('Name: _________________________', rightX, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text('Livestock Valuer', rightX, yPos + 5);
-    doc.text('Sign: ___________________', rightX, yPos + 12);
+    doc.text('Sign: ___________________', rightX, yPos + 10);
 
-    yPos += 25;
+    yPos += 15; // Slightly increased spacing to push stamp down
 
     // Stamp image (if available)
     let stampBase64 = null;
@@ -3329,10 +3323,10 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
       console.warn('Failed to load stamp image:', error);
     }
 
-    const stampBoxY = yPos;
     const stampBoxWidth = 60;
-    const stampBoxHeight = 35;
+    const stampBoxHeight = 35; // Restored original height
     const stampBoxX = (210 - stampBoxWidth) / 2;
+    const stampBoxY = yPos;
 
     if (stampBase64) {
       doc.addImage(stampBase64, 'PNG', stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight);
@@ -3346,8 +3340,9 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
       doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2, { align: 'center' });
     }
 
-    // Footer
-    const footerY = 280;
+    // Adjust footer position to accommodate the shifted content
+    // Since we increased spacing, the stamp may now be lower; we set footer just below stamp
+    const footerY = stampBoxY + stampBoxHeight + 10; // 10 mm below stamp
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
