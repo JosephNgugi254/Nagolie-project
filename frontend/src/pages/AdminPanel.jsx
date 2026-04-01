@@ -2370,7 +2370,26 @@ Thank you for choosing us.`;
                     📄 Download Manual Loan Renewal Form
                   </button>
                 </div> */}
-                  
+                {/* =========NEXT OF KIN MANUAL FORM BUTTON(WITH STAMP DIGITAL)============= */}
+                {/* <div className="mb-4 text-center">
+                  <button 
+                    className="btn btn-outline-primary btn-lg" 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await generateManualNextOfKinConsentPDF();
+                        showToast.success("Next of Kin consent form downloaded!");
+                      } catch (error) {
+                        console.error("Error generating next of kin consent:", error);
+                        showToast.error("Failed to download next of kin consent form");
+                      }
+                    }}                  
+                  >
+                    <i className="fas fa-file-pdf me-2"></i>
+                      📄 Download Next of Kin Consent
+                  </button>
+                </div> */}
+
                 {loading ? (
                   <div className="text-center py-5">
                     <div className="spinner-border text-primary" role="status">
@@ -2456,7 +2475,7 @@ Thank you for choosing us.`;
                         </div>
                       </div>
                     </div>
-                                              
+
                     {/* Overdue Section */}
                     <div className="row">
                       <div className="col-12">
@@ -3114,42 +3133,7 @@ Thank you for choosing us.`;
                                     {
                                       header: "Actions",
                                       render: (row) => (
-                                        <div className="btn-group btn-group-sm">
-                                          {/* =========NEXT OF KIN CONSENT FORM BUTTON(WITHOUT STAMP)============= */}
-                                          {/* <button 
-                                            className="btn btn-outline-warning" 
-                                            onClick={async (e) => {
-                                              e.stopPropagation();
-                                              try {
-                                                await generateNextOfKinConsentPDF(row);
-                                                showToast.success("Next of Kin consent form downloaded!");
-                                              } catch (error) {
-                                                console.error("Error generating next of kin consent:", error);
-                                                showToast.error("Failed to download next of kin consent form");
-                                              }
-                                            }}
-                                            title="Download Next of Kin Consent"
-                                          >
-                                            <i className="fas fa-user-friends"></i>
-                                          </button> */}
-                                          
-                                          {/* =========NEXT OF KIN MANUAL FORM BUTTON(WITH STAMP DIGITAL)============= */}
-                                          {/* <button 
-                                            className="btn btn-outline-warning" 
-                                            onClick={async (e) => {
-                                              e.stopPropagation();
-                                              try {
-                                                await generateManualNextOfKinConsentPDF(row);
-                                                showToast.success("Next of Kin consent form downloaded!");
-                                              } catch (error) {
-                                                console.error("Error generating next of kin consent:", error);
-                                                showToast.error("Failed to download next of kin consent form");
-                                              }
-                                            }}
-                                            title="Download Next of Kin Consent"
-                                          >
-                                            <i className="fas fa-user-friends"></i>
-                                          </button> */}
+                                        <div className="btn-group btn-group-sm">                                                                                 
                                           <button 
                                             className="btn btn-outline-info" 
                                             onClick={(e) => {
@@ -3176,6 +3160,23 @@ Thank you for choosing us.`;
                                             title="Download Agreement"
                                           >
                                             <i className="fas fa-download"></i>
+                                          </button>
+                                          {/* =========NEXT OF KIN CONSENT FORM BUTTON(auto filled)============= */}
+                                          <button 
+                                            className="btn btn-outline-warning" 
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              try {
+                                                await generateNextOfKinConsentPDF(row);
+                                                showToast.success("Next of Kin consent form downloaded!");
+                                              } catch (error) {
+                                                console.error("Error generating next of kin consent:", error);
+                                                showToast.error("Failed to download next of kin consent form");
+                                              }
+                                            }}
+                                            title="Download Next of Kin Consent"
+                                          >
+                                            <i className="fas fa-user-friends"></i>
                                           </button>
                                         </div>
                                       ),
@@ -4367,10 +4368,34 @@ Thank you for choosing us.`;
                   onChange={() => setPaymentType('interest')}
                 />
                 <label className="form-check-label" htmlFor="interestPayment">
-                  Interest Payment (Pays down accrued interest)
+                  Interest Payment
+                  {selectedClient?.interest_type === 'compound' && ' (Reduces principal – interest has been capitalised)'}
+                  {selectedClient?.interest_type === 'simple' && ' (Reduces accrued interest)'}
                 </label>
               </div>
             </div>
+
+            {/* Show appropriate maximum info */}
+            {paymentType === 'interest' && (
+              <div className="mb-3">
+                <label className="form-label">
+                  Maximum Interest Payment
+                </label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  value={selectedClient?.interest_type === 'compound' 
+                    ? formatCurrency(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
+                    : formatCurrency(unpaidInterest)} 
+                  readOnly 
+                />
+                <small className="text-muted">
+                  {selectedClient?.interest_type === 'compound' 
+                    ? 'Interest payment will reduce the principal amount.' 
+                    : 'Interest payment will reduce the accrued interest balance.'}
+                </small>
+              </div>
+            )}
         
             {/* Show different info based on payment type */}
             {paymentType === 'principal' ? (
@@ -4407,7 +4432,9 @@ Thank you for choosing us.`;
                 min="1"
                 max={paymentType === 'principal' 
                   ? Math.floor(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
-                  : Math.floor(unpaidInterest)}
+                  : Math.floor(selectedClient?.interest_type === 'compound' 
+                      ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
+                      : unpaidInterest)}
                 placeholder="Enter amount"
                 required 
               />

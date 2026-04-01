@@ -442,38 +442,38 @@ export const generateClientStatement = async (client, allTransactions) => {
 };
 
 // Generate Professional Loan Agreement PDF
-// Generate Professional Loan Agreement PDF
 export const generateLoanAgreementPDF = async (application) => {
   try {
     const doc = new jsPDF();
-    
-    // ADD OPTIMIZED WATERMARK FIRST (before any content)
+
     addOptimizedWatermark(doc, 'agreement');
-    
+
     let yPos = await addHeader(doc, 10);
-    
+
     // Main Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
     yPos += 8;
-    
+
     yPos = addDivider(doc, yPos);
-    
+
     // Agreement Date
     const agreementDate = application.date ? new Date(application.date) : new Date();
     const formattedDate = agreementDate.toLocaleDateString('en-GB', {
       day: '2-digit', month: '2-digit', year: 'numeric'
     });
+    const today = new Date().toLocaleDateString('en-GB');
+
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.text(`Agreement Date: ${formattedDate}`, 20, yPos);
-    yPos += 12; // Reduced from 15
-    
-    // Simplified Agreement Body - Adjusted spacing
-    doc.setFontSize(11.5); // Reduced from 12
+    yPos += 8;
+
+    // Agreement Body
+    doc.setFontSize(11.5);
     const firstLineParts = [
       { text: "I ", style: 'normal' },
       { text: `${application.name || '___________________'}`, style: 'bold' },
@@ -486,15 +486,15 @@ export const generateLoanAgreementPDF = async (application) => {
       { text: ` (month) (Year) 20${agreementDate.getFullYear().toString().slice(-2)}`, style: 'normal' }
     ];
     writeStyledLine(doc, firstLineParts, 20, yPos, 11.5);
-    yPos += 5; // Reduced from 6
-    
+    yPos += 5;
+
     const secondLineParts = [
       { text: "acknowledge/agree and therefore receive Ksh: ", style: 'normal' },
       { text: `${application.loanAmount ? application.loanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '__________'}`, style: 'bold' }
     ];
     writeStyledLine(doc, secondLineParts, 20, yPos, 11.5);
-    yPos += 5; // Reduced from 6
-    
+    yPos += 5;
+
     const thirdLineParts = [
       { text: "for payment of ", style: 'normal' },
       { text: `${application.livestockType || '__________'}`, style: 'bold' },
@@ -503,338 +503,466 @@ export const generateLoanAgreementPDF = async (application) => {
       { text: ") by Nagolie enterprises.", style: 'normal' }
     ];
     writeStyledLine(doc, thirdLineParts, 20, yPos, 11.5);
-    yPos += 10; // Reduced from 12
-    
-    // Add Terms and Conditions heading
+    yPos += 8;
+
+    // Terms and Conditions heading
     doc.setTextColor(...COLORS.primaryBlue);
-    doc.setFontSize(13); // Reduced from 14
+    doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
-    yPos += 8; // Reduced from 8
-    
-    // Group terms to ensure they stay together
+    yPos += 7;
+
+    // Helper functions
+    const drawCheckbox = (x, y) => {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+    };
+
+    const drawThumbprintBox = (x, y, width = 30, height = 25) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+      doc.text('Right Thumb', x + 5, y + 3.5);
+      doc.rect(x + 45, y, 4, 4);
+      doc.text('Left Thumb', x + 50, y + 3.5);
+    };
+
+    const LH = 3.8;
+
+    // Helper to draw a lined box for valuer's report
+    const drawLinedBox = (x, y, width, height, numLines) => {
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.2);
+      doc.rect(x, y, width, height);
+      const lineSpacing = height / numLines;
+      for (let i = 1; i <= numLines; i++) {
+        const lineY = y + i * lineSpacing;
+        if (lineY < y + height - 1) {
+          doc.line(x, lineY, x + width, lineY);
+        }
+      }
+      // Add a small label inside
+      doc.setTextColor(150, 150, 150);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('Valuer’s Report:', x + 2, y + 4);
+    };
+
+    // Term groups (unchanged)
     const termGroups = [
-      // Group 1: Agreement Overview
+      // 1. Agreement Overview
       [
-        { text: "1. Agreement Overview", bold: true },
-        "This Livestock Financing Agreement (\"Agreement\") is entered into between ",
-        "the applicant (\"Recipient\") and Nagolie Enterprises (\"Company\"). The Recipient",
-        "acknowledges receipt of a loan from Nagolie Enterprises,secured by the  until the loan",
-        "specified livestock, which shall become the property of Nagolie Enterprises Ltd",
-        "until the loan is fully repaid.",
+        { text: "1. Agreement Overview", heading: true },
+        "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
+        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
-      // Group 2: Ownership Transfer and Custody
+      // 2. Ownership Transfer and Custody
       [
-        { text: "2. Ownership Transfer and Custody", bold: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers",
-        "to Nagolie Enterprises Ltd, with the Recipient maintaining physical custody. The",
-        "Recipient agrees to:",
+        { text: "2. Ownership Transfer and Custody", heading: true },
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
+        " with the Recipient maintaining physical custody.",
+        "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
         "- Ensure the livestock are kept in good health",
-        "- Not sell, transfer, or dispose of the livestock without prior written consent",
-        " from the Company",
+        "- Not sell, transfer, or dispose of the livestock without prior written consent from the Company",
         "- Allow Company representatives access to inspect the livestock at reasonable times",
         "",
-        "2.1. Absolute Right of Claim Upon Default:",
-        "In the event of default, the Company reserves the absolute right to claim, take ",
-        "possession of, and remove the collateral livestock without further notice.",
+        { text: "2.1. Absolute Right of Claim Upon Default:", subheading: true },
+        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the",
+        " collateral livestock without further notice.",
         "This right extends to claiming the livestock:",
         "- In the presence OR absence of the Recipient",
         "- In the presence OR absence of the Next of Kin or any family members",
         "- Without requirement for additional consent or permission from any party",
         "",
-        "2.2. Immediate Action for Recovery:",
-        "The Company shall not be delayed or hindered in its recovery efforts by the",
-        "unavailability, resistance, or objections of the Recipient, Next of Kin, or any",
-        "related parties. The Company's representatives, including livestock valuers and",
-        "security personnel, are authorized to take immediate action to secure the",
-        "Company's property and recover losses without legal impediment.",
-        ""
+        { text: "2.2. Immediate Action for Recovery:", subheading: true },
+        "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections",
+        "  of the Recipient, Next of Kin, or any related parties.",
+        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate",
+        "  action to secure the Company's property and recover losses without legal impediment.",
+        "",
+        { text: "2.3. Consent to Recovery in the Event of Default", subheading: true },
+        "I, the Recipient, acknowledge that I have read and fully understood the terms of this Agreement, particularly",
+        "the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default. I voluntarily and",
+        "irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents may",
+        "immediately take possession of the collateral livestock without the need for a court order, further notice,",
+        "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery.",
+        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest",
+        "extent permitted under the laws of Kenya.",
+        "",
+        { text: `Signature: ___________________          Date: ${today}`, boldDark: true, fontSize: 11 },
+        { thumbprintBox: true }
       ],
-      // Group 3: Repayment Terms
-      [ { text: "2.3 Valuer's Comment:", bold: true },
-        "________________________________________________________________________________________",
-        "________________________________________________________________________________________",
-        "________________________________________________________________________________________",
+      // 3. Repayment Terms and Interest
+      [
+        { text: "3. Repayment Terms and Interest", heading: true },
+        "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
+        "(please tick one plan below):",
         "",
-        {
-          inline: true,
-          parts: [
-            { text: "Date: _____/ _____/ _____", x: 20 },
-            { text: "Valuer's Signature: __________________", x: 100 }   
-          ]
-        },
+        { checkbox: true, label: "Weekly Plan:"},
         "",
-
-        { text: "3. Repayment Terms and Interest", bold: true },
-        "The loan is typically repayable within seven (7) days from the date of disbursement ",
-        "with an interest of 30%(negotiable) of the disbursed funds.",
+        "The loan is repayable within seven (7) days from the date of disbursement", 
+        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or ",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
+        { checkbox: true, label: "Daily Plan:"},
+        "",
+        "The loan is repayable with an interest of 4.5% per day. Interest shall be", 
+        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no",
+        "further interest will accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
         "The interest for this loan is Ksh________",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie",
-        "Enterprises Ltd may, at their discretion, grant an extension of the repayment",
-        "period after consultation with the Recipient.Any extension must be agreed ",
-        "upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
+        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
+        " upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
-      // Group 4: Loan Settlement and Ownership Return
+      // 4. Loan Settlement and Ownership Return
       [
-        { text: "4. Loan Settlement and Ownership Return", bold: true },
+        { text: "4. Loan Settlement and Ownership Return", heading: true },
         "Upon full repayment of the loan principal plus agreed interest:",
         "- Legal ownership of the livestock reverts to the Recipient",
         "- All rights and responsibilities regarding the livestock return to the Recipient",
         ""
       ],
-      // Group 5: Livestock Valuation
+      // 5. Livestock Valuation
       [
-        { text: "5. Livestock Valuation", bold: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by ",
-        "Nagolie Enterprises Ltd.The valuation shall be final and binding for determining ",
-        "the maximum loan amount.",
+        { text: "5. Livestock Valuation", heading: true },
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
+        "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
-      // Group 6: Default and Remedies
+      // 6. Default and Remedies
       [
-        { text: "6. Default and Remedies", bold: true },
-        "Failure to repay the loan by the due date (including any agreed extension) shall ",
-        "constitute default, entitling Nagolie Enterprises Ltd to:",
+        { text: "6. Default and Remedies", heading: true },
+        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
+        "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock",
-        "- Sell the livestock to recover the outstanding loan amount",
+        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
+        "   renewal agreement",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
       ],
-      // Group 7: Governing Law
+      // 7. Governing Law
       [
-        { text: "7. Governing Law", bold: true },
-        "This agreement shall be governed by and construed in accordance with the laws of ",
-        "Kenya. Any disputes arising fromthis agreement shall be subject to the exclusive ",
-        "jurisdiction of the courts of Kajiado County.",
+        { text: "7. Governing Law", heading: true },
+        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
+        "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
-      // Group 8: Entire Agreement
+      // 8. Entire Agreement
       [
-        { text: "8. Entire Agreement", bold: true },
-        "This document constitutes the entire agreement between the parties and supersedes ",
-        "all prior discussions, negotiations,and agreements. No modification of this ",
-        "agreement shall be effective unless in writing and signed by both parties.",
+        { text: "8. Entire Agreement", heading: true },
+        "This document constitutes the entire agreement between the parties and supersedes all prior discussions,",
+        " negotiations, and agreements. No modification of this agreement shall be effective unless in writing and",
+        " signed by both parties.",
+        ""
       ]
     ];
-    
-    // IMPORTANT: Set font size and style explicitly before terms
-    doc.setFontSize(10); // Reduced from 10.5
-    doc.setFont('helvetica', 'normal');
-    
-    termGroups.forEach((group, groupIndex) => {
-      // Calculate group height - reduced line spacing
-      const groupHeight = group.length * 4.2; // Reduced from 4.5
-      
-      // Check if we need a new page for this group
-      if (yPos + groupHeight > 250 && groupIndex > 0) {
-        doc.addPage();
-        // Add watermark to new page FIRST, before any content
-        addWatermarkToCurrentPage(doc, 'agreement');
-        // Reset font state after watermark
+
+    // RenderLine function
+    const renderLine = (line, y) => {
+      doc.setFontSize(10);
+      if (typeof line === 'object' && (line.heading || line.subheading)) {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.primaryBlue);
+        doc.text(line.text, 20, y);
         doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+      } else if (typeof line === 'object' && line.boldDark) {
+        const fs = line.fontSize || 10;
+        doc.setFontSize(fs);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(line.text, 20, y);
         doc.setFontSize(10);
-        yPos = 20;
+        doc.setFont('helvetica', 'normal');
+      } else if (typeof line === 'object' && line.checkbox) {
+        drawCheckbox(20, y - 3);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(line.label, 26, y);
+        doc.setFont('helvetica', 'normal');
+      } else if (typeof line === 'object' && line.thumbprintBox) {
+        const boxW = 40;
+        const boxH = 35;
+        const boxX = 210 - 20 - boxW;
+        const boxY = y - 2;
+        drawThumbprintBox(boxX, boxY, boxW, boxH);
+        const checkY = boxY + boxH + 4;
+        const groupWidth = 50 + 5 + 20;
+        const checkX = boxX + (boxW / 2) - (groupWidth / 2);
+        drawRtLtCheckboxes(checkX, checkY);
+        return boxH + 12;
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(String(line), 20, y);
       }
-      
-      // Render the group
-      group.forEach(line => {
-        // Handle inline objects with multiple parts on the same line
-        if (typeof line === 'object' && line.inline) {
-          line.parts.forEach(part => {
-            const xPos = part.x !== undefined ? part.x : 20; // default to left margin
-            if (part.bold) {
-              doc.setFont('helvetica', 'bold');
-              doc.setTextColor(...COLORS.primaryBlue);
-            } else {
-              doc.setFont('helvetica', 'normal');
-              doc.setTextColor(...COLORS.textDark);
-            }
-            doc.text(part.text, xPos, yPos);
-          });
-          // Reset font/color after inline line
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(...COLORS.textDark);
-        }
-        // Handle bold objects
-        else if (typeof line === 'object' && line.bold) {
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(...COLORS.primaryBlue);
-          doc.text(line.text, 20, yPos);
-          // Reset to normal for next line
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(...COLORS.textDark);
-        }
-        // Handle plain strings
-        else {
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(...COLORS.textDark);
-          doc.text(line, 20, yPos);
-        }
-        yPos += 4.2;
-      });
-    });
-    
-    yPos += 8;
-    
-    // Add a new page if needed for signatures
-    if (yPos > 180) {
-      doc.addPage();
-      // Add watermark to new page FIRST, before any content
-      addWatermarkToCurrentPage(doc, 'agreement');
-      // Reset font state after watermark
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(12);
-      yPos = 20;
+      return LH;
+    };
+
+    // ---- PAGE 1: Groups 0 and 1 ----
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+
+    for (let i = 0; i < 2; i++) {
+      const group = termGroups[i];
+      for (const line of group) {
+        const extra = renderLine(line, yPos);
+        yPos += extra;
+      }
     }
-    
-    // Signature Section with reduced spacing
+
+    // ---- Page 2: Groups 2 through 7 ----
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'agreement');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+    yPos = 20;
+
+    for (let i = 2; i < termGroups.length; i++) {
+      const group = termGroups[i];
+      for (const line of group) {
+        const extra = renderLine(line, yPos);
+        yPos += extra;
+      }
+    }
+
+    // ---- Page 3: Valuation Report + Signatures ----
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'agreement');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    yPos = 20;
+
+    // ========== VALUATION REPORT SECTION ==========
+    // Heading
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VALUATION REPORT', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    // Lined box for valuer's notes – now 9 lines (height increased)
+    const reportWidth = 170;  // from x=20 to x=190
+    const reportHeight = 60;   // enough for 9 lines (previous 40 for 6 lines)
+    const reportX = 20;
+    const reportY = yPos;
+    drawLinedBox(reportX, reportY, reportWidth, reportHeight, 9); // 9 lines
+    yPos = reportY + reportHeight + 8;
+
+    // Confirmation statement
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+    doc.text("I, the Recipient, confirm that I have read and agree with the valuation process and the valuation", 20, yPos);
+    yPos += 5;
+    doc.text("of the collateral livestock as recorded above.", 20, yPos);
+    yPos += 8;
+
+    // Signature lines for Client and Valuer
+    doc.setFont('helvetica', 'bold');
+    doc.text("Client's signature:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text("Valuer's name:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'bold');
+    doc.text("Valuer's signature:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text("Date:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 12;
+
+    // ========== ADD DIVIDER BEFORE SIGNATURES ==========
+    // Draw a horizontal line (similar to addDivider style)
+    doc.setDrawColor(...COLORS.primaryBlue);
+    doc.setLineWidth(0.5);
+    doc.line(20, yPos, 190, yPos);
+    yPos += 8; // space after divider
+
+    // ========== SIGNATURES SECTION ==========
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
+    doc.setTextColor(...COLORS.primaryBlue);
     doc.text('SIGNATURES', 105, yPos, { align: 'center' });
-    yPos += 10; // Reduced from 12
-    
-    // ========== UPDATED SIGNATURE SECTION ==========
-    
-    // Signature Row Section Title
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
     doc.text('PARTIES TO THIS AGREEMENT:', 20, yPos);
-    yPos += 10; // Reduced from 12
-    
-    // CLIENT SECTION
+    yPos += 8;
+
+    // CLIENT block with thumbprint box
+    const clientTopY = yPos;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('CLIENT', 20, yPos);
-    
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('CLIENT', 20, clientTopY);
+
     doc.setFontSize(10);
-    doc.text('Name:', 25, yPos + 7);
+    doc.text('Name:', 25, clientTopY + 8);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${application.name || '___________________'}`, 55, yPos + 7);
-    
+    doc.text(`${application.name || '___________________'}`, 55, clientTopY + 8);
+
     doc.setFont('helvetica', 'bold');
-    doc.text('ID No:', 25, yPos + 14);
+    doc.text('ID No:', 25, clientTopY + 16);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${application.idNumber || '___________________'}`, 55, yPos + 14);
-    
+    doc.text(`${application.idNumber || '___________________'}`, 55, clientTopY + 16);
+
     doc.setFont('helvetica', 'bold');
-    doc.text('Signature:', 25, yPos + 21);
+    doc.text('Signature:', 25, clientTopY + 24);
     doc.setFont('helvetica', 'normal');
-    doc.text('___________________', 65, yPos + 21);
-    
-    yPos += 35;
-    
-    // Confirmed By Section - ALL THREE IN ONE ROW
+    doc.text('___________________', 65, clientTopY + 24);
+
+    // Thumbprint box on the right
+    const thumbW = 40;
+    const thumbH = 35;
+    const thumbBoxX = 210 - 20 - thumbW;
+    const thumbBoxY = clientTopY - 2;
+    drawThumbprintBox(thumbBoxX, thumbBoxY, thumbW, thumbH);
+    const checkY = thumbBoxY + thumbH + 4;
+    const groupWidth = 50 + 5 + 20;
+    const checkX = thumbBoxX + (thumbW / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+
+    yPos = thumbBoxY + thumbH + 14;
+
+    // CONFIRMED BY section
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
     doc.text('CONFIRMED BY:', 20, yPos);
-    yPos += 10;
-    
-    // Calculate positions for three columns in one row
-    const pageWidth = 190; // Total width from left margin 20 to right margin 190
-    const columnWidth = pageWidth / 3;
-    const leftX = 20;
-    const middleX = 20 + columnWidth;
-    const rightX = 20 + (columnWidth * 2);
-    const signatoryY = yPos;
-    
-    // Director - Shadrack Kesumet (First Column)
+    yPos += 8;
+
+    const colW = 190 / 3;
+    const col1 = 20;
+    const col2 = 20 + colW;
+    const col3 = 20 + colW * 2;
+    const confY = yPos;
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('Shadrack Kesumet', leftX, signatoryY);
-    
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('Shadrack Kesumet', col1, confY);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Director', leftX, signatoryY + 5);
-    doc.text('Sign: ___________________', leftX, signatoryY + 12);
-    
-    // Livestock Valuer - George Marite (Second Column)
+    doc.text('Director', col1, confY + 5);
+    doc.text('Sign: ___________________', col1, confY + 12);
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('George Marite', middleX, signatoryY);
-    
+    doc.text('George Marite', col2, confY);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Livestock Valuer', middleX, signatoryY + 5);
-    doc.text('Sign: ___________________', middleX, signatoryY + 12);
-    
-    // Accountant - Gideon Matunta (Third Column)
+    doc.text('Livestock Valuer', col2, confY + 5);
+    doc.text('Sign: ___________________', col2, confY + 12);
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('Gideon Matunta', rightX, signatoryY);
-    
+    doc.text('Gideon Matunta', col3, confY);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Accountant', rightX, signatoryY + 5);
-    doc.text('Sign: ___________________', rightX, signatoryY + 12);
-    
-    yPos = signatoryY + 25;
-    
-    // Company Stamp Box - Creative and faint
-    const stampBoxY = Math.min(yPos, 210); // Adjusted position
-    const stampBoxWidth = 60;
-    const stampBoxHeight = 35;
-    const stampBoxX = (210 - stampBoxWidth) / 2;
-    
-    // Outer border - very subtle
+    doc.text('Accountant', col3, confY + 5);
+    doc.text('Sign: ___________________', col3, confY + 12);
+
+    yPos = confY + 22;
+
+    // Company Stamp Box
+    const stampW = 60;
+    const stampH = 35;
+    const stampX = (210 - stampW) / 2;
+    const stampY = yPos;
     doc.setDrawColor(230, 235, 245);
     doc.setLineWidth(0.3);
-    doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
-    
-    // Calculate the exact center of the stamp box
-    const stampBoxCenterX = stampBoxX + (stampBoxWidth / 2);
-    const stampBoxCenterY = stampBoxY + (stampBoxHeight / 2);
-    
-    // Stamp placeholder text - perfectly centered
+    doc.roundedRect(stampX, stampY, stampW, stampH, 2, 2);
     doc.setTextColor(230, 235, 240);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'italic');
-    doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY, { align: 'center' });
-    
-    // Footer - properly positioned at bottom
-    const footerY = 280; // Moved to bottom
+    doc.text('OFFICIAL COMPANY STAMP', stampX + stampW / 2, stampY + stampH / 2, { align: 'center' });
+
+    // Footer
+    const footerY = 285;
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
-    
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
     doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
-    
+
     // Save PDF
     const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
+
   } catch (error) {
     console.error('Error generating loan agreement:', error);
     throw error;
   }
 };
 
-
 export const generateManualLoanAgreementPDF = async () => {
   try {
     const doc = new jsPDF();
-    
-    // ADD OPTIMIZED WATERMARK FIRST (before any content)
+
     addOptimizedWatermark(doc, 'agreement');
-    
+
     let yPos = await addHeader(doc, 10);
-    
+
     // Main Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
     yPos += 8;
-    
+
     yPos = addDivider(doc, yPos);
-    
-    // Simplified Agreement Body – all blanks for manual filling
+
+    // Agreement Date – left blank for manual entry
     doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Agreement Date: ___________________`, 20, yPos);
+    yPos += 8;
+
+    // Agreement Body – all blanks
     doc.setFontSize(11.5);
     const firstLineParts = [
       { text: "I ", style: 'normal' },
@@ -849,14 +977,14 @@ export const generateManualLoanAgreementPDF = async () => {
     ];
     writeStyledLine(doc, firstLineParts, 20, yPos, 11.5);
     yPos += 5;
-    
+
     const secondLineParts = [
       { text: "acknowledge/agree and therefore receive Ksh: ", style: 'normal' },
       { text: "_____________", style: 'bold' }
     ];
     writeStyledLine(doc, secondLineParts, 20, yPos, 11.5);
     yPos += 5;
-    
+
     const thirdLineParts = [
       { text: "for payment of ", style: 'normal' },
       { text: "_______________", style: 'bold' },
@@ -865,29 +993,76 @@ export const generateManualLoanAgreementPDF = async () => {
       { text: ") by Nagolie enterprises.", style: 'normal' }
     ];
     writeStyledLine(doc, thirdLineParts, 20, yPos, 11.5);
-    yPos += 10;
-    
-    // Add Terms and Conditions heading
+    yPos += 8;
+
+    // Terms and Conditions heading
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
-    yPos += 8;
-    
-    // Group terms to ensure they stay together
+    yPos += 7;
+
+    // Helper functions (same as in autogenerated version)
+    const drawCheckbox = (x, y) => {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+    };
+
+    const drawThumbprintBox = (x, y, width = 30, height = 25) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+      doc.text('Right Thumb', x + 5, y + 3.5);
+      doc.rect(x + 45, y, 4, 4);
+      doc.text('Left Thumb', x + 50, y + 3.5);
+    };
+
+    const LH = 3.8;
+
+    const drawLinedBox = (x, y, width, height, numLines) => {
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.2);
+      doc.rect(x, y, width, height);
+      const lineSpacing = height / numLines;
+      for (let i = 1; i <= numLines; i++) {
+        const lineY = y + i * lineSpacing;
+        if (lineY < y + height - 1) {
+          doc.line(x, lineY, x + width, lineY);
+        }
+      }
+      doc.setTextColor(150, 150, 150);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('Valuer’s Report:', x + 2, y + 4);
+    };
+
+    // Term groups – identical to autogenerated version
     const termGroups = [
-      // Group 1: Agreement Overview
+      // 1. Agreement Overview
       [
-        { text: "1. Agreement Overview", bold: true },
+        { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises,secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan",
-        " is fully repaid.",
+        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
-      // Group 2: Ownership Transfer and Custody
+      // 2. Ownership Transfer and Custody (with consent section)
       [
-        { text: "2. Ownership Transfer and Custody", bold: true },
+        { text: "2. Ownership Transfer and Custody", heading: true },
         "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
@@ -896,274 +1071,364 @@ export const generateManualLoanAgreementPDF = async () => {
         "- Not sell, transfer, or dispose of the livestock without prior written consent from the Company",
         "- Allow Company representatives access to inspect the livestock at reasonable times",
         "",
-        "2.1. Absolute Right of Claim Upon Default:",
-        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the ",
+        { text: "2.1. Absolute Right of Claim Upon Default:", subheading: true },
+        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the",
         " collateral livestock without further notice.",
         "This right extends to claiming the livestock:",
         "- In the presence OR absence of the Recipient",
         "- In the presence OR absence of the Next of Kin or any family members",
         "- Without requirement for additional consent or permission from any party",
         "",
-        "2.2. Immediate Action for Recovery:",
+        { text: "2.2. Immediate Action for Recovery:", subheading: true },
         "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections",
         "  of the Recipient, Next of Kin, or any related parties.",
-        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate ",
+        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate",
         "  action to secure the Company's property and recover losses without legal impediment.",
-        ""
+        "",
+        { text: "2.3. Consent to Recovery in the Event of Default", subheading: true },
+        "I, the Recipient, acknowledge that I have read and fully understood the terms of this Agreement, particularly",
+        "the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default. I voluntarily and",
+        "irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents may",
+        "immediately take possession of the collateral livestock without the need for a court order, further notice,",
+        "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery.",
+        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest",
+        "extent permitted under the laws of Kenya.",
+        "",
+        { text: "Signature: ___________________          Date: ___________________", boldDark: true, fontSize: 11 },
+        { thumbprintBox: true }
       ],
-      // Group 3: Repayment Terms
+      // 3. Repayment Terms and Interest (with checkboxes)
       [
-        { text: "3. Repayment Terms and Interest", bold: true },
-        "The loan is typically repayable within seven (7) days from the date of disbursement with an interest of 30%",
-        "  (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a maximum period of two (2) weeks.",
-        "After two weeks, if the loan is not fully repaid, no further interest will accrue. The Recipient must then either:",
-        "- Repay the outstanding principal in full, or",
-        "- Sign a Loan Renewal Agreement with the Company to extend the repayment period.",
+        { text: "3. Repayment Terms and Interest", heading: true },
+        "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
+        "(please tick one plan below):",
+        "",
+        { checkbox: true, label: "Weekly Plan:"},
+        "",
+        "The loan is repayable within seven (7) days from the date of disbursement", 
+        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or ",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
+        { checkbox: true, label: "Daily Plan:"},
+        "",
+        "The loan is repayable with an interest of 4.5% per day. Interest shall be", 
+        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no",
+        "further interest will accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
         "The interest for this loan is Ksh________",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion,",
-        " grant an extension of the repayment period after consultation with the Recipient.",
-        "Any extension must be agreed upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
+        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
+        " upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
-      // Group 4: Loan Settlement and Ownership Return
+      // 4. Loan Settlement and Ownership Return
       [
-        { text: "4. Loan Settlement and Ownership Return", bold: true },
+        { text: "4. Loan Settlement and Ownership Return", heading: true },
         "Upon full repayment of the loan principal plus agreed interest:",
         "- Legal ownership of the livestock reverts to the Recipient",
         "- All rights and responsibilities regarding the livestock return to the Recipient",
         ""
       ],
-      // Group 5: Livestock Valuation
+      // 5. Livestock Valuation
       [
-        { text: "5. Livestock Valuation", bold: true },
+        { text: "5. Livestock Valuation", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
-      // Group 6: Default and Remedies
+      // 6. Default and Remedies
       [
-        { text: "6. Default and Remedies", bold: true },
-        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling ",
+        { text: "6. Default and Remedies", heading: true },
+        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48hrs to allow the Recipient to repay or sign a renewal",
-        "   agreement.",
-        "- Sell the livestock to recover the outstanding loan amount if the payment is not made within the 48hr holding period",
+        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
+        "   renewal agreement",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
       ],
-      // Group 7: Governing Law
+      // 7. Governing Law
       [
-        { text: "7. Governing Law", bold: true },
-        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising from",
-        "  this agreement shall be subject to the exclusive jurisdiction of the courts of Kajiado County.",
+        { text: "7. Governing Law", heading: true },
+        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
+        "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
-      // Group 8: Entire Agreement
+      // 8. Entire Agreement
       [
-        { text: "8. Entire Agreement", bold: true },
-        "This document constitutes the entire agreement between the parties and supersedes all prior discussions, negotiations,",
-        " and agreements. No modification of this agreement shall be effective unless in writing and signed by both parties.",
+        { text: "8. Entire Agreement", heading: true },
+        "This document constitutes the entire agreement between the parties and supersedes all prior discussions,",
+        " negotiations, and agreements. No modification of this agreement shall be effective unless in writing and",
+        " signed by both parties.",
         ""
       ]
     ];
-    
-    // IMPORTANT: Set font size and style explicitly before terms
+
+    // RenderLine function (same as autogenerated)
+    const renderLine = (line, y) => {
+      doc.setFontSize(10);
+      if (typeof line === 'object' && (line.heading || line.subheading)) {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.primaryBlue);
+        doc.text(line.text, 20, y);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+      } else if (typeof line === 'object' && line.boldDark) {
+        const fs = line.fontSize || 10;
+        doc.setFontSize(fs);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(line.text, 20, y);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+      } else if (typeof line === 'object' && line.checkbox) {
+        drawCheckbox(20, y - 3);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(line.label, 26, y);
+        doc.setFont('helvetica', 'normal');
+      } else if (typeof line === 'object' && line.thumbprintBox) {
+        const boxW = 40;
+        const boxH = 35;
+        const boxX = 210 - 20 - boxW;
+        const boxY = y - 2;
+        drawThumbprintBox(boxX, boxY, boxW, boxH);
+        const checkY = boxY + boxH + 4;
+        const groupWidth = 50 + 5 + 20;
+        const checkX = boxX + (boxW / 2) - (groupWidth / 2);
+        drawRtLtCheckboxes(checkX, checkY);
+        return boxH + 12;
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(String(line), 20, y);
+      }
+      return LH;
+    };
+
+    // ---- PAGE 1: Groups 0 and 1 ----
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    
-    termGroups.forEach((group, groupIndex) => {
-      // Calculate group height - reduced line spacing
-      const groupHeight = group.length * 4.2;
-      
-      // Check if we need a new page for this group
-      if (yPos + groupHeight > 250 && groupIndex > 0) {
-        doc.addPage();
-        // Add watermark to new page FIRST, before any content
-        addWatermarkToCurrentPage(doc, 'agreement');
-        // Reset font state after watermark
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        yPos = 20;
-      }
-      
-      // Render the group
-      group.forEach(line => {
-        if (typeof line === 'object' && line.bold) {
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(...COLORS.primaryBlue);
-          doc.text(line.text, 20, yPos);
-          // Reset to normal for next line
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(...COLORS.textDark);
-        } else {
-          doc.setFont('helvetica', 'normal');
-          doc.setTextColor(...COLORS.textDark);
-          doc.text(line, 20, yPos);
-        }
-        yPos += 4.2;
-      });
-    });
-    
-    yPos += 8;
-    
-    // ---------- NEW SERVICE INFORMATION SECTION ----------
-    // Add a subtle separator
-    doc.setDrawColor(...COLORS.secondaryBlue);
-    doc.setLineWidth(0.2);
-    doc.line(20, yPos, 190, yPos);
-    yPos += 6;    
-    
-    // Promotional line in bold
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(...COLORS.secondaryBlue);
-    const promoText = 'We provide FREE complimentary professional health checks for our clients’ livestock, along with expert veterinary support to ensure your animals remain healthy, well-managed, and protected at all times.';
-    const promoLines = doc.splitTextToSize(promoText, 170);
-    promoLines.forEach(line => {
-      doc.text(line, 20, yPos);
-      yPos += 4.5;
-    });
-    yPos += 2;
-    
-    // Contact line
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(...COLORS.primaryBlue);
-    doc.text('For more information call +254 763 003 182', 20, yPos);
-    yPos += 8;
-    
-    // Another subtle separator
-    doc.setDrawColor(...COLORS.secondaryBlue);
-    doc.setLineWidth(0.2);
-    doc.line(20, yPos, 190, yPos);
-    yPos += 10;
-    // ---------- END NEW SERVICE SECTION ----------
-    
-    // Add a new page if needed for signatures
-    if (yPos > 180) {
-      doc.addPage();
-      // Add watermark to new page FIRST, before any content
-      addWatermarkToCurrentPage(doc, 'agreement');
-      // Reset font state after watermark
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(12);
-      yPos = 20;
-    }
-    
-    // Signature Section with reduced spacing
     doc.setTextColor(...COLORS.textDark);
+
+    for (let i = 0; i < 2; i++) {
+      const group = termGroups[i];
+      for (const line of group) {
+        const extra = renderLine(line, yPos);
+        yPos += extra;
+      }
+    }
+
+    // ---- Page 2: Groups 2 through 7 ----
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'agreement');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+    yPos = 20;
+
+    for (let i = 2; i < termGroups.length; i++) {
+      const group = termGroups[i];
+      for (const line of group) {
+        const extra = renderLine(line, yPos);
+        yPos += extra;
+      }
+    }
+
+    // ---- Page 3: Valuation Report + Signatures ----
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'agreement');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    yPos = 20;
+
+    // ========== VALUATION REPORT SECTION ==========
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VALUATION REPORT', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    const reportWidth = 170;
+    const reportHeight = 60;   // 9 lines
+    const reportX = 20;
+    const reportY = yPos;
+    drawLinedBox(reportX, reportY, reportWidth, reportHeight, 9);
+    yPos = reportY + reportHeight + 8;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+    doc.text("I, the Recipient, confirm that I have read and agree with the valuation process and the valuation", 20, yPos);
+    yPos += 5;
+    doc.text("of the collateral livestock as recorded above.", 20, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text("Client's signature:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text("Valuer's name:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'bold');
+    doc.text("Valuer's signature:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text("Date:", 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text("_________________________", 70, yPos);
+    yPos += 12;
+
+    // Divider before SIGNATURES
+    doc.setDrawColor(...COLORS.primaryBlue);
+    doc.setLineWidth(0.5);
+    doc.line(20, yPos, 190, yPos);
+    yPos += 8;
+
+    // ========== SIGNATURES SECTION ==========
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
+    doc.setTextColor(...COLORS.primaryBlue);
     doc.text('SIGNATURES', 105, yPos, { align: 'center' });
-    yPos += 10;
-    
-    // Signature Row Section Title
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
     doc.text('PARTIES TO THIS AGREEMENT:', 20, yPos);
-    yPos += 10;
-    
-    // CLIENT SECTION
+    yPos += 8;
+
+    // CLIENT block with thumbprint box
+    const clientTopY = yPos;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('CLIENT', 20, yPos);
-    
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('CLIENT', 20, clientTopY);
+
+    doc.setFontSize(10);
+    doc.text('Name:', 25, clientTopY + 8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', 55, clientTopY + 8);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('ID No:', 25, clientTopY + 16);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', 55, clientTopY + 16);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Signature:', 25, clientTopY + 24);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________', 65, clientTopY + 24);
+
+    // Thumbprint box on the right
+    const thumbW = 40;
+    const thumbH = 35;
+    const thumbBoxX = 210 - 20 - thumbW;
+    const thumbBoxY = clientTopY - 2;
+    drawThumbprintBox(thumbBoxX, thumbBoxY, thumbW, thumbH);
+    const checkY = thumbBoxY + thumbH + 4;
+    const groupWidth = 50 + 5 + 20;
+    const checkX = thumbBoxX + (thumbW / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+
+    yPos = thumbBoxY + thumbH + 14;
+
+    // CONFIRMED BY – three columns (Director, Valuer, Accountant)
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('Name:', 25, yPos + 7);
-    doc.setFont('helvetica', 'normal');
-    doc.text('___________________', 55, yPos + 7);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.text('ID No:', 25, yPos + 14);
-    doc.setFont('helvetica', 'normal');
-    doc.text('___________________', 55, yPos + 14);
-    
-    doc.setFont('helvetica', 'bold');
-    doc.text('Signature:', 25, yPos + 21);
-    doc.setFont('helvetica', 'normal');
-    doc.text('___________________', 65, yPos + 21);
-    
-    yPos += 35;
-    
-    // CONFIRMED BY – TWO COLUMNS (Director and Valuer only)
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
     doc.text('CONFIRMED BY:', 20, yPos);
-    yPos += 10;
-    
-    const pageWidth = 190;
-    const columnWidth = pageWidth / 2;
-    const leftX = 20;
-    const rightX = 20 + columnWidth;
-    const signatoryY = yPos;
-    
-    // Director column
+    yPos += 8;
+
+    const colW = 190 / 3;
+    const col1 = 20;
+    const col2 = 20 + colW;
+    const col3 = 20 + colW * 2;
+    const confY = yPos;
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('Shadrack Kesumet', leftX, signatoryY);
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('Shadrack Kesumet', col1, confY);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text('Director', leftX, signatoryY + 5);
-    doc.text('Sign: ___________________', leftX, signatoryY + 12);
-    
-    // Livestock Valuer column
+    doc.setFontSize(9);
+    doc.text('Director', col1, confY + 5);
+    doc.text('Sign: ___________________', col1, confY + 12);
+
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('Name: ___________________', rightX, signatoryY);
+    doc.setFontSize(11);
+    doc.text('George Marite', col2, confY);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text('Livestock Valuer', rightX, signatoryY + 5);
-    doc.text('Sign: ___________________', rightX, signatoryY + 12);
-    
-    yPos = signatoryY + 25;
-    
-    // Company Stamp Box – now with actual stamp image
-    const stampBoxY = Math.min(yPos, 210);
-    const stampBoxWidth = 60;
-    const stampBoxHeight = 35;
-    const stampBoxX = (210 - stampBoxWidth) / 2;
-    
-    // Load stamp image
+    doc.setFontSize(9);
+    doc.text('Livestock Valuer', col2, confY + 5);
+    doc.text('Sign: ___________________', col2, confY + 12);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('Gideon Matunta', col3, confY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text('Accountant', col3, confY + 5);
+    doc.text('Sign: ___________________', col3, confY + 12);
+
+    yPos = confY + 22;
+
+    // Company Stamp Box (optional fallback if image not loaded)
+    const stampW = 60;
+    const stampH = 35;
+    const stampX = (210 - stampW) / 2;
+    const stampY = yPos;
+
+    // Try to load stamp image (same as manual version)
     let stampBase64 = null;
     try {
       stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');
     } catch (error) {
       console.warn('Failed to load stamp image:', error);
     }
-    
+
     if (stampBase64) {
-      // Add the stamp image (transparent PNG)
-      doc.addImage(stampBase64, 'PNG', stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight);
+      doc.addImage(stampBase64, 'PNG', stampX, stampY, stampW, stampH);
     } else {
-      // Fallback: draw a placeholder box with text
       doc.setDrawColor(230, 235, 245);
       doc.setLineWidth(0.3);
-      doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
-      const stampBoxCenterX = stampBoxX + (stampBoxWidth / 2);
-      const stampBoxCenterY = stampBoxY + (stampBoxHeight / 2);
+      doc.roundedRect(stampX, stampY, stampW, stampH, 2, 2);
       doc.setTextColor(230, 235, 240);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'italic');
-      doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY, { align: 'center' });
+      doc.text('OFFICIAL COMPANY STAMP', stampX + stampW / 2, stampY + stampH / 2, { align: 'center' });
     }
-    
+
     // Footer
-    const footerY = 280;
+    const footerY = 285;
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
-    
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
     doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
 
     const fileName = `Manual_Loan_Agreement_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
-  
+
   } catch (error) {
-    console.error('Error generating loan agreement:', error);
+    console.error('Error generating manual loan agreement:', error);
     throw error;
   }
 };
@@ -1718,91 +1983,95 @@ function getNextWeekday(date) {
   return nextDate;
 }
 
+// ================= AUTO‑FILLED NEXT OF KIN CONSENT =================
 export const generateNextOfKinConsentPDF = async (loanData) => {
   try {
     const doc = new jsPDF();
-    
-    // ADD OPTIMIZED WATERMARK FIRST
+
     addOptimizedWatermark(doc, 'agreement');
-    
+
     let yPos = await addHeader(doc, 10);
 
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleDateString('en-GB', {
       day: '2-digit', month: '2-digit', year: 'numeric'
     });
-    
+
     // Main Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('NEXT OF KIN CONSENT FORM', 105, yPos, { align: 'center' });
     yPos += 10;
-    
+
     yPos = addDivider(doc, yPos);
-    
+
     // Loan Reference Information Header
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('LOAN REFERENCE INFORMATION', 105, yPos, { align: 'center' });
     yPos += 12;
-    
-    // Loan Reference Information in two rows
+
+    // Loan Reference Information – auto‑filled
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    
+
     // First row: Borrower's Name and ID Number
     doc.setFont('helvetica', 'bold');
     doc.text("Borrower's Name:", 20, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("__________________________", 55, yPos);
-    
+    doc.text(loanData?.name || '___________________________', 55, yPos);
+
     doc.setFont('helvetica', 'bold');
     doc.text("ID Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("_________________", 150, yPos);
-    
+    doc.text(loanData?.idNumber || '_________________', 150, yPos);
+
     yPos += 10;
-    
+
     // Second row: Loan Amount and Loan Date
     doc.setFont('helvetica', 'bold');
     doc.text("Loan Amount:", 20, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("___________________", 55, yPos);
-    
+    const loanAmount = loanData?.loanAmount
+      ? `KSh ${loanData.loanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+      : '___________________';
+    doc.text(loanAmount, 55, yPos);
+
     doc.setFont('helvetica', 'bold');
     doc.text("Loan Date:", 120, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("_________________", 150, yPos);
-    
+    const loanDate = loanData?.date
+      ? new Date(loanData.date).toLocaleDateString('en-GB')
+      : '_________________';
+    doc.text(loanDate, 150, yPos);
+
     yPos += 10;
-    
+
     // Consent Statement Header
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('CONSENT AND ACKNOWLEDGEMENT STATEMENT', 105, yPos, { align: 'center' });
     yPos += 12;
-    
-    // Consent Statement as a paragraph
+
+    // Consent Statement paragraph
     doc.setFontSize(11);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLORS.textDark);
-    
+
     const consentParagraph = "I, the undersigned Next of Kin to the above-named Borrower, hereby acknowledge and consent that:\n\n" +
       "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises Ltd.\n" +
       "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises Ltd.\n" +
       "3. I acknowledge that the livestock specified in the loan agreement will serve as collateral for this loan.\n" +
       "4. I understand the implications of default as outlined in the loan agreement.\n" +
       "5. I agree to act as a point of contact in matters relating to this loan.\n" +
-      "6. In the event of default, I understand that Nagolie Enterprises Ltd will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not , after the second missed payment date.\n" +
+      "6. In the event of default, I understand that Nagolie Enterprises Ltd will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not, after the second missed payment date.\n" +
       "7. I will cooperate with Nagolie Enterprises Ltd in their recovery efforts should the need arise.";
-    
-    // Split the paragraph into lines that fit the page width
+
     const consentLines = doc.splitTextToSize(consentParagraph, 170);
     consentLines.forEach(line => {
-      // Check if we need a new page
       if (yPos > 250) {
         doc.addPage();
         addWatermarkToCurrentPage(doc, 'agreement');
@@ -1813,136 +2082,160 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       doc.text(line, 20, yPos);
       yPos += 6;
     });
-    
+
     yPos += 8;
-    
+
     // Next of Kin Details Header
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('NEXT OF KIN DETAILS', 105, yPos, { align: 'center' });
     yPos += 10;
-    
-    // Next of Kin Information in two rows
+
+    // Next of Kin Information
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    
+
     // First row: Full Name and ID Number
     doc.setFont('helvetica', 'bold');
     doc.text("Full Name:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("__________________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("ID Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
+
     yPos += 10;
-    
+
     // Second row: Relationship and Phone Number
     doc.setFont('helvetica', 'bold');
     doc.text("Relationship:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("__________________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("Phone Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
+
     yPos += 10;
-        
-    // Third row: signature and date
+
+    // Third row: signature and date (these will be placed above the stamp/thumb boxes)
     doc.setFont('helvetica', 'bold');
     doc.text("Signature:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("__________________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("Date:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
-    yPos += 9;
-    
-    // Company Stamp Box
-    const stampBoxY = Math.max(yPos, 200); // Ensure stamp box is positioned properly
-    const stampBoxWidth = 60;
-    const stampBoxHeight = 35;
-    const stampBoxX = (210 - stampBoxWidth) / 2;
-    
-    // Outer border
+
+    yPos += 12; // give some space before the stamp/thumb row
+
+    // ---- Helper: draw thumbprint box with checkboxes (like in loan agreement) ----
+    const drawThumbprintBox = (x, y, width = 30, height = 25) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x + 15, y, 4, 4);
+      doc.text('Right Thumb', x + 20, y + 3.5);
+      doc.rect(x + 45, y, 4, 4);
+      doc.text('Left Thumb', x + 50, y + 3.5);
+    };
+
+    // ---- Layout: stamp on left, thumbprint on right, both same size (60x35) ----
+    const boxWidth = 60;
+    const boxHeight = 35;
+    const leftX = 20;                     // stamp left edge
+    const rightX = 210 - 20 - boxWidth;   // thumbprint right edge, aligned with right margin (20)
+    const boxesY = yPos;                  // top of both boxes
+
+    // Draw stamp box (left)
     doc.setDrawColor(230, 235, 245);
     doc.setLineWidth(0.3);
-    doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
-    
-    // Stamp placeholder text
-    const stampBoxCenterX = stampBoxX + (stampBoxWidth / 2);
-    const stampBoxCenterY = stampBoxY + (stampBoxHeight / 2);
-    
+    doc.roundedRect(leftX, boxesY, boxWidth, boxHeight, 2, 2);
+    const stampCenterX = leftX + boxWidth / 2;
+    const stampCenterY = boxesY + boxHeight / 2;
     doc.setTextColor(230, 235, 240);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'italic');
-    doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY - 3, { align: 'center' });
-    doc.text('(To be affixed here)', stampBoxCenterX, stampBoxCenterY + 3, { align: 'center' });
-    
-    
-    // Footer
+    doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
+    doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
+
+    // Draw thumbprint box (right)
+    drawThumbprintBox(rightX, boxesY, boxWidth, boxHeight);
+    // Place checkboxes centered below the thumbprint box
+    const checkY = boxesY + boxHeight + 4;
+    const groupWidth = 50 + 5 + 20; // approximate width of both checkboxes + labels
+    const checkX = rightX + (boxWidth / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+
+    // Advance yPos past the boxes and checkboxes
+    yPos = checkY + 12;
+
+    // Footer (still on first page)
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, 280);
-    
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, 287);
+
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
     doc.text(COMPANY_INFO.tagline, 105, 285, { align: 'center' });
-    
+
     // ========== PAGE 2: TERMS AND CONDITIONS ONLY ==========
     doc.addPage();
-    
-    // Add watermark to the new page
     addWatermarkToCurrentPage(doc, 'agreement');
-    
-    // Reset yPos for new page
     yPos = 20;
-    
+
     // Terms and Conditions Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LOAN AGREEMENT TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 8;
-    
+
     yPos = addDivider(doc, yPos);
-    
-    // Simple note
+
     doc.setFontSize(10);
     doc.setFont('helvetica', 'italic');
     doc.setTextColor(...COLORS.textDark);
     doc.text("Reference copy for Next of Kin review", 105, yPos, { align: 'center' });
     yPos += 15;
-    
-    // Terms and Conditions heading
+
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 8;
-    
-    // Terms and Conditions groups (simplified, without valuer comment)
+
+    // ----- Term groups (same as in loan agreement, without interactive elements) -----
     const termGroups = [
-      // Group 1: Agreement Overview
+      // 1. Agreement Overview
       [
-        { text: "1. Agreement Overview", bold: true },
+        { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises,secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan",
-        " is fully repaid.",
+        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
-      // Group 2: Ownership Transfer and Custody
+      // 2. Ownership Transfer and Custody (without 2.3)
       [
-        { text: "2. Ownership Transfer and Custody", bold: true },
+        { text: "2. Ownership Transfer and Custody", heading: true },
         "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
@@ -1951,199 +2244,212 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "- Not sell, transfer, or dispose of the livestock without prior written consent from the Company",
         "- Allow Company representatives access to inspect the livestock at reasonable times",
         "",
-        "2.1. Absolute Right of Claim Upon Default:",
-        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the ",
+        { text: "2.1. Absolute Right of Claim Upon Default:", subheading: true },
+        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the",
         " collateral livestock without further notice.",
         "This right extends to claiming the livestock:",
         "- In the presence OR absence of the Recipient",
         "- In the presence OR absence of the Next of Kin or any family members",
         "- Without requirement for additional consent or permission from any party",
         "",
-        "2.2. Immediate Action for Recovery:",
+        { text: "2.2. Immediate Action for Recovery:", subheading: true },
         "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections",
         "  of the Recipient, Next of Kin, or any related parties.",
-        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate ",
+        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate",
         "  action to secure the Company's property and recover losses without legal impediment.",
         ""
       ],
-      // Group 3: Repayment Terms
+      // 3. Repayment Terms and Interest (both plans, plain text)
       [
-        { text: "3. Repayment Terms and Interest", bold: true },
-        "The loan is typically repayable within seven (7) days from the date of disbursement with an interest of 30%",
-        "  (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a maximum period of two (2) weeks.",
-        "After two weeks, if the loan is not fully repaid, no further interest will accrue. The Recipient must then either:",
-        "- Repay the outstanding principal in full, or",
-        "- Sign a Loan Renewal Agreement with the Company to extend the repayment period.",
+        { text: "3. Repayment Terms and Interest", heading: true },
+        "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
+        "(please tick one plan below):",
+        "",
+        "Weekly Plan:",
+        "",
+        "The loan is repayable within seven (7) days from the date of disbursement", 
+        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or ",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
+        "Daily Plan:",
+        "",
+        "The loan is repayable with an interest of 4.5% per day. Interest shall be", 
+        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no",
+        "further interest will accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
         "The interest for this loan is Ksh________",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion,",
-        " grant an extension of the repayment period after consultation with the Recipient.",
-        "Any extension must be agreed upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
+        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
+        " upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
-      // Group 4: Loan Settlement and Ownership Return
+      // 4. Loan Settlement and Ownership Return
       [
-        { text: "4. Loan Settlement and Ownership Return", bold: true },
+        { text: "4. Loan Settlement and Ownership Return", heading: true },
         "Upon full repayment of the loan principal plus agreed interest:",
         "- Legal ownership of the livestock reverts to the Recipient",
         "- All rights and responsibilities regarding the livestock return to the Recipient",
         ""
       ],
-      // Group 5: Livestock Valuation
+      // 5. Livestock Valuation
       [
-        { text: "5. Livestock Valuation", bold: true },
+        { text: "5. Livestock Valuation", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
-      // Group 6: Default and Remedies
+      // 6. Default and Remedies
       [
-        { text: "6. Default and Remedies", bold: true },
-        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling ",
+        { text: "6. Default and Remedies", heading: true },
+        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48hrs to allow the Recipient to repay or sign a renewal",
-        "   agreement.",
-        "- Sell the livestock to recover the outstanding loan amount if the payment is not made within the 48hr holding period",
+        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
+        "   renewal agreement",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
       ],
-      // Group 7: Governing Law
+      // 7. Governing Law (updated)
       [
-        { text: "7. Governing Law", bold: true },
-        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising from",
-        "  this agreement shall be subject to the exclusive jurisdiction of the courts of Kajiado County.",
+        { text: "7. Governing Law", heading: true },
+        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
+        "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
-      // Group 8: Entire Agreement
+      // 8. Entire Agreement
       [
-        { text: "8. Entire Agreement", bold: true },
-        "This document constitutes the entire agreement between the parties and supersedes all prior discussions, negotiations,",
-        " and agreements. No modification of this agreement shall be effective unless in writing and signed by both parties.",
+        { text: "8. Entire Agreement", heading: true },
+        "This document constitutes the entire agreement between the parties and supersedes all prior discussions,",
+        " negotiations, and agreements. No modification of this agreement shall be effective unless in writing and",
+        " signed by both parties.",
         ""
       ]
     ];
-    
-    // Set font size and style explicitly before terms
+
+    // Render term groups
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    
-    termGroups.forEach((group, groupIndex) => {
-      // Calculate group height
-      const groupHeight = group.length * 4.2;
-      
-      // Check if we need a new page for this group
-      if (yPos + groupHeight > 250 && groupIndex > 0) {
-        doc.addPage();
-        // Add watermark to new page
-        addWatermarkToCurrentPage(doc, 'agreement');
-        // Reset font state after watermark
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        yPos = 20;
-      }
-      
-      // Render the group
-      group.forEach(line => {
-        if (typeof line === 'object' && line.bold) {
+    doc.setTextColor(...COLORS.textDark);
+
+    for (const group of termGroups) {
+      for (const line of group) {
+        if (typeof line === 'object' && line.heading) {
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(...COLORS.primaryBlue);
           doc.text(line.text, 20, yPos);
-          // Reset to normal for next line
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(...COLORS.textDark);
+        } else if (typeof line === 'object' && line.subheading) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(...COLORS.primaryBlue);
+          doc.text(line.text, 20, yPos);
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...COLORS.textDark);
         } else {
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...COLORS.textDark);
-          doc.text(line, 20, yPos);
+          doc.text(String(line), 20, yPos);
         }
         yPos += 4.2;
-      });
-    });
-    
+        if (yPos > 280) {
+          doc.addPage();
+          addWatermarkToCurrentPage(doc, 'agreement');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(10);
+          yPos = 20;
+        }
+      }
+    }
+
     // Save PDF
     const fileName = `Next_of_Kin_Consent_${loanData?.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
-    
+
   } catch (error) {
     console.error('Error generating next of kin consent form:', error);
     throw error;
   }
 };
 
+
+// ================= MANUAL NEXT OF KIN CONSENT =================
 export const generateManualNextOfKinConsentPDF = async () => {
   try {
     const doc = new jsPDF();
-    
-    // ADD OPTIMIZED WATERMARK FIRST
+
     addOptimizedWatermark(doc, 'agreement');
-    
+
     let yPos = await addHeader(doc, 10);
 
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleDateString('en-GB', {
       day: '2-digit', month: '2-digit', year: 'numeric'
     });
-    
+
     // Main Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('NEXT OF KIN CONSENT FORM', 105, yPos, { align: 'center' });
     yPos += 10;
-    
+
     yPos = addDivider(doc, yPos);
-    
+
     // Loan Reference Information Header
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('LOAN REFERENCE INFORMATION', 105, yPos, { align: 'center' });
     yPos += 12;
-    
-    // Loan Reference Information in two rows
+
+    // Loan Reference Information – all blanks
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    
-    // First row: Borrower's Name and ID Number
+
     doc.setFont('helvetica', 'bold');
     doc.text("Borrower's Name:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("__________________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("ID Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
+
     yPos += 10;
-    
-    // Second row: Loan Amount and Loan Date
+
     doc.setFont('helvetica', 'bold');
     doc.text("Loan Amount:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("___________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("Loan Date:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
+
     yPos += 10;
-    
+
     // Consent Statement Header
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('CONSENT AND ACKNOWLEDGEMENT STATEMENT', 105, yPos, { align: 'center' });
     yPos += 12;
-    
-    // Consent Statement as a paragraph
+
+    // Consent Statement paragraph
     doc.setFontSize(11);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLORS.textDark);
-    
+
     const consentParagraph = "I, the undersigned Next of Kin to the above-named Borrower, hereby acknowledge and consent that:\n\n" +
       "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises Ltd.\n" +
       "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises Ltd.\n" +
@@ -2152,11 +2458,9 @@ export const generateManualNextOfKinConsentPDF = async () => {
       "5. I agree to act as a point of contact in matters relating to this loan.\n" +
       "6. In the event of default, I understand that Nagolie Enterprises Ltd will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not , after the second missed payment date.\n" +
       "7. I will cooperate with Nagolie Enterprises Ltd in their recovery efforts should the need arise.";
-    
-    // Split the paragraph into lines that fit the page width
+
     const consentLines = doc.splitTextToSize(consentParagraph, 170);
     consentLines.forEach(line => {
-      // Check if we need a new page
       if (yPos > 250) {
         doc.addPage();
         addWatermarkToCurrentPage(doc, 'agreement');
@@ -2167,145 +2471,169 @@ export const generateManualNextOfKinConsentPDF = async () => {
       doc.text(line, 20, yPos);
       yPos += 6;
     });
-    
+
     yPos += 8;
-    
+
     // Next of Kin Details Header
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('NEXT OF KIN DETAILS', 105, yPos, { align: 'center' });
     yPos += 10;
-    
-    // Next of Kin Information in two rows
+
+    // Next of Kin Information
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    
-    // First row: Full Name and ID Number
+
     doc.setFont('helvetica', 'bold');
     doc.text("Full Name:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("__________________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("ID Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
+
     yPos += 10;
-    
-    // Second row: Relationship and Phone Number
+
     doc.setFont('helvetica', 'bold');
     doc.text("Relationship:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("__________________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("Phone Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
+
     yPos += 10;
-        
-    // Third row: signature and date
+
+    // Signature and date
     doc.setFont('helvetica', 'bold');
     doc.text("Signature:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("__________________________", 55, yPos);
-    
+
     doc.setFont('helvetica', 'bold');
     doc.text("Date:", 120, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________", 150, yPos);
-    
-    yPos += 9;
-    
-    // Company Stamp Box – now with actual stamp image
-    const stampBoxY = Math.max(yPos, 200);
-    const stampBoxWidth = 60;
-    const stampBoxHeight = 35;
-    const stampBoxX = (210 - stampBoxWidth) / 2;
-    
-    // Load stamp image
+
+    yPos += 12;
+
+    // ---- Helper: draw thumbprint box with checkboxes (like in loan agreement) ----
+    const drawThumbprintBox = (x, y, width = 30, height = 25) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x + 15, y, 4, 4);
+      doc.text('Right Thumb', x + 20, y + 3.5);
+      doc.rect(x + 45, y, 4, 4);
+      doc.text('Left Thumb', x + 50, y + 3.5);
+    };
+
+    // ---- Layout: stamp on left, thumbprint on right, both same size (60x35) ----
+    const boxWidth = 60;
+    const boxHeight = 35;
+    const leftX = 20;                     // stamp left edge
+    const rightX = 210 - 20 - boxWidth;   // thumbprint right edge
+    const boxesY = yPos;                  // top of both boxes
+
+    // Draw stamp box (left)
     let stampBase64 = null;
     try {
       stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');
     } catch (error) {
       console.warn('Failed to load stamp image:', error);
     }
-    
+
     if (stampBase64) {
-      // Add the stamp image (transparent PNG)
-      doc.addImage(stampBase64, 'PNG', stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight);
+      doc.addImage(stampBase64, 'PNG', leftX, boxesY, boxWidth, boxHeight);
     } else {
-      // Fallback: draw a placeholder box with text
       doc.setDrawColor(230, 235, 245);
       doc.setLineWidth(0.3);
-      doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
-      const stampBoxCenterX = stampBoxX + (stampBoxWidth / 2);
-      const stampBoxCenterY = stampBoxY + (stampBoxHeight / 2);
+      doc.roundedRect(leftX, boxesY, boxWidth, boxHeight, 2, 2);
+      const stampCenterX = leftX + boxWidth / 2;
+      const stampCenterY = boxesY + boxHeight / 2;
       doc.setTextColor(230, 235, 240);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'italic');
-      doc.text('OFFICIAL COMPANY STAMP', stampBoxCenterX, stampBoxCenterY - 3, { align: 'center' });
-      doc.text('(To be affixed here)', stampBoxCenterX, stampBoxCenterY + 3, { align: 'center' });
+      doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
+      doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
     }
-    
-    // Footer
+
+    // Draw thumbprint box (right)
+    drawThumbprintBox(rightX, boxesY, boxWidth, boxHeight);
+    // Place checkboxes centered below the thumbprint box
+    const checkY = boxesY + boxHeight + 4;
+    const groupWidth = 50 + 5 + 20; // approximate width of both checkboxes + labels
+    const checkX = rightX + (boxWidth / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+
+    // Advance yPos past the boxes and checkboxes
+    yPos = checkY + 12;
+
+    // Footer (still on first page)
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, 280);
-    
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, 285);
+
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
     doc.text(COMPANY_INFO.tagline, 105, 285, { align: 'center' });
-    
+
     // ========== PAGE 2: TERMS AND CONDITIONS ONLY ==========
     doc.addPage();
-    
-    // Add watermark to the new page
     addWatermarkToCurrentPage(doc, 'agreement');
-    
-    // Reset yPos for new page
     yPos = 20;
-    
+
     // Terms and Conditions Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LOAN AGREEMENT TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 8;
-    
+
     yPos = addDivider(doc, yPos);
-    
-    // Simple note
+
     doc.setFontSize(10);
     doc.setFont('helvetica', 'italic');
     doc.setTextColor(...COLORS.textDark);
     doc.text("Reference copy for Next of Kin review", 105, yPos, { align: 'center' });
     yPos += 15;
-    
-    // Terms and Conditions heading
+
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 8;
-    
-    // Terms and Conditions groups (simplified, without valuer comment)
+
+    // ----- Same term groups as above (no interactive elements) -----
     const termGroups = [
-      // Group 1: Agreement Overview
+      // 1. Agreement Overview
       [
-        { text: "1. Agreement Overview", bold: true },
+        { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises,secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan",
-        " is fully repaid.",
+        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
-      // Group 2: Ownership Transfer and Custody
+      // 2. Ownership Transfer and Custody (without 2.3)
       [
-        { text: "2. Ownership Transfer and Custody", bold: true },
+        { text: "2. Ownership Transfer and Custody", heading: true },
         "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
@@ -2314,121 +2642,134 @@ export const generateManualNextOfKinConsentPDF = async () => {
         "- Not sell, transfer, or dispose of the livestock without prior written consent from the Company",
         "- Allow Company representatives access to inspect the livestock at reasonable times",
         "",
-        "2.1. Absolute Right of Claim Upon Default:",
-        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the ",
+        { text: "2.1. Absolute Right of Claim Upon Default:", subheading: true },
+        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the",
         " collateral livestock without further notice.",
         "This right extends to claiming the livestock:",
         "- In the presence OR absence of the Recipient",
         "- In the presence OR absence of the Next of Kin or any family members",
         "- Without requirement for additional consent or permission from any party",
         "",
-        "2.2. Immediate Action for Recovery:",
+        { text: "2.2. Immediate Action for Recovery:", subheading: true },
         "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections",
         "  of the Recipient, Next of Kin, or any related parties.",
-        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate ",
+        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate",
         "  action to secure the Company's property and recover losses without legal impediment.",
         ""
       ],
-      // Group 3: Repayment Terms
+      // 3. Repayment Terms and Interest (both plans, plain text)
       [
-        { text: "3. Repayment Terms and Interest", bold: true },
-        "The loan is typically repayable within seven (7) days from the date of disbursement with an interest of 30%",
-        "  (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a maximum period of two (2) weeks.",
-        "After two weeks, if the loan is not fully repaid, no further interest will accrue. The Recipient must then either:",
-        "- Repay the outstanding principal in full, or",
-        "- Sign a Loan Renewal Agreement with the Company to extend the repayment period.",
+        { text: "3. Repayment Terms and Interest", heading: true },
+        "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
+        "(please tick one plan below):",
+        "",
+        "Weekly Plan:",
+        "",
+        "The loan is repayable within seven (7) days from the date of disbursement", 
+        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or ",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
+        "Daily Plan:",
+        "",
+        "The loan is repayable with an interest of 4.5% per day. Interest shall be", 
+        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no",
+        "further interest will accrue. The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
         "The interest for this loan is Ksh________",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion,",
-        " grant an extension of the repayment period after consultation with the Recipient.",
-        "Any extension must be agreed upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
+        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
+        " upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
-      // Group 4: Loan Settlement and Ownership Return
+      // 4. Loan Settlement and Ownership Return
       [
-        { text: "4. Loan Settlement and Ownership Return", bold: true },
+        { text: "4. Loan Settlement and Ownership Return", heading: true },
         "Upon full repayment of the loan principal plus agreed interest:",
         "- Legal ownership of the livestock reverts to the Recipient",
         "- All rights and responsibilities regarding the livestock return to the Recipient",
         ""
       ],
-      // Group 5: Livestock Valuation
+      // 5. Livestock Valuation
       [
-        { text: "5. Livestock Valuation", bold: true },
+        { text: "5. Livestock Valuation", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
-      // Group 6: Default and Remedies
+      // 6. Default and Remedies
       [
-        { text: "6. Default and Remedies", bold: true },
-        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling ",
+        { text: "6. Default and Remedies", heading: true },
+        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48hrs to allow the Recipient to repay or sign a renewal",
-        "   agreement.",
-        "- Sell the livestock to recover the outstanding loan amount if the payment is not made within the 48hr holding period",
+        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
+        "   renewal agreement",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
       ],
-      // Group 7: Governing Law
+      // 7. Governing Law (updated)
       [
-        { text: "7. Governing Law", bold: true },
-        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising from",
-        "  this agreement shall be subject to the exclusive jurisdiction of the courts of Kajiado County.",
+        { text: "7. Governing Law", heading: true },
+        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
+        "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
-      // Group 8: Entire Agreement
+      // 8. Entire Agreement
       [
-        { text: "8. Entire Agreement", bold: true },
-        "This document constitutes the entire agreement between the parties and supersedes all prior discussions, negotiations,",
-        " and agreements. No modification of this agreement shall be effective unless in writing and signed by both parties.",
+        { text: "8. Entire Agreement", heading: true },
+        "This document constitutes the entire agreement between the parties and supersedes all prior discussions,",
+        " negotiations, and agreements. No modification of this agreement shall be effective unless in writing and",
+        " signed by both parties.",
         ""
       ]
     ];
-    
-    // Set font size and style explicitly before terms
+
+    // Render term groups
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    
-    termGroups.forEach((group, groupIndex) => {
-      // Calculate group height
-      const groupHeight = group.length * 4.2;
-      
-      // Check if we need a new page for this group
-      if (yPos + groupHeight > 250 && groupIndex > 0) {
-        doc.addPage();
-        // Add watermark to new page
-        addWatermarkToCurrentPage(doc, 'agreement');
-        // Reset font state after watermark
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        yPos = 20;
-      }
-      
-      // Render the group
-      group.forEach(line => {
-        if (typeof line === 'object' && line.bold) {
+    doc.setTextColor(...COLORS.textDark);
+
+    for (const group of termGroups) {
+      for (const line of group) {
+        if (typeof line === 'object' && line.heading) {
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(...COLORS.primaryBlue);
           doc.text(line.text, 20, yPos);
-          // Reset to normal for next line
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(...COLORS.textDark);
+        } else if (typeof line === 'object' && line.subheading) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(...COLORS.primaryBlue);
+          doc.text(line.text, 20, yPos);
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...COLORS.textDark);
         } else {
           doc.setFont('helvetica', 'normal');
           doc.setTextColor(...COLORS.textDark);
-          doc.text(line, 20, yPos);
+          doc.text(String(line), 20, yPos);
         }
         yPos += 4.2;
-      });
-    });
-    
-    // Save PDF
+        if (yPos > 280) {
+          doc.addPage();
+          addWatermarkToCurrentPage(doc, 'agreement');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(10);
+          yPos = 20;
+        }
+      }
+    }
+
     const fileName = `Next_of_Kin_Consent_Form.pdf`;
     doc.save(fileName);
-    
+
   } catch (error) {
     console.error('Error generating next of kin consent form:', error);
     throw error;
