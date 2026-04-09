@@ -35,6 +35,10 @@ def approve_loan(loan_id):
     if loan.interest_paid is None:
         loan.interest_paid = Decimal('0')
     
+    # Set interest_rate and interest_type based on repayment_plan
+    loan.interest_rate = Decimal('4.5') if loan.repayment_plan == 'daily' else Decimal('30.0')
+    loan.interest_type = 'simple' if loan.repayment_plan == 'daily' else 'compound'
+
     # Create disbursement transaction - FIXED: Ensure status is set to completed
     transaction = Transaction(
         loan_id=loan.id,
@@ -180,7 +184,7 @@ def apply_for_loan():
     """Public endpoint for loan applications"""
     data = request.json
    
-    print("Received loan application data:", data)  # Debug log
+    print("Received loan application data:", data)
    
     # Validate required fields
     required_fields = ['full_name', 'phone_number', 'id_number', 'loan_amount', 'livestock_type']
@@ -200,7 +204,6 @@ def apply_for_loan():
                     photo_urls.append(url)
                 except Exception as upload_error:
                     print(f"Failed to upload one loan photo: {str(upload_error)}")
-                    # Continue with remaining photos instead of failing the whole request
                     continue
         
         # Check if client already exists
@@ -210,7 +213,6 @@ def apply_for_loan():
         location = data.get('location', 'Isinya, Kajiado')
        
         if not client:
-            # Create new client
             client = Client(
                 full_name=data['full_name'],
                 phone_number=data['phone_number'],
@@ -221,38 +223,49 @@ def apply_for_loan():
             db.session.add(client)
             db.session.flush()
         else:
-            # Update existing client information
             client.full_name = data['full_name']
             client.phone_number = data['phone_number']
             client.email = data.get('email', client.email)
             client.location = location
-           
-            print(f"Updated existing client: {client.full_name}, ID: {client.id_number}")
             db.session.add(client)
             db.session.flush()
        
-        # Create livestock record with Cloudinary URLs
+        # Create livestock record
         livestock = Livestock(
             client_id=client.id,
             livestock_type=data['livestock_type'],
             count=data.get('count', 1),
             estimated_value=Decimal(str(data.get('estimated_value', 0))),
             location=location,
-            photos=photo_urls  # Now storing Cloudinary secure URLs
+            photos=photo_urls
         )
         db.session.add(livestock)
         db.session.flush()
        
-        # Calculate loan details with 30% interest
+        # ===== CRITICAL: define principal_amount FIRST =====
         principal_amount = Decimal(str(data['loan_amount']))
-        interest_rate = Decimal('30.0')  # 30% interest
-        interest_amount = principal_amount * (interest_rate / 100)
-        total_amount = principal_amount + interest_amount
+        
+        # ===== Handle repayment plan =====
+        repayment_plan = data.get('repaymentPlan', 'weekly')
+        print(f"RAW repayment_plan from request: {repayment_plan}")
+        if repayment_plan not in ['weekly', 'daily']:
+            repayment_plan = 'weekly'
+        
+        # Calculate due date and interest based on plan
+        if repayment_plan == 'daily':
+            due_date = datetime.now() + timedelta(days=14)
+            interest_rate = Decimal('4.5')
+            total_amount = principal_amount                     # No upfront interest for daily plan
+            total_interest = Decimal('0')                       # Interest will accrue daily
+        else:  # weekly
+            due_date = datetime.now() + timedelta(days=7)
+            interest_rate = Decimal('30.0')
+            total_interest = principal_amount * (interest_rate / 100)
+            total_amount = principal_amount + total_interest
+        
+        print(f"After validation: {repayment_plan} | Total Amount: {total_amount}")
        
-        # Set due date to 7 days from now
-        due_date = datetime.now() + timedelta(days=7)
-       
-        # Create loan application with explicit initialization of new fields
+        # Create loan application
         loan = Loan(
             client_id=client.id,
             livestock_id=livestock.id,
@@ -263,22 +276,17 @@ def apply_for_loan():
             due_date=due_date,
             status='pending',
             notes=data.get('notes', ''),
-            # Tracking fields
             current_principal=principal_amount,
             principal_paid=Decimal('0'),
             interest_paid=Decimal('0'),
             accrued_interest=Decimal('0'),
-            last_interest_payment_date=None,  # will be set on approval
+            last_interest_payment_date=None,
+            repayment_plan=repayment_plan
         )
-       
         db.session.add(loan)
         db.session.commit()
        
-        print(f"Loan application created: ID {loan.id}")
-        print(f"Client: {client.full_name}, ID: {client.id_number}")
-        print(f"Client location: {client.location}")
-        print(f"Livestock photos: {livestock.photos}")
-        print(f"Loan notes: {loan.notes}")
+        print(f"Loan application created: ID {loan.id} | Plan: {repayment_plan} | Due: {due_date}")
        
         return jsonify({
             'success': True,
@@ -286,6 +294,8 @@ def apply_for_loan():
             'application_id': loan.id,
             'total_amount': float(total_amount),
             'interest_rate': float(interest_rate),
+            'repayment_plan': repayment_plan,
+            'due_date': due_date.isoformat(),
             'client_name': client.full_name,
             'photos_uploaded': len(photo_urls)
         }), 201
@@ -299,7 +309,7 @@ def apply_for_loan():
             'success': False,
             'error': f'Failed to create loan application: {str(e)}'
         }), 500
-
+            
 @loans_bp.route('/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
 @admin_required

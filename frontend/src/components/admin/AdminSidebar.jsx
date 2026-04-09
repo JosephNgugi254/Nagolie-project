@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuth } from "../../context/AuthContext";
+
 function AdminSidebar({
   activeSection,
   onSectionChange,
@@ -8,7 +10,9 @@ function AdminSidebar({
   onLogout,
   isMobile,
 }) {
-  const menuItems = [
+  const { userRole } = useAuth();
+
+  const baseMenuItems = [
     { id: "overview", icon: "fa-tachometer-alt", label: "Overview", path: "/admin" },
     { id: "clients", icon: "fa-users", label: "Clients", path: "/admin/clients" },
     { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/admin/transactions" },
@@ -22,7 +26,7 @@ function AdminSidebar({
   return (
     <div className="sidebar-sticky">
       <ul className="nav flex-column h-100">
-        {menuItems.map((item) => (
+        {baseMenuItems.map((item) => (
           <li className="nav-item" key={item.id}>
             <a
               href={item.path}
@@ -34,17 +38,12 @@ function AdminSidebar({
             >
               <i className={`fas ${item.icon} me-2`} />
               <span>{item.label}</span>
-
               {item.badge > 0 && (
-                <span className="badge bg-danger ms-2">
-                  {item.badge}
-                </span>
+                <span className="badge bg-danger ms-2">{item.badge}</span>
               )}
             </a>
           </li>
         ))}
-
-        {/* Mobile Logout */}
         {isMobile && (
           <li className="nav-item mt-auto">
             <a

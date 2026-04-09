@@ -9,6 +9,7 @@ import AdminLoginPage from './features/auth/AdminLoginPage'
 import InvestorRegistration from './features/auth/InvestorRegistration' // NEW
 import About from "./pages/About"
 import CompanyGallery from "./pages/CompanyGallery";
+import RecoveryModule from './pages/RecoveryModule';
 import "./index.css"
 
 import ForgotPasswordPage from "./features/auth/ForgotPasswordPage"
@@ -32,6 +33,7 @@ function App() {
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/company-gallery" element={<CompanyGallery />} />
+            <Route path="/recovery" element={<RecoveryModule />} />
           </Routes>
         </Router>
       </AuthProvider>

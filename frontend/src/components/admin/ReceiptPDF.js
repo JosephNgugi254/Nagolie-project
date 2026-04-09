@@ -472,7 +472,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text(`Agreement Date: ${formattedDate}`, 20, yPos);
     yPos += 8;
 
-    // Agreement Body
+    // Agreement Body (Top Section)
     doc.setFontSize(11.5);
     const firstLineParts = [
       { text: "I ", style: 'normal' },
@@ -512,14 +512,74 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 7;
 
-    // Helper functions
-    const drawCheckbox = (x, y) => {
+    // ─────────────────────────────────────────────────────────────────────────
+    // REPAYMENT PLAN DETECTION
+    // Read from both camelCase (frontend) and snake_case (backend API).
+    // Log it so you can confirm in the browser console what value arrived.
+    // ─────────────────────────────────────────────────────────────────────────
+    const rawPlan = (
+      application.repaymentPlan   ||   // set in LoanApply form  → 'weekly' | 'daily'
+      application.repayment_plan  ||   // returned by /approved-loans endpoint
+      'weekly'
+    ).toString().toLowerCase().trim();
+
+    // Strict guard – anything that isn't exactly 'daily' is treated as 'weekly'
+    const selectedPlan = (rawPlan === 'daily') ? 'daily' : 'weekly';
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INTEREST CALCULATION
+    //   Weekly : 30 %  × principal  → "Ksh 3,000.00 weekly"  (for 10,000)
+    //   Daily  : 4.5 % × principal  → "Ksh 450.00 per day"   (for 10,000)
+    // ─────────────────────────────────────────────────────────────────────────
+    const loanAmount = parseFloat(application.loanAmount) || 0;
+
+    let interestAmount   = 0;
+    let interestLabel    = '';          // appended after the amount, e.g. "weekly" / "per day"
+
+    if (selectedPlan === 'daily') {
+      interestAmount  = loanAmount * 0.045;     // 4.5 % × principal
+      interestLabel   = ' per day';
+    } else {
+      interestAmount  = loanAmount * 0.30;      // 30 % × principal
+      interestLabel   = ' weekly';
+    }
+
+    const formattedInterestValue = interestAmount.toLocaleString('en-US', { minimumFractionDigits: 2 });
+    // Full display string e.g.  "Ksh 450.00 per day"  or  "Ksh 3,000.00 weekly"
+    const formattedInterest = `Ksh ${formattedInterestValue}${interestLabel}`;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CHECKBOX HELPER
+    // Draws a 5 × 5 mm square.  When ticked = true, draws two lines forming a
+    // ✓ shape (no reliance on Unicode glyph rendering which is font-dependent).
+    // ─────────────────────────────────────────────────────────────────────────
+    const drawCheckbox = (x, y, ticked = false) => {
+      const SZ = 5;   // box side length in mm
+
+      // --- outer square ---
       doc.setDrawColor(0, 0, 0);
-      doc.setLineWidth(0.3);
-      doc.rect(x, y, 4, 4);
+      doc.setLineWidth(0.5);
+      doc.rect(x, y, SZ, SZ);
+
+      if (ticked) {
+        // Draw a ✓ using two line segments so it is font-independent:
+        //   first stroke  : bottom-left corner → mid-bottom
+        //   second stroke : mid-bottom → top-right corner
+        doc.setDrawColor(0, 0, 0);
+        doc.setLineWidth(0.8);        // slightly thick so it's clearly visible
+        // short left leg of the tick  (down-left to mid-low)
+        doc.line(x + 0.8, y + 2.6,   x + 2.0, y + 4.0);
+        // long right leg of the tick  (mid-low to top-right)
+        doc.line(x + 2.0, y + 4.0,   x + 4.4, y + 0.8);
+        // reset line width so subsequent drawing isn't affected
+        doc.setLineWidth(0.3);
+      }
     };
 
-    const drawThumbprintBox = (x, y, width = 30, height = 25) => {
+    // ─────────────────────────────────────────────────────────────────────────
+    // THUMBPRINT BOX HELPER  (stamp-style faint rounded rect)
+    // ─────────────────────────────────────────────────────────────────────────
+    const drawThumbprintBox = (x, y, width = 40, height = 35) => {
       doc.setDrawColor(230, 235, 245);
       doc.setLineWidth(0.3);
       doc.roundedRect(x, y, width, height, 2, 2);
@@ -527,44 +587,121 @@ export const generateLoanAgreementPDF = async (application) => {
       doc.setFontSize(8);
       doc.setFont('helvetica', 'italic');
       doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+      // reset
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // R.T / L.T CHECKBOXES  (always empty, filled by hand)
+    // ─────────────────────────────────────────────────────────────────────────
     const drawRtLtCheckboxes = (x, y) => {
       doc.setTextColor(...COLORS.textDark);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.setDrawColor(0, 0, 0);
       doc.setLineWidth(0.3);
-      doc.rect(x, y, 4, 4);
-      doc.text('Right Thumb', x + 5, y + 3.5);
-      doc.rect(x + 45, y, 4, 4);
-      doc.text('Left Thumb', x + 50, y + 3.5);
+      doc.rect(x,      y, 4, 4);   doc.text('R.T', x +  5, y + 3.5);
+      doc.rect(x + 22, y, 4, 4);   doc.text('L.T', x + 27, y + 3.5);
     };
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // LINE HEIGHT constant
+    // ─────────────────────────────────────────────────────────────────────────
     const LH = 3.8;
 
-    // Helper to draw a lined box for valuer's report
-    const drawLinedBox = (x, y, width, height, numLines) => {
-      doc.setDrawColor(200, 200, 200);
-      doc.setLineWidth(0.2);
-      doc.rect(x, y, width, height);
-      const lineSpacing = height / numLines;
-      for (let i = 1; i <= numLines; i++) {
-        const lineY = y + i * lineSpacing;
-        if (lineY < y + height - 1) {
-          doc.line(x, lineY, x + width, lineY);
-        }
+    // ─────────────────────────────────────────────────────────────────────────
+    // renderLine  – dispatches every line-type used in termGroups.
+    // Returns the vertical space consumed (mm) so callers do  yPos += renderLine(…)
+    // ─────────────────────────────────────────────────────────────────────────
+    const renderLine = (line, y) => {
+
+      // --- reset to default body style before every line ---
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.textDark);
+
+      // ── 1. Styled inline array  (mixed bold / normal text on one line) ────
+      if (Array.isArray(line)) {
+        writeStyledLine(doc, line, 20, y, 10);
+        return LH;
       }
-      // Add a small label inside
-      doc.setTextColor(150, 150, 150);
-      doc.setFontSize(8);
-      doc.setFont('helvetica', 'italic');
-      doc.text('Valuer’s Report:', x + 2, y + 4);
+
+      // ── 2. Section / sub-clause heading  (blue + bold) ───────────────────
+      if (typeof line === 'object' && (line.heading || line.subheading)) {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.primaryBlue);
+        doc.text(line.text, 20, y);
+        return LH;
+      }
+
+      // ── 3. Bold-dark line  (e.g. Signature / Date in consent block) ──────
+      if (typeof line === 'object' && line.boldDark) {
+        doc.setFontSize(line.fontSize || 10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(line.text, 20, y);
+        return LH;
+      }
+
+      // ── 4. Checkbox plan line ─────────────────────────────────────────────
+      // { checkbox: true, plan: 'weekly'|'daily', label: 'Weekly Plan:' }
+      // The checkbox is drawn first, then the bold label text starts 8 mm to
+      // the right.  Font size is explicitly set AFTER drawing the box so the
+      // box-drawing code cannot disturb the label size.
+      if (typeof line === 'object' && line.checkbox) {
+        const isTicked = (line.plan === selectedPlan);
+
+        // Draw the 5 × 5 box (centred vertically on the text baseline)
+        // Box top = y - 4  so its visual centre aligns with the text at y
+        drawCheckbox(20, y - 4, isTicked);
+
+        // Label – always 10 pt bold black, starts just after the box
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(line.label, 28, y);   // x = 20 (box left) + 5 (box width) + 3 (gap)
+
+        return LH;
+      }
+
+      // ── 5. Interest placeholder line ─────────────────────────────────────
+      // Renders:  "The interest for this loan is "  (normal)  +  amount  (bold)
+      if (typeof line === 'object' && line.interestPlaceholder) {
+        const staticText = 'The interest for this loan is ';
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(staticText, 20, y);
+        const staticW = doc.getTextWidth(staticText);
+        doc.setFont('helvetica', 'bold');
+        doc.text(formattedInterest, 20 + staticW, y);
+        return LH;
+      }
+
+      // ── 6. Thumbprint box (inline in clause 2.3 consent block) ───────────
+      if (typeof line === 'object' && line.thumbprintBox) {
+        const boxW = 40, boxH = 35;
+        const boxX = 210 - 20 - boxW;    // right-aligned within page
+        const boxY = y - 2;
+        drawThumbprintBox(boxX, boxY, boxW, boxH);
+        const cbY = boxY + boxH + 4;
+        const cbX = boxX + (boxW / 2) - 17;
+        drawRtLtCheckboxes(cbX, cbY);
+        return boxH + 12;
+      }
+
+      // ── 7. Plain string ───────────────────────────────────────────────────
+      doc.text(String(line), 20, y);
+      return LH;
     };
 
-    // Term groups (unchanged)
+    // ═════════════════════════════════════════════════════════════════════════
+    // TERM GROUPS
+    // ═════════════════════════════════════════════════════════════════════════
     const termGroups = [
-      // 1. Agreement Overview
+
+      // ── 1. Agreement Overview ─────────────────────────────────────────────
       [
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
@@ -572,7 +709,8 @@ export const generateLoanAgreementPDF = async (application) => {
         "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
-      // 2. Ownership Transfer and Custody
+
+      // ── 2. Ownership Transfer and Custody ────────────────────────────────
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
         "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
@@ -598,48 +736,60 @@ export const generateLoanAgreementPDF = async (application) => {
         "  action to secure the Company's property and recover losses without legal impediment.",
         "",
         { text: "2.3. Consent to Recovery in the Event of Default", subheading: true },
-        "I, the Recipient, acknowledge that I have read and fully understood the terms of this Agreement, particularly",
-        "the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default. I voluntarily and",
-        "irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents may",
-        "immediately take possession of the collateral livestock without the need for a court order, further notice,",
-        "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery.",
-        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest",
-        "extent permitted under the laws of Kenya.",
+        [
+          { text: "I, ", style: 'normal' },
+          { text: application.name || "___________________", style: 'bold' },
+          { text: " of ID NO: ", style: 'normal' },
+          { text: application.idNumber || "___________________", style: 'bold' },
+          { text: " acknowledge that I have read and fully understood the terms of this", style: 'normal' }
+        ],
+        "Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized",
+        "agents may immediately take possession of the collateral livestock without the need for a court order, further",
+        "notice, or additional consent from any party. I hereby waive all rights to legally obstruct or delay such",
+        "recovery. This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the",
+        "fullest extent permitted under the laws of Kenya.",
         "",
         { text: `Signature: ___________________          Date: ${today}`, boldDark: true, fontSize: 11 },
         { thumbprintBox: true }
       ],
-      // 3. Repayment Terms and Interest
+
+      // ── 3. Repayment Terms and Interest ───────────────────────────────────
       [
         { text: "3. Repayment Terms and Interest", heading: true },
         "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
         "(please tick one plan below):",
         "",
-        { checkbox: true, label: "Weekly Plan:"},
+
+        // Weekly checkbox: ticked automatically when selectedPlan === 'weekly'
+        { checkbox: true, plan: 'weekly', label: "Weekly Plan:" },
+        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30%",
+        "(negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a maximum period",
+        "of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will accrue.",
+        "The Recipient must then either:",
+        "  (a) repay the outstanding loan balance in full, or",
+        "  (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
-        "The loan is repayable within seven (7) days from the date of disbursement", 
-        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
-        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+
+        // Daily checkbox: ticked automatically when selectedPlan === 'daily'
+        { checkbox: true, plan: 'daily', label: "Daily Plan:" },
+        "The loan is repayable with an interest of 4.5% per day. Interest shall be charged daily for a maximum",
+        "period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
         "accrue. The Recipient must then either:",
-        " (a) repay the outstanding loan balance in full, or ",
-        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "  (a) repay the outstanding loan balance in full, or",
+        "  (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
-        { checkbox: true, label: "Daily Plan:"},
+
+        // Auto-filled interest line
+        { interestPlaceholder: true },
         "",
-        "The loan is repayable with an interest of 4.5% per day. Interest shall be", 
-        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no",
-        "further interest will accrue. The Recipient must then either:",
-        " (a) repay the outstanding loan balance in full, or",
-        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
-        "",
-        "The interest for this loan is Ksh________",
-        "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
-        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
-        " upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their",
+        "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
+        "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
-      // 4. Loan Settlement and Ownership Return
+
+      // ── 4. Loan Settlement and Ownership Return ────────────────────────────
       [
         { text: "4. Loan Settlement and Ownership Return", heading: true },
         "Upon full repayment of the loan principal plus agreed interest:",
@@ -647,14 +797,16 @@ export const generateLoanAgreementPDF = async (application) => {
         "- All rights and responsibilities regarding the livestock return to the Recipient",
         ""
       ],
-      // 5. Livestock Valuation
+
+      // ── 5. Livestock Valuation ─────────────────────────────────────────────
       [
         { text: "5. Livestock Valuation", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
-      // 6. Default and Remedies
+
+      // ── 6. Default and Remedies ────────────────────────────────────────────
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
@@ -667,14 +819,16 @@ export const generateLoanAgreementPDF = async (application) => {
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
       ],
-      // 7. Governing Law
+
+      // ── 7. Governing Law ───────────────────────────────────────────────────
       [
         { text: "7. Governing Law", heading: true },
         "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
         "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
-      // 8. Entire Agreement
+
+      // ── 8. Entire Agreement ────────────────────────────────────────────────
       [
         { text: "8. Entire Agreement", heading: true },
         "This document constitutes the entire agreement between the parties and supersedes all prior discussions,",
@@ -684,62 +838,24 @@ export const generateLoanAgreementPDF = async (application) => {
       ]
     ];
 
-    // RenderLine function
-    const renderLine = (line, y) => {
-      doc.setFontSize(10);
-      if (typeof line === 'object' && (line.heading || line.subheading)) {
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(...COLORS.primaryBlue);
-        doc.text(line.text, 20, y);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...COLORS.textDark);
-      } else if (typeof line === 'object' && line.boldDark) {
-        const fs = line.fontSize || 10;
-        doc.setFontSize(fs);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(...COLORS.textDark);
-        doc.text(line.text, 20, y);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-      } else if (typeof line === 'object' && line.checkbox) {
-        drawCheckbox(20, y - 3);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(...COLORS.textDark);
-        doc.text(line.label, 26, y);
-        doc.setFont('helvetica', 'normal');
-      } else if (typeof line === 'object' && line.thumbprintBox) {
-        const boxW = 40;
-        const boxH = 35;
-        const boxX = 210 - 20 - boxW;
-        const boxY = y - 2;
-        drawThumbprintBox(boxX, boxY, boxW, boxH);
-        const checkY = boxY + boxH + 4;
-        const groupWidth = 50 + 5 + 20;
-        const checkX = boxX + (boxW / 2) - (groupWidth / 2);
-        drawRtLtCheckboxes(checkX, checkY);
-        return boxH + 12;
-      } else {
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(...COLORS.textDark);
-        doc.text(String(line), 20, y);
-      }
-      return LH;
-    };
-
-    // ---- PAGE 1: Groups 0 and 1 ----
+    // ─────────────────────────────────────────────────────────────────────────
+    // PAGE LAYOUT
+    //   Page 1  → Term groups 0–1  (Overview + Ownership / Consent)
+    //   Page 2  → Term groups 2–7  (Repayment … Entire Agreement)
+    //   Page 3  → Valuation Report + Signatures
+    // ─────────────────────────────────────────────────────────────────────────
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLORS.textDark);
 
+    // ── PAGE 1 ──
     for (let i = 0; i < 2; i++) {
-      const group = termGroups[i];
-      for (const line of group) {
-        const extra = renderLine(line, yPos);
-        yPos += extra;
+      for (const line of termGroups[i]) {
+        yPos += renderLine(line, yPos);
       }
     }
 
-    // ---- Page 2: Groups 2 through 7 ----
+    // ── PAGE 2 ──
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'agreement');
     doc.setFont('helvetica', 'normal');
@@ -748,37 +864,41 @@ export const generateLoanAgreementPDF = async (application) => {
     yPos = 20;
 
     for (let i = 2; i < termGroups.length; i++) {
-      const group = termGroups[i];
-      for (const line of group) {
-        const extra = renderLine(line, yPos);
-        yPos += extra;
+      for (const line of termGroups[i]) {
+        yPos += renderLine(line, yPos);
       }
     }
 
-    // ---- Page 3: Valuation Report + Signatures ----
+    // ── PAGE 3: Valuation Report + Signatures ────────────────────────────────
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'agreement');
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     yPos = 20;
 
-    // ========== VALUATION REPORT SECTION ==========
-    // Heading
+    // Valuation Report heading
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
     doc.text('VALUATION REPORT', 105, yPos, { align: 'center' });
     yPos += 8;
 
-    // Lined box for valuer's notes – now 9 lines (height increased)
-    const reportWidth = 170;  // from x=20 to x=190
-    const reportHeight = 60;   // enough for 9 lines (previous 40 for 6 lines)
-    const reportX = 20;
-    const reportY = yPos;
-    drawLinedBox(reportX, reportY, reportWidth, reportHeight, 9); // 9 lines
-    yPos = reportY + reportHeight + 8;
+    // Lined report box
+    const reportW = 170, reportH = 60, reportX = 20, reportY = yPos;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.2);
+    doc.rect(reportX, reportY, reportW, reportH);
+    const lineSpacing = reportH / 9;
+    for (let i = 1; i <= 9; i++) {
+      const ly = reportY + i * lineSpacing;
+      if (ly < reportY + reportH - 1) doc.line(reportX, ly, reportX + reportW, ly);
+    }
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text("Valuer\u2019s Report:", reportX + 2, reportY + 4);
+    yPos = reportY + reportH + 8;
 
-    // Confirmation statement
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(...COLORS.textDark);
@@ -787,20 +907,20 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text("of the collateral livestock as recorded above.", 20, yPos);
     yPos += 8;
 
-    // Signature lines for Client and Valuer
     doc.setFont('helvetica', 'bold');
-    doc.text("Client's signature:", 20, yPos);
+    doc.text("Client\u2019s signature:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________________", 70, yPos);
     yPos += 8;
 
     doc.setFont('helvetica', 'bold');
-    doc.text("Valuer's name:", 20, yPos);
+    doc.text("Valuer\u2019s name:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________________", 70, yPos);
     yPos += 6;
+
     doc.setFont('helvetica', 'bold');
-    doc.text("Valuer's signature:", 20, yPos);
+    doc.text("Valuer\u2019s signature:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     doc.text("_________________________", 70, yPos);
     yPos += 8;
@@ -811,14 +931,13 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text("_________________________", 70, yPos);
     yPos += 12;
 
-    // ========== ADD DIVIDER BEFORE SIGNATURES ==========
-    // Draw a horizontal line (similar to addDivider style)
+    // Divider before signatures
     doc.setDrawColor(...COLORS.primaryBlue);
     doc.setLineWidth(0.5);
     doc.line(20, yPos, 190, yPos);
-    yPos += 8; // space after divider
+    yPos += 8;
 
-    // ========== SIGNATURES SECTION ==========
+    // Signatures heading
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.setTextColor(...COLORS.primaryBlue);
@@ -831,8 +950,9 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text('PARTIES TO THIS AGREEMENT:', 20, yPos);
     yPos += 8;
 
-    // CLIENT block with thumbprint box
+    // CLIENT block
     const clientTopY = yPos;
+
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
@@ -853,20 +973,18 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'normal');
     doc.text('___________________', 65, clientTopY + 24);
 
-    // Thumbprint box on the right
-    const thumbW = 40;
-    const thumbH = 35;
+    // Thumbprint box – right side of CLIENT block
+    const thumbW = 40, thumbH = 35;
     const thumbBoxX = 210 - 20 - thumbW;
     const thumbBoxY = clientTopY - 2;
     drawThumbprintBox(thumbBoxX, thumbBoxY, thumbW, thumbH);
-    const checkY = thumbBoxY + thumbH + 4;
-    const groupWidth = 50 + 5 + 20;
-    const checkX = thumbBoxX + (thumbW / 2) - (groupWidth / 2);
-    drawRtLtCheckboxes(checkX, checkY);
+    const cbY = thumbBoxY + thumbH + 4;
+    const cbX = thumbBoxX + (thumbW / 2) - 17;
+    drawRtLtCheckboxes(cbX, cbY);
 
     yPos = thumbBoxY + thumbH + 14;
 
-    // CONFIRMED BY section
+    // CONFIRMED BY
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
@@ -874,11 +992,10 @@ export const generateLoanAgreementPDF = async (application) => {
     yPos += 8;
 
     const colW = 190 / 3;
-    const col1 = 20;
-    const col2 = 20 + colW;
-    const col3 = 20 + colW * 2;
+    const col1 = 20, col2 = 20 + colW, col3 = 20 + colW * 2;
     const confY = yPos;
 
+    // Director
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
@@ -888,16 +1005,20 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text('Director', col1, confY + 5);
     doc.text('Sign: ___________________', col1, confY + 12);
 
+    // Livestock Valuer
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
     doc.text('George Marite', col2, confY);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text('Livestock Valuer', col2, confY + 5);
     doc.text('Sign: ___________________', col2, confY + 12);
 
+    // Accountant
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
     doc.text('Gideon Matunta', col3, confY);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
@@ -907,8 +1028,7 @@ export const generateLoanAgreementPDF = async (application) => {
     yPos = confY + 22;
 
     // Company Stamp Box
-    const stampW = 60;
-    const stampH = 35;
+    const stampW = 60, stampH = 35;
     const stampX = (210 - stampW) / 2;
     const stampY = yPos;
     doc.setDrawColor(230, 235, 245);
@@ -928,7 +1048,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFontSize(9);
     doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
 
-    // Save PDF
+    // Save
     const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
 
@@ -1002,7 +1122,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 7;
 
-    // Helper functions (same as in autogenerated version)
+    // Helper functions
     const drawCheckbox = (x, y) => {
       doc.setDrawColor(0, 0, 0);
       doc.setLineWidth(0.3);
@@ -1050,7 +1170,7 @@ export const generateManualLoanAgreementPDF = async () => {
       doc.text('Valuer’s Report:', x + 2, y + 4);
     };
 
-    // Term groups – identical to autogenerated version
+    // Term groups – Updated 2.3 for manual filling
     const termGroups = [
       // 1. Agreement Overview
       [
@@ -1060,7 +1180,7 @@ export const generateManualLoanAgreementPDF = async () => {
         "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
-      // 2. Ownership Transfer and Custody (with consent section)
+      // 2. Ownership Transfer and Custody
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
         "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
@@ -1085,19 +1205,30 @@ export const generateManualLoanAgreementPDF = async () => {
         "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate",
         "  action to secure the Company's property and recover losses without legal impediment.",
         "",
+        // Updated 2.3 for manual form
         { text: "2.3. Consent to Recovery in the Event of Default", subheading: true },
-        "I, the Recipient, acknowledge that I have read and fully understood the terms of this Agreement, particularly",
-        "the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default. I voluntarily and",
-        "irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents may",
-        "immediately take possession of the collateral livestock without the need for a court order, further notice,",
-        "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery.",
-        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest",
-        "extent permitted under the laws of Kenya.",
+        
+        // First line (manual fillable)
+        [
+          { text: "I, ", style: 'normal' },
+          { text: "___________________", style: 'bold' },
+          { text: " of ID NO: ", style: 'normal' },
+          { text: "___________________", style: 'bold' },
+          { text: " acknowledge that I have read and fully understood the ,", style: 'normal' }
+        ],
+        
+        // Remaining lines
+        "terms of this Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents",
+        "may immediately take possession of the collateral livestock without the need for a court order, further notice,",
+        "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery",
+        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest extent",
+        "permitted under the laws of Kenya.",
         "",
         { text: "Signature: ___________________          Date: ___________________", boldDark: true, fontSize: 11 },
         { thumbprintBox: true }
       ],
-      // 3. Repayment Terms and Interest (with checkboxes)
+      // 3. Repayment Terms and Interest
       [
         { text: "3. Repayment Terms and Interest", heading: true },
         "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
@@ -1152,7 +1283,7 @@ export const generateManualLoanAgreementPDF = async () => {
         "   renewal agreement",
         "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
-        "- Charge interest on overdue amounts at the prevailing market rate",
+        "- Charge interest of 4.5% daily on overdue amounts",
         ""
       ],
       // 7. Governing Law
@@ -1172,16 +1303,35 @@ export const generateManualLoanAgreementPDF = async () => {
       ]
     ];
 
-    // RenderLine function (same as autogenerated)
+    // RenderLine function (same as before - supports arrays for styled lines)
     const renderLine = (line, y) => {
       doc.setFontSize(10);
+
+      // Handle styled array
+      if (Array.isArray(line)) {
+        let x = 20;
+        line.forEach(part => {
+          if (part.style === 'bold') {
+            doc.setFont('helvetica', 'bold');
+          } else {
+            doc.setFont('helvetica', 'normal');
+          }
+          doc.setTextColor(...COLORS.textDark);
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
+        });
+        return LH;
+      }
+
+      // Handle heading or subheading
       if (typeof line === 'object' && (line.heading || line.subheading)) {
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(...COLORS.primaryBlue);
         doc.text(line.text, 20, y);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...COLORS.textDark);
-      } else if (typeof line === 'object' && line.boldDark) {
+      } 
+      else if (typeof line === 'object' && line.boldDark) {
         const fs = line.fontSize || 10;
         doc.setFontSize(fs);
         doc.setFont('helvetica', 'bold');
@@ -1189,13 +1339,15 @@ export const generateManualLoanAgreementPDF = async () => {
         doc.text(line.text, 20, y);
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
-      } else if (typeof line === 'object' && line.checkbox) {
+      } 
+      else if (typeof line === 'object' && line.checkbox) {
         drawCheckbox(20, y - 3);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(...COLORS.textDark);
         doc.text(line.label, 26, y);
         doc.setFont('helvetica', 'normal');
-      } else if (typeof line === 'object' && line.thumbprintBox) {
+      } 
+      else if (typeof line === 'object' && line.thumbprintBox) {
         const boxW = 40;
         const boxH = 35;
         const boxX = 210 - 20 - boxW;
@@ -1206,7 +1358,8 @@ export const generateManualLoanAgreementPDF = async () => {
         const checkX = boxX + (boxW / 2) - (groupWidth / 2);
         drawRtLtCheckboxes(checkX, checkY);
         return boxH + 12;
-      } else {
+      } 
+      else {
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(...COLORS.textDark);
         doc.text(String(line), 20, y);
@@ -1250,7 +1403,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setFontSize(10);
     yPos = 20;
 
-    // ========== VALUATION REPORT SECTION ==========
+    // Valuation Report Heading
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
@@ -1258,7 +1411,7 @@ export const generateManualLoanAgreementPDF = async () => {
     yPos += 8;
 
     const reportWidth = 170;
-    const reportHeight = 60;   // 9 lines
+    const reportHeight = 60;
     const reportX = 20;
     const reportY = yPos;
     drawLinedBox(reportX, reportY, reportWidth, reportHeight, 9);
@@ -1283,6 +1436,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setFont('helvetica', 'normal');
     doc.text("_________________________", 70, yPos);
     yPos += 6;
+
     doc.setFont('helvetica', 'bold');
     doc.text("Valuer's signature:", 20, yPos);
     doc.setFont('helvetica', 'normal');
@@ -1295,13 +1449,13 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text("_________________________", 70, yPos);
     yPos += 12;
 
-    // Divider before SIGNATURES
+    // Divider before signatures
     doc.setDrawColor(...COLORS.primaryBlue);
     doc.setLineWidth(0.5);
     doc.line(20, yPos, 190, yPos);
     yPos += 8;
 
-    // ========== SIGNATURES SECTION ==========
+    // SIGNATURES SECTION
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.setTextColor(...COLORS.primaryBlue);
@@ -1314,7 +1468,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text('PARTIES TO THIS AGREEMENT:', 20, yPos);
     yPos += 8;
 
-    // CLIENT block with thumbprint box
+    // CLIENT block
     const clientTopY = yPos;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
@@ -1336,7 +1490,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setFont('helvetica', 'normal');
     doc.text('___________________', 65, clientTopY + 24);
 
-    // Thumbprint box on the right
+    // Thumbprint box
     const thumbW = 40;
     const thumbH = 35;
     const thumbBoxX = 210 - 20 - thumbW;
@@ -1349,7 +1503,7 @@ export const generateManualLoanAgreementPDF = async () => {
 
     yPos = thumbBoxY + thumbH + 14;
 
-    // CONFIRMED BY – three columns (Director, Valuer, Accountant)
+    // CONFIRMED BY section
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
@@ -1379,23 +1533,14 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text('Livestock Valuer', col2, confY + 5);
     doc.text('Sign: ___________________', col2, confY + 12);
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('Gideon Matunta', col3, confY);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('Accountant', col3, confY + 5);
-    doc.text('Sign: ___________________', col3, confY + 12);
-
     yPos = confY + 22;
 
-    // Company Stamp Box (optional fallback if image not loaded)
+    // Company Stamp Box
     const stampW = 60;
     const stampH = 35;
     const stampX = (210 - stampW) / 2;
     const stampY = yPos;
 
-    // Try to load stamp image (same as manual version)
     let stampBase64 = null;
     try {
       stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');

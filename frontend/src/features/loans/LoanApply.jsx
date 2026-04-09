@@ -13,12 +13,13 @@ function LoanApply({ onSubmit }) {
     idNumber: "",
     email: "",
     loanAmount: "",
-    livestockType: "", // Final value: simple type or combination
+    livestockType: "", 
     count: "",
     estimatedValue: "",
     location: "",
     notes: "",
     agreeTerms: false,
+    repaymentPlan: "weekly",   // default to weekly
   })
 
   // New state for main dropdown selection
@@ -49,10 +50,8 @@ function LoanApply({ onSubmit }) {
     setMainLivestockType(value)
 
     if (value !== "other") {
-      // If selecting a simple type, update livestockType to that value
       setFormData({ ...formData, livestockType: value })
     } else {
-      // If selecting "other", clear livestockType (user must pick combination)
       setFormData({ ...formData, livestockType: "" })
     }
   }
@@ -61,7 +60,6 @@ function LoanApply({ onSubmit }) {
   const handleCombinationChange = (e) => {
     const value = e.target.value
     setFormData({ ...formData, livestockType: value })
-    // Keep mainLivestockType as "other" so dropdown stays visible
   }
 
   const handleChange = (e) => {
@@ -79,8 +77,8 @@ function LoanApply({ onSubmit }) {
 
     try {
       const options = {
-        maxSizeMB: 1,          // max 1MB per image
-        maxWidthOrHeight: 1024, // resize to max 1024px
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1024,
         useWebWorker: true,
       }
 
@@ -120,7 +118,6 @@ function LoanApply({ onSubmit }) {
       return
     }
 
-    // Validate that if "other" is selected, a combination must be chosen
     if (mainLivestockType === "other" && !formData.livestockType) {
       alert("Please select a livestock combination.")
       return
@@ -138,6 +135,7 @@ function LoanApply({ onSubmit }) {
       location: formData.location,
       notes: formData.notes,
       photos: photos,
+      repaymentPlan: formData.repaymentPlan,
     }
 
     console.log("Submitting data:", submissionData)
@@ -157,6 +155,7 @@ function LoanApply({ onSubmit }) {
       location: "",
       notes: "",
       agreeTerms: false,
+      repaymentPlan: "weekly",
     })
     setMainLivestockType("")
     setPhotos([])
@@ -244,7 +243,6 @@ function LoanApply({ onSubmit }) {
               <option value="other">Other (combination)</option>
             </select>
 
-            {/* Combination dropdown appears when "other" is selected */}
             {mainLivestockType === "other" && (
               <div className="mt-3">
                 <label htmlFor="combination" className="form-label">
@@ -303,6 +301,49 @@ function LoanApply({ onSubmit }) {
               required
             />
           </div>
+        </div>
+
+        {/* New Interest / Repayment Plan Section */}
+        <div className="mb-3">
+          <label className="form-label fw-bold">
+            Interest Plan <span className="text-danger">*</span>
+          </label>
+          <div className="d-flex gap-4">
+            <div className="form-check">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="repaymentPlan"
+                id="planWeekly"
+                value="weekly"
+                checked={formData.repaymentPlan === "weekly"}
+                onChange={handleChange}
+                required
+              />
+              <label className="form-check-label" htmlFor="planWeekly">
+                Weekly Plan – 30% interest, repay within 7 days
+              </label>
+            </div>
+            <div className="form-check">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="repaymentPlan"
+                id="planDaily"
+                value="daily"
+                checked={formData.repaymentPlan === "daily"}
+                onChange={handleChange}
+              />
+              <label className="form-check-label" htmlFor="planDaily">
+                Daily Plan – 4.5% interest per day, due in 14 days (max)
+              </label>
+            </div>
+          </div>
+          <small className="text-muted">
+            {formData.repaymentPlan === "weekly"
+              ? "Interest: 30% of principal. Loan due in 7 days."
+              : "Interest: 4.5% per day for up to 14 days. Loan due in 14 days."}
+          </small>
         </div>
 
         <div className="mb-3">

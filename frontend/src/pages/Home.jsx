@@ -53,7 +53,8 @@ function Home() {
         estimated_value: parseFloat(formData.estimatedValue) || 0,
         location: formData.location || '',
         notes: formData.notes || '',
-        photos: formData.photos || []
+        photos: formData.photos || [],
+        repaymentPlan: formData.repaymentPlan
       }
 
       console.log("Sending to backend:", applicationData)

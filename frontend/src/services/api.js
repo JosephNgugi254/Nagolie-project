@@ -1,152 +1,72 @@
 import axios from "axios"
 
-// ==========================
-// Base URL Configuration
-// ==========================
 const API_URL = import.meta.env.VITE_API_BASE_URL || 
   (window.location.hostname === 'localhost' 
     ? "http://localhost:5000/api" 
     : "https://nagolie-backend.onrender.com/api");
 
-// ==========================
-// Retry Configuration
-// ==========================
 const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000; // in milliseconds
+const RETRY_DELAY = 2000;
 
-// ==========================
-// Token Management
-// ==========================
 const getAuthToken = () => {
-  // Check both tokens, let the backend determine validity
+  const token = localStorage.getItem("token");
+  if (token) return token;
   const adminToken = localStorage.getItem("admin_token");
   const investorToken = localStorage.getItem("investor_token");
-  
-  console.log("Token check - Admin:", adminToken ? "Exists" : "Missing");
-  console.log("Token check - Investor:", investorToken ? "Exists" : "Missing");
-  
-  // Return whichever token exists
   return adminToken || investorToken;
 };
 
-// ==========================
-// Axios Instance
-// ==========================
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  headers: { "Content-Type": "application/json" },
   timeout: 30000,
 });
 
-// ==========================
-// Request Interceptor
-// ==========================
 api.interceptors.request.use(
   (config) => {
     const token = getAuthToken();
-    console.log(`Making ${config.method?.toUpperCase()} request to: ${config.baseURL}${config.url}`);
-    console.log("Auth token:", token ? "Present" : "Missing");
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     config.headers["Accept"] = "application/json";
     return config;
   },
-  (error) => {
-    console.error("Request error:", error);
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// ==========================
-// Response Interceptor with Retry Logic
-// ==========================
 api.interceptors.response.use(
-  (response) => {
-    console.log(`Response received from ${response.config.url}:`, response.status);
-    return response;
-  },
+  (response) => response,
   async (error) => {
     const config = error.config;
-
-    // Retry on network or timeout errors
     if (
       !config.__retryCount &&
-      (error.code === "ECONNABORTED" ||
-        error.code === "ERR_NETWORK" ||
-        !error.response)
+      (error.code === "ECONNABORTED" || error.code === "ERR_NETWORK" || !error.response)
     ) {
       config.__retryCount = config.__retryCount || 0;
-
       if (config.__retryCount < MAX_RETRIES) {
         config.__retryCount += 1;
-
-        console.warn(
-          `Retrying request (${config.__retryCount}/${MAX_RETRIES}) to ${config.url} after ${RETRY_DELAY * config.__retryCount}ms`
-        );
-
-        // Wait before retrying
-        await new Promise((resolve) =>
-          setTimeout(resolve, RETRY_DELAY * config.__retryCount)
-        );
-
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY * config.__retryCount));
         return api(config);
       }
     }
-
-    // Log error details
-    console.error("API Error:", {
-      url: error.config?.url,
-      status: error.response?.status,
-      data: error.response?.data,
-      message: error.message,
-    });
-
     if (error.response?.status === 401) {
-      console.log("401 Unauthorized received for:", error.config?.url);
-
-      // Don't redirect automatically, just clear the token that's not working
       const currentPath = window.location.pathname;
-
       if (currentPath.includes('/investor')) {
-        // If in investor panel and got 401, clear investor token
         localStorage.removeItem("investor_token");
         localStorage.removeItem("investor_user");
-        console.log("Cleared investor tokens due to 401");
       } else if (currentPath.includes('/admin')) {
-        // If in admin panel and got 401, clear admin token
         localStorage.removeItem("admin_token");
         localStorage.removeItem("admin_user");
-        console.log("Cleared admin tokens due to 401");
       }
-
-      // Return error - let component handle redirection
-      return Promise.reject(error);
     }
-
     return Promise.reject(error);
   }
 );
 
-const getAuthHeader = () => {
-  const token = getAuthToken();
-  return { headers: { 'Authorization': `Bearer ${token}` } };
-};
-
-// ==========================
-// API Endpoints
-// ==========================
 export const authAPI = {
   login: (credentials) => api.post("/auth/login", credentials),
   register: (userData) => api.post("/auth/register", userData),
   getCurrentUser: () => api.get("/auth/me"),
   completeInvestorRegistration: (investorId, data) => api.post(`/auth/investor/register/${investorId}`, data),
   getInvestorInfo: (investorId) => api.get(`/auth/investor/info/${investorId}`),
-  //new endpoints for password reset
   forgotPassword: (data) => api.post("/auth/forgot-password", data),
   validateResetToken: (data) => api.post("/auth/validate-reset-token", data),
   resetPassword: (data) => api.post("/auth/reset-password", data),
@@ -159,7 +79,7 @@ export const loanAPI = {
   create: (loanData) => api.post("/loans", loanData),
   updateStatus: (id, status) => api.patch(`/loans/${id}/status`, { status }),
   approve: (id) => api.post(`/loans/${id}/approve`),
-  reject: (id) => api.post(`/loans/${id}/reject`),  
+  reject: (id) => api.post(`/loans/${id}/reject`),
 };
 
 export const clientAPI = {
@@ -173,18 +93,15 @@ export const adminAPI = {
   getDashboard: () => api.get("/admin/dashboard"),
   getApplications: () => api.get("/admin/applications"),
   getClients: () => api.get("/admin/clients"),
-  getLivestock: (page = 1, per_page = 10) => api.get(`/admin/livestock?page=${page}&per_page=${per_page}`),  
+  getLivestock: (page = 1, per_page = 10) => api.get(`/admin/livestock?page=${page}&per_page=${per_page}`),
   getPublicLivestockGallery: (page = 1, per_page = 12) => api.get(`/admin/livestock/gallery?page=${page}&per_page=${per_page}`),
   getTransactions: () => api.get("/admin/transactions"),
   getApprovedLoans: () => api.get("/admin/approved-loans"),
   getPaymentStats: () => api.get("/admin/payment-stats"),
-  approveApplication: (id, fundingData = {}) => {
-    const data = {
-      funding_source: fundingData.funding_source || 'company',
-      investor_id: fundingData.investor_id || null
-    }
-    return api.post(`/admin/applications/${id}/approve`, data)
-  },
+  approveApplication: (id, fundingData = {}) => api.post(`/admin/applications/${id}/approve`, {
+    funding_source: fundingData.funding_source || 'company',
+    investor_id: fundingData.investor_id || null
+  }),
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
   sendReminder: (data) => api.post("/admin/send-reminder", data),
   claimOwnership: (data) => api.post("/admin/claim-ownership", data),
@@ -201,20 +118,13 @@ export const adminAPI = {
   createInvestorAccountLink: (id) => api.post(`/admin/investors/${id}/create-user-account`),
   getInvestorTransactions: () => api.get("/admin/investor-transactions"),
   calculateInvestorReturn: (investorId, date = null) => {
-    let url = `/admin/investors/${investorId}/calculate-return`
-    if (date) {
-      url += `?date=${date}`
-    }
-    return api.get(url)
+    let url = `/admin/investors/${investorId}/calculate-return`;
+    if (date) url += `?date=${date}`;
+    return api.get(url);
   },
-  processInvestorReturn: async (investorId, data) => {
-    return api.post(`/admin/investors/${investorId}/process-return`, data);
-  },   
-  adjustInvestorInvestment: async (investorId, data) => {
-    return api.post(`/admin/investors/${investorId}/adjust-investment`, data)
-  },
-  //company gallery endpoints
-  getCompanyGallery: () => api.get("/company-gallery/public"), // public, but we'll use it in admin too
+  processInvestorReturn: (investorId, data) => api.post(`/admin/investors/${investorId}/process-return`, data),
+  adjustInvestorInvestment: (investorId, data) => api.post(`/admin/investors/${investorId}/adjust-investment`, data),
+  getCompanyGallery: () => api.get("/company-gallery/public"),
   addCompanyGalleryImages: (data) => api.post("/company-gallery/admin", data),
   deleteCompanyGalleryImage: (id) => api.delete(`/company-gallery/admin/${id}`),
   updateCompanyGalleryImage: (id, data) => api.put(`/company-gallery/admin/${id}`, data),
@@ -230,55 +140,57 @@ export const paymentAPI = {
 };
 
 export const investorAPI = {
-  getDashboard: () => {
-    const token = localStorage.getItem("investor_token");
-    return api.get("/investor/dashboard", {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-  },
-  getReturns: () => {
-    const token = localStorage.getItem("investor_token");
-    return api.get("/investor/returns", {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-  },
-  shareLivestock: (livestockId, data) => {
-    const token = localStorage.getItem("investor_token");
-    return api.post(`/investor/share-livestock/${livestockId}`, data, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-  },
-  inquireLivestock: (livestockId, data) => {
-    const token = localStorage.getItem("investor_token");
-    return api.post(`/investor/inquire-livestock/${livestockId}`, data, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    });
-  },
-  updateUsername: async (data) => {
-    const response = await api.put('/investor/account/update-username', data);
-    return response;
-  },
-  
-  updatePassword: async (data) => {
-    const response = await api.put('/investor/account/update-password', data);
-    return response;
-  },
-  
-  validatePassword: async (password) => {
-    const response = await api.post('/investor/account/validate-password', {
-      current_password: password
-    });
-    return response;
-  }
+  getDashboard: () => api.get("/investor/dashboard"),
+  getReturns: () => api.get("/investor/returns"),
+  shareLivestock: (livestockId, data) => api.post(`/investor/share-livestock/${livestockId}`, data),
+  inquireLivestock: (livestockId, data) => api.post(`/investor/inquire-livestock/${livestockId}`, data),
+  updateUsername: (data) => api.put('/investor/account/update-username', data),
+  updatePassword: (data) => api.put('/investor/account/update-password', data),
+  validatePassword: (password) => api.post('/investor/account/validate-password', { current_password: password }),
+};
 
+export const recoveryAPI = {
+  // Core Recovery Data
+  getRecoveryData: () => api.get('/recovery'),
+  addClient: (data) => api.post('/recovery/client', data),
+
+  // ── Payment (syncs with admin panel) ──────────────────────────────────────
+  // Processes cash or M-Pesa manual payments from the recovery module.
+  // Uses the same backend logic as the admin panel, so both sides stay in sync.
+  processPayment: (loanId, data) => api.post(`/recovery/loan/${loanId}/payment`, data),
+
+  // Comments
+  addComment: (loanId, content, parentId = null) =>
+    api.post(`/recovery/loan/${loanId}/comment`, { content, parent_id: parentId }),
+  getComments: (loanId) => api.get(`/recovery/loan/${loanId}/comments`),
+  editComment: (loanId, commentId, content) =>
+    api.put(`/recovery/loan/${loanId}/comment/${commentId}`, { content }),
+
+  // Users
+  getUsers: () => api.get('/recovery/users'),
+
+  // Messages
+  getUnreadCount: () => api.get('/recovery/messages/unread-count'),
+  getUnreadCountByUser: () => api.get('/recovery/messages/unread-count-by-user'),
+  sendMessage: (recipientId, content, attachmentUrl = null, attachmentType = null, attachmentName = null) =>
+    api.post('/recovery/messages/send', {
+      recipient_id: recipientId, content,
+      attachment_url: attachmentUrl, attachment_type: attachmentType, attachment_name: attachmentName
+    }),
+  uploadMessageAttachment: (formData) =>
+    api.post('/recovery/messages/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  getConversation: (otherUserId) => api.get(`/recovery/messages/conversation/${otherUserId}`),
+  markMessageRead: (msgId) => api.put(`/recovery/messages/${msgId}/read`),
+
+  // Defaulters
+  markDefaulter: (loanId) => api.post(`/recovery/loan/${loanId}/defaulter`),
+  resolveDefaulter: (loanId) => api.delete(`/recovery/loan/${loanId}/defaulter`),
+  getDefaulters: () => api.get('/recovery/defaulters'),
+
+  // Comment read tracking
+  getCommentUnreadCounts: () => api.get('/recovery/comment-unread-counts'),
+  getCommentsWithReadStatus: (loanId) => api.get(`/recovery/loan/${loanId}/comments/read-status`),
+  markCommentRead: (loanId) => api.post(`/recovery/loan/${loanId}/comment/mark-read`),
 };
 
 export default api;

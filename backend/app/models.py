@@ -12,10 +12,16 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), default='admin') # admin, investor, staff
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # NEW - to enable fingerprint biometric
+    fingerprint_enabled = db.Column(db.Boolean, default=False)
+    fingerprint_credential = db.Column(db.Text)  # store credential ID
+
     
     # investor role relationship
     investor_profile = db.relationship('Investor',back_populates='user',uselist=False,overlaps="investor,investor_user")    
     investor = db.relationship('Investor',foreign_keys='Investor.user_id',back_populates='user',uselist=False,overlaps="investor_profile,investor_user")
+    sent_messages = db.relationship('PrivateMessage', foreign_keys='PrivateMessage.sender_id', back_populates='sender', lazy='dynamic')
+    received_messages = db.relationship('PrivateMessage', foreign_keys='PrivateMessage.recipient_id', back_populates='recipient', lazy='dynamic')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -142,10 +148,17 @@ class Loan(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow) 
 
+    interest_type = db.Column(db.String(20), default='compound')  # 'simple' or 'compound'
+    collateral_text = db.Column(db.Text)  # manually entered collateral description
+
+    # NEW: Repayment Plan (weekly or daily)
+    repayment_plan = db.Column(db.String(20), default='weekly')  # 'weekly' or 'daily'
+
     # relationships
     investor = db.relationship('Investor', backref='loans', lazy=True)   
     livestock = db.relationship('Livestock', backref='loan', lazy='joined')
     payments = db.relationship('Payment', backref='loan', lazy='dynamic', cascade='all, delete-orphan')
+    comments = db.relationship('Comment', back_populates='loan', lazy='dynamic', cascade='all, delete-orphan')
     
     def to_dict(self):
             return {
@@ -170,7 +183,10 @@ class Loan(db.Model):
                 'last_interest_payment_date': self.last_interest_payment_date.isoformat() if self.last_interest_payment_date else None,
                 'status': self.status,
                 'notes': self.notes,
-                'created_at': self.created_at.isoformat()
+                'created_at': self.created_at.isoformat(),
+                'interest_type': self.interest_type,
+                'collateral_text': self.collateral_text,
+                'repayment_plan': self.repayment_plan   # Added
             }
 
 class Transaction(db.Model):
@@ -480,3 +496,106 @@ class CompanyGalleryImage(db.Model):
             'date': (self.date_taken or self.created_at.date()).isoformat(),
             'created_at': self.created_at.isoformat()
         }
+    
+class Comment(db.Model):
+    __tablename__ = 'comments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('comments.id'), nullable=True)
+    
+    content = db.Column(db.Text, nullable=False)
+    edited = db.Column(db.Boolean, default=False)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    loan = db.relationship('Loan', back_populates='comments')
+    user = db.relationship('User')
+    
+    # Self-referential relationship for replies (threaded comments)
+    replies = db.relationship(
+        'Comment', 
+        backref=db.backref('parent', remote_side=[id]),
+        cascade='all, delete-orphan',
+        lazy='dynamic'
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,           # <-- expose user_id for edit check
+            'user': self.user.username,
+            'role': self.user.role,
+            'content': self.content,
+            'created_at': self.created_at.isoformat() + 'Z',        # <-- Z suffix = UTC
+            'updated_at': (self.updated_at.isoformat() + 'Z') if self.updated_at else None,
+            'edited': self.edited,
+            'parent_id': self.parent_id,
+            'replies': [reply.to_dict() for reply in self.replies.order_by(Comment.created_at)] if self.replies else []
+        }
+
+class UserLoanCommentRead(db.Model):
+    __tablename__ = 'user_loan_comment_read'
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), primary_key=True)
+    last_read_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship('User')
+    loan = db.relationship('Loan')
+
+class PrivateMessage(db.Model):
+    __tablename__ = 'private_messages'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    
+    content = db.Column(db.Text, nullable=False)
+    read = db.Column(db.Boolean, default=False)          # keep for backward compatibility
+    
+    # NEW status fields for fine‑grained tracking
+    status = db.Column(db.String(20), default='sent')    # 'sent', 'delivered', 'read'
+    delivered_at = db.Column(db.DateTime, nullable=True)
+    read_at = db.Column(db.DateTime, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Attachment fields (already present)
+    attachment_url = db.Column(db.String(500), nullable=True)
+    attachment_type = db.Column(db.String(255), nullable=True)
+    attachment_name = db.Column(db.String(255), nullable=True)
+    
+    # Relationships (unchanged)
+    sender = db.relationship('User', foreign_keys=[sender_id], back_populates='sent_messages')
+    recipient = db.relationship('User', foreign_keys=[recipient_id], back_populates='received_messages')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'sender_id': self.sender_id,
+            'sender': self.sender.username if self.sender else None,
+            'recipient_id': self.recipient_id,
+            'recipient': self.recipient.username if self.recipient else None,
+            'content': self.content,
+            'read': self.read,
+            'status': self.status,                    # <-- added
+            'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
+            'attachment_url': self.attachment_url,
+            'attachment_type': self.attachment_type,
+            'attachment_name': self.attachment_name
+        }
+
+class Defaulter(db.Model):
+    __tablename__ = 'defaulters'
+    id = db.Column(db.Integer, primary_key=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False, unique=True)
+    marked_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    marked_at = db.Column(db.DateTime, default=datetime.utcnow)
+    resolved = db.Column(db.Boolean, default=False)
+    resolved_at = db.Column(db.DateTime)
+
+    loan = db.relationship('Loan')
+    marker = db.relationship('User')

@@ -48,36 +48,36 @@ def register():
 # In auth.py, update the login function:
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    """User login - now handles admin, investor, and other roles"""
     schema = UserLoginSchema()
-    
     try:
         data = schema.load(request.json)
     except ValidationError as err:
         return jsonify({'errors': err.messages}), 400
-    
+
     user = User.query.filter_by(username=data['username']).first()
-    
+
     if not user or not user.check_password(data['password']):
         return jsonify({'error': 'Invalid username or password'}), 401
-    
-    # Check if account is active (for investors)
+
     if user.role == 'investor' and user.investor_profile:
         if user.investor_profile.account_status != 'active':
             return jsonify({'error': 'Your account has been deactivated. Please contact admin for support.'}), 403
-    
-    # Create token with string identity
+
     access_token = create_access_token(identity=str(user.id))
-    
-    # Get additional role-specific data
     user_data = user.to_dict()
-    
+
     if user.role == 'investor' and user.investor_profile:
         user_data['investor_profile'] = user.investor_profile.to_dict()
-    
+
     # Determine redirect based on role
-    redirect_to = '/admin' if user.role == 'admin' else '/investor'
-    
+    if user.role == 'admin':
+        redirect_to = '/admin'
+    elif user.role == 'investor':
+        redirect_to = '/investor'
+    else:
+        # director, secretary, accountant, valuer
+        redirect_to = '/recovery'
+
     return jsonify({
         'access_token': access_token,
         'user': user_data,

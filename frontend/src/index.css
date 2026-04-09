@@ -3026,3 +3026,309 @@ section {
 .right-content::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
 }
+
+/* ============================================================
+   RECOVERY MODULE - CHAT STYLES (replace/merge into index.css)
+   ============================================================ */
+
+/* Chat List Panel */
+.chat-list-panel {
+  position: fixed;
+  top: 0;
+  right: -370px;
+  width: 350px;
+  height: 100vh;
+  background: white;
+  box-shadow: -2px 0 15px rgba(0,0,0,0.15);
+  transition: right 0.3s ease;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+}
+.chat-list-panel.open {
+  right: 0;
+}
+.chat-list-header {
+  padding: 1rem;
+  border-bottom: 1px solid #dee2e6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--primary-blue);
+  color: white;
+}
+.chat-list-body {
+  flex: 1;
+  overflow-y: auto;
+}
+.chat-list-item {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.2s;
+}
+.chat-list-item:hover {
+  background: #f8f9fa;
+}
+.chat-list-item.unread {
+  background: #fff3cd;
+}
+.chat-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e9ecef;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  font-size: 1.5rem;
+  color: #6c757d;
+}
+.chat-info { flex: 1; }
+.chat-name { font-weight: 500; }
+.chat-role { font-size: 0.8rem; color: #6c757d; }
+
+/* ============================================================
+   CHAT WINDOW - Desktop (draggable, stacked bottom-left)
+   ============================================================ */
+.chat-window {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-window-header {
+  padding: 0.75rem 1rem;
+  background: var(--primary-blue);
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  /* cursor set inline for drag */
+}
+
+.chat-window-header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.chat-window-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  background: #f5f7fb;
+}
+.chat-date-separator {
+  text-align: center;
+  margin: 1rem 0;
+  font-size: 0.8rem;
+  color: #6c757d;
+  position: relative;
+}
+.chat-date-separator::before,
+.chat-date-separator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 30%;
+  height: 1px;
+  background: #dee2e6;
+}
+.chat-date-separator::before { left: 0; }
+.chat-date-separator::after { right: 0; }
+
+.chat-message {
+  display: flex;
+  margin-bottom: 1rem;
+}
+.chat-message.sent { justify-content: flex-end; }
+.chat-message.received { justify-content: flex-start; }
+
+.message-bubble {
+  max-width: 80%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.chat-message.sent .message-bubble {
+  background: var(--primary-blue);
+  color: white;
+}
+.message-content { word-wrap: break-word; }
+.message-attachment { margin-top: 0.5rem; }
+.message-attachment img { max-width: 100%; border-radius: 8px; }
+.message-time {
+  font-size: 0.7rem;
+  margin-top: 0.25rem;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.chat-window-input {
+  padding: 0.5rem;
+  border-top: 1px solid #dee2e6;
+  background: white;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.attachment-preview {
+  padding: 0.5rem;
+  border-top: 1px solid #dee2e6;
+  background: #f8f9fa;
+  font-size: 0.8rem;
+}
+.attachment-item {
+  display: inline-block;
+  background: #e9ecef;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  margin-right: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+/* ============================================================
+   CHAT WINDOW - Mobile (full screen)
+   ============================================================ */
+@media (max-width: 991.98px) {
+  /* Full screen chat window on mobile */
+  .chat-window {
+    border-radius: 0 !important;
+  }
+
+  .chat-window-messages {
+    /* Full height minus header and input */
+    flex: 1;
+  }
+
+  /* Chat list panel takes more width on mobile */
+  .chat-list-panel {
+    width: 100%;
+    right: -100%;
+  }
+  .chat-list-panel.open {
+    right: 0;
+  }
+}
+
+/* ============================================================
+   RECOVERY MODULE NAVBAR - welcome text
+   ============================================================ */
+.recovery-navbar-welcome {
+  color: rgba(255,255,255,0.9);
+  font-size: 0.9rem;
+}
+
+/* Sidebar inbox link unread badge */
+.sidebar-inbox-badge {
+  margin-left: auto;
+}
+
+
+.message-attachment {
+  position: relative;
+  margin-top: 0.5rem;
+}
+.message-attachment img {
+  max-width: 100%;
+  border-radius: 0.25rem;
+}
+.download-image-btn {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  background-color: rgba(255,255,255,0.8);
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.download-image-btn:hover {
+  background-color: rgba(255,255,255,1);
+  transform: scale(1.05);
+}
+
+
+.new-comment {
+  animation: scaleUp 0.5s ease-out;
+}
+
+@keyframes scaleUp {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); background-color: #fff3cd; }
+  100% { transform: scale(1); background-color: transparent; }
+}
+
+
+/* ===== DIGITAL CLOCK - BLUE GRADIENT, HORIZONTAL LAYOUT ===== */
+.digital-clock {
+  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  border-radius: 60px;
+  padding: 0.5rem 1.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.2);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transition: all 0.3s ease;
+}
+
+.digital-clock:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+}
+
+.clock-time {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  font-family: 'Courier New', 'SF Mono', monospace;
+  color: #ffffff;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clock-date {
+  font-size: 1rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: 0.3px;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Mobile clock – remains compact, single row */
+.mobile-clock {
+  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  border-radius: 40px;
+  padding: 0.3rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
 import { adminAPI, paymentAPI } from "../services/api"
@@ -17,6 +17,7 @@ import { generateTransactionReceipt, generateClientStatement,generateLoanAgreeme
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
+import { getStatusBadge } from '../components/admin/Clientstatusbadge';
 
 function AdminPanel() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth()
@@ -25,6 +26,8 @@ function AdminPanel() {
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [imageUploading, setImageUploading] = useState(false);
+  const [audio, setAudio] = useState(null);
+  const prevPendingCountRef = useRef(0);
   
   
   const [dashboardData, setDashboardData] = useState({
@@ -1349,6 +1352,13 @@ const generateTemporaryPassword = (name, id) => {
     }
 
     initializeData()
+
+    // After the initial fetchApplications call, add an interval
+    const interval = setInterval(() => {
+      fetchApplications()
+    }, 30000) // check every 30 seconds
+
+    return () => clearInterval(interval)
   }, [isAuthenticated])
   
 
@@ -1423,13 +1433,38 @@ const generateTemporaryPassword = (name, id) => {
     }
   }, [activeSection, fetchLivestock]);
 
+  const playNotificationSound = () => {
+    if (!audio) {
+      const newAudio = new Audio('/notification-sound.mp3')
+      setAudio(newAudio)
+      newAudio.play().catch(() => {})
+    } else {
+      audio.play().catch(() => {})
+    }
+  }
+
   const fetchApplications = useCallback(async () => {
     setApplicationsLoading(true)
     try {
       console.log("Fetching applications...")
       const response = await adminAPI.getApplications()
       console.log("Applications response:", response.data)
-      setApplications(response.data || [])
+
+      const newApps = response.data || []
+      setApplications(newApps)
+
+      // Count pending applications
+      const newPendingCount = newApps.filter(app => app.status === "pending").length
+      const oldPendingCount = prevPendingCountRef.current
+
+      // Play sound if new pending count is greater than previous (new application arrived)
+      if (newPendingCount > oldPendingCount) {
+        playNotificationSound()
+      }
+
+      // Update ref for next comparison
+      prevPendingCountRef.current = newPendingCount
+
     } catch (error) {
       console.error("Failed to fetch applications:", error)
       if (error.response?.status === 401) {
@@ -2594,32 +2629,7 @@ Thank you for choosing us.`;
                             header: "Status", 
                             field: "status",
                             render: (row) => {
-                              const currentPrincipal = row.currentPrincipal || row.borrowedAmount || 0;
-                              const balance = row.balance || 0;
-                              const days = row.daysLeft || 0;
-                              
-                              let status = "active";
-                              let className = "badge ";
-                              let text = "";
-                              
-                              if (currentPrincipal <= 0 && balance <= 0) {
-                                status = "completed";
-                                className += "bg-secondary";
-                                text = "Completed";
-                              } else if (days === 0) {
-                                status = "due-today";
-                                className += "bg-warning";
-                                text = "Due today";
-                              } else if (currentPrincipal <= 0 && balance > 0) {
-                                status = "interest-only";
-                                className += "bg-info";
-                                text = "Interest only";
-                              } else {
-                                status = "active";
-                                className += "bg-success";
-                                text = `${days} day${days !== 1 ? 's' : ''} left`;
-                              }
-                              
+                              const { text, className } = getStatusBadge(row);
                               return <span className={className}>{text}</span>;
                             }
                           },
@@ -3130,6 +3140,11 @@ Thank you for choosing us.`;
                                     { header: "Loan Amount", field: "loanAmount", render: (row) => formatCurrency(row.loanAmount) },
                                     { header: "Livestock", field: "livestock", render: (row) => `${row.livestockCount || ''} ${row.livestockType || ''}` },
                                     { header: "Location", field: "location" },
+                                    { header: "Payment Plan", field: "repayment_plan", render: (row) => (
+                                      row.repayment_plan === 'daily' 
+                                        ? 'Daily (4.5%)' 
+                                        : 'Weekly (30%)'
+                                    )},
                                     {
                                       header: "Actions",
                                       render: (row) => (
@@ -3150,17 +3165,18 @@ Thank you for choosing us.`;
                                             onClick={async (e) => {
                                               e.stopPropagation();
                                               try {
-                                                await generateLoanAgreementPDF(row);
+                                                const loanWithPlan = { ...row, repaymentPlan: row.repayment_plan };
+                                                await generateLoanAgreementPDF(loanWithPlan);
                                                 showToast.success("Loan agreement downloaded successfully!");
                                               } catch (error) {
                                                 console.error("Error generating loan agreement:", error);
                                                 showToast.error("Failed to download loan agreement");
                                               }
                                             }}
-                                            title="Download Agreement"
                                           >
                                             <i className="fas fa-download"></i>
                                           </button>
+                                          
                                           {/* =========NEXT OF KIN CONSENT FORM BUTTON(auto filled)============= */}
                                           <button 
                                             className="btn btn-outline-warning" 
@@ -3320,6 +3336,42 @@ Thank you for choosing us.`;
                                   </span>
                                 )
                               },
+                              {
+                                header: "Actions",
+                                render: (row) => (
+                                  <button 
+                                    className="btn btn-sm btn-outline-info"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        // Build a complete client object for generateClientStatement
+                                        const clientForStatement = {
+                                          name: row.name,
+                                          phone: row.phone || 'N/A',
+                                          idNumber: row.id_number || 'N/A',          // If not in row, use 'N/A'
+                                          loan_id: row.id,                           // row.id is the loan_id
+                                          borrowedAmount: row.borrowed_amount || 0,
+                                          borrowedDate: row.borrowed_date,
+                                          expectedReturnDate: row.expected_return_date || null, // Might not exist
+                                          amountPaid: (row.principal_paid || 0) + (row.interest_paid || 0),
+                                          balance: (row.current_principal || 0) + 
+                                                   ((row.accrued_interest || 0) - (row.interest_paid || 0)),
+                                        };
+                                        // Filter transactions for this specific loan
+                                        const loanTransactions = transactions.filter(t => t.loan_id === row.id);
+                                        await generateClientStatement(clientForStatement, loanTransactions);
+                                        showToast.success(`Statement for ${row.name} downloaded!`);
+                                      } catch (error) {
+                                        console.error("Error generating client statement:", error);
+                                        showToast.error("Failed to download statement");
+                                      }
+                                    }}
+                                    title="Download Statement"
+                                  >
+                                    <i className="fas fa-download"></i>
+                                  </button>
+                                ),
+                              }
                             ]}
                             data={paymentStats.payment_stats.filter(stat => {
                               if (paymentStatsSearch) {
@@ -3791,6 +3843,7 @@ Thank you for choosing us.`;
               <p><strong>Phone:</strong> {selectedApplication.phone || 'N/A'}</p>
               <p><strong>ID Number:</strong> {selectedApplication.idNumber || 'N/A'}</p>
               <p><strong>Loan Amount:</strong> {formatCurrency(selectedApplication.loanAmount)}</p>
+              <p><strong>Payment Plan:</strong> {selectedApplication.repayment_plan === 'daily'? 'Daily – 4.5% per day': 'Weekly – 30% interest'}</p>
               <p><strong>Livestock:</strong> {selectedApplication.livestockCount || 'N/A'} {selectedApplication.livestockType || 'N/A'}</p>
               <p><strong>Estimated Value:</strong> {formatCurrency(selectedApplication.estimatedValue)}</p>
               <p><strong>Location:</strong> {selectedApplication.location || 'N/A'}</p>
