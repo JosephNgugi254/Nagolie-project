@@ -29,7 +29,7 @@ def get_week_number(disbursement_date):
 
 @recovery_bp.route('', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'secretary', 'accountant', 'valuer'])
+@role_required(['director', 'secretary', 'accountant', 'valuer','head_of_it'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
     loans   = Loan.query.options(
@@ -93,48 +93,48 @@ def get_recovery_data():
 # Add manual client (recovery module)
 # ---------------------------------------------------------------------------
 
-@recovery_bp.route('/client', methods=['POST'])
-@jwt_required()
-@role_required(['director', 'secretary'])
-def add_manual_client():
-    data = request.json
-    for f in ['name', 'phone', 'id_number', 'principal_amount', 'repayment_plan']:
-        if not data.get(f):
-            return jsonify({'error': f'Missing {f}'}), 400
-    try:
-        client = Client(full_name=data['name'], phone_number=data['phone'],
-                        id_number=data['id_number'],
-                        location=data.get('location', 'Isinya, Kajiado'))
-        db.session.add(client); db.session.flush()
+# @recovery_bp.route('/client', methods=['POST'])
+# @jwt_required()
+# @role_required(['director', 'secretary'])
+# def add_manual_client():
+#     data = request.json
+#     for f in ['name', 'phone', 'id_number', 'principal_amount', 'repayment_plan']:
+#         if not data.get(f):
+#             return jsonify({'error': f'Missing {f}'}), 400
+#     try:
+#         client = Client(full_name=data['name'], phone_number=data['phone'],
+#                         id_number=data['id_number'],
+#                         location=data.get('location', 'Isinya, Kajiado'))
+#         db.session.add(client); db.session.flush()
 
-        principal      = Decimal(str(data['principal_amount']))
-        repayment_plan = data['repayment_plan']
-        # Manual recovery clients always use simple interest regardless of plan
-        interest_rate  = Decimal('4.5') if repayment_plan == 'daily' else Decimal('30.0')
-        interest_type  = 'simple'
-        now            = datetime.utcnow()
-        due_date       = now + timedelta(days=14 if repayment_plan == 'daily' else 7)
+#         principal      = Decimal(str(data['principal_amount']))
+#         repayment_plan = data['repayment_plan']
+#         # Manual recovery clients always use simple interest regardless of plan
+#         interest_rate  = Decimal('4.5') if repayment_plan == 'daily' else Decimal('30.0')
+#         interest_type  = 'simple'
+#         now            = datetime.utcnow()
+#         due_date       = now + timedelta(days=14 if repayment_plan == 'daily' else 7)
 
-        loan = Loan(client_id=client.id, principal_amount=principal,
-                    interest_rate=interest_rate, interest_type=interest_type,
-                    total_amount=principal, balance=principal,
-                    current_principal=principal, principal_paid=Decimal('0'),
-                    interest_paid=Decimal('0'), accrued_interest=Decimal('0'),
-                    amount_paid=Decimal('0'), disbursement_date=now,
-                    last_interest_payment_date=now, due_date=due_date,
-                    status='active', repayment_plan=repayment_plan,
-                    collateral_text=data.get('collateral_text', ''))
-        db.session.add(loan); db.session.commit()
+#         loan = Loan(client_id=client.id, principal_amount=principal,
+#                     interest_rate=interest_rate, interest_type=interest_type,
+#                     total_amount=principal, balance=principal,
+#                     current_principal=principal, principal_paid=Decimal('0'),
+#                     interest_paid=Decimal('0'), accrued_interest=Decimal('0'),
+#                     amount_paid=Decimal('0'), disbursement_date=now,
+#                     last_interest_payment_date=now, due_date=due_date,
+#                     status='active', repayment_plan=repayment_plan,
+#                     collateral_text=data.get('collateral_text', ''))
+#         db.session.add(loan); db.session.commit()
 
-        db.session.add(Transaction(loan_id=loan.id, transaction_type='disbursement',
-                                   amount=principal, payment_method='cash',
-                                   notes='Manual addition via recovery module', status='completed'))
-        db.session.commit()
-        return jsonify({'success': True, 'loan': loan.to_dict()}), 201
+#         db.session.add(Transaction(loan_id=loan.id, transaction_type='disbursement',
+#                                    amount=principal, payment_method='cash',
+#                                    notes='Manual addition via recovery module', status='completed'))
+#         db.session.commit()
+#         return jsonify({'success': True, 'loan': loan.to_dict()}), 201
 
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({'error': str(e)}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ def add_manual_client():
 
 @recovery_bp.route('/loan/<int:loan_id>/payment', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary'])
+@role_required(['director', 'secretary', 'head_of_it'])
 def process_recovery_payment(loan_id):
     """
     Process a payment from the recovery module.
@@ -286,7 +286,7 @@ def mark_read(msg_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/defaulter', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary'])
+@role_required(['director', 'secretary', 'head_of_it'])
 def mark_defaulter(loan_id):
     uid = int(get_jwt_identity())
     ex  = Defaulter.query.filter_by(loan_id=loan_id).first()
@@ -299,7 +299,7 @@ def mark_defaulter(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/defaulter', methods=['DELETE'])
 @jwt_required()
-@role_required(['director', 'secretary'])
+@role_required(['director', 'secretary', 'head_of_it'])
 def resolve_defaulter(loan_id):
     d = Defaulter.query.filter_by(loan_id=loan_id, resolved=False).first()
     if not d: return jsonify({'error': 'Not marked as defaulter'}), 404

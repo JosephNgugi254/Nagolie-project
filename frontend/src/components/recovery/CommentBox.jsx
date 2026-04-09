@@ -103,6 +103,7 @@ function CommentBox({ loanId, onClose }) {
     switch (role) {
       case 'director': return '#fff4e6';
       case 'secretary': return '#ffe6f0';
+      case 'head_of_it':return '#8ffdf6';
       case 'accountant': return '#e6f0ff';
       case 'valuer': return '#e6ffe6';
       default: return '#f8f9fa';

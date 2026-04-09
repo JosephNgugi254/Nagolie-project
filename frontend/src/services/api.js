@@ -193,4 +193,9 @@ export const recoveryAPI = {
   markCommentRead: (loanId) => api.post(`/recovery/loan/${loanId}/comment/mark-read`),
 };
 
+export const userAPI = {
+  changeUsername: (data) => api.put('/auth/change-username', data),
+  changePassword: (data) => api.put('/auth/change-password', data),
+};
+
 export default api;

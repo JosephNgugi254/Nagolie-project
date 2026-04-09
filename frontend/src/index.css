@@ -3356,7 +3356,7 @@ section {
     flex-shrink: 0;           /* prevent shrinking */
     padding: 0.5rem;
     background: white;
-    border-top: 1px solid #dee2e6;
+    border-top: 1px solid #8ffdf6;
   }
 
   .attachment-preview {

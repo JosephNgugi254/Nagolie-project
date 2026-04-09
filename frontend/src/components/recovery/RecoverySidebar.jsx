@@ -7,10 +7,12 @@ function RecoverySidebar({
   onLogout,
   isMobile,
   unreadCount = 0,
+  onOpenSettings,   // new prop
 }) {
   const menuItems = [
     { id: "recovery", icon: "fa-chart-line", label: "Recovery Module", path: "/recovery" },
-    { id: "inbox", icon: "fa-envelope", label: "Inbox", path: "/recovery/inbox" }
+    { id: "inbox", icon: "fa-envelope", label: "Inbox", path: "/recovery/inbox" },
+    { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
   ];
 
   return (
@@ -25,6 +27,8 @@ function RecoverySidebar({
                 e.preventDefault();
                 if (item.id === "inbox") {
                   onToggleInbox?.();
+                } else if (item.id === "settings") {
+                  onOpenSettings?.();   // open settings modal
                 } else {
                   onSectionChange(item.id);
                 }

@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { recoveryAPI } from '../services/api';
+import { userAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
@@ -9,6 +10,7 @@ import PaymentModal from '../components/recovery/PaymentModal';
 import CommentBox from '../components/recovery/CommentBox';
 import ChatList from '../components/recovery/ChatList';
 import ChatWindow from '../components/recovery/ChatWindow';
+import Modal from '../components/common/Modal';
 
 const DAYS_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -16,8 +18,9 @@ const CHAT_WINDOW_WIDTH = 360;
 const CHAT_WINDOW_GAP   = 12;
 
 function RecoveryModule() {
-  const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth();
+  const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth();
   const navigate = useNavigate();
+
 
   // ---------- STATE ----------
   const [loading,         setLoading]         = useState(true);
@@ -34,6 +37,19 @@ function RecoveryModule() {
   const [audio,           setAudio]           = useState(null);
   const prevCounts = useRef({});
 
+  
+  // Settings Modal States
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [usernameForm, setUsernameForm] = useState({ newUsername: '', currentPassword: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [usernameLoading, setUsernameLoading] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  // Password visibility toggles
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [showUsernameCurrentPass, setShowUsernameCurrentPass] = useState(false);
+
   // Filter & sort
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState('all');
@@ -44,6 +60,70 @@ function RecoveryModule() {
 
   // Digital clock
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
+
+  // ---------- HANDLERS ----------
+  const handleOpenSettings = () => {
+    setShowSettingsModal(true);
+    if (isMobile) setSidebarOpen(false);
+  };
+
+  const handleUsernameChange = async (e) => {
+    e.preventDefault();
+    setUsernameLoading(true);
+    try {
+      const response = await userAPI.changeUsername({
+        new_username: usernameForm.newUsername,
+        current_password: usernameForm.currentPassword
+      });
+      if (response.data.success) {
+        showToast.success('Username updated successfully!');
+        const updatedUser = { ...user, username: response.data.new_username };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        updateUserData(updatedUser);
+        setUsernameForm({ newUsername: '', currentPassword: '' });
+      }
+    } catch (error) {
+      showToast.error(error.response?.data?.error || 'Failed to update username');
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      showToast.error('New passwords do not match');
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      const response = await userAPI.changePassword({
+        current_password: passwordForm.currentPassword,
+        new_password: passwordForm.newPassword,
+        confirm_password: passwordForm.confirmPassword
+      });
+      if (response.data.success) {
+        showToast.success('Password updated successfully! Please log in again.');
+        setTimeout(() => handleLogout(), 3000);
+      }
+    } catch (error) {
+      showToast.error(error.response?.data?.error || 'Failed to update password');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const r = await logout();
+      if (r.success) {
+        showToast.success('Logged out');
+        navigate('/login');
+      }
+    } catch (e) {
+      showToast.error('Logout failed');
+    }
+  };
 
   // ---------- CLOCK FORMATTERS ----------
   const formatClockTime = (date) => {
@@ -80,23 +160,15 @@ function RecoveryModule() {
 
   // ========== FIXED BACK BUTTON HANDLER (prevents navigation) ==========
   useEffect(() => {
-    // Replace current history entry with a clean one
     window.history.replaceState({ recovery: true }, '', window.location.href);
-    // Push an extra dummy entry so back triggers popstate
     window.history.pushState({ recovery: true }, '', window.location.href);
 
     const handlePopState = (event) => {
-      // Prevent default back navigation
       event.preventDefault();
-
-      // If any chat windows are open, close them
       if (openChatWindows.length > 0) {
         setOpenChatWindows([]);
-        // Replace the incoming history entry with a fresh dummy
         window.history.replaceState({ recovery: true }, '', window.location.href);
       }
-
-      // Push another dummy entry to keep the back button from leaving the page
       window.history.pushState({ recovery: true }, '', window.location.href);
     };
 
@@ -104,39 +176,32 @@ function RecoveryModule() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [openChatWindows.length]);
 
-  // ---------- REST OF YOUR ORIGINAL CODE (unchanged) ----------
+  // ---------- DATA FETCHING ----------
   const playSound = () => {
     if (!audio) {
-      const a = new Audio('/notification-sound.mp3'); setAudio(a); a.play().catch(() => {});
-    } else { audio.play().catch(() => {}); }
+      const a = new Audio('/notification-sound.mp3');
+      setAudio(a);
+      a.play().catch(() => {});
+    } else {
+      audio.play().catch(() => {});
+    }
   };
 
   const fetchCommentUnreads = useCallback(async () => {
     try {
       const res = await recoveryAPI.getCommentUnreadCounts();
-      const nc  = res.data;
+      const nc = res.data;
       let hasNew = false;
-      Object.keys(nc).forEach(id => { if (nc[id] > (prevCounts.current[id] || 0)) hasNew = true; });
+      Object.keys(nc).forEach(id => {
+        if (nc[id] > (prevCounts.current[id] || 0)) hasNew = true;
+      });
       if (hasNew) playSound();
       setCommentUnreads(nc);
       prevCounts.current = { ...nc };
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
-
-  useEffect(() => {
-    if (authLoading) return;
-    if (!isAuthenticated()) { navigate('/login'); return; }
-    const allowed = ['director','secretary','accountant','valuer'];
-    if (userRole && !allowed.includes(userRole)) { navigate('/admin'); return; }
-    if (!userRole) return;
-
-    fetchData();
-    fetchUnreadCount();
-    fetchCommentUnreads();
-    const i1 = setInterval(fetchUnreadCount, 5000);
-    const i2 = setInterval(fetchCommentUnreads, 5000);
-    return () => { clearInterval(i1); clearInterval(i2); };
-  }, [authLoading, isAuthenticated, userRole, navigate, fetchCommentUnreads]);
 
   const fetchData = async () => {
     try {
@@ -152,31 +217,63 @@ function RecoveryModule() {
   const fetchUnreadCount = async () => {
     try {
       const res = await recoveryAPI.getUnreadCount();
-      setUnreadCount(prev => { if (res.data.count > prev) playSound(); return res.data.count; });
+      setUnreadCount(prev => {
+        if (res.data.count > prev) playSound();
+        return res.data.count;
+      });
       document.title = res.data.count > 0 ? `(${res.data.count}) Nagolie Recovery` : 'Nagolie Recovery';
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated()) {
+      navigate('/login');
+      return;
+    }
+    const allowed = ['director','secretary','accountant','valuer', 'head_of_it'];
+    if (userRole && !allowed.includes(userRole)) {
+      navigate('/admin');
+      return;
+    }
+    if (!userRole) return;
+
+    fetchData();
+    fetchUnreadCount();
+    fetchCommentUnreads();
+
+    const i1 = setInterval(fetchUnreadCount, 5000);
+    const i2 = setInterval(fetchCommentUnreads, 5000);
+
+    return () => {
+      clearInterval(i1);
+      clearInterval(i2);
+    };
+  }, [authLoading, isAuthenticated, userRole, navigate, fetchCommentUnreads]);
 
   const handleDefaulter = async (loanId, mark) => {
     try {
       mark ? await recoveryAPI.markDefaulter(loanId) : await recoveryAPI.resolveDefaulter(loanId);
       showToast.success(mark ? 'Marked as defaulter' : 'Defaulter resolved');
       fetchData();
-    } catch (e) { showToast.error(e.response?.data?.error || 'Action failed'); }
+    } catch (e) {
+      showToast.error(e.response?.data?.error || 'Action failed');
+    }
   };
 
   const handleSelectUser = (u) => {
     if (openChatWindows.some(w => w.id === u.id)) return;
-    if (isMobile) { setOpenChatWindows([u]); return; }
-    if (openChatWindows.length >= MAX_CHAT_WINDOWS) { showToast.info('Max chat windows open'); return; }
+    if (isMobile) {
+      setOpenChatWindows([u]);
+      return;
+    }
+    if (openChatWindows.length >= MAX_CHAT_WINDOWS) {
+      showToast.info('Max chat windows open');
+      return;
+    }
     setOpenChatWindows(prev => [...prev, u]);
-  };
-
-  const handleLogout = async () => {
-    try {
-      const r = await logout();
-      if (r.success) { showToast.success('Logged out'); navigate('/login'); }
-    } catch (e) { showToast.error('Logout failed'); }
   };
 
   const getChatStyle = (i) => isMobile
@@ -194,9 +291,9 @@ function RecoveryModule() {
     const d = loan.days_left;
     if (d === null || d === undefined) return null;
     if (d < 0)  return { text: `Overdue ${Math.ceil(Math.abs(d)/7)}w`, cls: 'bg-danger' };
-    if (d === 0) return { text: 'Due Today',                            cls: 'bg-warning text-dark' };
-    if (d <= 2)  return { text: `${d}d left`,                           cls: 'bg-warning text-dark' };
-    return              { text: `${d}d left`,                           cls: 'bg-success' };
+    if (d === 0) return { text: 'Due Today', cls: 'bg-warning text-dark' };
+    if (d <= 2)  return { text: `${d}d left`, cls: 'bg-warning text-dark' };
+    return { text: `${d}d left`, cls: 'bg-success' };
   };
 
   // ---------- FILTERING & SORTING ----------
@@ -287,24 +384,33 @@ function RecoveryModule() {
   };
 
   if (loading) return <div className="text-center py-5"><div className="spinner-border text-primary"></div></div>;
+
   const mobileChat = isMobile && openChatWindows.length > 0;
 
-  // ---------- JSX (unchanged from your original, but using the clock formatters) ----------
+  // ---------- JSX (full original with settings modal) ----------
   return (
     <div>
       <Toast />
+
+      {/* Navbar */}
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/logo.png" alt="Nagolie" height="30" className="me-2" onError={(e) => { e.target.style.display='none'; }} />
+            <img src="/logo.png" alt="Nagolie" height="30" className="me-2"
+                 onError={(e) => { e.target.style.display='none'; }} />
             <span className="d-none d-lg-inline">Nagolie Recovery Module</span>
             <span className="d-lg-none">Recovery</span>
           </a>
+
           <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
             <span className="navbar-text text-white">Welcome, <strong>{user?.username || user?.name || 'User'}</strong></span>
-            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}><i className="fas fa-sign-out-alt me-1"></i>Logout</button>
+            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
+              <i className="fas fa-sign-out-alt me-1"></i>Logout
+            </button>
           </div>
-          <button className="navbar-toggler ms-auto" type="button" onClick={() => setSidebarOpen(s => !s)}><span className="navbar-toggler-icon"></span></button>
+          <button className="navbar-toggler ms-auto" type="button" onClick={() => setSidebarOpen(s => !s)}>
+            <span className="navbar-toggler-icon"></span>
+          </button>
         </div>
       </nav>
 
@@ -312,7 +418,9 @@ function RecoveryModule() {
         <div className="d-lg-none bg-primary text-white px-3 py-2">
           <div className="d-flex align-items-center justify-content-between">
             <span className="small">Welcome, <strong>{user?.username || 'User'}</strong></span>
-            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}><i className="fas fa-sign-out-alt me-1"></i>Logout</button>
+            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
+              <i className="fas fa-sign-out-alt me-1"></i>Logout
+            </button>
           </div>
         </div>
       )}
@@ -330,31 +438,48 @@ function RecoveryModule() {
                 isMobile={sidebarOpen}
                 onToggleInbox={() => { setShowChatList(s => !s); setSidebarOpen(false); }}
                 unreadCount={unreadCount}
+                onOpenSettings={handleOpenSettings}
               />
             </div>
 
             <div className="col-md-9 col-lg-10 main-content">
+              {/* Desktop digital clock */}
               <div className="d-none d-md-flex justify-content-center mb-3">
                 <div className="digital-clock">
-                  <div className="clock-time"><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</div>
                   <div className="clock-date"><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</div>
+                  <div className="clock-time"><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</div>                  
                 </div>
               </div>
+
+              {/* Mobile clock */}
               <div className="d-md-none text-center pb-2">
-                <div className="mobile-clock"><span>{formatClockTime(currentDateTime)}</span><span className="mx-1"></span><span>{formatClockDate(currentDateTime)}</span></div>
+                <div className="mobile-clock">                  
+                  <span><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</span>
+                  <span className="mx-1"></span>
+                  <span><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</span>
+                </div>
               </div>
 
+              {/* ---------- FILTERS & SORT BAR (icons only, no emojis) ---------- */}
               <div className="card mb-4 shadow-sm">
                 <div className="card-body">
                   <div className="row g-3 align-items-end">
                     <div className="col-md-3">
                       <label className="form-label small fw-bold"><i className="fas fa-search me-1"></i> Search</label>
-                      <input type="text" className="form-control" placeholder="Name, Collateral, ID, Contact" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Name, Collateral, ID, Contact"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
                     </div>
                     <div className="col-md-2">
-                      <label className="form-label small fw-bold"><i className="fas fa-calendar-week me-1"></i> Plan</label>
+                      <label className="form-label small fw-bold"><i className="fas fa-calendar-week me-1"></i> Payment Plan</label>
                       <select className="form-select" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
-                        <option value="all">All</option><option value="weekly">Weekly</option><option value="daily">Daily</option>
+                        <option value="all">All</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="daily">Daily</option>
                       </select>
                     </div>
                     <div className="col-md-2">
@@ -372,18 +497,31 @@ function RecoveryModule() {
                       <label className="form-label small fw-bold"><i className="fas fa-sort-amount-down me-1"></i> Sort by</label>
                       <div className="input-group">
                         <select className="form-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                          <option value="name">Name</option><option value="date">Borrowed Date</option>
-                          <option value="principal">Current Principal</option><option value="balance">Accrued Interest</option>
+                          <option value="name">Name</option>
+                          <option value="date">Borrowed Date</option>
+                          <option value="principal">Current Principal</option>
+                          <option value="balance">Accrued Interest</option>
                         </select>
-                        <button className="btn btn-outline-secondary" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}>
+                        <button
+                          className="btn btn-outline-secondary"
+                          onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                        >
                           {sortOrder === 'asc' ? <i className="fas fa-arrow-up"></i> : <i className="fas fa-arrow-down"></i>}
                         </button>
                       </div>
                     </div>
                   </div>
+                  {/* Clear filters button */}
                   {(searchTerm || planFilter !== 'all' || dayFilter !== 'all' || dateFilter || sortBy !== 'name') && (
                     <div className="mt-3 text-end">
-                      <button className="btn btn-sm btn-outline-danger" onClick={() => { setSearchTerm(''); setPlanFilter('all'); setDayFilter('all'); setDateFilter(''); setSortBy('name'); setSortOrder('asc'); }}>
+                      <button className="btn btn-sm btn-outline-danger" onClick={() => {
+                        setSearchTerm('');
+                        setPlanFilter('all');
+                        setDayFilter('all');
+                        setDateFilter('');
+                        setSortBy('name');
+                        setSortOrder('asc');
+                      }}>
                         <i className="fas fa-times me-1"></i> Clear Filters
                       </button>
                     </div>
@@ -392,39 +530,115 @@ function RecoveryModule() {
               </div>
 
               {Object.keys(filteredData).length === 0 && (
-                <div className="text-center py-5"><i className="fas fa-filter fa-3x text-muted mb-3"></i><h5 className="text-muted">No loans match your filters</h5></div>
+                <div className="text-center py-5">
+                  <i className="fas fa-filter fa-3x text-muted mb-3"></i>
+                  <h5 className="text-muted">No loans match your filters</h5>
+                </div>
               )}
 
               {DAYS_ORDER.map(day =>
                 filteredData[day]?.length > 0 && (
                   <div key={day} className="card mb-4">
-                    <div className="card-header bg-primary"><h5 className="mb-0 text-white">{day}</h5></div>
+                    <div className="card-header bg-primary">
+                      <h5 className="mb-0 text-white">{day}</h5>
+                    </div>
                     <div className="card-body p-0">
                       <div className="table-responsive">
                         <table className="table table-hover mb-0">
-                          <thead className="table-light"><tr><th>Name</th><th>Collateral</th><th>ID Number</th><th>Contact</th><th>Borrowed Date</th><th>Initial Principal</th><th>Current Principal</th><th>Interest / Period</th><th>Accrued (Unpaid)</th><th>Week</th><th>Actions</th></tr></thead>
+                          <thead className="table-light">
+                            <tr>
+                              <th>Name</th>
+                              <th>Collateral</th>
+                              <th>ID Number</th>
+                              <th>Contact</th>
+                              <th>Borrowed Date</th>
+                              <th>Initial Principal</th>
+                              <th>Current Principal</th>
+                              <th>Interest / Period</th>
+                              <th>Accrued (Unpaid)</th>
+                              <th>Week</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
                           <tbody>
                             {filteredData[day].map(loan => {
                               const badge = getDaysBadge(loan);
                               return (
-                                <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
-                                  <td><div>{loan.name}</div><span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>{loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}</span>{badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}</td>
-                                  <td>{loan.collateral}</td><td>{loan.id_number}</td><td>{loan.contacts}</td>
-                                  <td>{fmtDate(loan.disbursement_date)}</td><td>{fmt(loan.principal_amount)}</td><td>{fmt(loan.current_principal)}</td>
-                                  <td>{fmt(loan.interest)}</td><td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
+                                <tr key={loan.id}
+                                    className={loan.is_defaulter ? 'table-danger' : ''}>
+                                  <td>
+                                    <div>{loan.name}</div>
+                                    <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
+                                      {loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}
+                                    </span>
+                                    {badge && (
+                                      <span className={`badge ${badge.cls}`}>
+                                        {badge.text}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>{loan.collateral}</td>
+                                  <td>{loan.id_number}</td>
+                                  <td>{loan.contacts}</td>
+                                  <td>{fmtDate(loan.disbursement_date)}</td>
+                                  <td>{fmt(loan.principal_amount)}</td>
+                                  <td>{fmt(loan.current_principal)}</td>
+                                  <td>{fmt(loan.interest)}</td>
+                                  <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
                                   <td>Week {loan.week}</td>
-                                  <td><div className="btn-group btn-group-sm">
-                                    {['director','secretary'].includes(userRole) && <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }} title="Process Payment"><i className="fas fa-money-bill-wave"></i></button>}
-                                    <button className="btn btn-outline-success" onClick={() => { window.location.href = `tel:${loan.contacts}`; }} title="Call"><i className="fas fa-phone"></i></button>
-                                    <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }} title="Comments"><i className="fas fa-comment"></i>{commentUnreads[loan.id] > 0 && <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>{commentUnreads[loan.id]}</span>}</button>
-                                    {['director','secretary'].includes(userRole) && <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)} title={loan.is_defaulter ? 'Resolve' : 'Mark Defaulter'}><i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i></button>}
-                                  </div></td>
+                                  <td>
+                                    <div className="btn-group btn-group-sm">
+                                      {['director','secretary','head_of_it'].includes(userRole) && (
+                                        <button className="btn btn-outline-primary"
+                                                onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}
+                                                title="Process Payment">
+                                          <i className="fas fa-money-bill-wave"></i>
+                                        </button>
+                                      )}
+                                      <button className="btn btn-outline-success"
+                                              onClick={() => { window.location.href = `tel:${loan.contacts}`; }}
+                                              title="Call">
+                                        <i className="fas fa-phone"></i>
+                                      </button>
+                                      <button className="btn btn-outline-info position-relative"
+                                              onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}
+                                              title="Comments">
+                                        <i className="fas fa-comment"></i>
+                                        {commentUnreads[loan.id] > 0 && (
+                                          <span className="badge bg-danger rounded-pill"
+                                                style={{ position:'absolute', top:'-8px', right:'-8px' }}>
+                                            {commentUnreads[loan.id]}
+                                          </span>
+                                        )}
+                                      </button>
+                                      {['director','secretary','head_of_it'].includes(userRole) && (
+                                        <button
+                                          className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`}
+                                          onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}
+                                          title={loan.is_defaulter ? 'Resolve' : 'Mark Defaulter'}>
+                                          <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
                                 </tr>
                               );
                             })}
                           </tbody>
                           <tfoot className="table-secondary fw-bold">
-                            {(() => { const t = dayTotals(filteredData[day]); return (<tr><td colSpan="5">Day Totals</td><td>{fmt(t.principal)}</td><td>{fmt(t.curPrincipal)}</td><td>{fmt(t.interest)}</td><td className="text-danger">{fmt(t.accrued)}</td><td colSpan="2"></td></tr>); })()}
+                            {(() => {
+                              const t = dayTotals(filteredData[day]);
+                              return (
+                                <tr>
+                                  <td colSpan="5">Day Totals</td>
+                                  <td>{fmt(t.principal)}</td>
+                                  <td>{fmt(t.curPrincipal)}</td>
+                                  <td>{fmt(t.interest)}</td>
+                                  <td className="text-danger">{fmt(t.accrued)}</td>
+                                  <td colSpan="2"></td>
+                                </tr>
+                              );
+                            })()}
                           </tfoot>
                         </table>
                       </div>
@@ -433,19 +647,196 @@ function RecoveryModule() {
                 )
               )}
 
-              {Object.keys(filteredData).length > 0 && (() => { const t = overall(); return (
-                <div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
+              {Object.keys(filteredData).length > 0 && (() => {
+                const t = overall();
+                return (
+                  <div className="card mt-2 mb-4">
+                    <div className="card-header bg-dark">
+                      <h5 className="mb-0 text-white">Overall Totals</h5>
+                    </div>
+                    <div className="card-body">
+                      <div className="row text-center">
+                        <div className="col-md-3">
+                          <p className="mb-1 text-muted fw-bold">Initial Principal</p>
+                          <h5>{fmt(t.principal)}</h5>
+                        </div>
+                        <div className="col-md-3">
+                          <p className="mb-1 text-muted fw-bold">Current Principal</p>
+                          <h5>{fmt(t.curPrincipal)}</h5>
+                        </div>
+                        <div className="col-md-3">
+                          <p className="mb-1 text-muted fw-bold">Periodic Interest</p>
+                          <h5>{fmt(t.interest)}</h5>
+                        </div>
+                        <div className="col-md-3">
+                          <p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p>
+                          <h5 className="text-danger">{fmt(t.accrued)}</h5>
+                        </div>
+                      </div>
+                      <div className="row mt-3 pt-2 border-top text-center">
+                        <div className="col-12">
+                          <p className="mb-1 text-muted fw-bold">
+                            Total Owed (Current Principal + Accrued Interest)
+                          </p>
+                          <h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
       )}
 
-      <ChatList isOpen={showChatList} onClose={() => setShowChatList(false)} onSelectUser={handleSelectUser} />
+      <ChatList isOpen={showChatList} onClose={() => setShowChatList(false)}
+                onSelectUser={handleSelectUser} />
+
       {openChatWindows.map((cu, i) => (
-        <ChatWindow key={cu.id} user={cu} onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))} onNewMessage={fetchUnreadCount} style={getChatStyle(i)} />
+        <ChatWindow key={cu.id} user={cu} onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))}
+                    onNewMessage={fetchUnreadCount} style={getChatStyle(i)} />
       ))}
-      {showPaymentModal && selectedLoan && <PaymentModal loan={selectedLoan} onClose={() => setShowPaymentModal(false)} onSuccess={() => { setShowPaymentModal(false); fetchData(); }} />}
-      {showCommentBox && selectedLoan && <CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />}
+
+      {showPaymentModal && selectedLoan && (
+        <PaymentModal
+          loan={selectedLoan}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={() => {
+            setShowPaymentModal(false);
+            fetchData();
+          }}
+        />
+      )}
+
+      {showCommentBox && selectedLoan && (
+        <CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
+          {/* Change Username Section */}
+          <div className="mb-4">
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>
+            <form onSubmit={handleUsernameChange}>
+              <div className="mb-3">
+                <label className="form-label">Current Username</label>
+                <input type="text" className="form-control" value={user?.username || ''} disabled readOnly />
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Username</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={usernameForm.newUsername}
+                  onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })}
+                  required
+                  minLength="3"
+                  placeholder="Enter new username"
+                />
+                <small className="text-muted">Username must be at least 3 characters</small>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input
+                    type={showUsernameCurrentPass ? "text" : "password"}
+                    className="form-control"
+                    value={usernameForm.currentPassword}
+                    onChange={(e) => setUsernameForm({ ...usernameForm, currentPassword: e.target.value })}
+                    required
+                    placeholder="Enter your current password"
+                  />
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    onClick={() => setShowUsernameCurrentPass(!showUsernameCurrentPass)}
+                  >
+                    <i className={`fas fa-${showUsernameCurrentPass ? 'eye-slash' : 'eye'}`}></i>
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={usernameLoading}>
+                {usernameLoading ? <><span className="spinner-border spinner-border-sm me-2"></span>Updating...</> : 'Update Username'}
+              </button>
+            </form>
+          </div>
+      
+          <hr />
+      
+          {/* Change Password Section */}
+          <div>
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
+            <form onSubmit={handlePasswordChange}>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input
+                    type={showCurrentPass ? "text" : "password"}
+                    className="form-control"
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                    required
+                    placeholder="Enter current password"
+                  />
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    onClick={() => setShowCurrentPass(!showCurrentPass)}
+                  >
+                    <i className={`fas fa-${showCurrentPass ? 'eye-slash' : 'eye'}`}></i>
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Password</label>
+                <div className="input-group">
+                  <input
+                    type={showNewPass ? "text" : "password"}
+                    className="form-control"
+                    value={passwordForm.newPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                    required
+                    minLength="6"
+                    placeholder="Enter new password (min 6 characters)"
+                  />
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    onClick={() => setShowNewPass(!showNewPass)}
+                  >
+                    <i className={`fas fa-${showNewPass ? 'eye-slash' : 'eye'}`}></i>
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Confirm New Password</label>
+                <div className="input-group">
+                  <input
+                    type={showConfirmPass ? "text" : "password"}
+                    className="form-control"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                    required
+                    placeholder="Confirm new password"
+                  />
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    onClick={() => setShowConfirmPass(!showConfirmPass)}
+                  >
+                    <i className={`fas fa-${showConfirmPass ? 'eye-slash' : 'eye'}`}></i>
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-warning" disabled={passwordLoading}>
+                {passwordLoading ? <><span className="spinner-border spinner-border-sm me-2"></span>Updating...</> : 'Update Password'}
+              </button>
+            </form>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
