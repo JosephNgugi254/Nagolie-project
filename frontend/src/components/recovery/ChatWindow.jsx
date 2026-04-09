@@ -49,9 +49,9 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
-      auth: { token },                  // send JWT token
+      query: { token: localStorage.getItem('token') },       // fallback
       extraHeaders: {
-        Authorization: `Bearer ${token}` // also as header for compatibility
+        Authorization: `Bearer ${localStorage.getItem('token')}`
       }
     });
 
@@ -103,6 +103,17 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
       socket.disconnect();
     };
   }, [user.id]);
+
+  useEffect(() => {
+    if (!windowRef.current) return;
+    const handleResize = () => {
+      if (windowRef.current) {
+        windowRef.current.style.height = `${window.visualViewport?.height || window.innerHeight}px`;
+      }
+    };
+    window.visualViewport?.addEventListener('resize', handleResize);
+    return () => window.visualViewport?.removeEventListener('resize', handleResize);
+  }, []);
 
   const markMessageAsRead = async (messageId) => {
     try {

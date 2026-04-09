@@ -12,18 +12,29 @@ def get_chat_room(user1_id, user2_id):
     return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
 
 def get_user_from_token():
-    """Extract JWT from the connection handshake and return user."""
+    # 1. Try Authorization header
     auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        return None
-    try:
-        token = auth_header.split(' ')[1]
-        payload = decode_token(token)
-        user_id = payload.get('sub')
-        if user_id:
-            return User.query.get(int(user_id))
-    except Exception:
-        return None
+    if auth_header:
+        try:
+            token = auth_header.split(' ')[1]
+            payload = decode_token(token)
+            user_id = payload.get('sub')
+            if user_id:
+                return User.query.get(int(user_id))
+        except:
+            pass
+
+    # 2. Fallback to query parameter (for socket.io)
+    token = request.args.get('token')
+    if token:
+        try:
+            payload = decode_token(token)
+            user_id = payload.get('sub')
+            if user_id:
+                return User.query.get(int(user_id))
+        except:
+            pass
+
     return None
 
 @socketio.on('connect')

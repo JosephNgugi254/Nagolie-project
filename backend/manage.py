@@ -6,6 +6,7 @@ from flask_migrate import Migrate, upgrade, stamp
 from app import create_app, db
 from app.models import User, Investor, Loan, Client, PasswordResetToken, Livestock
 from app.utils.cloudinary_upload import upload_base64_image
+from app.utils.extensions import socketio
 
 app = create_app()
 migrate = Migrate(app, db)
