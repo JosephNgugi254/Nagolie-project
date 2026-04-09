@@ -19,6 +19,7 @@ function RecoveryModule() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
+  // ---------- STATE ----------
   const [loading,         setLoading]         = useState(true);
   const [data,            setData]            = useState({});
   const [sidebarOpen,     setSidebarOpen]     = useState(false);
@@ -33,7 +34,7 @@ function RecoveryModule() {
   const [audio,           setAudio]           = useState(null);
   const prevCounts = useRef({});
 
-  // ---------- FILTER & SORT STATE ----------
+  // Filter & sort
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState('all');
   const [dayFilter, setDayFilter]   = useState('all');
@@ -41,14 +42,10 @@ function RecoveryModule() {
   const [sortBy, setSortBy]         = useState('name');
   const [sortOrder, setSortOrder]   = useState('asc');
 
-  // ---------- CREATIVE DIGITAL CLOCK ----------
+  // Digital clock
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
 
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentDateTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
+  // ---------- CLOCK FORMATTERS ----------
   const formatClockTime = (date) => {
     return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -67,75 +64,12 @@ function RecoveryModule() {
     });
   };
 
-  // ---------- FILTERING & SORTING (unchanged) ----------
-  const filterAndSortLoans = (loans) => {
-    let filtered = [...loans];
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(loan =>
-        loan.name.toLowerCase().includes(term) ||
-        (loan.collateral && loan.collateral.toLowerCase().includes(term)) ||
-        (loan.id_number && loan.id_number.toLowerCase().includes(term)) ||
-        (loan.contacts && loan.contacts.toLowerCase().includes(term))
-      );
-    }
-    if (planFilter !== 'all') {
-      filtered = filtered.filter(loan => loan.repayment_plan === planFilter);
-    }
-    if (dateFilter) {
-      filtered = filtered.filter(loan => {
-        if (!loan.disbursement_date) return false;
-        const loanDate = new Date(loan.disbursement_date).toISOString().split('T')[0];
-        return loanDate === dateFilter;
-      });
-    }
-    filtered.sort((a, b) => {
-      let valA, valB;
-      switch (sortBy) {
-        case 'name':
-          valA = a.name.toLowerCase();
-          valB = b.name.toLowerCase();
-          break;
-        case 'date':
-          valA = a.disbursement_date ? new Date(a.disbursement_date) : 0;
-          valB = b.disbursement_date ? new Date(b.disbursement_date) : 0;
-          break;
-        case 'principal':
-          valA = a.current_principal;
-          valB = b.current_principal;
-          break;
-        case 'balance':
-          valA = a.accrued_interest;
-          valB = b.accrued_interest;
-          break;
-        default:
-          valA = a.name;
-          valB = b.name;
-      }
-      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return filtered;
-  };
+  // ---------- EFFECTS ----------
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentDateTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const getFilteredData = () => {
-    if (dayFilter === 'all') {
-      const newData = {};
-      for (const day of DAYS_ORDER) {
-        if (data[day] && data[day].length) {
-          newData[day] = filterAndSortLoans(data[day]);
-        }
-      }
-      return newData;
-    } else {
-      return { [dayFilter]: filterAndSortLoans(data[dayFilter] || []) };
-    }
-  };
-
-  const filteredData = getFilteredData();
-
-  // ---------- EXISTING HOOKS (unchanged) ----------
   useEffect(() => {
     const h = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', h);
@@ -144,6 +78,33 @@ function RecoveryModule() {
 
   const isMobile = windowWidth <= 991.98;
 
+  // ========== FIXED BACK BUTTON HANDLER (prevents navigation) ==========
+  useEffect(() => {
+    // Replace current history entry with a clean one
+    window.history.replaceState({ recovery: true }, '', window.location.href);
+    // Push an extra dummy entry so back triggers popstate
+    window.history.pushState({ recovery: true }, '', window.location.href);
+
+    const handlePopState = (event) => {
+      // Prevent default back navigation
+      event.preventDefault();
+
+      // If any chat windows are open, close them
+      if (openChatWindows.length > 0) {
+        setOpenChatWindows([]);
+        // Replace the incoming history entry with a fresh dummy
+        window.history.replaceState({ recovery: true }, '', window.location.href);
+      }
+
+      // Push another dummy entry to keep the back button from leaving the page
+      window.history.pushState({ recovery: true }, '', window.location.href);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [openChatWindows.length]);
+
+  // ---------- REST OF YOUR ORIGINAL CODE (unchanged) ----------
   const playSound = () => {
     if (!audio) {
       const a = new Audio('/notification-sound.mp3'); setAudio(a); a.play().catch(() => {});
@@ -238,6 +199,74 @@ function RecoveryModule() {
     return              { text: `${d}d left`,                           cls: 'bg-success' };
   };
 
+  // ---------- FILTERING & SORTING ----------
+  const filterAndSortLoans = (loans) => {
+    let filtered = [...loans];
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(loan =>
+        loan.name.toLowerCase().includes(term) ||
+        (loan.collateral && loan.collateral.toLowerCase().includes(term)) ||
+        (loan.id_number && loan.id_number.toLowerCase().includes(term)) ||
+        (loan.contacts && loan.contacts.toLowerCase().includes(term))
+      );
+    }
+    if (planFilter !== 'all') {
+      filtered = filtered.filter(loan => loan.repayment_plan === planFilter);
+    }
+    if (dateFilter) {
+      filtered = filtered.filter(loan => {
+        if (!loan.disbursement_date) return false;
+        const loanDate = new Date(loan.disbursement_date).toISOString().split('T')[0];
+        return loanDate === dateFilter;
+      });
+    }
+    filtered.sort((a, b) => {
+      let valA, valB;
+      switch (sortBy) {
+        case 'name':
+          valA = a.name.toLowerCase();
+          valB = b.name.toLowerCase();
+          break;
+        case 'date':
+          valA = a.disbursement_date ? new Date(a.disbursement_date) : 0;
+          valB = b.disbursement_date ? new Date(b.disbursement_date) : 0;
+          break;
+        case 'principal':
+          valA = a.current_principal;
+          valB = b.current_principal;
+          break;
+        case 'balance':
+          valA = a.accrued_interest;
+          valB = b.accrued_interest;
+          break;
+        default:
+          valA = a.name;
+          valB = b.name;
+      }
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return filtered;
+  };
+
+  const getFilteredData = () => {
+    if (dayFilter === 'all') {
+      const newData = {};
+      for (const day of DAYS_ORDER) {
+        if (data[day] && data[day].length) {
+          newData[day] = filterAndSortLoans(data[day]);
+        }
+      }
+      return newData;
+    } else {
+      return { [dayFilter]: filterAndSortLoans(data[dayFilter] || []) };
+    }
+  };
+
+  const filteredData = getFilteredData();
+
   const dayTotals = (loans) => loans.reduce((acc, l) => ({
     principal:   acc.principal   + (l.principal_amount || 0),
     curPrincipal:acc.curPrincipal+ (l.current_principal|| 0),
@@ -260,57 +289,44 @@ function RecoveryModule() {
   if (loading) return <div className="text-center py-5"><div className="spinner-border text-primary"></div></div>;
   const mobileChat = isMobile && openChatWindows.length > 0;
 
+  // ---------- JSX (unchanged from your original, but using the clock formatters) ----------
   return (
     <div>
       <Toast />
-
-      {/* Navbar with animated digital clock */}
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/logo.png" alt="Nagolie" height="30" className="me-2"
-                 onError={(e) => { e.target.style.display='none'; }} />
+            <img src="/logo.png" alt="Nagolie" height="30" className="me-2" onError={(e) => { e.target.style.display='none'; }} />
             <span className="d-none d-lg-inline">Nagolie Recovery Module</span>
             <span className="d-lg-none">Recovery</span>
           </a>
-
           <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
-            <span className="navbar-text text-white">
-              Welcome, <strong>{user?.username || user?.name || 'User'}</strong>
-            </span>
-            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
-              <i className="fas fa-sign-out-alt me-1"></i>Logout
-            </button>
+            <span className="navbar-text text-white">Welcome, <strong>{user?.username || user?.name || 'User'}</strong></span>
+            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}><i className="fas fa-sign-out-alt me-1"></i>Logout</button>
           </div>
-          <button className="navbar-toggler ms-auto" type="button"
-                  onClick={() => setSidebarOpen(s => !s)}>
-            <span className="navbar-toggler-icon"></span>
-          </button>
+          <button className="navbar-toggler ms-auto" type="button" onClick={() => setSidebarOpen(s => !s)}><span className="navbar-toggler-icon"></span></button>
         </div>
-
-        
       </nav>
 
       {sidebarOpen && (
         <div className="d-lg-none bg-primary text-white px-3 py-2">
           <div className="d-flex align-items-center justify-content-between">
             <span className="small">Welcome, <strong>{user?.username || 'User'}</strong></span>
-            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
-              <i className="fas fa-sign-out-alt me-1"></i>Logout
-            </button>
+            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}><i className="fas fa-sign-out-alt me-1"></i>Logout</button>
           </div>
         </div>
       )}
 
-      <div className={`sidebar-backdrop ${sidebarOpen ? 'show' : ''}`}
-           onClick={() => setSidebarOpen(false)} />
+      <div className={`sidebar-backdrop ${sidebarOpen ? 'show' : ''}`} onClick={() => setSidebarOpen(false)} />
 
       {!mobileChat && (
         <div className="container-fluid">
           <div className="row">
             <div className={`col-md-3 col-lg-2 sidebar ${sidebarOpen ? 'show' : ''}`}>
               <RecoverySidebar
-                activeSection="recovery" onSectionChange={() => {}} onLogout={handleLogout}
+                activeSection="recovery"
+                onSectionChange={() => {}}
+                onLogout={handleLogout}
                 isMobile={sidebarOpen}
                 onToggleInbox={() => { setShowChatList(s => !s); setSidebarOpen(false); }}
                 unreadCount={unreadCount}
@@ -318,102 +334,56 @@ function RecoveryModule() {
             </div>
 
             <div className="col-md-9 col-lg-10 main-content">
-              {/* Desktop digital clock */}
               <div className="d-none d-md-flex justify-content-center mb-3">
                 <div className="digital-clock">
-                  <div className="clock-time">
-                    <i className="fas fa-clock me-2"></i>
-                    {formatClockTime(currentDateTime)}
-                  </div>
-                  
-                  <div className="clock-date">
-                    <i className="fas fa-calendar-alt me-2"></i>
-                    {formatClockDate(currentDateTime)}
-                  </div>
+                  <div className="clock-time"><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</div>
+                  <div className="clock-date"><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</div>
                 </div>
               </div>
-
-              {/* Mobile clock */}
               <div className="d-md-none text-center pb-2">
-                <div className="mobile-clock">
-                  <span>{formatClockTime(currentDateTime)}</span>
-                  <span className="mx-1"></span>
-                  <span>{formatClockDate(currentDateTime)}</span>
-                </div>
+                <div className="mobile-clock"><span>{formatClockTime(currentDateTime)}</span><span className="mx-1"></span><span>{formatClockDate(currentDateTime)}</span></div>
               </div>
 
-              {/* ---------- FILTERS & SORT BAR (icons only, no emojis) ---------- */}
               <div className="card mb-4 shadow-sm">
                 <div className="card-body">
                   <div className="row g-3 align-items-end">
                     <div className="col-md-3">
-                      <label className="form-label small fw-bold">
-                        <i className="fas fa-search me-1"></i> Search
-                      </label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Name, Collateral, ID, Contact"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
+                      <label className="form-label small fw-bold"><i className="fas fa-search me-1"></i> Search</label>
+                      <input type="text" className="form-control" placeholder="Name, Collateral, ID, Contact" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                     </div>
                     <div className="col-md-2">
-                      <label className="form-label small fw-bold">
-                        <i className="fas fa-calendar-week me-1"></i> Plan
-                      </label>
+                      <label className="form-label small fw-bold"><i className="fas fa-calendar-week me-1"></i> Plan</label>
                       <select className="form-select" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
-                        <option value="all">All</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="daily">Daily</option>
+                        <option value="all">All</option><option value="weekly">Weekly</option><option value="daily">Daily</option>
                       </select>
                     </div>
                     <div className="col-md-2">
-                      <label className="form-label small fw-bold">
-                        <i className="fas fa-sun me-1"></i> Day
-                      </label>
+                      <label className="form-label small fw-bold"><i className="fas fa-sun me-1"></i> Day</label>
                       <select className="form-select" value={dayFilter} onChange={(e) => setDayFilter(e.target.value)}>
                         <option value="all">All Days</option>
                         {DAYS_ORDER.map(day => <option key={day} value={day}>{day}</option>)}
                       </select>
                     </div>
                     <div className="col-md-2">
-                      <label className="form-label small fw-bold">
-                        <i className="fas fa-calendar-alt me-1"></i> Borrowed Date
-                      </label>
+                      <label className="form-label small fw-bold"><i className="fas fa-calendar-alt me-1"></i> Borrowed Date</label>
                       <input type="date" className="form-control" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
                     </div>
                     <div className="col-md-3">
-                      <label className="form-label small fw-bold">
-                        <i className="fas fa-sort-amount-down me-1"></i> Sort by
-                      </label>
+                      <label className="form-label small fw-bold"><i className="fas fa-sort-amount-down me-1"></i> Sort by</label>
                       <div className="input-group">
                         <select className="form-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                          <option value="name">Name</option>
-                          <option value="date">Borrowed Date</option>
-                          <option value="principal">Current Principal</option>
-                          <option value="balance">Accrued Interest</option>
+                          <option value="name">Name</option><option value="date">Borrowed Date</option>
+                          <option value="principal">Current Principal</option><option value="balance">Accrued Interest</option>
                         </select>
-                        <button
-                          className="btn btn-outline-secondary"
-                          onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                        >
+                        <button className="btn btn-outline-secondary" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}>
                           {sortOrder === 'asc' ? <i className="fas fa-arrow-up"></i> : <i className="fas fa-arrow-down"></i>}
                         </button>
                       </div>
                     </div>
                   </div>
-                  {/* Clear filters button */}
                   {(searchTerm || planFilter !== 'all' || dayFilter !== 'all' || dateFilter || sortBy !== 'name') && (
                     <div className="mt-3 text-end">
-                      <button className="btn btn-sm btn-outline-danger" onClick={() => {
-                        setSearchTerm('');
-                        setPlanFilter('all');
-                        setDayFilter('all');
-                        setDateFilter('');
-                        setSortBy('name');
-                        setSortOrder('asc');
-                      }}>
+                      <button className="btn btn-sm btn-outline-danger" onClick={() => { setSearchTerm(''); setPlanFilter('all'); setDayFilter('all'); setDateFilter(''); setSortBy('name'); setSortOrder('asc'); }}>
                         <i className="fas fa-times me-1"></i> Clear Filters
                       </button>
                     </div>
@@ -422,115 +392,39 @@ function RecoveryModule() {
               </div>
 
               {Object.keys(filteredData).length === 0 && (
-                <div className="text-center py-5">
-                  <i className="fas fa-filter fa-3x text-muted mb-3"></i>
-                  <h5 className="text-muted">No loans match your filters</h5>
-                </div>
+                <div className="text-center py-5"><i className="fas fa-filter fa-3x text-muted mb-3"></i><h5 className="text-muted">No loans match your filters</h5></div>
               )}
 
               {DAYS_ORDER.map(day =>
                 filteredData[day]?.length > 0 && (
                   <div key={day} className="card mb-4">
-                    <div className="card-header bg-primary">
-                      <h5 className="mb-0 text-white">{day}</h5>
-                    </div>
+                    <div className="card-header bg-primary"><h5 className="mb-0 text-white">{day}</h5></div>
                     <div className="card-body p-0">
                       <div className="table-responsive">
                         <table className="table table-hover mb-0">
-                          <thead className="table-light">
-                            <tr>
-                              <th>Name</th>
-                              <th>Collateral</th>
-                              <th>ID Number</th>
-                              <th>Contact</th>
-                              <th>Borrowed Date</th>
-                              <th>Initial Principal</th>
-                              <th>Current Principal</th>
-                              <th>Interest / Period</th>
-                              <th>Accrued (Unpaid)</th>
-                              <th>Week</th>
-                              <th>Actions</th>
-                            </tr>
-                          </thead>
+                          <thead className="table-light"><tr><th>Name</th><th>Collateral</th><th>ID Number</th><th>Contact</th><th>Borrowed Date</th><th>Initial Principal</th><th>Current Principal</th><th>Interest / Period</th><th>Accrued (Unpaid)</th><th>Week</th><th>Actions</th></tr></thead>
                           <tbody>
                             {filteredData[day].map(loan => {
                               const badge = getDaysBadge(loan);
                               return (
-                                <tr key={loan.id}
-                                    className={loan.is_defaulter ? 'table-danger' : ''}>
-                                  <td>
-                                    <div>{loan.name}</div>
-                                    <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
-                                      {loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}
-                                    </span>
-                                    {badge && (
-                                      <span className={`badge ${badge.cls}`}>
-                                        {badge.text}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td>{loan.collateral}</td>
-                                  <td>{loan.id_number}</td>
-                                  <td>{loan.contacts}</td>
-                                  <td>{fmtDate(loan.disbursement_date)}</td>
-                                  <td>{fmt(loan.principal_amount)}</td>
-                                  <td>{fmt(loan.current_principal)}</td>
-                                  <td>{fmt(loan.interest)}</td>
-                                  <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
+                                <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
+                                  <td><div>{loan.name}</div><span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>{loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}</span>{badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}</td>
+                                  <td>{loan.collateral}</td><td>{loan.id_number}</td><td>{loan.contacts}</td>
+                                  <td>{fmtDate(loan.disbursement_date)}</td><td>{fmt(loan.principal_amount)}</td><td>{fmt(loan.current_principal)}</td>
+                                  <td>{fmt(loan.interest)}</td><td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
                                   <td>Week {loan.week}</td>
-                                  <td>
-                                    <div className="btn-group btn-group-sm">
-                                      {['director','secretary'].includes(userRole) && (
-                                        <button className="btn btn-outline-primary"
-                                                onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}
-                                                title="Process Payment">
-                                          <i className="fas fa-money-bill-wave"></i>
-                                        </button>
-                                      )}
-                                      <button className="btn btn-outline-success"
-                                              onClick={() => { window.location.href = `tel:${loan.contacts}`; }}
-                                              title="Call">
-                                        <i className="fas fa-phone"></i>
-                                      </button>
-                                      <button className="btn btn-outline-info position-relative"
-                                              onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}
-                                              title="Comments">
-                                        <i className="fas fa-comment"></i>
-                                        {commentUnreads[loan.id] > 0 && (
-                                          <span className="badge bg-danger rounded-pill"
-                                                style={{ position:'absolute', top:'-8px', right:'-8px' }}>
-                                            {commentUnreads[loan.id]}
-                                          </span>
-                                        )}
-                                      </button>
-                                      {['director','secretary'].includes(userRole) && (
-                                        <button
-                                          className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`}
-                                          onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}
-                                          title={loan.is_defaulter ? 'Resolve' : 'Mark Defaulter'}>
-                                          <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
-                                        </button>
-                                      )}
-                                    </div>
-                                  </td>
+                                  <td><div className="btn-group btn-group-sm">
+                                    {['director','secretary'].includes(userRole) && <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }} title="Process Payment"><i className="fas fa-money-bill-wave"></i></button>}
+                                    <button className="btn btn-outline-success" onClick={() => { window.location.href = `tel:${loan.contacts}`; }} title="Call"><i className="fas fa-phone"></i></button>
+                                    <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }} title="Comments"><i className="fas fa-comment"></i>{commentUnreads[loan.id] > 0 && <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>{commentUnreads[loan.id]}</span>}</button>
+                                    {['director','secretary'].includes(userRole) && <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)} title={loan.is_defaulter ? 'Resolve' : 'Mark Defaulter'}><i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i></button>}
+                                  </div></td>
                                 </tr>
                               );
                             })}
                           </tbody>
                           <tfoot className="table-secondary fw-bold">
-                            {(() => {
-                              const t = dayTotals(filteredData[day]);
-                              return (
-                                <tr>
-                                  <td colSpan="5">Day Totals</td>
-                                  <td>{fmt(t.principal)}</td>
-                                  <td>{fmt(t.curPrincipal)}</td>
-                                  <td>{fmt(t.interest)}</td>
-                                  <td className="text-danger">{fmt(t.accrued)}</td>
-                                  <td colSpan="2"></td>
-                                </tr>
-                              );
-                            })()}
+                            {(() => { const t = dayTotals(filteredData[day]); return (<tr><td colSpan="5">Day Totals</td><td>{fmt(t.principal)}</td><td>{fmt(t.curPrincipal)}</td><td>{fmt(t.interest)}</td><td className="text-danger">{fmt(t.accrued)}</td><td colSpan="2"></td></tr>); })()}
                           </tfoot>
                         </table>
                       </div>
@@ -539,71 +433,19 @@ function RecoveryModule() {
                 )
               )}
 
-              {Object.keys(filteredData).length > 0 && (() => {
-                const t = overall();
-                return (
-                  <div className="card mt-2 mb-4">
-                    <div className="card-header bg-dark">
-                      <h5 className="mb-0 text-white">Overall Totals</h5>
-                    </div>
-                    <div className="card-body">
-                      <div className="row text-center">
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Initial Principal</p>
-                          <h5>{fmt(t.principal)}</h5>
-                        </div>
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Current Principal</p>
-                          <h5>{fmt(t.curPrincipal)}</h5>
-                        </div>
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Periodic Interest</p>
-                          <h5>{fmt(t.interest)}</h5>
-                        </div>
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p>
-                          <h5 className="text-danger">{fmt(t.accrued)}</h5>
-                        </div>
-                      </div>
-                      <div className="row mt-3 pt-2 border-top text-center">
-                        <div className="col-12">
-                          <p className="mb-1 text-muted fw-bold">
-                            Total Owed (Current Principal + Accrued Interest)
-                          </p>
-                          <h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
+              {Object.keys(filteredData).length > 0 && (() => { const t = overall(); return (
+                <div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
             </div>
           </div>
         </div>
       )}
 
-      <ChatList isOpen={showChatList} onClose={() => setShowChatList(false)}
-                onSelectUser={handleSelectUser} />
-
+      <ChatList isOpen={showChatList} onClose={() => setShowChatList(false)} onSelectUser={handleSelectUser} />
       {openChatWindows.map((cu, i) => (
-        <ChatWindow key={cu.id} user={cu} onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))}
-                    onNewMessage={fetchUnreadCount} style={getChatStyle(i)} />
+        <ChatWindow key={cu.id} user={cu} onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))} onNewMessage={fetchUnreadCount} style={getChatStyle(i)} />
       ))}
-
-      {showPaymentModal && selectedLoan && (
-        <PaymentModal
-          loan={selectedLoan}
-          onClose={() => setShowPaymentModal(false)}
-          onSuccess={() => {
-            setShowPaymentModal(false);
-            fetchData();
-          }}
-        />
-      )}
-
-      {showCommentBox && selectedLoan && (
-        <CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />
-      )}
+      {showPaymentModal && selectedLoan && <PaymentModal loan={selectedLoan} onClose={() => setShowPaymentModal(false)} onSuccess={() => { setShowPaymentModal(false); fetchData(); }} />}
+      {showCommentBox && selectedLoan && <CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />}
     </div>
   );
 }
