@@ -154,6 +154,10 @@ class Loan(db.Model):
     # NEW: Repayment Plan (weekly or daily)
     repayment_plan = db.Column(db.String(20), default='weekly')  # 'weekly' or 'daily'
 
+    # AddED TO ALLOW PRE PROCESSING INTEREST BEFORE DUE DTE
+    interest_prepaid_period = db.Column(db.String(20), nullable=True)
+    interest_prepaid_amount = db.Column(db.Numeric(10, 2), default=Decimal('0'))
+
     # relationships
     investor = db.relationship('Investor', backref='loans', lazy=True)   
     livestock = db.relationship('Livestock', backref='loan', lazy='joined')
@@ -186,7 +190,9 @@ class Loan(db.Model):
                 'created_at': self.created_at.isoformat(),
                 'interest_type': self.interest_type,
                 'collateral_text': self.collateral_text,
-                'repayment_plan': self.repayment_plan   # Added
+                'repayment_plan': self.repayment_plan,   
+                'interest_prepaid_period': self.interest_prepaid_period,# Added
+                'interest_prepaid_amount': float(self.interest_prepaid_amount or 0)# Added
             }
 
 class Transaction(db.Model):

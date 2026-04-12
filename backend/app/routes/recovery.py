@@ -1,11 +1,10 @@
-# app/routes/recovery.py
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage,
                          Defaulter, Transaction, UserLoanCommentRead)
 from app.utils.decorators import role_required
-from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
+from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary, _get_current_period_interest, _get_current_period_key
 from app.utils.cloudinary_upload import upload_base64_image
 import cloudinary.uploader
 from datetime import datetime, timedelta
@@ -24,7 +23,7 @@ def get_week_number(disbursement_date):
 
 
 # ---------------------------------------------------------------------------
-# Recovery data
+# Recovery data – now includes pre‑period interest tracking
 # ---------------------------------------------------------------------------
 
 @recovery_bp.route('', methods=['GET'])
@@ -48,11 +47,17 @@ def get_recovery_data():
 
         collateral = loan.collateral_text or (f"{lv.count} {lv.livestock_type}" if lv else '')
 
-        # Periodic interest for display
-        if loan.repayment_plan == 'daily':
-            periodic_interest = float(loan.current_principal) * 0.045
-        else:
-            periodic_interest = float(loan.current_principal) * 0.30
+        # ---- Pre‑period interest info (same as Admin Panel) ----
+        current_period = _get_current_period_key(loan)
+        period_interest = _get_current_period_interest(loan)
+        period_prepaid = Decimal('0')
+        period_fully_paid = False
+        if loan.interest_prepaid_period == current_period:
+            period_prepaid = loan.interest_prepaid_amount or Decimal('0')
+            period_fully_paid = period_prepaid >= period_interest - Decimal('0.01')
+
+        # Periodic interest for display (same as period_interest)
+        periodic_interest = float(period_interest)
 
         week_number     = get_week_number(loan.disbursement_date)
         is_defaulter    = Defaulter.query.filter_by(loan_id=loan.id, resolved=False).first() is not None
@@ -74,13 +79,19 @@ def get_recovery_data():
             'contacts':         client.phone_number if client else '',
             'principal_amount': float(loan.principal_amount),
             'current_principal': float(loan.current_principal),
-            'interest':         periodic_interest,
+            'interest':         periodic_interest,                     # for PaymentModal max calculation
             'accrued_interest': unpaid_interest,
             'week':             week_number,
             'days_left':        days_left,
             'is_defaulter':     is_defaulter,
             'repayment_plan':   loan.repayment_plan,
             'interest_type':    loan.interest_type,
+            # ---- NEW fields for pre‑period tracking ----
+            'current_period_interest': float(period_interest),
+            'period_interest_prepaid': float(period_prepaid),
+            'period_interest_fully_paid': period_fully_paid,
+            'interest_prepaid_period': loan.interest_prepaid_period,
+            'interest_prepaid_amount': float(loan.interest_prepaid_amount or 0),
         })
 
     for day in result:
@@ -90,55 +101,7 @@ def get_recovery_data():
 
 
 # ---------------------------------------------------------------------------
-# Add manual client (recovery module)
-# ---------------------------------------------------------------------------
-
-# @recovery_bp.route('/client', methods=['POST'])
-# @jwt_required()
-# @role_required(['director', 'secretary'])
-# def add_manual_client():
-#     data = request.json
-#     for f in ['name', 'phone', 'id_number', 'principal_amount', 'repayment_plan']:
-#         if not data.get(f):
-#             return jsonify({'error': f'Missing {f}'}), 400
-#     try:
-#         client = Client(full_name=data['name'], phone_number=data['phone'],
-#                         id_number=data['id_number'],
-#                         location=data.get('location', 'Isinya, Kajiado'))
-#         db.session.add(client); db.session.flush()
-
-#         principal      = Decimal(str(data['principal_amount']))
-#         repayment_plan = data['repayment_plan']
-#         # Manual recovery clients always use simple interest regardless of plan
-#         interest_rate  = Decimal('4.5') if repayment_plan == 'daily' else Decimal('30.0')
-#         interest_type  = 'simple'
-#         now            = datetime.utcnow()
-#         due_date       = now + timedelta(days=14 if repayment_plan == 'daily' else 7)
-
-#         loan = Loan(client_id=client.id, principal_amount=principal,
-#                     interest_rate=interest_rate, interest_type=interest_type,
-#                     total_amount=principal, balance=principal,
-#                     current_principal=principal, principal_paid=Decimal('0'),
-#                     interest_paid=Decimal('0'), accrued_interest=Decimal('0'),
-#                     amount_paid=Decimal('0'), disbursement_date=now,
-#                     last_interest_payment_date=now, due_date=due_date,
-#                     status='active', repayment_plan=repayment_plan,
-#                     collateral_text=data.get('collateral_text', ''))
-#         db.session.add(loan); db.session.commit()
-
-#         db.session.add(Transaction(loan_id=loan.id, transaction_type='disbursement',
-#                                    amount=principal, payment_method='cash',
-#                                    notes='Manual addition via recovery module', status='completed'))
-#         db.session.commit()
-#         return jsonify({'success': True, 'loan': loan.to_dict()}), 201
-
-#     except Exception as e:
-#         db.session.rollback()
-#         return jsonify({'error': str(e)}), 500
-
-
-# ---------------------------------------------------------------------------
-# Payment endpoint – fully synced with admin panel
+# Payment endpoint – already uses _apply_payment() (no changes needed)
 # ---------------------------------------------------------------------------
 
 @recovery_bp.route('/loan/<int:loan_id>/payment', methods=['POST'])
@@ -147,8 +110,7 @@ def get_recovery_data():
 def process_recovery_payment(loan_id):
     """
     Process a payment from the recovery module.
-    Uses the same _apply_payment() logic as the admin panel so that
-    both sides always stay in sync – a single write to the Loan record.
+    Uses the same _apply_payment() logic as the admin panel.
     """
     try:
         data         = request.json
@@ -201,7 +163,7 @@ def process_recovery_payment(loan_id):
 
 
 # ---------------------------------------------------------------------------
-# Comments
+# All other routes (comments, messages, defaulters, etc.) remain unchanged
 # ---------------------------------------------------------------------------
 
 @recovery_bp.route('/loan/<int:loan_id>/comment', methods=['POST'])
@@ -236,10 +198,6 @@ def edit_comment(loan_id, comment_id):
     db.session.commit()
     return jsonify({'success': True, 'comment': c.to_dict()}), 200
 
-
-# ---------------------------------------------------------------------------
-# Messaging
-# ---------------------------------------------------------------------------
 
 @recovery_bp.route('/messages/send', methods=['POST'])
 @jwt_required()
@@ -400,3 +358,41 @@ def mark_comments_read(loan_id):
         rec = UserLoanCommentRead(user_id=uid, loan_id=loan_id); db.session.add(rec)
     rec.last_read_at = datetime.utcnow(); db.session.commit()
     return jsonify({'success': True}), 200
+
+@recovery_bp.route('/loan/<int:loan_id>/claim', methods=['POST'])
+@jwt_required()
+@role_required(['director', 'secretary', 'head_of_it', 'accountant', 'valuer'])
+def claim_ownership(loan_id):
+    try:
+        loan = db.session.get(Loan, loan_id)
+        if not loan or loan.status != 'active':
+            return jsonify({'error': 'Loan not found or not active'}), 404
+
+        due = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
+        if due >= datetime.now().date():
+            return jsonify({'error': 'Loan not overdue'}), 400
+
+        lv = Livestock.query.filter_by(id=loan.livestock_id).first()
+        if not lv:
+            return jsonify({'error': 'Livestock not found'}), 404
+
+        loc = (lv.client.location if lv.client and lv.client.location else None) or 'Isinya, Kajiado'
+        lv.description = 'Livestock for purchase'
+        lv.location = loc
+        lv.status = 'active'
+        lv.client_id = None
+
+        loan.status = 'claimed'
+        loan.balance = 0
+        loan.amount_paid = loan.total_amount
+
+        db.session.add(Transaction(
+            loan_id=loan.id, transaction_type='claim', amount=0,
+            payment_method='claim', notes='Claimed overdue'
+        ))
+        db.session.commit()
+
+        return jsonify({'success': True, 'message': f'Claimed {lv.livestock_type}'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500

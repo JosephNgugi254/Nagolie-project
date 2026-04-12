@@ -148,11 +148,10 @@ export const AuthProvider = ({ children }) => {
   
   // Check if user is authenticated
   const isAuthenticated = () => {
-    const hasUser = !!user;
-    const hasToken = !!localStorage.getItem("token");
-    console.log("isAuthenticated:", hasUser, "token:", hasToken);
-    return hasUser || hasToken;
-  }
+    const token = localStorage.getItem('token');
+    const userObj = localStorage.getItem('user');
+    return !!(token && userObj);
+  };
   
   // Check if user has specific role
   const hasRole = (role) => {

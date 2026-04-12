@@ -263,14 +263,13 @@ def get_all_clients():
     try:
         today = datetime.now().date()
 
-        clients_with_loans = db.session.query(Client).join(Loan).filter(
-            Loan.status == 'active'
-        ).distinct().all()
+        # ── KEY CHANGE: Get ALL active loans, not just one per client ──────
+        active_loans = Loan.query.filter_by(status='active').all()
 
         clients_data = []
-        for client in clients_with_loans:
-            active_loan = Loan.query.filter_by(client_id=client.id, status='active').first()
-            if not active_loan:
+        for active_loan in active_loans:
+            client = active_loan.client
+            if not client:
                 continue
 
             # Bring interest/balance up to date
@@ -282,23 +281,28 @@ def get_all_clients():
             interest_paid     = active_loan.interest_paid     or Decimal('0')
             unpaid_interest   = max(Decimal('0'), active_loan.accrued_interest - interest_paid)
 
-            # ── Days-left calculation ──────────────────────────────────
-            # For WEEKLY: due_date already rolls each week via recalculate_loan,
-            #   so days_left is always 0..7.
-            # For DAILY: due_date is fixed at disbursement+14, days_left is 0..14.
             if active_loan.due_date:
                 due  = active_loan.due_date.date() if hasattr(active_loan.due_date, 'date') else active_loan.due_date
                 days_left = (due - today).days
             else:
                 days_left = 0
 
-            # ── Weeks overdue (for dashboard) ─────────────────────────
             last_ip = active_loan.last_interest_payment_date
             weeks_overdue = 0
             if last_ip:
                 ld = last_ip.date() if hasattr(last_ip, 'date') else last_ip
                 if ld < today:
                     weeks_overdue = (today - ld).days // 7
+
+            # Pre-period interest info
+            from app.routes.payments import _get_current_period_key, _get_current_period_interest
+            current_period = _get_current_period_key(active_loan)
+            period_interest = _get_current_period_interest(active_loan)
+            period_prepaid = Decimal('0')
+            period_interest_paid = False
+            if active_loan.interest_prepaid_period == current_period:
+                period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
+                period_interest_paid = period_prepaid >= period_interest - Decimal('0.01')
 
             clients_data.append({
                 'id':               client.id,
@@ -321,15 +325,21 @@ def get_all_clients():
                 'repayment_plan':   active_loan.repayment_plan,
                 'unpaidInterest':   float(unpaid_interest),
                 'accrued_interest': float(active_loan.accrued_interest),
+                # New pre-period tracking fields
+                'current_period_interest': float(period_interest),
+                'period_interest_prepaid': float(period_prepaid),
+                'period_interest_fully_paid': period_interest_paid,
             })
+
+        # Sort by client name then loan date for clean display
+        clients_data.sort(key=lambda x: (x['name'], x['borrowedDate'] or ''))
 
         return jsonify(clients_data), 200
 
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
-
+    
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------

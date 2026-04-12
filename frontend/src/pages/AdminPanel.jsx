@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
 import { adminAPI, paymentAPI } from "../services/api"
+import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
 import AdminSidebar from "../components/admin/AdminSidebar"
 import AdminCard from "../components/admin/AdminCard"
 import AdminTable from "../components/admin/AdminTable"
@@ -23,6 +24,7 @@ function AdminPanel() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  useSessionTimeout(logout, isAuthenticated, userRole);
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [imageUploading, setImageUploading] = useState(false);
@@ -1818,14 +1820,32 @@ const generateTemporaryPassword = (name, id) => {
 
       // Validate amount based on payment type
       if (paymentType === 'interest') {
-        if (paymentAmount > unpaidInterest) {
-          showToast.error(`Interest payment cannot exceed ${formatCurrency(unpaidInterest)}`)
-          return
+        const isWeekly = selectedClient?.interest_type === 'compound';
+        let maxInterest = 0;
+      
+        if (selectedClient?.period_interest_fully_paid) {
+          showToast.error('Interest for this period has already been paid');
+          return;
+        } 
+        else if ((selectedClient?.period_interest_prepaid || 0) > 0) {
+          maxInterest = Math.max(0, (selectedClient.current_period_interest || 0) - (selectedClient.period_interest_prepaid || 0));
+        } 
+        else if ((selectedClient?.unpaidInterest || 0) > 0.01) {
+          maxInterest = isWeekly ? (selectedClient.currentPrincipal || 0) : (selectedClient.unpaidInterest || 0);
+        } 
+        else {
+          maxInterest = selectedClient?.current_period_interest || 0;
         }
-      } else if (paymentType === 'principal') {
+      
+        if (paymentAmount > maxInterest + 0.01) {
+          showToast.error(`Interest payment cannot exceed ${formatCurrency(maxInterest)}`);
+          return;
+        }
+      } 
+      else if (paymentType === 'principal') {
         if (paymentAmount > currentPrincipal) {
-          showToast.error(`Principal payment cannot exceed ${formatCurrency(currentPrincipal)}`)
-          return
+          showToast.error(`Principal payment cannot exceed ${formatCurrency(currentPrincipal)}`);
+          return;
         }
       }
     
@@ -1918,8 +1938,8 @@ const generateTemporaryPassword = (name, id) => {
 
       // Generate professional reminder message
      const messageText = `Hello ${client.client_name || client.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience. Please make your payment via: 
-     Paybill: 400200
-     Account: 1132192
+     Paybill: 247247
+     Account: 651259
 Thank you for choosing us.`;
 
       // Format phone number - ensure it has +254 prefix
@@ -4395,15 +4415,12 @@ Thank you for choosing us.`;
               />
             </div>
         
-            {/* Payment Type Selection */}
+            {/* Payment Type Selection - UPDATED */}
             <div className="mb-3">
               <label className="form-label"><strong>Payment Type</strong> <span className="text-danger">*</span></label>
               <div className="form-check">
                 <input 
-                  className="form-check-input" 
-                  type="radio" 
-                  name="paymentTypeRadio" 
-                  id="principalPayment" 
+                  className="form-check-input" type="radio" name="paymentTypeRadio" id="principalPayment" 
                   checked={paymentType === 'principal'}
                   onChange={() => setPaymentType('principal')}
                 />
@@ -4413,65 +4430,88 @@ Thank you for choosing us.`;
               </div>
               <div className="form-check">
                 <input 
-                  className="form-check-input" 
-                  type="radio" 
-                  name="paymentTypeRadio" 
-                  id="interestPayment" 
+                  className="form-check-input" type="radio" name="paymentTypeRadio" id="interestPayment" 
                   checked={paymentType === 'interest'}
                   onChange={() => setPaymentType('interest')}
                 />
                 <label className="form-check-label" htmlFor="interestPayment">
                   Interest Payment
-                  {selectedClient?.interest_type === 'compound' && ' (Reduces principal – interest has been capitalised)'}
-                  {selectedClient?.interest_type === 'simple' && ' (Reduces accrued interest)'}
+                  {selectedClient?.interest_type === 'compound' && ' (Weekly compound plan)'}
+                  {selectedClient?.interest_type === 'simple' && ' (Daily simple plan)'}
                 </label>
               </div>
             </div>
-
-            {/* Show appropriate maximum info */}
-            {paymentType === 'interest' && (
-              <div className="mb-3">
-                <label className="form-label">
-                  Maximum Interest Payment
-                </label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  value={selectedClient?.interest_type === 'compound' 
-                    ? formatCurrency(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
-                    : formatCurrency(unpaidInterest)} 
-                  readOnly 
-                />
-                <small className="text-muted">
-                  {selectedClient?.interest_type === 'compound' 
-                    ? 'Interest payment will reduce the principal amount.' 
-                    : 'Interest payment will reduce the accrued interest balance.'}
+        
+            {/* Pre-period interest info banner */}
+            {paymentType === 'interest' && selectedClient?.period_interest_fully_paid && (
+              <div className="alert alert-warning">
+                <i className="fas fa-check-circle me-2"></i>
+                <strong>Interest already paid for this period.</strong><br/>
+                <small>
+                  KES {formatCurrency(selectedClient.period_interest_prepaid)} has been paid for the current 
+                  {selectedClient.repayment_plan === 'weekly' ? ' week' : ' day'}.
+                  Next interest payment available after{' '}
+                  {selectedClient.repayment_plan === 'weekly' ? 'the week rolls over ' : 'tomorrow'} 
+                  or when the principal is reduced.
                 </small>
               </div>
             )}
-        
-            {/* Show different info based on payment type */}
-            {paymentType === 'principal' ? (
-              <div className="mb-3">
-                <label className="form-label">Current Principal Amount</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  value={formatCurrency(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)} 
-                  readOnly 
-                />
-              </div>
-            ) : (
-              <div className="mb-3">
-                <label className="form-label">Total Unpaid Interest</label>
-                <input 
-                  type="text" 
-                  className="form-control" 
-                  value={formatCurrency(unpaidInterest)} 
-                  readOnly 
-                />
+
+            {/* Pre-period partial payment info */}
+            {paymentType === 'interest' && !selectedClient?.period_interest_fully_paid && selectedClient?.period_interest_prepaid > 0 && (
+              <div className="alert alert-info">
+                <i className="fas fa-info-circle me-2"></i>
+                <strong>Partial interest pre-paid: {formatCurrency(selectedClient.period_interest_prepaid)}</strong><br/>
+                <small>Remaining for this period: {formatCurrency(
+                  Math.max(0, (selectedClient.current_period_interest || 0) - (selectedClient.period_interest_prepaid || 0))
+                )}</small>
               </div>
             )}
+
+            {/* Pre-period payment info (no interest accrued yet) */}
+            {paymentType === 'interest' && !selectedClient?.period_interest_fully_paid && 
+             (selectedClient?.unpaidInterest || 0) < 0.01 && !selectedClient?.period_interest_prepaid && (
+              <div className="alert alert-info">
+                <i className="fas fa-info-circle me-2"></i>
+                <strong>Pre-period interest payment</strong><br/>
+                <small>
+                  The current {selectedClient?.repayment_plan === 'weekly' ? 'week' : 'day'} hasn't ended yet. 
+                  You can pay the interest early — it will be recorded and the principal will remain unchanged 
+                  until the period ends. This period's interest: <strong>{formatCurrency(selectedClient?.current_period_interest || 0)}</strong>
+                </small>
+              </div>
+            )}
+
+            {/* Smart max amount for interest - pre-period aware */}
+            {paymentType === 'interest' && (() => {
+              const isWeekly = selectedClient?.interest_type === 'compound';
+              let maxInt = 0;
+
+              if (selectedClient?.period_interest_fully_paid) {
+                maxInt = 0;
+              } else if ((selectedClient?.period_interest_prepaid || 0) > 0) {
+                maxInt = Math.max(0, (selectedClient.current_period_interest || 0) - (selectedClient.period_interest_prepaid || 0));
+              } else if ((selectedClient?.unpaidInterest || 0) > 0.01) {
+                maxInt = isWeekly ? (selectedClient.currentPrincipal || 0) : (selectedClient.unpaidInterest || 0);
+              } else {
+                maxInt = selectedClient?.current_period_interest || 0;
+              }
+
+              return (
+                <div className="mb-3">
+                  <label className="form-label">
+                    {(selectedClient?.unpaidInterest || 0) > 0.01 ? 'Unpaid Interest' : "This Period's Interest"}
+                  </label>
+                  <input type="text" className="form-control" 
+                         value={formatCurrency(maxInt)} readOnly />
+                  <small className="text-muted">
+                    {(selectedClient?.unpaidInterest || 0) > 0.01 
+                      ? 'Accrued interest balance'
+                      : `Pre-paying interest for current ${selectedClient?.repayment_plan === 'weekly' ? 'week' : 'day'}`}
+                  </small>
+                </div>
+              );
+            })()}
 
             <div className="mb-3">
               <label htmlFor="paymentAmount" className="form-label">
@@ -4483,21 +4523,44 @@ Thank you for choosing us.`;
                 id="paymentAmount" 
                 name="amount"                 
                 min="1"
-                max={paymentType === 'principal' 
-                  ? Math.floor(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
-                  : Math.floor(selectedClient?.interest_type === 'compound' 
-                      ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
-                      : unpaidInterest)}
+                max={(() => {
+                  if (paymentType === 'principal') {
+                    return Math.floor(selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0);
+                  }
+                  const isWeekly = selectedClient?.interest_type === 'compound';
+                  if (selectedClient?.period_interest_fully_paid) return 0;
+                  if ((selectedClient?.period_interest_prepaid || 0) > 0) {
+                    return Math.max(0, Math.floor((selectedClient.current_period_interest || 0) - (selectedClient.period_interest_prepaid || 0)));
+                  }
+                  if ((selectedClient?.unpaidInterest || 0) > 0.01) {
+                    return isWeekly 
+                      ? Math.floor(selectedClient.currentPrincipal || 0) 
+                      : Math.floor(selectedClient.unpaidInterest || 0);
+                  }
+                  return Math.floor(selectedClient?.current_period_interest || 0);
+                })()}
                 placeholder="Enter amount"
+                disabled={paymentType === 'interest' && selectedClient?.period_interest_fully_paid}
                 required 
               />
               <small className="text-muted">
-                Maximum: {formatCurrency(paymentType === 'principal' 
-                  ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
-                  : unpaidInterest)}
+                Maximum: {formatCurrency((() => {
+                  if (paymentType === 'principal') {
+                    return selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0;
+                  }
+                  const isWeekly = selectedClient?.interest_type === 'compound';
+                  if (selectedClient?.period_interest_fully_paid) return 0;
+                  if ((selectedClient?.period_interest_prepaid || 0) > 0) {
+                    return Math.max(0, (selectedClient.current_period_interest || 0) - (selectedClient.period_interest_prepaid || 0));
+                  }
+                  if ((selectedClient?.unpaidInterest || 0) > 0.01) {
+                    return isWeekly ? (selectedClient.currentPrincipal || 0) : (selectedClient.unpaidInterest || 0);
+                  }
+                  return selectedClient?.current_period_interest || 0;
+                })())}
               </small>
             </div>
-                
+              
             <div className="mb-3">
               <label htmlFor="paymentMethod" className="form-label">
                 Payment Method <span className="text-danger">*</span>

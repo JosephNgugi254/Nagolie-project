@@ -1,6 +1,4 @@
 // components/recovery/PaymentModal.jsx
-// Synced with admin panel via recoveryAPI.processPayment → same backend logic.
-
 import { useState } from 'react';
 import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
@@ -17,33 +15,71 @@ function PaymentModal({ loan, onClose, onSuccess }) {
     new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(Number(v) || 0);
 
   const currentPrincipal = Number(loan.current_principal ?? loan.principal_amount ?? 0);
-  const accruedInterest  = Number(loan.accrued_interest ?? 0);
-  const interestPaid     = Number(loan.interest_paid    ?? 0);
-  const unpaidInterest   = Math.max(0, accruedInterest - interestPaid);
+  const periodicInterest = Number(loan.interest ?? 0);
+  const unpaidInterest   = Number(loan.accrued_interest ?? 0);
   const isWeekly         = loan.repayment_plan === 'weekly';
 
-  // Max amount depends on payment type + plan
-  const maxAmount = paymentType === 'principal'
-    ? currentPrincipal
-    : isWeekly
-      ? currentPrincipal   // weekly: interest payment reduces principal
-      : unpaidInterest;    // daily : interest payment clears accrued balance
+  const currentPeriodInterest = Number(loan.current_period_interest ?? periodicInterest);
+  const periodPrepaid         = Number(loan.period_interest_prepaid ?? 0);
+  const periodFullyPaid       = loan.period_interest_fully_paid === true;
 
-  const balance = isWeekly
-    ? currentPrincipal                   // weekly: balance IS current_principal
-    : currentPrincipal + unpaidInterest; // daily : principal + unpaid interest
+  const maxPrincipal = currentPrincipal;
+  const maxInterestRaw = isWeekly
+    ? Math.max(0, currentPeriodInterest - periodPrepaid)
+    : Math.max(0, unpaidInterest);
+  const maxInterest = periodFullyPaid ? 0 : maxInterestRaw;
+
+  let totalBalance;
+  if (isWeekly) {
+    const owedInterest = periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid);
+    totalBalance = currentPrincipal + owedInterest;
+  } else {
+    totalBalance = currentPrincipal + unpaidInterest;
+  }
+
+  const currentMax = paymentType === 'principal' ? maxPrincipal : maxInterest;
+
+  const getInterestInfo = () => {
+    if (periodFullyPaid) {
+      return {
+        type: 'warning',
+        message: `Interest for this ${isWeekly ? 'week' : 'period'} has already been paid in full.`,
+        detail: `Pre‑paid amount: ${fmt(periodPrepaid)}`
+      };
+    }
+    if (periodPrepaid > 0) {
+      return {
+        type: 'info',
+        message: `Partial interest pre‑paid: ${fmt(periodPrepaid)}`,
+        detail: `Remaining for this period: ${fmt(maxInterest)}`
+      };
+    }
+    if (paymentType === 'interest' && !periodFullyPaid && unpaidInterest < 0.01) {
+      return {
+        type: 'info',
+        message: `Pre‑period interest payment`,
+        detail: `The current ${isWeekly ? 'week' : 'day'} hasn't ended yet. You can pay the interest early – it will be recorded and applied when the period ends. This period's interest: ${fmt(currentPeriodInterest)}`
+      };
+    }
+    return null;
+  };
+
+  const interestInfo = getInterestInfo();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const payAmt = parseFloat(amount);
     if (!amount || isNaN(payAmt) || payAmt <= 0) {
-      showToast.error('Please enter a valid amount'); return;
+      showToast.error('Please enter a valid amount');
+      return;
     }
-    if (payAmt > maxAmount + 0.01) {
-      showToast.error(`Amount cannot exceed ${fmt(maxAmount)}`); return;
+    if (payAmt > currentMax + 0.01) {
+      showToast.error(`Amount cannot exceed ${fmt(currentMax)}`);
+      return;
     }
     if (paymentMethod === 'mpesa' && !mpesaRef.trim()) {
-      showToast.error('Please enter M-Pesa reference'); return;
+      showToast.error('Please enter M-Pesa reference');
+      return;
     }
 
     setProcessing(true);
@@ -78,19 +114,17 @@ function PaymentModal({ loan, onClose, onSuccess }) {
          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
       <div className="modal-dialog modal-dialog-centered">
         <div className="modal-content">
-
           <div className="modal-header bg-primary text-white">
-            <h5 className="modal-title">
-              <i className="fas fa-money-bill-wave me-2"></i>
-              Process Payment – {loan.name}
+            <h5 className="modal-title text-white">
+              <i className="fas fa-money-bill-wave me-2 text-white"></i>
+              Process Payment
             </h5>
             <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
           </div>
 
           <form onSubmit={handleSubmit}>
             <div className="modal-body">
-
-              {/* ── Loan summary ── */}
+              {/* Loan summary */}
               <div className="alert alert-info py-2 mb-3">
                 <div className="row text-center">
                   <div className="col-4">
@@ -105,19 +139,33 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                   )}
                   <div className={isWeekly ? 'col-8' : 'col-4'}>
                     <small className="text-muted d-block">Total Balance</small>
-                    <strong className="text-danger">{fmt(balance)}</strong>
+                    <strong className="text-danger">{fmt(totalBalance)}</strong>
                   </div>
                 </div>
                 {isWeekly && (
                   <div className="text-center mt-1">
                     <small className="text-muted">
-                      Weekly plan – interest is compounded into the principal each week
+                      Weekly plan – interest is 30% of principal. You may pay the weekly interest early.
                     </small>
                   </div>
                 )}
               </div>
 
-              {/* ── Payment type ── */}
+              {/* Interest info alerts – FIXED: wrap adjacent elements in a fragment */}
+              {interestInfo && (
+                <div className={`alert alert-${interestInfo.type} py-2 mb-3`}>
+                  <i className={`fas fa-${interestInfo.type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2`}></i>
+                  <strong>{interestInfo.message}</strong>
+                  {interestInfo.detail && (
+                    <>
+                      <br />
+                      <small>{interestInfo.detail}</small>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Payment type radios */}
               <div className="mb-3">
                 <label className="form-label fw-bold">Payment Type</label>
                 <div className="d-flex gap-4">
@@ -126,7 +174,7 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                            checked={paymentType === 'principal'}
                            onChange={() => { setPaymentType('principal'); setAmount(''); }} />
                     <label className="form-check-label" htmlFor="ptPrincipal">
-                      Principal <small className="text-muted">(max {fmt(currentPrincipal)})</small>
+                      Principal <small className="text-muted">(max {fmt(maxPrincipal)})</small>
                     </label>
                   </div>
                   <div className="form-check">
@@ -136,7 +184,7 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                     <label className="form-check-label" htmlFor="ptInterest">
                       Interest&nbsp;
                       <small className="text-muted">
-                        (max {fmt(isWeekly ? currentPrincipal : unpaidInterest)})
+                        (max {fmt(maxInterest)})
                       </small>
                     </label>
                   </div>
@@ -145,23 +193,14 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                   <div className="alert alert-warning py-1 mt-2 mb-0">
                     <small>
                       <i className="fas fa-info-circle me-1"></i>
-                      Weekly compound plan: interest has been folded into the principal.
-                      An "interest payment" here directly reduces the principal balance.
-                    </small>
-                  </div>
-                )}
-                {paymentType === 'interest' && !isWeekly && (
-                  <div className="alert alert-info py-1 mt-2 mb-0">
-                    <small>
-                      <i className="fas fa-info-circle me-1"></i>
-                      Daily plan: pays down the accrued interest balance.
-                      Max: {fmt(unpaidInterest)}
+                      Paying the weekly interest early will be recorded and applied when the week ends.
+                      The principal will not be reduced immediately.
                     </small>
                   </div>
                 )}
               </div>
 
-              {/* ── Payment method ── */}
+              {/* Payment method */}
               <div className="mb-3">
                 <label className="form-label fw-bold">Payment Method</label>
                 <select className="form-select" value={paymentMethod}
@@ -181,19 +220,21 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                 </div>
               )}
 
-              {/* ── Amount ── */}
+              {/* Amount */}
               <div className="mb-3">
                 <label className="form-label fw-bold">
                   Amount (KSh) <span className="text-danger">*</span>
                 </label>
                 <input type="number" className="form-control"
                        value={amount} onChange={(e) => setAmount(e.target.value)}
-                       min="1" max={maxAmount} step="0.01"
-                       placeholder={`Max: ${fmt(maxAmount)}`} required />
-                <small className="text-muted">Maximum: {fmt(maxAmount)}</small>
+                       min="1" max={currentMax} step="0.01"
+                       placeholder={`Max: ${fmt(currentMax)}`}
+                       disabled={paymentType === 'interest' && maxInterest === 0}
+                       required />
+                <small className="text-muted">Maximum: {fmt(currentMax)}</small>
               </div>
 
-              {/* ── Notes ── */}
+              {/* Notes */}
               <div className="mb-3">
                 <label className="form-label">Notes (optional)</label>
                 <textarea className="form-control" rows="2"

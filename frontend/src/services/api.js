@@ -47,16 +47,25 @@ api.interceptors.response.use(
         return api(config);
       }
     }
+
+    // Enhanced 401 Handling
     if (error.response?.status === 401) {
+      // Clear all authentication data
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('user_role');
+      localStorage.removeItem('admin_token');
+      localStorage.removeItem('admin_user');
+      localStorage.removeItem('investor_token');
+      localStorage.removeItem('investor_user');
+
+      // Redirect to login if not already there
       const currentPath = window.location.pathname;
-      if (currentPath.includes('/investor')) {
-        localStorage.removeItem("investor_token");
-        localStorage.removeItem("investor_user");
-      } else if (currentPath.includes('/admin')) {
-        localStorage.removeItem("admin_token");
-        localStorage.removeItem("admin_user");
+      if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+        window.location.href = '/login';
       }
     }
+
     return Promise.reject(error);
   }
 );
@@ -191,6 +200,9 @@ export const recoveryAPI = {
   getCommentUnreadCounts: () => api.get('/recovery/comment-unread-counts'),
   getCommentsWithReadStatus: (loanId) => api.get(`/recovery/loan/${loanId}/comments/read-status`),
   markCommentRead: (loanId) => api.post(`/recovery/loan/${loanId}/comment/mark-read`),
+  
+  // claim livestock ownership
+  claimOwnership: (loanId) => api.post(`/recovery/loan/${loanId}/claim`),
 };
 
 export const userAPI = {

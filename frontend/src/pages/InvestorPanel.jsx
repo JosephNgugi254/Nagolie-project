@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
 import { investorAPI } from "../services/api"
+import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
 import InvestorSidebar from "../components/investor/InvestorSidebar"
 import InvestorStatsCard from "../components/investor/InvestorStatsCard"
 import ImageCarousel from "../components/common/ImageCarousel"
@@ -13,6 +14,7 @@ import Toast, { showToast } from "../components/common/Toast"
 function InvestorPanel() {
   const { user, userRole, isAuthenticated, loading: authLoading, logout, updateUserData } = useAuth()
   const navigate = useNavigate()
+  useSessionTimeout(logout, isAuthenticated, userRole);
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   

@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { recoveryAPI } from '../services/api';
 import { userAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
 import PaymentModal from '../components/recovery/PaymentModal';
@@ -11,6 +12,8 @@ import CommentBox from '../components/recovery/CommentBox';
 import ChatList from '../components/recovery/ChatList';
 import ChatWindow from '../components/recovery/ChatWindow';
 import Modal from '../components/common/Modal';
+import TakeActionModal from '../components/recovery/TakeActionModal';
+
 
 const DAYS_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -20,6 +23,7 @@ const CHAT_WINDOW_GAP   = 12;
 function RecoveryModule() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth();
   const navigate = useNavigate();
+  useSessionTimeout(logout, isAuthenticated, userRole);
 
 
   // ---------- STATE ----------
@@ -37,7 +41,42 @@ function RecoveryModule() {
   const [audio,           setAudio]           = useState(null);
   const prevCounts = useRef({});
 
-  
+
+  const [showTakeActionModal, setShowTakeActionModal] = useState(false);
+  const [selectedLoanForAction, setSelectedLoanForAction] = useState(null);
+
+  const handleTakeAction = (loan) => {
+    setSelectedLoanForAction(loan);
+    setShowTakeActionModal(true);
+  };
+
+  const handleSendReminder = (loan, message) => {
+    // Open SMS app with pre-filled message
+    const phone = loan.contacts;
+    let formattedPhone = phone.replace(/\D/g, '');
+    if (formattedPhone.startsWith('0')) {
+      formattedPhone = '+254' + formattedPhone.substring(1);
+    } else if (formattedPhone.startsWith('254')) {
+      formattedPhone = '+' + formattedPhone;
+    } else if (!formattedPhone.startsWith('+')) {
+      formattedPhone = '+254' + formattedPhone;
+    }
+    const smsUri = `sms:${formattedPhone}?body=${encodeURIComponent(message)}`;
+    window.location.href = smsUri;
+  };
+
+  const handleClaimOwnership = async (loan) => {
+    try {
+      await recoveryAPI.claimOwnership(loan.id);
+      showToast.success('Livestock claimed successfully!');
+      setShowTakeActionModal(false);
+      fetchData(); // refresh the list
+    } catch (err) {
+      showToast.error(err.response?.data?.error || 'Claim failed');
+    }
+  };
+
+
   // Settings Modal States
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [usernameForm, setUsernameForm] = useState({ newUsername: '', currentPassword: '' });
@@ -208,7 +247,14 @@ function RecoveryModule() {
       const res = await recoveryAPI.getRecoveryData();
       setData(res.data);
     } catch (e) {
-      showToast.error('Failed to load recovery data');
+      console.error('Recovery data fetch error:', e);
+      if (e.response?.status === 401) {
+        // Token expired – logout will be handled by interceptor, but force redirect
+        logout();
+        navigate('/login');
+      } else {
+        showToast.error('Failed to load recovery data');
+      }
     } finally {
       setLoading(false);
     }
@@ -233,9 +279,15 @@ function RecoveryModule() {
       navigate('/login');
       return;
     }
-    const allowed = ['director','secretary','accountant','valuer', 'head_of_it'];
+    const allowed = ['director','secretary','accountant','valuer','head_of_it'];
     if (userRole && !allowed.includes(userRole)) {
-      navigate('/admin');
+      // Only redirect to admin if the user is an admin, otherwise logout
+      if (userRole === 'admin') {
+        navigate('/admin');
+      } else {
+        logout();
+        navigate('/login');
+      }
       return;
     }
     if (!userRole) return;
@@ -251,7 +303,7 @@ function RecoveryModule() {
       clearInterval(i1);
       clearInterval(i2);
     };
-  }, [authLoading, isAuthenticated, userRole, navigate, fetchCommentUnreads]);
+  }, [authLoading, isAuthenticated, userRole, navigate, fetchCommentUnreads, logout]);
 
   const handleDefaulter = async (loanId, mark) => {
     try {
@@ -611,6 +663,18 @@ function RecoveryModule() {
                                           </span>
                                         )}
                                       </button>
+
+                                      {/* Take Action button – visible when days_left <= 1 */}
+                                      {loan.days_left <= 1 && (
+                                        <button
+                                          className="btn btn-outline-danger btn-sm"
+                                          onClick={() => handleTakeAction(loan)}
+                                          title="Take Action (Reminder/Claim)"
+                                        >
+                                          <i className="fas fa-bolt"></i>
+                                        </button>
+                                      )}
+
                                       {['director','secretary','head_of_it'].includes(userRole) && (
                                         <button
                                           className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`}
@@ -836,6 +900,18 @@ function RecoveryModule() {
             </form>
           </div>
         </Modal>
+      )}
+
+      {showTakeActionModal && selectedLoanForAction && (
+        <TakeActionModal
+          loan={selectedLoanForAction}
+          onClose={() => {
+            setShowTakeActionModal(false);
+            setSelectedLoanForAction(null);
+          }}
+          onSendReminder={handleSendReminder}
+          onClaimOwnership={handleClaimOwnership}
+        />
       )}
     </div>
   );
