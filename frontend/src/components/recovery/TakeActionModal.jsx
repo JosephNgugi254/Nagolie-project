@@ -22,7 +22,10 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
     totalBalance = currentPrincipal + unpaidInterest;
   }
 
-  const defaultReminderMessage = `Hello ${loan.name}, this is a reminder from NAGOLIE ENTERPRISES that your loan of KES ${totalBalance.toLocaleString()} is due. Please make your payment to avoid additional charges. Thank you.`;
+  const defaultReminderMessage = `Hello ${loan.name}, this is a reminder from NAGOLIE ENTERPRISES that your loan of KES ${totalBalance.toLocaleString()} is due. Please make your payment to avoid additional charges.  Make your payment via: 
+     Paybill: 247247
+     Account: 651259
+Thank you for choosing us.`;
 
   const handleAction = async () => {
     if (!selectedAction) {
