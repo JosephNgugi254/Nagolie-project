@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, session as flask_session
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from webauthn import generate_registration_options, verify_registration_response
 from webauthn import generate_authentication_options, verify_authentication_response
@@ -12,6 +12,7 @@ from app import db
 from app.models import User
 
 biometric_bp = Blueprint('biometric', __name__, url_prefix='/api/auth/biometric')
+
 
 @biometric_bp.route('/register/begin', methods=['POST'])
 @jwt_required()
@@ -34,9 +35,8 @@ def register_begin():
         )
     )
 
-    # Store challenge in session (or temporary storage) for later verification
-    session = {}  # In production use Flask session or Redis
-    session['registration_challenge'] = options.challenge
+    # Store challenge in Flask session (persists across requests)
+    flask_session['registration_challenge'] = options.challenge
 
     return jsonify({
         'options': {
@@ -54,6 +54,7 @@ def register_begin():
         }
     }), 200
 
+
 @biometric_bp.route('/register/complete', methods=['POST'])
 @jwt_required()
 def register_complete():
@@ -66,8 +67,8 @@ def register_complete():
     data = request.json
     credential = RegistrationCredential.parse_raw(json.dumps(data))
 
-    # Retrieve challenge from session
-    expected_challenge = session.get('registration_challenge')
+    # Retrieve challenge from Flask session
+    expected_challenge = flask_session.get('registration_challenge')
     if not expected_challenge:
         return jsonify({'error': 'No registration in progress'}), 400
 
@@ -82,13 +83,17 @@ def register_complete():
     except Exception as e:
         return jsonify({'error': f'Verification failed: {str(e)}'}), 400
 
-    # Store credential
+    # Store credential in database
     user.webauthn_credential_id = base64.b64encode(verification.credential_id).decode()
     user.webauthn_public_key = verification.credential_public_key
     user.webauthn_sign_count = verification.sign_count
     db.session.commit()
 
+    # Clear challenge from session
+    flask_session.pop('registration_challenge', None)
+
     return jsonify({'success': True, 'message': 'Biometric registered successfully'}), 200
+
 
 @biometric_bp.route('/login/begin', methods=['POST'])
 def login_begin():
@@ -110,9 +115,9 @@ def login_begin():
         user_verification=UserVerificationRequirement.REQUIRED
     )
 
-    # Store challenge and user id for later verification
-    session['auth_challenge'] = options.challenge
-    session['auth_user_id'] = user.id
+    # Store challenge and user id in Flask session
+    flask_session['auth_challenge'] = options.challenge
+    flask_session['auth_user_id'] = user.id
 
     return jsonify({
         'options': {
@@ -124,14 +129,15 @@ def login_begin():
         }
     }), 200
 
+
 @biometric_bp.route('/login/complete', methods=['POST'])
 def login_complete():
     """Verify the biometric assertion and return a JWT token."""
     data = request.json
     credential = AuthenticationCredential.parse_raw(json.dumps(data))
 
-    expected_challenge = session.get('auth_challenge')
-    user_id = session.get('auth_user_id')
+    expected_challenge = flask_session.get('auth_challenge')
+    user_id = flask_session.get('auth_user_id')
     if not expected_challenge or not user_id:
         return jsonify({'error': 'No authentication in progress'}), 400
 
@@ -157,6 +163,10 @@ def login_complete():
     # Update sign count
     user.webauthn_sign_count = verification.new_sign_count
     db.session.commit()
+
+    # Clear session data
+    flask_session.pop('auth_challenge', None)
+    flask_session.pop('auth_user_id', None)
 
     # Create JWT token
     access_token = create_access_token(identity=str(user.id))

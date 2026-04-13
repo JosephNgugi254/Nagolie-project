@@ -352,6 +352,11 @@ function RecoveryModule() {
     return { text: `${d}d left`, cls: 'bg-success' };
   };
 
+  const openRenewalModal = (loan) => {
+    setRenewalLoan(loan);
+    setShowRenewalModal(true);
+  };
+
   // ---------- FILTERING & SORTING ----------
   const filterAndSortLoans = (loans) => {
     let filtered = [...loans];
