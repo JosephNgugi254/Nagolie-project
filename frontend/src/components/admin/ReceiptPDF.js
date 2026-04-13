@@ -992,7 +992,7 @@ export const generateLoanAgreementPDF = async (application) => {
     yPos += 8;
 
     const colW = 190 / 3;
-    const col1 = 20, col2 = 20 + colW, col3 = 20 + colW * 2;
+    const col1 = 20, col2 = 35 + colW, col3 = 20 + colW * 2;
     const confY = yPos;
 
     // Director
@@ -1015,16 +1015,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text('Livestock Valuer', col2, confY + 5);
     doc.text('Sign: ___________________', col2, confY + 12);
 
-    // Accountant
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(...COLORS.textDark);
-    doc.text('Gideon Matunta', col3, confY);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('Accountant', col3, confY + 5);
-    doc.text('Sign: ___________________', col3, confY + 12);
-
+   
     yPos = confY + 22;
 
     // Company Stamp Box
