@@ -67,8 +67,10 @@ def create_app(config_class=Config):
     from app.routes.password_reset import password_reset_bp
     from app.routes.company_gallery import company_gallery_bp
     from app.routes.recovery import recovery_bp
+    from app.routes.biometric import biometric_bp
 
 
+    app.register_blueprint(biometric_bp)
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(loans_bp, url_prefix='/api/loans')
     app.register_blueprint(clients_bp, url_prefix='/api/clients')

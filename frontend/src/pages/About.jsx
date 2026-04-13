@@ -181,7 +181,7 @@ function About() {
                   </div>
                 </div>
                 <div className="team-info">
-                  <h4 className="team-name">Millicent Kesumet</h4>
+                  <h4 className="team-name">Millicent Mantaine</h4>
                   <p className="team-role">Deputy Director</p>
                   <p className="team-bio">
                     She works closely with the Director to drive the organization’s vision,

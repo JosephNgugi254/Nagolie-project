@@ -15,6 +15,9 @@ class User(db.Model):
     # NEW - to enable fingerprint biometric
     fingerprint_enabled = db.Column(db.Boolean, default=False)
     fingerprint_credential = db.Column(db.Text)  # store credential ID
+    webauthn_credential_id = db.Column(db.String(255), nullable=True, unique=True)
+    webauthn_public_key = db.Column(db.LargeBinary, nullable=True)
+    webauthn_sign_count = db.Column(db.Integer, default=0)
 
     
     # investor role relationship

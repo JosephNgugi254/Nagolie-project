@@ -5,7 +5,7 @@ import { recoveryAPI } from '../services/api';
 import { userAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement, generateLoanAgreementPDF, generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF, generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
 import PaymentModal from '../components/recovery/PaymentModal';
@@ -14,7 +14,7 @@ import ChatList from '../components/recovery/ChatList';
 import ChatWindow from '../components/recovery/ChatWindow';
 import Modal from '../components/common/Modal';
 import TakeActionModal from '../components/recovery/TakeActionModal';
-
+import { startRegistration } from '@simplewebauthn/browser';   // ← Added for biometrics
 
 const DAYS_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -25,7 +25,6 @@ function RecoveryModule() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth();
   const navigate = useNavigate();
   useSessionTimeout(logout, isAuthenticated, userRole);
-
 
   // ---------- STATE ----------
   const [loading,         setLoading]         = useState(true);
@@ -42,51 +41,8 @@ function RecoveryModule() {
   const [audio,           setAudio]           = useState(null);
   const prevCounts = useRef({});
 
-
   const [showTakeActionModal, setShowTakeActionModal] = useState(false);
   const [selectedLoanForAction, setSelectedLoanForAction] = useState(null);
-
-  const handleTakeAction = (loan) => {
-    setSelectedLoanForAction(loan);
-    setShowTakeActionModal(true);
-  };
-
-  const handleSendReminder = (loan, message) => {
-    // Open SMS app with pre-filled message
-    const phone = loan.contacts;
-    let formattedPhone = phone.replace(/\D/g, '');
-    if (formattedPhone.startsWith('0')) {
-      formattedPhone = '+254' + formattedPhone.substring(1);
-    } else if (formattedPhone.startsWith('254')) {
-      formattedPhone = '+' + formattedPhone;
-    } else if (!formattedPhone.startsWith('+')) {
-      formattedPhone = '+254' + formattedPhone;
-    }
-    const smsUri = `sms:${formattedPhone}?body=${encodeURIComponent(message)}`;
-    window.location.href = smsUri;
-  };
-
-  const handleClaimOwnership = async (loan) => {
-    try {
-      await recoveryAPI.claimOwnership(loan.id);
-      showToast.success('Livestock claimed successfully!');
-      setShowTakeActionModal(false);
-      fetchData(); // refresh the list
-    } catch (err) {
-      showToast.error(err.response?.data?.error || 'Claim failed');
-    }
-  };
-
-  // Renewal modal states
-  const [showRenewalModal, setShowRenewalModal] = useState(false);
-  const [renewalLoan, setRenewalLoan] = useState(null);
-  const [processingRenewal, setProcessingRenewal] = useState(false);
-
-  const openRenewalModal = (loan) => {
-    setRenewalLoan(loan);
-    setShowRenewalModal(true);
-  };
-
 
   // Settings Modal States
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -115,6 +71,42 @@ function RecoveryModule() {
   const handleOpenSettings = () => {
     setShowSettingsModal(true);
     if (isMobile) setSidebarOpen(false);
+  };
+
+  // Biometric Enrollment
+  const enrollBiometrics = async () => {
+    try {
+      // 1. Get registration options
+      const res = await fetch('/api/auth/biometric/register/begin', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      // 2. Call WebAuthn to create credential
+      const attResp = await startRegistration(data.options);
+
+      // 3. Send to backend for verification
+      const verifyRes = await fetch('/api/auth/biometric/register/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify(attResp)
+      });
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) throw new Error(verifyData.error);
+
+      showToast.success('Biometric login enabled successfully!');
+      // Refresh user data to update webauthn_credential_id status
+      if (updateUserData) updateUserData({ ...user, webauthn_credential_id: verifyData.credentialId });
+      
+    } catch (err) {
+      console.error(err);
+      showToast.error(err.message || 'Failed to enable biometrics');
+    }
   };
 
   const handleUsernameChange = async (e) => {
@@ -208,7 +200,7 @@ function RecoveryModule() {
 
   const isMobile = windowWidth <= 991.98;
 
-  // ========== FIXED BACK BUTTON HANDLER (prevents navigation) ==========
+  // ========== FIXED BACK BUTTON HANDLER ==========
   useEffect(() => {
     window.history.replaceState({ recovery: true }, '', window.location.href);
     window.history.pushState({ recovery: true }, '', window.location.href);
@@ -260,7 +252,6 @@ function RecoveryModule() {
     } catch (e) {
       console.error('Recovery data fetch error:', e);
       if (e.response?.status === 401) {
-        // Token expired – logout will be handled by interceptor, but force redirect
         logout();
         navigate('/login');
       } else {
@@ -292,7 +283,6 @@ function RecoveryModule() {
     }
     const allowed = ['director','secretary','accountant','valuer','head_of_it'];
     if (userRole && !allowed.includes(userRole)) {
-      // Only redirect to admin if the user is an admin, otherwise logout
       if (userRole === 'admin') {
         navigate('/admin');
       } else {
@@ -450,7 +440,7 @@ function RecoveryModule() {
 
   const mobileChat = isMobile && openChatWindows.length > 0;
 
-  // ---------- JSX (full original with settings modal) ----------
+  // ---------- JSX ----------
   return (
     <div>
       <Toast />
@@ -523,7 +513,7 @@ function RecoveryModule() {
                 </div>
               </div>
 
-              {/* ---------- FILTERS & SORT BAR (icons only, no emojis) ---------- */}
+              {/* Filters & Sort Bar */}
               <div className="card mb-4 shadow-sm">
                 <div className="card-body">
                   <div className="row g-3 align-items-end">
@@ -574,7 +564,6 @@ function RecoveryModule() {
                       </div>
                     </div>
                   </div>
-                  {/* Clear filters button */}
                   {(searchTerm || planFilter !== 'all' || dayFilter !== 'all' || dateFilter || sortBy !== 'name') && (
                     <div className="mt-3 text-end">
                       <button className="btn btn-sm btn-outline-danger" onClick={() => {
@@ -627,8 +616,7 @@ function RecoveryModule() {
                             {filteredData[day].map(loan => {
                               const badge = getDaysBadge(loan);
                               return (
-                                <tr key={loan.id}
-                                    className={loan.is_defaulter ? 'table-danger' : ''}>
+                                <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
                                   <td>
                                     <div>{loan.name}</div>
                                     <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
@@ -677,23 +665,20 @@ function RecoveryModule() {
                                         )}
                                       </button>
 
-                                      {/* Take Action button – visible when days_left <= 1 */}
                                       {loan.days_left <= 1 && (
                                         <button
                                           className="btn btn-outline-danger btn-sm"
                                           onClick={() => handleTakeAction(loan)}
-                                          title="Take Action (Reminder/Claim)"
-                                        >
+                                          title="Take Action (Reminder/Claim)">
                                           <i className="fas fa-bolt"></i>
                                         </button>
                                       )}
 
                                       {['director','secretary','head_of_it'].includes(userRole) && loan.days_left <= 0 && (
                                         <button 
-                                        className="btn btn-outline-warning btn-sm"
-                                        onClick={() => openRenewalModal(loan)}
-                                        title="Renew Loan"
-                                        >
+                                          className="btn btn-outline-warning btn-sm"
+                                          onClick={() => openRenewalModal(loan)}
+                                          title="Renew Loan">
                                           <i className="fas fa-sync-alt"></i>
                                         </button>
                                       )}
@@ -800,7 +785,7 @@ function RecoveryModule() {
         <CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />
       )}
 
-      {/* Settings Modal */}
+      {/* Settings Modal with Biometric Section */}
       {showSettingsModal && (
         <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
           {/* Change Username Section */}
@@ -853,7 +838,7 @@ function RecoveryModule() {
           <hr />
       
           {/* Change Password Section */}
-          <div>
+          <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
             <form onSubmit={handlePasswordChange}>
               <div className="mb-3">
@@ -922,6 +907,23 @@ function RecoveryModule() {
               </button>
             </form>
           </div>
+
+          <hr />
+
+          {/* Biometric Login Section - Added as requested */}
+          <div className="mt-4">
+            <h6 className="mb-3 fw-bold">Biometric Login</h6>
+            {user?.webauthn_credential_id ? (
+              <p className="text-success">
+                <i className="fas fa-check-circle me-2"></i>
+                Biometrics are enabled for your account.
+              </p>
+            ) : (
+              <button className="btn btn-outline-primary" onClick={enrollBiometrics}>
+                <i className="fas fa-fingerprint me-2"></i>Enable Fingerprint / Face Unlock
+              </button>
+            )}
+          </div>
         </Modal>
       )}
 
@@ -965,7 +967,6 @@ function RecoveryModule() {
               className="btn btn-primary"
               onClick={async () => {
                 try {
-                  // Build a loanData object compatible with generateLoanRenewalAgreementAutoPDF
                   const outstanding = renewalLoan.current_principal + renewalLoan.accrued_interest;
                   const loanData = {
                     name: renewalLoan.name,
@@ -995,7 +996,7 @@ function RecoveryModule() {
                   if (response.data.success) {
                     showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
                     setShowRenewalModal(false);
-                    fetchData(); // refresh table
+                    fetchData();
                   }
                 } catch (error) {
                   showToast.error(error.response?.data?.error || "Renewal failed");
