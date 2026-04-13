@@ -43,6 +43,9 @@ function RecoveryModule() {
 
   const [showTakeActionModal, setShowTakeActionModal] = useState(false);
   const [selectedLoanForAction, setSelectedLoanForAction] = useState(null);
+  const [showRenewalModal, setShowRenewalModal] = useState(false);
+  const [renewalLoan, setRenewalLoan] = useState(null);
+  const [processingRenewal, setProcessingRenewal] = useState(false);
 
   // Settings Modal States
   const [showSettingsModal, setShowSettingsModal] = useState(false);
