@@ -9,6 +9,7 @@ from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload
 from sqlalchemy import func
 from app.routes.payments import recalculate_loan, _loan_summary
+from app.utils.decorators import role_required
 import json
 import secrets
 import string
@@ -1181,4 +1182,119 @@ def get_investor_statement(investor_id):
                                     'current_balance': float(balance),
                                     'total_loans_funded': len(funded)}}), 200
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+
+@admin_bp.route('/loans/<int:loan_id>/renew', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director', 'secretary', 'head_of_it'])
+def renew_loan(loan_id):
+    """
+    Renew an active loan that has reached its maximum period (2 weeks).
+    Old loan is marked as 'renewed' and a new active loan is created
+    with principal = old outstanding balance.
+    """
+    try:
+        from app.routes.payments import recalculate_loan, _loan_summary
+        from datetime import datetime, timedelta
+        from decimal import Decimal
+
+        loan = db.session.get(Loan, loan_id)
+        if not loan:
+            return jsonify({'error': 'Loan not found'}), 404
+        if loan.status != 'active':
+            return jsonify({'error': 'Loan is not active'}), 400
+
+        # Bring loan up to date
+        loan = recalculate_loan(loan)
+
+        # Check that loan is eligible: at least 14 days since disbursement OR overdue
+        now = datetime.utcnow()
+        disburse = loan.disbursement_date or loan.created_at
+        days_since = (now - disburse).days
+        if days_since < 14 and loan.due_date > now:
+            return jsonify({'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'}), 400
+
+        # Outstanding balance = current_principal + (accrued_interest - interest_paid)
+        outstanding_balance = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
+        if outstanding_balance <= Decimal('0.01'):
+            return jsonify({'error': 'No outstanding balance to renew'}), 400
+
+        # Mark old loan as renewed
+        loan.status = 'renewed'
+        loan.balance = Decimal('0')
+        loan.amount_paid = loan.total_amount
+        loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()} - new principal: {outstanding_balance}"
+
+        # Create new loan
+        new_loan = Loan(
+            client_id=loan.client_id,
+            livestock_id=loan.livestock_id,
+            principal_amount=outstanding_balance,
+            current_principal=outstanding_balance,
+            total_amount=outstanding_balance,
+            balance=outstanding_balance,
+            interest_rate=loan.interest_rate,
+            interest_type=loan.interest_type,
+            repayment_plan=loan.repayment_plan,
+            funding_source=loan.funding_source,
+            investor_id=loan.investor_id,
+            disbursement_date=now,
+            status='active',
+            collateral_text=loan.collateral_text,
+            notes=f"Renewal of loan #{loan.id} - original principal {loan.principal_amount}",
+            created_at=now,
+            principal_paid=Decimal('0'),
+            interest_paid=Decimal('0'),
+            accrued_interest=Decimal('0'),
+            last_interest_payment_date=now,
+            interest_prepaid_period=None,
+            interest_prepaid_amount=Decimal('0')
+        )
+
+        # Set due date based on plan
+        if new_loan.repayment_plan == 'daily':
+            new_loan.due_date = now + timedelta(days=14)
+        else:
+            new_loan.due_date = now + timedelta(days=7)
+
+        db.session.add(new_loan)
+        db.session.flush()
+
+        # Create transaction for renewal
+        txn = Transaction(
+            loan_id=loan.id,
+            transaction_type='renewal',
+            amount=outstanding_balance,
+            payment_method='renewal',
+            notes=f'Loan renewed. New loan ID: {new_loan.id}',
+            status='completed',
+            created_at=now
+        )
+        db.session.add(txn)
+
+        if new_loan.livestock:
+            new_loan.livestock.description = f"Collateral for renewed loan #{new_loan.id}"
+
+        db.session.commit()
+
+        log_audit('loan_renewed', 'loan', loan.id, {
+            'old_loan_id': loan.id,
+            'new_loan_id': new_loan.id,
+            'outstanding_balance': float(outstanding_balance),
+            'repayment_plan': new_loan.repayment_plan
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'Loan renewed. New loan ID: {new_loan.id}',
+            'old_loan': loan.to_dict(),
+            'new_loan': new_loan.to_dict(),
+            'outstanding_balance': float(outstanding_balance)
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500

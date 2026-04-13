@@ -5,6 +5,7 @@ import { recoveryAPI } from '../services/api';
 import { userAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
 import PaymentModal from '../components/recovery/PaymentModal';
@@ -74,6 +75,16 @@ function RecoveryModule() {
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Claim failed');
     }
+  };
+
+  // Renewal modal states
+  const [showRenewalModal, setShowRenewalModal] = useState(false);
+  const [renewalLoan, setRenewalLoan] = useState(null);
+  const [processingRenewal, setProcessingRenewal] = useState(false);
+
+  const openRenewalModal = (loan) => {
+    setRenewalLoan(loan);
+    setShowRenewalModal(true);
   };
 
 
@@ -647,11 +658,13 @@ function RecoveryModule() {
                                           <i className="fas fa-money-bill-wave"></i>
                                         </button>
                                       )}
+
                                       <button className="btn btn-outline-success"
                                               onClick={() => { window.location.href = `tel:${loan.contacts}`; }}
                                               title="Call">
                                         <i className="fas fa-phone"></i>
                                       </button>
+
                                       <button className="btn btn-outline-info position-relative"
                                               onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}
                                               title="Comments">
@@ -672,6 +685,16 @@ function RecoveryModule() {
                                           title="Take Action (Reminder/Claim)"
                                         >
                                           <i className="fas fa-bolt"></i>
+                                        </button>
+                                      )}
+
+                                      {['director','secretary','head_of_it'].includes(userRole) && loan.days_left <= 0 && (
+                                        <button 
+                                        className="btn btn-outline-warning btn-sm"
+                                        onClick={() => openRenewalModal(loan)}
+                                        title="Renew Loan"
+                                        >
+                                          <i className="fas fa-sync-alt"></i>
                                         </button>
                                       )}
 
@@ -902,6 +925,7 @@ function RecoveryModule() {
         </Modal>
       )}
 
+      {/* Take action modal */}
       {showTakeActionModal && selectedLoanForAction && (
         <TakeActionModal
           loan={selectedLoanForAction}
@@ -912,6 +936,85 @@ function RecoveryModule() {
           onSendReminder={handleSendReminder}
           onClaimOwnership={handleClaimOwnership}
         />
+      )}
+
+      {/* Loan Renewal Modal */}
+      {showRenewalModal && renewalLoan && (
+        <Modal
+          isOpen={showRenewalModal}
+          onClose={() => {
+            setShowRenewalModal(false);
+            setRenewalLoan(null);
+          }}
+          title="Loan Renewal"
+          size="md"
+        >
+          <div className="mb-3">
+            <p><strong>Client:</strong> {renewalLoan.name}</p>
+            <p><strong>Current Balance:</strong> {fmt(renewalLoan.current_principal + renewalLoan.accrued_interest)}</p>
+            <p><strong>New Principal after Renewal:</strong> {fmt(renewalLoan.current_principal + renewalLoan.accrued_interest)}</p>
+            <p><strong>Repayment Plan:</strong> {renewalLoan.repayment_plan === 'daily' ? 'Daily (4.5% simple)' : 'Weekly (30% compound)'}</p>
+            <p><strong>Interest continues on new principal at same rate.</strong></p>
+          </div>
+          <div className="alert alert-warning">
+            <i className="fas fa-file-pdf me-2"></i>
+            You must download and have the client sign the renewal agreement before processing.
+          </div>
+          <div className="d-flex gap-2 justify-content-between">
+            <button
+              className="btn btn-primary"
+              onClick={async () => {
+                try {
+                  // Build a loanData object compatible with generateLoanRenewalAgreementAutoPDF
+                  const outstanding = renewalLoan.current_principal + renewalLoan.accrued_interest;
+                  const loanData = {
+                    name: renewalLoan.name,
+                    idNumber: renewalLoan.id_number,
+                    phone: renewalLoan.contacts,
+                    borrowedAmount: renewalLoan.principal_amount,
+                    expectedReturnDate: renewalLoan.disbursement_date,
+                    balance: outstanding,
+                    repayment_plan: renewalLoan.repayment_plan,
+                  };
+                  await generateLoanRenewalAgreementAutoPDF(loanData, outstanding);
+                  showToast.success("Renewal agreement downloaded. Have client sign it.");
+                } catch (err) {
+                  console.error(err);
+                  showToast.error("Failed to download agreement");
+                }
+              }}
+            >
+              <i className="fas fa-download me-2"></i>Download Agreement
+            </button>
+            <button
+              className="btn btn-success"
+              onClick={async () => {
+                setProcessingRenewal(true);
+                try {
+                  const response = await recoveryAPI.renewLoan(renewalLoan.id);
+                  if (response.data.success) {
+                    showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
+                    setShowRenewalModal(false);
+                    fetchData(); // refresh table
+                  }
+                } catch (error) {
+                  showToast.error(error.response?.data?.error || "Renewal failed");
+                } finally {
+                  setProcessingRenewal(false);
+                }
+              }}
+              disabled={processingRenewal}
+            >
+              {processingRenewal ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Renewal"}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowRenewalModal(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -137,6 +137,7 @@ export const adminAPI = {
   addCompanyGalleryImages: (data) => api.post("/company-gallery/admin", data),
   deleteCompanyGalleryImage: (id) => api.delete(`/company-gallery/admin/${id}`),
   updateCompanyGalleryImage: (id, data) => api.put(`/company-gallery/admin/${id}`, data),
+  renewLoan: (loanId) => api.post(`/admin/loans/${loanId}/renew`),
 };
 
 export const paymentAPI = {
@@ -203,6 +204,9 @@ export const recoveryAPI = {
   
   // claim livestock ownership
   claimOwnership: (loanId) => api.post(`/recovery/loan/${loanId}/claim`),
+
+  // Renew Loan
+  renewLoan: (loanId) => api.post(`/recovery/loan/${loanId}/renew`),
 };
 
 export const userAPI = {

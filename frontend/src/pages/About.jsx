@@ -141,7 +141,7 @@ function About() {
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
-                  <img src="/Shaddy CEO.png" alt="CEO - Nagolie Enterprises" className="img-fluid" />
+                  <img src="/Shaddy CEO.png" alt="CEO" className="img-fluid" />
                   <div className="team-overlay">
                     <div className="team-social">
                       <a href="https://wa.me/254721451707" className="social-link">
@@ -159,6 +159,33 @@ function About() {
                   <p className="team-bio">
                     He has a deep understanding of rural financial needs and brings an ambitious, problem-solving
                     mentality to every challenge.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Deputy Director */}
+            <div className="col-lg-4 col-md-6 mb-5">
+              <div className="team-card">
+                <div className="team-image">
+                  <img src="/Milly.jpeg" alt="Deputy Director" className="img-fluid" />
+                  <div className="team-overlay">
+                    <div className="team-social">
+                      <a href="https://wa.me/" className="social-link">
+                        <i className="fab fa-whatsapp"></i>
+                      </a>
+                      <a href="" className="social-link">
+                        <i className="fas fa-envelope"></i>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div className="team-info">
+                  <h4 className="team-name">Millicent Kesumet</h4>
+                  <p className="team-role">Deputy Director</p>
+                  <p className="team-bio">
+                    She works closely with the Director to drive the organization’s vision,
+                    providing strategic support and ensuring efficient operations
                   </p>
                 </div>
               </div>
@@ -208,11 +235,11 @@ function About() {
                   </div>
                 </div>
                 <div className="team-info">
-                  <h4 className="team-name">Gideon Pashile</h4>
+                  <h4 className="team-name">Gideon Matunta</h4>
                   <p className="team-role">Head Accountant</p>
                   <p className="team-bio">
                     Oversees all financial operations, ensures accurate record-keeping,
-                     and supports sound financial decision-making for Nagolie Enterprises.
+                    and supports sound financial decision-making for Nagolie Enterprises.
                   </p>
                 </div>
               </div>

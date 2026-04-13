@@ -14,7 +14,7 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
@@ -30,6 +30,27 @@ function AdminPanel() {
   const [imageUploading, setImageUploading] = useState(false);
   const [audio, setAudio] = useState(null);
   const prevPendingCountRef = useRef(0);
+
+  //loan renewal states
+  const [showRenewalModal, setShowRenewalModal] = useState(false);
+  const [renewalLoan, setRenewalLoan] = useState(null);
+  const [renewalOutstanding, setRenewalOutstanding] = useState(0);
+  const [processingRenewal, setProcessingRenewal] = useState(false);
+
+  const canRenewLoan = (loan) => {
+    const allowedRoles = ['admin','director', 'secretary', 'head_of_it'];
+    if (!allowedRoles.includes(userRole)) return false;
+    // Eligible if overdue or daysLeft <= 0
+    if (loan.daysLeft <= 0) return true;
+    if (loan.weeks_overdue > 0) return true;
+    // Also if balance > 0 and more than 14 days since disbursement
+    if (loan.borrowedDate) {
+      const disbursed = new Date(loan.borrowedDate);
+      const daysSince = (new Date() - disbursed) / (1000*3600*24);
+      if (daysSince >= 14 && loan.balance > 0) return true;
+    }
+    return false;
+  };
   
   
   const [dashboardData, setDashboardData] = useState({
@@ -2690,6 +2711,24 @@ Thank you for choosing us.`;
                                 >
                                   <i className="fas fa-edit"></i>
                                 </button>
+                                {/* renew loan button */}
+                                {canRenewLoan(row) && (
+                                  <button 
+                                    className="btn btn-outline-warning btn-sm" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      // Calculate outstanding balance
+                                      const outstanding = row.balance;
+                                      setRenewalLoan(row);
+                                      setRenewalOutstanding(outstanding);
+                                      setShowRenewalModal(true);
+                                    }}
+                                    title="Renew Loan"
+                                  >
+                                    <i className="fas fa-sync-alt"></i>
+                                  </button>
+                                )}
+
                                 {/* Download Receipt */}
                                 <button 
                                   className="btn btn-outline-info" 
@@ -5726,6 +5765,7 @@ Thank you for choosing us.`;
         />
       )}
 
+      {/* Process Return Modal */}
       {showProcessReturnModal && selectedInvestorForReturn && (
         <Modal
           isOpen={showProcessReturnModal}
@@ -6147,6 +6187,75 @@ Thank you for choosing us.`;
           </div>
         </div>
       )}
+
+      {/* Loan renewal modal  */}
+      {showRenewalModal && renewalLoan && (
+        <Modal
+          isOpen={showRenewalModal}
+          onClose={() => {
+            setShowRenewalModal(false);
+            setRenewalLoan(null);
+          }}
+          title="Loan Renewal"
+          size="md"
+        >
+          <div className="mb-3">
+            <p><strong>Client:</strong> {renewalLoan.name}</p>
+            <p><strong>Current Balance:</strong> {formatCurrency(renewalLoan.balance)}</p>
+            <p><strong>New Principal after Renewal:</strong> {formatCurrency(renewalLoan.balance)}</p>
+            <p><strong>Repayment Plan:</strong> {renewalLoan.repayment_plan === 'daily' ? 'Daily (4.5% simple)' : 'Weekly (30% compound)'}</p>
+            <p><strong>Interest continues on new principal at same rate.</strong></p>
+          </div>
+          <div className="alert alert-warning">
+            <i className="fas fa-file-pdf me-2"></i>
+            You must download and have the client sign the renewal agreement before processing.
+          </div>
+          <div className="d-flex gap-2 justify-content-between">
+            <button
+              className="btn btn-primary"
+              onClick={async () => {
+                try {
+                  await generateLoanRenewalAgreementAutoPDF(renewalLoan, renewalLoan.balance);
+                  showToast.success("Renewal agreement downloaded. Have client sign it.");
+                } catch (err) {
+                  showToast.error("Failed to download agreement");
+                }
+              }}
+            >
+              <i className="fas fa-download me-2"></i>Download Agreement
+            </button>
+            <button
+              className="btn btn-success"
+              onClick={async () => {
+                setProcessingRenewal(true);
+                try {
+                  const response = await adminAPI.renewLoan(renewalLoan.loan_id);
+                  if (response.data.success) {
+                    showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
+                    setShowRenewalModal(false);
+                    // Refresh data
+                    await Promise.all([fetchClients(), fetchDashboardData(), fetchTransactions(), fetchPaymentStats()]);
+                  }
+                } catch (error) {
+                  showToast.error(error.response?.data?.error || "Renewal failed");
+                } finally {
+                  setProcessingRenewal(false);
+                }
+              }}
+              disabled={processingRenewal}
+            >
+              {processingRenewal ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Renewal"}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowRenewalModal(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+
     </div>  
   )
 }
