@@ -726,7 +726,7 @@ function RecoveryModule() {
                                   <td>Week {loan.week}</td>
                                   <td>
                                     <div className="btn-group btn-group-sm">
-                                      {['director','secretary','head_of_it'].includes(userRole) && (
+                                      {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
                                         <button className="btn btn-outline-primary"
                                                 onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}
                                                 title="Process Payment">
@@ -761,7 +761,7 @@ function RecoveryModule() {
                                         </button>
                                       )}
 
-                                      {['director','secretary','head_of_it'].includes(userRole) && loan.days_left <= 0 && (
+                                      {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                         <button 
                                           className="btn btn-outline-warning btn-sm"
                                           onClick={() => openRenewalModal(loan)}
@@ -770,7 +770,7 @@ function RecoveryModule() {
                                         </button>
                                       )}
 
-                                      {['director','secretary','head_of_it'].includes(userRole) && (
+                                      {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
                                         <button
                                           className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`}
                                           onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}

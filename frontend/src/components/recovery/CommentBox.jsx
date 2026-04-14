@@ -106,6 +106,7 @@ function CommentBox({ loanId, onClose }) {
       case 'head_of_it':return '#8ffdf6';
       case 'accountant': return '#e6f0ff';
       case 'valuer': return '#e6ffe6';
+      case 'deputy_director': return '#ea99f8ff';
       default: return '#f8f9fa';
     }
   };

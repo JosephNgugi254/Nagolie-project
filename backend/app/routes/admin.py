@@ -1187,7 +1187,7 @@ def get_investor_statement(investor_id):
 
 @admin_bp.route('/loans/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director'])
 def renew_loan(loan_id):
     """
     Renew an active loan that has reached its maximum period (2 weeks).

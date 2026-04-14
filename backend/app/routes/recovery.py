@@ -28,7 +28,7 @@ def get_week_number(disbursement_date):
 
 @recovery_bp.route('', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'secretary', 'accountant', 'valuer','head_of_it'])
+@role_required(['director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
     loans   = Loan.query.options(
@@ -106,7 +106,7 @@ def get_recovery_data():
 
 @recovery_bp.route('/loan/<int:loan_id>/payment', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it'])
+@role_required(['director', 'secretary', 'head_of_it','deputy_director'])
 def process_recovery_payment(loan_id):
     """
     Process a payment from the recovery module.
@@ -244,7 +244,7 @@ def mark_read(msg_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/defaulter', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it'])
+@role_required(['director', 'secretary', 'head_of_it', 'deputy_director'])
 def mark_defaulter(loan_id):
     uid = int(get_jwt_identity())
     ex  = Defaulter.query.filter_by(loan_id=loan_id).first()
@@ -257,7 +257,7 @@ def mark_defaulter(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/defaulter', methods=['DELETE'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it'])
+@role_required(['director', 'secretary', 'head_of_it', 'deputy_director'])
 def resolve_defaulter(loan_id):
     d = Defaulter.query.filter_by(loan_id=loan_id, resolved=False).first()
     if not d: return jsonify({'error': 'Not marked as defaulter'}), 404
@@ -361,7 +361,7 @@ def mark_comments_read(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/claim', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it', 'accountant', 'valuer'])
+@role_required(['director', 'secretary', 'head_of_it', 'accountant', 'valuer', 'deputy_director'])
 def claim_ownership(loan_id):
     try:
         loan = db.session.get(Loan, loan_id)
@@ -400,7 +400,7 @@ def claim_ownership(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director'])
 def renew_loan_recovery(loan_id):
     """
     Renew an active loan from the recovery module.

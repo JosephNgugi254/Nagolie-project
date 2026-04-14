@@ -38,7 +38,7 @@ function AdminPanel() {
   const [processingRenewal, setProcessingRenewal] = useState(false);
 
   const canRenewLoan = (loan) => {
-    const allowedRoles = ['admin','director', 'secretary', 'head_of_it'];
+    const allowedRoles = ['admin','director', 'secretary', 'head_of_it', 'deputy_director'];
     if (!allowedRoles.includes(userRole)) return false;
     // Eligible if overdue or daysLeft <= 0
     if (loan.daysLeft <= 0) return true;
