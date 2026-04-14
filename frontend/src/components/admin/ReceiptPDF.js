@@ -326,13 +326,26 @@ export const generateClientStatement = async (client, allTransactions) => {
     const repaymentPlan = client.repayment_plan || 'weekly';   // default to weekly
     const INTEREST_RATE = repaymentPlan === 'daily' ? 4.5 : 30;
     const expectedAmount = (client.borrowedAmount || 0) * (1 + INTEREST_RATE / 100);
-  
+
+    // --- Compute accurate remaining balance (especially for daily loans) ---
+    let accurateBalance = client.balance;  // fallback to provided balance
+    if (repaymentPlan === 'daily' && client.borrowedDate) {
+        const borrowedDate = new Date(client.borrowedDate);
+        const today = new Date();
+        const daysSince = Math.max(0, Math.floor((today - borrowedDate) / (1000 * 60 * 60 * 24)));
+        const dailyRate = 0.045;                     // 4.5% per day
+        const accruedInterest = (client.borrowedAmount || 0) * dailyRate * daysSince;
+        const totalDue = (client.borrowedAmount || 0) + accruedInterest;
+        accurateBalance = totalDue - (client.amountPaid || 0);
+        accurateBalance = Math.max(0, accurateBalance);   // never negative
+    }
+
     const loanDetails = [
       { label: 'Principal Amount:', value: `KES ${Number(client.borrowedAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
       { label: 'Interest Rate:', value: `${INTEREST_RATE}%` },
       { label: 'Expected Total:', value: `KES ${expectedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
       { label: 'Amount Paid:', value: `KES ${Number(client.amountPaid || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Remaining Balance:', value: `KES ${Number(client.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Remaining Balance:', value: `KES ${accurateBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
       { label: 'Disbursement Date:', value: client.borrowedDate ? new Date(client.borrowedDate).toLocaleDateString('en-GB') : 'N/A' },
       { label: 'Due Date:', value: client.expectedReturnDate ? new Date(client.expectedReturnDate).toLocaleDateString('en-GB') : 'N/A' }
     ];
