@@ -471,7 +471,8 @@ def get_payment_stats():
                 'interest_paid': float(ip),
                 'accrued_interest': float(acc_int),                 # ✅ NEW (if needed)
                 'expected_return_date': loan.due_date.isoformat() if loan.due_date else None,  # ✅ NEW
-                'status': loan.status
+                'status': loan.status,
+                'repayment_plan': loan.repayment_plan 
             })
 
             total_principal_paid += pp
