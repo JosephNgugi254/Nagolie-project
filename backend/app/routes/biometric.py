@@ -16,6 +16,7 @@ import traceback
 from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify
+from flask import current_app
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from webauthn import (
     generate_registration_options,
@@ -93,9 +94,15 @@ def _rp_id(req) -> str:
 
 
 def _origin(req) -> str:
-    if req.is_secure:
-        return f"https://{req.host}"
-    return f"http://{req.host}"
+    """Return the frontend origin from the Origin header if allowed, else fallback."""
+    origin = req.headers.get('Origin')
+    if origin:
+        allowed = current_app.config.get('CORS_ORIGINS', [])
+        if origin in allowed or '*' in allowed:
+            return origin
+    # Fallback (useful for server‑to‑server or missing header)
+    scheme = 'https' if req.is_secure else 'http'
+    return f"{scheme}://{req.host}"
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +202,7 @@ def register_complete():
             credential=credential,
             expected_challenge=expected_challenge,
             expected_rp_id=_rp_id(request),
-            expected_origin=_origin(request),
+            expected_origin=_origin(request),   # ✅ Now uses Origin header
             require_user_verification=False,
         )
 
