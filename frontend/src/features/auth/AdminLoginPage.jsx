@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "../../context/AuthContext"
 import Toast, { showToast } from "../../components/common/Toast"
-import BiometricModal from "../../components/auth/BiometricModal";
+import BiometricModal from "../../components/auth/BiometricModal"
 
 function AdminLoginPage() {
   const { login, user, userRole, isAuthenticated, loading: authLoading } = useAuth()
@@ -12,10 +12,7 @@ function AdminLoginPage() {
   const [showBiometricModal, setShowBiometricModal] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const navigate = useNavigate()
-  const [formData, setFormData] = useState({
-    username: "",
-    password: "",
-  })
+  const [formData, setFormData] = useState({ username: "", password: "" })
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -25,16 +22,9 @@ function AdminLoginPage() {
   // Redirect if already authenticated
   useEffect(() => {
     if (authLoading) return;
-    
     if (isAuthenticated()) {
-      if (userRole === 'investor') {
-        navigate("/investor")
-      } else if (userRole === 'admin') {
-        navigate("/admin")
-      } else {
-        // Default to admin if no role
-        navigate("/admin")
-      }
+      if (userRole === 'investor') navigate("/investor")
+      else navigate("/admin")
     }
   }, [isAuthenticated, userRole, authLoading, navigate])
 
@@ -46,9 +36,10 @@ function AdminLoginPage() {
     }
   }, [isWebAuthnSupported])
 
-  const handleBiometricSuccess = (user, redirectTo) => {
-    navigate(redirectTo)
-    window.location.reload() // force refresh to load context
+  const handleBiometricSuccess = (userData, redirectTo) => {
+    // AuthContext already stores tokens via localStorage, but we need to update context state
+    // For simplicity, reload the page so AuthProvider re‑reads localStorage
+    window.location.href = redirectTo
   }
 
   const handleUsePassword = () => {
@@ -63,32 +54,18 @@ function AdminLoginPage() {
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-    }))
-    if (error) {
-      setError("")
-    }
+    setFormData(prev => ({ ...prev, [name]: value }))
+    if (error) setError("")
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
     try {
-      console.log("Attempting login with:", formData)
       const result = await login(formData);
-      console.log("Login result:", result)
-      
       if (result.success) {
         showToast.success('Login successful!');
-        
-        // Use the redirect_to from the result
-        const redirectPath = result.redirect_to || (result.user?.role === 'investor' ? '/investor' : '/admin');
-        console.log("Redirecting to:", redirectPath)
-        
-        navigate(redirectPath);
+        navigate(result.redirect_to || (result.user?.role === 'investor' ? '/investor' : '/admin'));
       } else {
         showToast.error(result.error || 'Login failed');
         setError(result.error || 'Login failed');
@@ -100,20 +77,16 @@ function AdminLoginPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleClose = () => {
-    navigate("/") // Navigate back to home page
   }
 
+  const handleClose = () => navigate("/")
+
   return (
-    <div className="min-vh-100 d-flex align-items-center" style={{
-      background: "grey"
-    }}>
+    <div className="min-vh-100 d-flex align-items-center" style={{ background: "grey" }}>
       <Toast />
       <div className="container">
         <div className="row justify-content-center">
-          <div className="col-md-6 col-lg-4">            
+          <div className="col-md-6 col-lg-4">
             {/* Biometric Modal */}
             {showBiometricModal && (
               <BiometricModal
@@ -126,36 +99,26 @@ function AdminLoginPage() {
 
             {/* Normal Password Login Form – only shown when password option is chosen */}
             {showPasswordForm && (
-              <div className="card shadow-lg border-0 position-relative">              
+              <div className="card shadow-lg border-0 position-relative">
                 <div className="card-header bg-primary text-white text-center py-4 position-relative">
-                  {/* Close Button - Positioned in top right */}
                   <button 
                     type="button" 
                     className="btn-close btn-close-white position-absolute top-0 end-0 m-3" 
                     onClick={handleClose}
                     aria-label="Close"
-                    style={{
-                      filter: "brightness(0) invert(1)",
-                      opacity: 1,
-                      fontSize: "1.2rem",
-                      padding: "0.75rem"
-                    }}
                   ></button>
-                  
                   <img src="/logo.png" alt="Nagolie" height="50" style={{borderRadius:5}} className="mb-3" />
                   <h4 className="mb-0">Nagolie Enterprises</h4>
                   <p className="mb-0 mt-2" style={{color:"#000000ff"}}>Enter your login credentials</p>
                 </div>
-                
                 <div className="card-body p-4">                          
-                  <form onSubmit={handleSubmit} id="login-form">
+                  <form onSubmit={handleSubmit}>
                     {error && (
                       <div className="alert alert-danger d-flex align-items-center" role="alert">
                         <i className="fas fa-exclamation-triangle me-2"></i>
                         <div>{error}</div>
                       </div>
                     )}
-
                     <div className="mb-3">
                       <label htmlFor="username" className="form-label">Username</label>
                       <input 
@@ -171,7 +134,6 @@ function AdminLoginPage() {
                         placeholder="Enter your username"
                       />
                     </div>
-
                     <div className="mb-4">
                       <label htmlFor="password" className="form-label">Password</label>
                       <div className="input-group">
@@ -197,7 +159,6 @@ function AdminLoginPage() {
                         </button>
                       </div>
                     </div>
-
                     <button 
                       type="submit" 
                       className="btn btn-primary w-100 btn-lg" 
@@ -223,7 +184,6 @@ function AdminLoginPage() {
                       </button>
                     </div>
                   </form>
-                  
                   <div className="mt-3 text-center">
                     <p className="text-muted">
                       Having trouble? Contact support at 
@@ -231,7 +191,6 @@ function AdminLoginPage() {
                     </p>
                   </div>
                 </div>
-                
                 <div className="card-footer text-center py-3">
                   <small className="text-muted">
                     &copy; {new Date().getFullYear()} Nagolie Enterprises. All rights reserved.

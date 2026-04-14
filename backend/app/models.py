@@ -53,7 +53,9 @@ class User(db.Model):
             'username': self.username,
             'email': self.email,
             'role': self.role,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'webauthn_credential_id': self.webauthn_credential_id,
+            'webauthn_enabled': bool(self.webauthn_credential_id),
         }
 
 class Client(db.Model):

@@ -76,41 +76,120 @@ function RecoveryModule() {
     if (isMobile) setSidebarOpen(false);
   };
 
-  // Biometric Enrollment
   const enrollBiometrics = async () => {
     try {
-      // 1. Get registration options
-      const res = await fetch('/api/auth/biometric/register/begin', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      // 2. Call WebAuthn to create credential
-      const attResp = await startRegistration(data.options);
-
-      // 3. Send to backend for verification
-      const verifyRes = await fetch('/api/auth/biometric/register/complete', {
+      const token = localStorage.getItem('token');
+ 
+      // 1. Get registration options from server
+      const beginRes = await fetch('/api/auth/biometric/register/begin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(attResp)
       });
-      const verifyData = await verifyRes.json();
-      if (!verifyRes.ok) throw new Error(verifyData.error);
-
+ 
+      if (!beginRes.ok) {
+        const txt = await beginRes.text();
+        let msg = 'Failed to start registration';
+        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* raw */ }
+        throw new Error(msg);
+      }
+ 
+      const beginData = await beginRes.json();
+      const { cacheKey, options } = beginData;
+ 
+      // 2. Invoke the device's biometric sensor
+      const attResp = await startRegistration(options);
+ 
+      // 3. Send the attestation + cacheKey to the server for verification
+      const completeRes = await fetch('/api/auth/biometric/register/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ...attResp, cacheKey }),
+      });
+ 
+      if (!completeRes.ok) {
+        const txt = await completeRes.text();
+        let msg = 'Biometric registration failed';
+        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* raw */ }
+        throw new Error(msg);
+      }
+ 
+      const completeData = await completeRes.json();
       showToast.success('Biometric login enabled successfully!');
-      // Refresh user data to update webauthn_credential_id status
-      if (updateUserData) updateUserData({ ...user, webauthn_credential_id: verifyData.credentialId });
-      
+ 
+      // Update local user state so the toggle flips immediately
+      if (updateUserData) {
+        updateUserData({ ...user, webauthn_credential_id: completeData.credentialId || 'enrolled' });
+      }
     } catch (err) {
-      console.error(err);
-      showToast.error(err.message || 'Failed to enable biometrics');
+      console.error('Biometric enroll error:', err);
+      // SimpleWebAuthn throws "NotAllowedError" when the user cancels
+      if (err.name === 'NotAllowedError') {
+        showToast.error('Biometric prompt was cancelled or timed out.');
+      } else {
+        showToast.error(err.message || 'Failed to enable biometrics');
+      }
     }
   };
+
+  const disableBiometrics = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/auth/biometric/disable', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+ 
+      if (!res.ok) {
+        const txt = await res.text();
+        let msg = 'Failed to disable biometrics';
+        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* raw */ }
+        throw new Error(msg);
+      }
+ 
+      showToast.success('Biometrics disabled.');
+      if (updateUserData) {
+        updateUserData({ ...user, webauthn_credential_id: null });
+      }
+    } catch (err) {
+      console.error('Biometric disable error:', err);
+      showToast.error(err.message || 'Failed to disable biometrics');
+    }
+  };
+
+  const handleTakeAction = (loan) => {
+    setSelectedLoanForAction(loan);
+    setShowTakeActionModal(true);
+  };
+
+  const handleSendReminder = async (loan) => {
+    try {
+      await recoveryAPI.claimOwnership(loan.id);   // adjust to your actual API call
+      showToast.success('Reminder sent!');
+    } catch (e) {
+      showToast.error(e.response?.data?.error || 'Failed to send reminder');
+    }
+    setShowTakeActionModal(false);
+    setSelectedLoanForAction(null);
+  };
+
+  const handleClaimOwnership = async (loan) => {
+    try {
+      await recoveryAPI.claimOwnership(loan.id);
+      showToast.success('Ownership claimed!');
+      fetchData();
+    } catch (e) {
+      showToast.error(e.response?.data?.error || 'Claim failed');
+    }
+    setShowTakeActionModal(false);
+    setSelectedLoanForAction(null);
+  };
+ 
 
   const handleUsernameChange = async (e) => {
     e.preventDefault();
@@ -793,10 +872,10 @@ function RecoveryModule() {
         <CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />
       )}
 
-      {/* Settings Modal with Biometric Section */}
       {showSettingsModal && (
         <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
-          {/* Change Username Section */}
+        
+          {/* ── Change Username ────────────────────────────────────────────── */}
           <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>
             <form onSubmit={handleUsernameChange}>
@@ -811,41 +890,38 @@ function RecoveryModule() {
                   className="form-control"
                   value={usernameForm.newUsername}
                   onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })}
-                  required
-                  minLength="3"
+                  required minLength="3"
                   placeholder="Enter new username"
                 />
-                <small className="text-muted">Username must be at least 3 characters</small>
+                <small className="text-muted">Minimum 3 characters</small>
               </div>
               <div className="mb-3">
                 <label className="form-label">Current Password</label>
                 <div className="input-group">
                   <input
-                    type={showUsernameCurrentPass ? "text" : "password"}
+                    type={showUsernameCurrentPass ? 'text' : 'password'}
                     className="form-control"
                     value={usernameForm.currentPassword}
                     onChange={(e) => setUsernameForm({ ...usernameForm, currentPassword: e.target.value })}
-                    required
-                    placeholder="Enter your current password"
+                    required placeholder="Enter your current password"
                   />
-                  <button
-                    className="btn btn-outline-secondary"
-                    type="button"
-                    onClick={() => setShowUsernameCurrentPass(!showUsernameCurrentPass)}
-                  >
-                    <i className={`fas fa-${showUsernameCurrentPass ? 'eye-slash' : 'eye'}`}></i>
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowUsernameCurrentPass(!showUsernameCurrentPass)}>
+                    <i className={`fas fa-${showUsernameCurrentPass ? 'eye-slash' : 'eye'}`} />
                   </button>
                 </div>
               </div>
               <button type="submit" className="btn btn-primary" disabled={usernameLoading}>
-                {usernameLoading ? <><span className="spinner-border spinner-border-sm me-2"></span>Updating...</> : 'Update Username'}
+                {usernameLoading
+                  ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</>
+                  : 'Update Username'}
               </button>
             </form>
           </div>
-      
+                
           <hr />
-      
-          {/* Change Password Section */}
+                
+          {/* ── Change Password ────────────────────────────────────────────── */}
           <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
             <form onSubmit={handlePasswordChange}>
@@ -853,19 +929,15 @@ function RecoveryModule() {
                 <label className="form-label">Current Password</label>
                 <div className="input-group">
                   <input
-                    type={showCurrentPass ? "text" : "password"}
+                    type={showCurrentPass ? 'text' : 'password'}
                     className="form-control"
                     value={passwordForm.currentPassword}
                     onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                    required
-                    placeholder="Enter current password"
+                    required placeholder="Current password"
                   />
-                  <button
-                    className="btn btn-outline-secondary"
-                    type="button"
-                    onClick={() => setShowCurrentPass(!showCurrentPass)}
-                  >
-                    <i className={`fas fa-${showCurrentPass ? 'eye-slash' : 'eye'}`}></i>
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowCurrentPass(!showCurrentPass)}>
+                    <i className={`fas fa-${showCurrentPass ? 'eye-slash' : 'eye'}`} />
                   </button>
                 </div>
               </div>
@@ -873,20 +945,15 @@ function RecoveryModule() {
                 <label className="form-label">New Password</label>
                 <div className="input-group">
                   <input
-                    type={showNewPass ? "text" : "password"}
+                    type={showNewPass ? 'text' : 'password'}
                     className="form-control"
                     value={passwordForm.newPassword}
                     onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                    required
-                    minLength="6"
-                    placeholder="Enter new password (min 6 characters)"
+                    required minLength="6" placeholder="Min 6 characters"
                   />
-                  <button
-                    className="btn btn-outline-secondary"
-                    type="button"
-                    onClick={() => setShowNewPass(!showNewPass)}
-                  >
-                    <i className={`fas fa-${showNewPass ? 'eye-slash' : 'eye'}`}></i>
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowNewPass(!showNewPass)}>
+                    <i className={`fas fa-${showNewPass ? 'eye-slash' : 'eye'}`} />
                   </button>
                 </div>
               </div>
@@ -894,42 +961,69 @@ function RecoveryModule() {
                 <label className="form-label">Confirm New Password</label>
                 <div className="input-group">
                   <input
-                    type={showConfirmPass ? "text" : "password"}
+                    type={showConfirmPass ? 'text' : 'password'}
                     className="form-control"
                     value={passwordForm.confirmPassword}
                     onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                    required
-                    placeholder="Confirm new password"
+                    required placeholder="Confirm new password"
                   />
-                  <button
-                    className="btn btn-outline-secondary"
-                    type="button"
-                    onClick={() => setShowConfirmPass(!showConfirmPass)}
-                  >
-                    <i className={`fas fa-${showConfirmPass ? 'eye-slash' : 'eye'}`}></i>
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowConfirmPass(!showConfirmPass)}>
+                    <i className={`fas fa-${showConfirmPass ? 'eye-slash' : 'eye'}`} />
                   </button>
                 </div>
               </div>
               <button type="submit" className="btn btn-warning" disabled={passwordLoading}>
-                {passwordLoading ? <><span className="spinner-border spinner-border-sm me-2"></span>Updating...</> : 'Update Password'}
+                {passwordLoading
+                  ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</>
+                  : 'Update Password'}
               </button>
             </form>
           </div>
-
+                
           <hr />
-
-          {/* Biometric Login Section - Added as requested */}
-          <div className="mt-4">
-            <h6 className="mb-3 fw-bold">Biometric Login</h6>
-            {user?.webauthn_credential_id ? (
-              <p className="text-success">
-                <i className="fas fa-check-circle me-2"></i>
-                Biometrics are enabled for your account.
-              </p>
+                
+          {/* ── Biometric Login Toggle ─────────────────────────────────────── */}
+          <div className="mt-3">
+            <h6 className="fw-bold fs-5 text-center mb-3">
+              <i className="fas fa-fingerprint me-2 text-primary" />Biometric Login
+            </h6>
+                
+            {!window.PublicKeyCredential ? (
+              <div className="alert alert-warning mb-0">
+                <i className="fas fa-exclamation-triangle me-2" />
+                Your browser or device does not support biometric authentication.
+              </div>
+            ) : user?.webauthn_credential_id ? (
+              /* ── Already enrolled ─────────────────────────────────────── */
+              <div className="d-flex align-items-center justify-content-between p-3 rounded"
+                  style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div>
+                  <p className="mb-1 text-success fw-semibold">
+                    <i className="fas fa-check-circle me-2" />Biometrics Enabled
+                  </p>
+                  <small className="text-muted">
+                    You can log in with fingerprint or Face ID on supported devices.
+                  </small>
+                </div>
+                <button className="btn btn-sm btn-outline-danger ms-3" onClick={disableBiometrics}>
+                  <i className="fas fa-times me-1" />Disable
+                </button>
+              </div>
             ) : (
-              <button className="btn btn-outline-primary" onClick={enrollBiometrics}>
-                <i className="fas fa-fingerprint me-2"></i>Enable Fingerprint / Face Unlock
-              </button>
+              /* ── Not enrolled ─────────────────────────────────────────── */
+              <div className="d-flex align-items-center justify-content-between p-3 rounded"
+                  style={{ background: '#fafafa', border: '1px solid #e5e7eb' }}>
+                <div>
+                  <p className="mb-1 fw-semibold">Enable Biometric Login</p>
+                  <small className="text-muted">
+                    Use fingerprint or Face ID to log in without typing a password.
+                  </small>
+                </div>
+                <button className="btn btn-sm btn-primary ms-3" onClick={enrollBiometrics}>
+                  <i className="fas fa-fingerprint me-1" />Enable
+                </button>
+              </div>
             )}
           </div>
         </Modal>
