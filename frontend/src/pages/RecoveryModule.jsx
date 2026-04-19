@@ -167,15 +167,38 @@ function RecoveryModule() {
     setShowTakeActionModal(true);
   };
 
-  const handleSendReminder = async (loan) => {
-    try {
-      await recoveryAPI.claimOwnership(loan.id);   // adjust to your actual API call
-      showToast.success('Reminder sent!');
-    } catch (e) {
-      showToast.error(e.response?.data?.error || 'Failed to send reminder');
+  // Helper to format Kenyan phone numbers to +254XXXXXXXXX
+  const formatPhoneForSms = (phone) => {
+    let cleaned = phone.toString().replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      cleaned = '254' + cleaned.substring(1);
+    } else if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
+      cleaned = '254' + cleaned;
     }
-    setShowTakeActionModal(false);
-    setSelectedLoanForAction(null);
+    if (!cleaned.startsWith('+')) {
+      cleaned = '+' + cleaned;
+    }
+    return cleaned;
+  };
+  
+  // Send reminder by opening the device's SMS app
+  const handleSendReminder = (loan, message) => {
+    try {
+      if (!loan.contacts) {
+        showToast.error('Client has no phone number');
+        return;
+      }
+      const phone = formatPhoneForSms(loan.contacts);
+      const encodedMessage = encodeURIComponent(message);
+      const smsUri = `sms:${phone}?body=${encodedMessage}`;
+      window.location.href = smsUri;
+      // Close the modal after opening SMS app
+      setShowTakeActionModal(false);
+      setSelectedLoanForAction(null);
+    } catch (error) {
+      console.error('Failed to open SMS app:', error);
+      showToast.error('Could not open messaging app');
+    }
   };
 
   const handleClaimOwnership = async (loan) => {

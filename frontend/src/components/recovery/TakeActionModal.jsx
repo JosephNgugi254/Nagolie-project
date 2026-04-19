@@ -3,7 +3,6 @@ import { useState } from 'react';
 function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
   const [selectedAction, setSelectedAction] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [customMessage, setCustomMessage] = useState('');
 
   const isOverdue = loan.days_left < 0;
   const isWeekly = loan.repayment_plan === 'weekly';
@@ -22,10 +21,13 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
     totalBalance = currentPrincipal + unpaidInterest;
   }
 
-  const defaultReminderMessage = `Hello ${loan.name}, this is a reminder from NAGOLIE ENTERPRISES that your loan of KES ${totalBalance.toLocaleString()} is due. Please make your payment to avoid additional charges.  Make your payment via: 
-     Paybill: 247247
-     Account: 651259
+  // Default reminder message – will be pre‑filled in the textarea
+  const defaultReminderMessage = `Hello ${loan.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KES ${totalBalance.toLocaleString()} is due. Please make your payment to avoid additional charges. Make your payment via: 
+Paybill: 247247
+Account: 651259
 Thank you for choosing us.`;
+
+  const [customMessage, setCustomMessage] = useState(defaultReminderMessage);
 
   const handleAction = async () => {
     if (!selectedAction) {
@@ -35,7 +37,8 @@ Thank you for choosing us.`;
     setIsLoading(true);
     try {
       if (selectedAction === 'reminder') {
-        const message = customMessage || defaultReminderMessage;
+        // Pass the edited message (or default if user cleared it)
+        const message = customMessage.trim() || defaultReminderMessage;
         await onSendReminder(loan, message);
       } else if (selectedAction === 'claim') {
         await onClaimOwnership(loan);
@@ -61,9 +64,7 @@ Thank you for choosing us.`;
               <div className="row small">
                 <div className="col-6"><strong>Client:</strong> {loan.name}</div>
                 <div className="col-6"><strong>Phone:</strong> {loan.contacts}</div>
-                <div className="col-6">
-                  <strong>Balance:</strong> KES {totalBalance.toLocaleString()}
-                </div>
+                <div className="col-6"><strong>Balance:</strong> KES {totalBalance.toLocaleString()}</div>
                 <div className="col-6">
                   <strong>Status:</strong>
                   <span className={`badge ${isOverdue ? 'bg-danger' : 'bg-warning'} ms-1`}>
@@ -105,9 +106,7 @@ Thank you for choosing us.`;
                   <label className="form-check-label" htmlFor="claimOwnership">
                     <i className="fas fa-gavel text-warning me-2"></i>
                     <strong>Claim Livestock Ownership</strong>
-                    <small className="d-block text-muted">
-                      Take ownership of the collateral (loan is overdue)
-                    </small>
+                    <small className="d-block text-muted">Take ownership of the collateral (loan is overdue)</small>
                   </label>
                 </div>
               )}
@@ -118,13 +117,12 @@ Thank you for choosing us.`;
                 <label className="form-label fw-bold">Customize Message:</label>
                 <textarea
                   className="form-control"
-                  rows="4"
+                  rows="5"
                   value={customMessage}
                   onChange={(e) => setCustomMessage(e.target.value)}
-                  placeholder={defaultReminderMessage}
                 />
                 <small className="text-muted">
-                  Character count: {customMessage.length || defaultReminderMessage.length}
+                  You can edit the message above. It will be pre‑filled in your SMS app.
                 </small>
               </div>
             )}

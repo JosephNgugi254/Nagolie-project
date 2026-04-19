@@ -14,7 +14,10 @@ import Modal from "../components/common/Modal"
 import ConfirmationDialog from "../components/common/ConfirmationDialog"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
-import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF,
+ generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,
+ generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF,
+ generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF, generateWithdrawalConfirmationLetter  } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
@@ -2389,6 +2392,26 @@ Thank you for choosing us.`;
                     <span>{new Date().toLocaleDateString()}</span>
                   </div>
                 </div>
+
+                {/* ===== TEMPORARY WITHDRAWAL CONFIRMATION LETTER BUTTON ===== */}
+                {/* <div className="mb-4 text-center">
+                  <button
+                    className="btn btn-outline-primary btn-lg"
+                    onClick={async () => {
+                      try {
+                        await generateWithdrawalConfirmationLetter();
+                        showToast.success("Withdrawal confirmation letter downloaded!");
+                      } catch (error) {
+                        console.error("Error generating letter:", error);
+                        showToast.error("Failed to download letter");
+                      }
+                    }}
+                  >
+                    <i className="fas fa-file-pdf me-2"></i>
+                    📄 Download Withdrawal Confirmation Letter
+                  </button>
+                </div> */}
+
                 {/* ===== TEMPORARY PROPOSAL DOWNLOAD BUTTON ===== */}
                 {/* Uncomment the button below to download the proposal PDF */}                
                 {/* <div className="mb-4 text-center">
