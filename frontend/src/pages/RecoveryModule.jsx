@@ -3,9 +3,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { recoveryAPI } from '../services/api';
 import { userAPI } from '../services/api';
+import { adminAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
-import { generateTransactionReceipt, generateClientStatement, generateLoanAgreementPDF, generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF, generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement, generateLoanAgreementPDF, generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF, generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF , generateLoanInvoicePDF } from "../components/admin/ReceiptPDF";
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
 import PaymentModal from '../components/recovery/PaymentModal';
@@ -14,7 +15,8 @@ import ChatList from '../components/recovery/ChatList';
 import ChatWindow from '../components/recovery/ChatWindow';
 import Modal from '../components/common/Modal';
 import TakeActionModal from '../components/recovery/TakeActionModal';
-import { startRegistration } from '@simplewebauthn/browser';   // ← Added for biometrics
+import UtilitiesPanel from '../components/utilities/UtilitiesPanel';
+import { startRegistration } from '@simplewebauthn/browser';
 
 const DAYS_ORDER = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -25,6 +27,25 @@ function RecoveryModule() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth();
   const navigate = useNavigate();
   useSessionTimeout(logout, isAuthenticated, userRole);
+
+  const [showUtilities, setShowUtilities] = useState(false);
+
+  const handleOpenUtilities = () => {
+    setShowUtilities(true);
+    if (isMobile) setSidebarOpen(false);
+  };
+
+  const handleDownloadInvoice = async (loan) => {
+    try {
+      const response = await recoveryAPI.getLoanTransactions(loan.id);
+      const loanTransactions = response.data || [];
+      await generateLoanInvoicePDF(loan, loanTransactions);
+      showToast.success('Invoice downloaded');
+    } catch (error) {
+      console.error('Failed to generate invoice:', error);
+      showToast.error('Failed to generate invoice');
+    }
+  };
 
   // ---------- STATE ----------
   const [loading,         setLoading]         = useState(true);
@@ -80,7 +101,6 @@ function RecoveryModule() {
     try {
       const token = localStorage.getItem('token');
  
-      // 1. Get registration options from server
       const beginRes = await fetch('/api/auth/biometric/register/begin', {
         method: 'POST',
         headers: {
@@ -99,10 +119,8 @@ function RecoveryModule() {
       const beginData = await beginRes.json();
       const { cacheKey, options } = beginData;
  
-      // 2. Invoke the device's biometric sensor
       const attResp = await startRegistration(options);
  
-      // 3. Send the attestation + cacheKey to the server for verification
       const completeRes = await fetch('/api/auth/biometric/register/complete', {
         method: 'POST',
         headers: {
@@ -122,13 +140,11 @@ function RecoveryModule() {
       const completeData = await completeRes.json();
       showToast.success('Biometric login enabled successfully!');
  
-      // Update local user state so the toggle flips immediately
       if (updateUserData) {
         updateUserData({ ...user, webauthn_credential_id: completeData.credentialId || 'enrolled' });
       }
     } catch (err) {
       console.error('Biometric enroll error:', err);
-      // SimpleWebAuthn throws "NotAllowedError" when the user cancels
       if (err.name === 'NotAllowedError') {
         showToast.error('Biometric prompt was cancelled or timed out.');
       } else {
@@ -167,7 +183,6 @@ function RecoveryModule() {
     setShowTakeActionModal(true);
   };
 
-  // Helper to format Kenyan phone numbers to +254XXXXXXXXX
   const formatPhoneForSms = (phone) => {
     let cleaned = phone.toString().replace(/\D/g, '');
     if (cleaned.startsWith('0')) {
@@ -180,8 +195,7 @@ function RecoveryModule() {
     }
     return cleaned;
   };
-  
-  // Send reminder by opening the device's SMS app
+
   const handleSendReminder = (loan, message) => {
     try {
       if (!loan.contacts) {
@@ -192,7 +206,6 @@ function RecoveryModule() {
       const encodedMessage = encodeURIComponent(message);
       const smsUri = `sms:${phone}?body=${encodedMessage}`;
       window.location.href = smsUri;
-      // Close the modal after opening SMS app
       setShowTakeActionModal(false);
       setSelectedLoanForAction(null);
     } catch (error) {
@@ -212,7 +225,6 @@ function RecoveryModule() {
     setShowTakeActionModal(false);
     setSelectedLoanForAction(null);
   };
- 
 
   const handleUsernameChange = async (e) => {
     e.preventDefault();
@@ -596,12 +608,24 @@ function RecoveryModule() {
             <div className={`col-md-3 col-lg-2 sidebar ${sidebarOpen ? 'show' : ''}`}>
               <RecoverySidebar
                 activeSection="recovery"
-                onSectionChange={() => {}}
+                onSectionChange={() => {
+                  setShowUtilities(false);
+                }}
                 onLogout={handleLogout}
                 isMobile={sidebarOpen}
-                onToggleInbox={() => { setShowChatList(s => !s); setSidebarOpen(false); }}
+                onToggleInbox={() => {
+                  setShowUtilities(false);
+                  setShowChatList(s => !s);
+                  setSidebarOpen(false);
+                }}
                 unreadCount={unreadCount}
-                onOpenSettings={handleOpenSettings}
+                onOpenSettings={() => {
+                  setShowUtilities(false);
+                  setShowSettingsModal(true);
+                  if (isMobile) setSidebarOpen(false);
+                }}
+                onOpenUtilities={handleOpenUtilities}
+                userRole={userRole}
               />
             </div>
 
@@ -623,250 +647,273 @@ function RecoveryModule() {
                 </div>
               </div>
 
-              {/* Filters & Sort Bar */}
-              <div className="card mb-4 shadow-sm">
-                <div className="card-body">
-                  <div className="row g-3 align-items-end">
-                    <div className="col-md-3">
-                      <label className="form-label small fw-bold"><i className="fas fa-search me-1"></i> Search</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Name, Collateral, ID, Contact"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label small fw-bold"><i className="fas fa-calendar-week me-1"></i> Payment Plan</label>
-                      <select className="form-select" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
-                        <option value="all">All</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="daily">Daily</option>
-                      </select>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label small fw-bold"><i className="fas fa-sun me-1"></i> Day</label>
-                      <select className="form-select" value={dayFilter} onChange={(e) => setDayFilter(e.target.value)}>
-                        <option value="all">All Days</option>
-                        {DAYS_ORDER.map(day => <option key={day} value={day}>{day}</option>)}
-                      </select>
-                    </div>
-                    <div className="col-md-2">
-                      <label className="form-label small fw-bold"><i className="fas fa-calendar-alt me-1"></i> Borrowed Date</label>
-                      <input type="date" className="form-control" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
-                    </div>
-                    <div className="col-md-3">
-                      <label className="form-label small fw-bold"><i className="fas fa-sort-amount-down me-1"></i> Sort by</label>
-                      <div className="input-group">
-                        <select className="form-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                          <option value="name">Name</option>
-                          <option value="date">Borrowed Date</option>
-                          <option value="principal">Current Principal</option>
-                          <option value="balance">Accrued Interest</option>
-                        </select>
-                        <button
-                          className="btn btn-outline-secondary"
-                          onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                        >
-                          {sortOrder === 'asc' ? <i className="fas fa-arrow-up"></i> : <i className="fas fa-arrow-down"></i>}
-                        </button>
+              {/* === MAIN CONTENT: Recovery OR Utilities === */}
+              {!showUtilities ? (
+                <>
+                  {/* Filters & Sort Bar */}
+                  <div className="card mb-4 shadow-sm">
+                    <div className="card-body">
+                      <div className="row g-3 align-items-end">
+                        <div className="col-md-3">
+                          <label className="form-label small fw-bold"><i className="fas fa-search me-1"></i> Search</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="Name, Collateral, ID, Contact"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                          />
+                        </div>
+                        <div className="col-md-2">
+                          <label className="form-label small fw-bold"><i className="fas fa-calendar-week me-1"></i> Payment Plan</label>
+                          <select className="form-select" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
+                            <option value="all">All</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="daily">Daily</option>
+                          </select>
+                        </div>
+                        <div className="col-md-2">
+                          <label className="form-label small fw-bold"><i className="fas fa-sun me-1"></i> Day</label>
+                          <select className="form-select" value={dayFilter} onChange={(e) => setDayFilter(e.target.value)}>
+                            <option value="all">All Days</option>
+                            {DAYS_ORDER.map(day => <option key={day} value={day}>{day}</option>)}
+                          </select>
+                        </div>
+                        <div className="col-md-2">
+                          <label className="form-label small fw-bold"><i className="fas fa-calendar-alt me-1"></i> Borrowed Date</label>
+                          <input type="date" className="form-control" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
+                        </div>
+                        <div className="col-md-3">
+                          <label className="form-label small fw-bold"><i className="fas fa-sort-amount-down me-1"></i> Sort by</label>
+                          <div className="input-group">
+                            <select className="form-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                              <option value="name">Name</option>
+                              <option value="date">Borrowed Date</option>
+                              <option value="principal">Current Principal</option>
+                              <option value="balance">Accrued Interest</option>
+                            </select>
+                            <button
+                              className="btn btn-outline-secondary"
+                              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                            >
+                              {sortOrder === 'asc' ? <i className="fas fa-arrow-up"></i> : <i className="fas fa-arrow-down"></i>}
+                            </button>
+                          </div>
+                        </div>
                       </div>
+                      {(searchTerm || planFilter !== 'all' || dayFilter !== 'all' || dateFilter || sortBy !== 'name') && (
+                        <div className="mt-3 text-end">
+                          <button className="btn btn-sm btn-outline-danger" onClick={() => {
+                            setSearchTerm('');
+                            setPlanFilter('all');
+                            setDayFilter('all');
+                            setDateFilter('');
+                            setSortBy('name');
+                            setSortOrder('asc');
+                          }}>
+                            <i className="fas fa-times me-1"></i> Clear Filters
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {(searchTerm || planFilter !== 'all' || dayFilter !== 'all' || dateFilter || sortBy !== 'name') && (
-                    <div className="mt-3 text-end">
-                      <button className="btn btn-sm btn-outline-danger" onClick={() => {
-                        setSearchTerm('');
-                        setPlanFilter('all');
-                        setDayFilter('all');
-                        setDateFilter('');
-                        setSortBy('name');
-                        setSortOrder('asc');
-                      }}>
-                        <i className="fas fa-times me-1"></i> Clear Filters
-                      </button>
+
+                  {Object.keys(filteredData).length === 0 && (
+                    <div className="text-center py-5">
+                      <i className="fas fa-filter fa-3x text-muted mb-3"></i>
+                      <h5 className="text-muted">No loans match your filters</h5>
                     </div>
                   )}
-                </div>
-              </div>
 
-              {Object.keys(filteredData).length === 0 && (
-                <div className="text-center py-5">
-                  <i className="fas fa-filter fa-3x text-muted mb-3"></i>
-                  <h5 className="text-muted">No loans match your filters</h5>
-                </div>
-              )}
-
-              {DAYS_ORDER.map(day =>
-                filteredData[day]?.length > 0 && (
-                  <div key={day} className="card mb-4">
-                    <div className="card-header bg-primary">
-                      <h5 className="mb-0 text-white">{day}</h5>
-                    </div>
-                    <div className="card-body p-0">
-                      <div className="table-responsive">
-                        <table className="table table-hover mb-0">
-                          <thead className="table-light">
-                            <tr>
-                              <th>Name</th>
-                              <th>Collateral</th>
-                              <th>ID Number</th>
-                              <th>Contact</th>
-                              <th>Borrowed Date</th>
-                              <th>Initial Principal</th>
-                              <th>Current Principal</th>
-                              <th>Interest / Period</th>
-                              <th>Accrued (Unpaid)</th>
-                              <th>Week</th>
-                              <th>Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredData[day].map(loan => {
-                              const badge = getDaysBadge(loan);
-                              return (
-                                <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
-                                  <td>
-                                    <div>{loan.name}</div>
-                                    <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
-                                      {loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}
-                                    </span>
-                                    {badge && (
-                                      <span className={`badge ${badge.cls}`}>
-                                        {badge.text}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td>{loan.collateral}</td>
-                                  <td>{loan.id_number}</td>
-                                  <td>{loan.contacts}</td>
-                                  <td>{fmtDate(loan.disbursement_date)}</td>
-                                  <td>{fmt(loan.principal_amount)}</td>
-                                  <td>{fmt(loan.current_principal)}</td>
-                                  <td>{fmt(loan.interest)}</td>
-                                  <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
-                                  <td>Week {loan.week}</td>
-                                  <td>
-                                    <div className="btn-group btn-group-sm">
-                                      {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
-                                        <button className="btn btn-outline-primary"
-                                                onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}
-                                                title="Process Payment">
-                                          <i className="fas fa-money-bill-wave"></i>
-                                        </button>
-                                      )}
-
-                                      <button className="btn btn-outline-success"
-                                              onClick={() => { window.location.href = `tel:${loan.contacts}`; }}
-                                              title="Call">
-                                        <i className="fas fa-phone"></i>
-                                      </button>
-
-                                      <button className="btn btn-outline-info position-relative"
-                                              onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}
-                                              title="Comments">
-                                        <i className="fas fa-comment"></i>
-                                        {commentUnreads[loan.id] > 0 && (
-                                          <span className="badge bg-danger rounded-pill"
-                                                style={{ position:'absolute', top:'-8px', right:'-8px' }}>
-                                            {commentUnreads[loan.id]}
+                  {DAYS_ORDER.map(day =>
+                    filteredData[day]?.length > 0 && (
+                      <div key={day} className="card mb-4">
+                        <div className="card-header bg-primary">
+                          <h5 className="mb-0 text-white">{day}</h5>
+                        </div>
+                        <div className="card-body p-0">
+                          <div className="table-responsive">
+                            <table className="table table-hover mb-0">
+                              <thead className="table-light">
+                                <tr>
+                                  <th>Name</th>
+                                  <th>Collateral</th>
+                                  <th>ID Number</th>
+                                  <th>Contact</th>
+                                  <th>Borrowed Date</th>
+                                  <th>Initial Principal</th>
+                                  <th>Current Principal</th>
+                                  <th>Interest / Period</th>
+                                  <th>Accrued (Unpaid)</th>
+                                  <th>Week</th>
+                                  <th>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredData[day].map(loan => {
+                                  const badge = getDaysBadge(loan);
+                                  return (
+                                    <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
+                                      <td>
+                                        <div>{loan.name}</div>
+                                        <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
+                                          {loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}
+                                        </span>
+                                        {badge && (
+                                          <span className={`badge ${badge.cls}`}>
+                                            {badge.text}
                                           </span>
                                         )}
-                                      </button>
+                                      </td>
+                                      <td>{loan.collateral}</td>
+                                      <td>{loan.id_number}</td>
+                                      <td>{loan.contacts}</td>
+                                      <td>{fmtDate(loan.disbursement_date)}</td>
+                                      <td>{fmt(loan.principal_amount)}</td>
+                                      <td>{fmt(loan.current_principal)}</td>
+                                      <td>{fmt(loan.interest)}</td>
+                                      <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
+                                      <td>Week {loan.week}</td>
+                                      <td>
+                                        <div className="btn-group btn-group-sm">
+                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                            <button className="btn btn-outline-primary"
+                                                    onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}
+                                                    title="Process Payment">
+                                              <i className="fas fa-money-bill-wave"></i>
+                                            </button>
+                                          )}
 
-                                      {loan.days_left <= 1 && (
-                                        <button
-                                          className="btn btn-outline-danger btn-sm"
-                                          onClick={() => handleTakeAction(loan)}
-                                          title="Take Action (Reminder/Claim)">
-                                          <i className="fas fa-bolt"></i>
-                                        </button>
-                                      )}
+                                          <button className="btn btn-outline-success"
+                                                  onClick={() => { window.location.href = `tel:${loan.contacts}`; }}
+                                                  title="Call">
+                                            <i className="fas fa-phone"></i>
+                                          </button>
 
-                                      {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
-                                        <button 
-                                          className="btn btn-outline-warning btn-sm"
-                                          onClick={() => openRenewalModal(loan)}
-                                          title="Renew Loan">
-                                          <i className="fas fa-sync-alt"></i>
-                                        </button>
-                                      )}
+                                          <button className="btn btn-outline-info position-relative"
+                                                  onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}
+                                                  title="Comments">
+                                            <i className="fas fa-comment"></i>
+                                            {commentUnreads[loan.id] > 0 && (
+                                              <span className="badge bg-danger rounded-pill"
+                                                    style={{ position:'absolute', top:'-8px', right:'-8px' }}>
+                                                {commentUnreads[loan.id]}
+                                              </span>
+                                            )}
+                                          </button>
 
-                                      {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
-                                        <button
-                                          className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`}
-                                          onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}
-                                          title={loan.is_defaulter ? 'Resolve' : 'Mark Defaulter'}>
-                                          <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
-                                        </button>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                          <tfoot className="table-secondary fw-bold">
-                            {(() => {
-                              const t = dayTotals(filteredData[day]);
-                              return (
-                                <tr>
-                                  <td colSpan="5">Day Totals</td>
-                                  <td>{fmt(t.principal)}</td>
-                                  <td>{fmt(t.curPrincipal)}</td>
-                                  <td>{fmt(t.interest)}</td>
-                                  <td className="text-danger">{fmt(t.accrued)}</td>
-                                  <td colSpan="2"></td>
-                                </tr>
-                              );
-                            })()}
-                          </tfoot>
-                        </table>
+                                          {loan.days_left <= 1 && (
+                                            <button
+                                              className="btn btn-outline-danger btn-sm"
+                                              onClick={() => handleTakeAction(loan)}
+                                              title="Take Action (Reminder/Claim)">
+                                              <i className="fas fa-bolt"></i>
+                                            </button>
+                                          )}
+
+                                          {loan.days_left <= 1 && (
+                                            <button
+                                              className="btn btn-outline-info btn-sm"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDownloadInvoice(loan);
+                                              }}
+                                              title="Download Loan Invoice"
+                                            >
+                                              <i className="fas fa-file-invoice"></i>
+                                            </button>
+                                          )}
+
+                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
+                                            <button 
+                                              className="btn btn-outline-warning btn-sm"
+                                              onClick={() => openRenewalModal(loan)}
+                                              title="Renew Loan">
+                                              <i className="fas fa-sync-alt"></i>
+                                            </button>
+                                          )}
+
+                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                            <button
+                                              className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`}
+                                              onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}
+                                              title={loan.is_defaulter ? 'Resolve' : 'Mark Defaulter'}>
+                                              <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
+                                            </button>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              <tfoot className="table-secondary fw-bold">
+                                {(() => {
+                                  const t = dayTotals(filteredData[day]);
+                                  return (
+                                    <tr>
+                                      <td colSpan="5">Day Totals</td>
+                                      <td>{fmt(t.principal)}</td>
+                                      <td>{fmt(t.curPrincipal)}</td>
+                                      <td>{fmt(t.interest)}</td>
+                                      <td className="text-danger">{fmt(t.accrued)}</td>
+                                      <td colSpan="2"></td>
+                                    </tr>
+                                  );
+                                })()}
+                              </tfoot>
+                            </table>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                )
+                    )
+                  )}
+
+                  {Object.keys(filteredData).length > 0 && (() => {
+                    const t = overall();
+                    return (
+                      <div className="card mt-2 mb-4">
+                        <div className="card-header bg-dark">
+                          <h5 className="mb-0 text-white">Overall Totals</h5>
+                        </div>
+                        <div className="card-body">
+                          <div className="row text-center">
+                            <div className="col-md-3">
+                              <p className="mb-1 text-muted fw-bold">Initial Principal</p>
+                              <h5>{fmt(t.principal)}</h5>
+                            </div>
+                            <div className="col-md-3">
+                              <p className="mb-1 text-muted fw-bold">Current Principal</p>
+                              <h5>{fmt(t.curPrincipal)}</h5>
+                            </div>
+                            <div className="col-md-3">
+                              <p className="mb-1 text-muted fw-bold">Periodic Interest</p>
+                              <h5>{fmt(t.interest)}</h5>
+                            </div>
+                            <div className="col-md-3">
+                              <p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p>
+                              <h5 className="text-danger">{fmt(t.accrued)}</h5>
+                            </div>
+                          </div>
+                          <div className="row mt-3 pt-2 border-top text-center">
+                            <div className="col-12">
+                              <p className="mb-1 text-muted fw-bold">
+                                Total Owed (Current Principal + Accrued Interest)
+                              </p>
+                              <h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : (
+                <UtilitiesPanel 
+                  userRole={userRole} 
+                  restrictedMode={true} 
+                />
               )}
-
-              {Object.keys(filteredData).length > 0 && (() => {
-                const t = overall();
-                return (
-                  <div className="card mt-2 mb-4">
-                    <div className="card-header bg-dark">
-                      <h5 className="mb-0 text-white">Overall Totals</h5>
-                    </div>
-                    <div className="card-body">
-                      <div className="row text-center">
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Initial Principal</p>
-                          <h5>{fmt(t.principal)}</h5>
-                        </div>
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Current Principal</p>
-                          <h5>{fmt(t.curPrincipal)}</h5>
-                        </div>
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Periodic Interest</p>
-                          <h5>{fmt(t.interest)}</h5>
-                        </div>
-                        <div className="col-md-3">
-                          <p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p>
-                          <h5 className="text-danger">{fmt(t.accrued)}</h5>
-                        </div>
-                      </div>
-                      <div className="row mt-3 pt-2 border-top text-center">
-                        <div className="col-12">
-                          <p className="mb-1 text-muted fw-bold">
-                            Total Owed (Current Principal + Accrued Interest)
-                          </p>
-                          <h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
             </div>
           </div>
         </div>
@@ -876,8 +923,13 @@ function RecoveryModule() {
                 onSelectUser={handleSelectUser} />
 
       {openChatWindows.map((cu, i) => (
-        <ChatWindow key={cu.id} user={cu} onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))}
-                    onNewMessage={fetchUnreadCount} style={getChatStyle(i)} />
+        <ChatWindow 
+          key={cu.id} 
+          user={cu} 
+          onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))}
+          onNewMessage={fetchUnreadCount} 
+          style={getChatStyle(i)} 
+        />
       ))}
 
       {showPaymentModal && selectedLoan && (
@@ -897,8 +949,7 @@ function RecoveryModule() {
 
       {showSettingsModal && (
         <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
-        
-          {/* ── Change Username ────────────────────────────────────────────── */}
+          {/* Change Username */}
           <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>
             <form onSubmit={handleUsernameChange}>
@@ -935,16 +986,14 @@ function RecoveryModule() {
                 </div>
               </div>
               <button type="submit" className="btn btn-primary" disabled={usernameLoading}>
-                {usernameLoading
-                  ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</>
-                  : 'Update Username'}
+                {usernameLoading ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</> : 'Update Username'}
               </button>
             </form>
           </div>
                 
           <hr />
                 
-          {/* ── Change Password ────────────────────────────────────────────── */}
+          {/* Change Password */}
           <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
             <form onSubmit={handlePasswordChange}>
@@ -997,16 +1046,14 @@ function RecoveryModule() {
                 </div>
               </div>
               <button type="submit" className="btn btn-warning" disabled={passwordLoading}>
-                {passwordLoading
-                  ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</>
-                  : 'Update Password'}
+                {passwordLoading ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</> : 'Update Password'}
               </button>
             </form>
           </div>
                 
           <hr />
                 
-          {/* ── Biometric Login Toggle ─────────────────────────────────────── */}
+          {/* Biometric Login */}
           <div className="mt-3">
             <h6 className="fw-bold fs-5 text-center mb-3">
               <i className="fas fa-fingerprint me-2 text-primary" />Biometric Login
@@ -1018,7 +1065,6 @@ function RecoveryModule() {
                 Your browser or device does not support biometric authentication.
               </div>
             ) : user?.webauthn_credential_id ? (
-              /* ── Already enrolled ─────────────────────────────────────── */
               <div className="d-flex align-items-center justify-content-between p-3 rounded"
                   style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
                 <div>
@@ -1034,7 +1080,6 @@ function RecoveryModule() {
                 </button>
               </div>
             ) : (
-              /* ── Not enrolled ─────────────────────────────────────────── */
               <div className="d-flex align-items-center justify-content-between p-3 rounded"
                   style={{ background: '#fafafa', border: '1px solid #e5e7eb' }}>
                 <div>
@@ -1052,7 +1097,7 @@ function RecoveryModule() {
         </Modal>
       )}
 
-      {/* Take action modal */}
+      {/* Take Action Modal */}
       {showTakeActionModal && selectedLoanForAction && (
         <TakeActionModal
           loan={selectedLoanForAction}

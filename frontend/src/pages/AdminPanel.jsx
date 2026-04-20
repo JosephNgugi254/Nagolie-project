@@ -22,6 +22,7 @@ import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
 import { getStatusBadge } from '../components/admin/Clientstatusbadge';
+import UtilitiesPanel from "../components/utilities/UtilitiesPanel"
 
 function AdminPanel() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth()
@@ -1236,7 +1237,9 @@ const handleInvestorPasswordSubmit = (e) => {
       section = "applications";
     } else if (path.includes("/admin/payment-stats")) {
       section = "payment-stats";
-    } else if (path.includes("/admin/investors")) { 
+    } else if (path.includes("/admin/utilities")) {  
+      section = "utilities";
+    } else if (path.includes("/admin/investors")) {
       section = "investors";
 
       // Check authentication for investor section
@@ -1626,6 +1629,12 @@ const generateTemporaryPassword = (name, id) => {
     // Close sidebar on mobile when any section is clicked
     setSidebarOpen(false);
 
+    if (section === "utilities") {
+      setActiveSection("utilities");
+      navigate("/admin/utilities");
+      return;
+    }
+
     // If trying to access investor section, check authentication first
     if (section === "investors") {
       handleInvestorSectionClick(); // This will check auth and show modal if needed
@@ -1647,6 +1656,8 @@ const generateTemporaryPassword = (name, id) => {
     } else {
       navigate(`/admin/${section}`);
     }
+
+    
   };
 
   const formatAgreementData = (agreement) => { 
@@ -1961,9 +1972,30 @@ const generateTemporaryPassword = (name, id) => {
       }
 
       // Generate professional reminder message
-     const messageText = `Hello ${client.client_name || client.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KSh ${client.balance} is due today. Kindly pay to avoid any inconvenience. Please make your payment via: 
-     Paybill: 247247
-     Account: 651259
+     const currentPrincipal = Number(client.current_principal) || Number(client.borrowedAmount) || 0;
+     const totalOutstandingInterest = Number(client.unpaidInterest) || 0;
+     const totalBalance = currentPrincipal + totalOutstandingInterest;
+         
+     const formatCurrency = (amount) => {
+       return new Intl.NumberFormat('en-KE', {
+         style: 'currency',
+         currency: 'KES',
+         minimumFractionDigits: 0,
+       }).format(amount);
+     };
+     
+     const messageText = `Hello ${client.client_name || client.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan is due.     
+Loan Breakdown:
+• Principal amount owed: ${formatCurrency(currentPrincipal)}
+• Outstanding interest: ${formatCurrency(totalOutstandingInterest)}
+• Total balance due: ${formatCurrency(totalBalance)}
+
+Please make your payment to avoid additional charges.
+
+Make your payment via:
+Paybill: 247247
+Account: 651259
+
 Thank you for choosing us.`;
 
       // Format phone number - ensure it has +254 prefix
@@ -3005,6 +3037,11 @@ Thank you for choosing us.`;
             {/* Company gallery section */}
             {activeSection === "company-gallery" && (
               <AdminCompanyGallery />
+            )}
+
+            {/* Utilities Section */}
+            {activeSection === "utilities" && (
+              <UtilitiesPanel userRole={userRole} />
             )}
 
             {/* Applications Section */}

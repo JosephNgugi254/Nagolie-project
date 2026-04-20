@@ -12,19 +12,37 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
   const periodPrepaid = Number(loan.period_interest_prepaid) || 0;
   const periodFullyPaid = loan.period_interest_fully_paid === true;
 
-  let totalBalance;
+  // Calculate total outstanding interest
+  let totalOutstandingInterest;
   if (isWeekly) {
     const owedInterest = periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid);
-    totalBalance = currentPrincipal + owedInterest;
+    totalOutstandingInterest = owedInterest;
   } else {
-    const unpaidInterest = Number(loan.accrued_interest) || 0;
-    totalBalance = currentPrincipal + unpaidInterest;
+    totalOutstandingInterest = Number(loan.accrued_interest) || 0;
   }
 
-  // Default reminder message – will be pre‑filled in the textarea
-  const defaultReminderMessage = `Hello ${loan.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan of KES ${totalBalance.toLocaleString()} is due. Please make your payment to avoid additional charges. Make your payment via: 
+  const totalBalance = currentPrincipal + totalOutstandingInterest;
+
+  // Helper to format currency
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-KE', {
+      style: 'currency',
+      currency: 'KES',
+      minimumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  // Default reminder message – pre‑filled in the textarea
+  const defaultReminderMessage = `Hello ${loan.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan is due.
+• Principal amount owed: ${formatCurrency(currentPrincipal)}
+• Outstanding interest: ${formatCurrency(totalOutstandingInterest)}
+• Total balance due: ${formatCurrency(totalBalance)}
+Please make your payment to avoid additional charges.
+
+Make your payment via:
 Paybill: 247247
 Account: 651259
+
 Thank you for choosing us.`;
 
   const [customMessage, setCustomMessage] = useState(defaultReminderMessage);
@@ -37,7 +55,6 @@ Thank you for choosing us.`;
     setIsLoading(true);
     try {
       if (selectedAction === 'reminder') {
-        // Pass the edited message (or default if user cleared it)
         const message = customMessage.trim() || defaultReminderMessage;
         await onSendReminder(loan, message);
       } else if (selectedAction === 'claim') {
@@ -64,7 +81,9 @@ Thank you for choosing us.`;
               <div className="row small">
                 <div className="col-6"><strong>Client:</strong> {loan.name}</div>
                 <div className="col-6"><strong>Phone:</strong> {loan.contacts}</div>
-                <div className="col-6"><strong>Balance:</strong> KES {totalBalance.toLocaleString()}</div>
+                <div className="col-6"><strong>Principal owed:</strong> {formatCurrency(currentPrincipal)}</div>
+                <div className="col-6"><strong>Interest owed:</strong> {formatCurrency(totalOutstandingInterest)}</div>
+                <div className="col-6"><strong>Total balance:</strong> {formatCurrency(totalBalance)}</div>
                 <div className="col-6">
                   <strong>Status:</strong>
                   <span className={`badge ${isOverdue ? 'bg-danger' : 'bg-warning'} ms-1`}>
@@ -117,7 +136,7 @@ Thank you for choosing us.`;
                 <label className="form-label fw-bold">Customize Message:</label>
                 <textarea
                   className="form-control"
-                  rows="5"
+                  rows="8"
                   value={customMessage}
                   onChange={(e) => setCustomMessage(e.target.value)}
                 />

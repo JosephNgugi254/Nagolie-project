@@ -7,7 +7,9 @@ function RecoverySidebar({
   onLogout,
   isMobile,
   unreadCount = 0,
-  onOpenSettings,   // new prop
+  onOpenSettings,
+  onOpenUtilities,   // new prop
+  userRole           // new prop
 }) {
   const menuItems = [
     { id: "recovery", icon: "fa-chart-line", label: "Recovery Module", path: "/recovery" },
@@ -28,7 +30,7 @@ function RecoverySidebar({
                 if (item.id === "inbox") {
                   onToggleInbox?.();
                 } else if (item.id === "settings") {
-                  onOpenSettings?.();   // open settings modal
+                  onOpenSettings?.();
                 } else {
                   onSectionChange(item.id);
                 }
@@ -47,6 +49,24 @@ function RecoverySidebar({
             </a>
           </li>
         ))}
+
+        {/* New Utilities Menu Item - Conditionally shown */}
+        {(userRole === 'director' || userRole === 'head_of_it' || userRole === 'admin' || 
+          userRole === 'valuer' || userRole === 'accountant' || userRole === 'secretary') && (
+          <li className="nav-item">
+            <a
+              href="#"
+              className="nav-link d-flex align-items-center"
+              onClick={(e) => {
+                e.preventDefault();
+                onOpenUtilities?.();
+              }}
+            >
+              <i className="fas fa-tools me-2" />
+              <span>Utilities</span>
+            </a>
+          </li>
+        )}
 
         {isMobile && (
           <li className="nav-item mt-auto">

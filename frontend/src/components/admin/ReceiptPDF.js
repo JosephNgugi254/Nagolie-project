@@ -34,7 +34,8 @@ const addOptimizedWatermark = (doc, type = 'agreement') => {
     receipt: 'RECEIPT',
     statement: 'STATEMENT',
     agreement: 'AGREEMENT',
-    investor: 'INVESTMENT AGREEMENT'
+    investor: 'INVESTMENT AGREEMENT',
+    letter: 'LETTER',
   };
   const docType = DOC_LABELS[type] || 'DOCUMENT';
   
@@ -3991,7 +3992,6 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
   }
 };
 
-
 // ========== OFFICIAL WITHDRAWAL CONFIRMATION LETTER (DYNAMIC) ==========
 export const generateWithdrawalConfirmationLetter = async (investorData = null) => {
   try {
@@ -4140,4 +4140,675 @@ export const generateWithdrawalConfirmationLetter = async (investorData = null) 
     console.error('Error generating withdrawal confirmation letter:', error);
     throw error;
   }
+};
+
+// ========== LETTER WRITER PDF (PREVIEW - opens in new tab) ==========
+export const generateLetterPDF = async (data) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'letter');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text(data.title.toUpperCase(), 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  // Date
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Date: ${data.date}`, 150, yPos - 6);
+
+  // Recipient – "TO:" on same line
+  doc.setFont('helvetica', 'bold');
+  doc.text('TO:', 20, yPos);
+  const toX = 20 + doc.getTextWidth('TO:');
+  doc.setFont('helvetica', 'normal');
+  doc.text(data.recipient, toX, yPos);
+  yPos += 6;
+
+  // RE: – bold, no extra spaces
+  if (data.re) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('RE:', 20, yPos);
+    const reX = 20 + doc.getTextWidth('RE:');
+    doc.text(` ${data.re}`, reX, yPos);
+    yPos += 8;
+  } else {
+    yPos += 4;
+  }
+
+  // ---------- ROBUST MARKDOWN PARSER (handles all formatting) ----------
+  const parseMarkdown = (text) => {
+    const parts = [];
+    let i = 0;
+    const len = text.length;
+    let currentStyle = 'normal';
+    let buffer = '';
+
+    const flushBuffer = () => {
+      if (buffer) {
+        parts.push({ text: buffer, style: currentStyle });
+        buffer = '';
+      }
+    };
+
+    while (i < len) {
+      // Check for bold **
+      if (text[i] === '*' && text[i+1] === '*') {
+        flushBuffer();
+        currentStyle = (currentStyle === 'normal' ? 'bold' : 'normal');
+        i += 2;
+        continue;
+      }
+      // Check for italic *
+      if (text[i] === '*' && text[i+1] !== '*') {
+        flushBuffer();
+        currentStyle = (currentStyle === 'normal' ? 'italic' : 'normal');
+        i += 1;
+        continue;
+      }
+      // Check for underline __
+      if (text[i] === '_' && text[i+1] === '_') {
+        flushBuffer();
+        currentStyle = (currentStyle === 'normal' ? 'underline' : 'normal');
+        i += 2;
+        continue;
+      }
+      // Regular character
+      buffer += text[i];
+      i++;
+    }
+    flushBuffer(); // add any remaining text
+    return parts;
+  };
+
+  const writeStyledLine = (lineParts, y) => {
+    let x = 20;
+    doc.setFontSize(10);
+    lineParts.forEach(part => {
+      switch (part.style) {
+        case 'bold':
+          doc.setFont('helvetica', 'bold');
+          break;
+        case 'italic':
+          doc.setFont('helvetica', 'italic');
+          break;
+        case 'underline':
+          doc.setFont('helvetica', 'normal');
+          doc.setLineWidth(0.3);
+          doc.setDrawColor(...COLORS.textDark);
+          const textWidth = doc.getTextWidth(part.text);
+          doc.text(part.text, x, y);
+          doc.line(x, y + 1, x + textWidth, y + 1);
+          x += textWidth;
+          doc.setLineWidth(0.2);
+          return;
+        default:
+          doc.setFont('helvetica', 'normal');
+      }
+      doc.text(part.text, x, y);
+      x += doc.getTextWidth(part.text);
+    });
+  };
+
+  // Process each line of the body
+  const lines = data.body.split('\n');
+  for (const line of lines) {
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'letter');
+      yPos = 20;
+    }
+    const parts = parseMarkdown(line);
+    if (parts.length === 1 && parts[0].style === 'normal') {
+      // Plain text – wrap if needed
+      const wrapped = doc.splitTextToSize(parts[0].text, 170);
+      wrapped.forEach(w => {
+        if (yPos > 270) {
+          doc.addPage();
+          addWatermarkToCurrentPage(doc, 'letter');
+          yPos = 20;
+        }
+        doc.text(w, 20, yPos);
+        yPos += 5;
+      });
+    } else {
+      // Styled line – combine parts and check width
+      let fullText = '';
+      parts.forEach(p => fullText += p.text);
+      if (doc.getTextWidth(fullText) > 170) {
+        // If too long, fallback to plain wrapped text (styling lost but no overflow)
+        const wrapped = doc.splitTextToSize(fullText, 170);
+        wrapped.forEach(w => {
+          if (yPos > 270) {
+            doc.addPage();
+            addWatermarkToCurrentPage(doc, 'letter');
+            yPos = 20;
+          }
+          doc.text(w, 20, yPos);
+          yPos += 5;
+        });
+      } else {
+        writeStyledLine(parts, yPos);
+        yPos += 5;
+      }
+    }
+  }
+
+  // Signature
+  yPos += 15;
+  const sign = getSignatureByUser(data.user);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Yours faithfully,', 20, yPos);
+  yPos += 12;
+  doc.setFont('helvetica', 'normal');
+  doc.text(sign.name, 20, yPos);
+  yPos += 6;
+  doc.text(sign.title, 20, yPos);
+
+  addFooter(doc, yPos + 20);
+
+  // Preview: open in new tab
+  const pdfBlob = doc.output('blob');
+  const url = URL.createObjectURL(pdfBlob);
+  window.open(url, '_blank');
+  URL.revokeObjectURL(url);
+};
+
+// ========== LETTER WRITER PDF (DOWNLOAD - saves file) ==========
+export const downloadLetterPDF = async (data) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'letter');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text(data.title.toUpperCase(), 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  // Date
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Date: ${data.date}`, 150, yPos - 6);
+
+  // Recipient
+  doc.setFont('helvetica', 'bold');
+  doc.text('TO:', 20, yPos);
+  const toX = 20 + doc.getTextWidth('TO:');
+  doc.setFont('helvetica', 'normal');
+  doc.text(data.recipient, toX, yPos);
+  yPos += 6;
+
+  // RE:
+  if (data.re) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('RE:', 20, yPos);
+    const reX = 20 + doc.getTextWidth('RE:');
+    doc.text(` ${data.re}`, reX, yPos);
+    yPos += 8;
+  } else {
+    yPos += 4;
+  }
+
+  // Same robust parser as preview
+  const parseMarkdown = (text) => {
+    const parts = [];
+    let i = 0;
+    const len = text.length;
+    let currentStyle = 'normal';
+    let buffer = '';
+    const flushBuffer = () => {
+      if (buffer) {
+        parts.push({ text: buffer, style: currentStyle });
+        buffer = '';
+      }
+    };
+    while (i < len) {
+      if (text[i] === '*' && text[i+1] === '*') {
+        flushBuffer();
+        currentStyle = (currentStyle === 'normal' ? 'bold' : 'normal');
+        i += 2;
+        continue;
+      }
+      if (text[i] === '*' && text[i+1] !== '*') {
+        flushBuffer();
+        currentStyle = (currentStyle === 'normal' ? 'italic' : 'normal');
+        i += 1;
+        continue;
+      }
+      if (text[i] === '_' && text[i+1] === '_') {
+        flushBuffer();
+        currentStyle = (currentStyle === 'normal' ? 'underline' : 'normal');
+        i += 2;
+        continue;
+      }
+      buffer += text[i];
+      i++;
+    }
+    flushBuffer();
+    return parts;
+  };
+
+  const writeStyledLine = (lineParts, y) => {
+    let x = 20;
+    doc.setFontSize(10);
+    lineParts.forEach(part => {
+      switch (part.style) {
+        case 'bold': doc.setFont('helvetica', 'bold'); break;
+        case 'italic': doc.setFont('helvetica', 'italic'); break;
+        case 'underline':
+          doc.setFont('helvetica', 'normal');
+          doc.setLineWidth(0.3);
+          doc.setDrawColor(...COLORS.textDark);
+          const tw = doc.getTextWidth(part.text);
+          doc.text(part.text, x, y);
+          doc.line(x, y + 1, x + tw, y + 1);
+          x += tw;
+          doc.setLineWidth(0.2);
+          return;
+        default: doc.setFont('helvetica', 'normal');
+      }
+      doc.text(part.text, x, y);
+      x += doc.getTextWidth(part.text);
+    });
+  };
+
+  const lines = data.body.split('\n');
+  for (const line of lines) {
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'letter');
+      yPos = 20;
+    }
+    const parts = parseMarkdown(line);
+    if (parts.length === 1 && parts[0].style === 'normal') {
+      const wrapped = doc.splitTextToSize(parts[0].text, 170);
+      wrapped.forEach(w => {
+        if (yPos > 270) {
+          doc.addPage();
+          addWatermarkToCurrentPage(doc, 'letter');
+          yPos = 20;
+        }
+        doc.text(w, 20, yPos);
+        yPos += 5;
+      });
+    } else {
+      let fullText = '';
+      parts.forEach(p => fullText += p.text);
+      if (doc.getTextWidth(fullText) > 170) {
+        const wrapped = doc.splitTextToSize(fullText, 170);
+        wrapped.forEach(w => {
+          if (yPos > 270) {
+            doc.addPage();
+            addWatermarkToCurrentPage(doc, 'letter');
+            yPos = 20;
+          }
+          doc.text(w, 20, yPos);
+          yPos += 5;
+        });
+      } else {
+        writeStyledLine(parts, yPos);
+        yPos += 5;
+      }
+    }
+  }
+
+  // Signature
+  yPos += 15;
+  const sign = getSignatureByUser(data.user);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Yours faithfully,', 20, yPos);
+  yPos += 12;
+  doc.setFont('helvetica', 'normal');
+  doc.text(sign.name, 20, yPos);
+  yPos += 6;
+  doc.text(sign.title, 20, yPos);
+
+  addFooter(doc, yPos + 20);
+
+  const fileName = `${data.title.replace(/\s+/g, '_')}_${data.date.replace(/\//g, '-')}.pdf`;
+  doc.save(fileName);
+};
+
+// ========== INVOICE PDF (supports preview and download) ==========
+export const generateInvoicePDF = async (data, preview = false) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'receipt');
+  let yPos = await addHeader(doc, 15);
+
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('INVOICE', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Invoice Number: ${data.invoiceNumber}`, 20, yPos);
+  doc.text(`Date: ${data.date}`, 150, yPos);
+  yPos += 8;
+  doc.text(`Client: ${data.clientName}`, 20, yPos);
+  if (data.clientEmail) {
+    yPos += 5;
+    doc.text(`Email: ${data.clientEmail}`, 20, yPos);
+  }
+  yPos += 12;
+
+  const startX = 20;
+  const colWidths = [70, 25, 35, 40];
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.rect(startX, yPos, 170, 8, 'F');
+  doc.text('Description', startX + 2, yPos + 5.5);
+  doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
+  doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
+  doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
+  yPos += 8;
+
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+  data.items.forEach((item, idx) => {
+    if (yPos > 250) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'receipt');
+      yPos = 20;
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.setTextColor(...COLORS.white);
+      doc.setFont('helvetica', 'bold');
+      doc.rect(startX, yPos, 170, 8, 'F');
+      doc.text('Description', startX + 2, yPos + 5.5);
+      doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
+      doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
+      doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
+      yPos += 8;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    }
+    if (idx % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, yPos, 170, 7, 'F');
+    }
+    let desc = item.description;
+    if (doc.getTextWidth(desc) > colWidths[0] - 4) {
+      while (doc.getTextWidth(desc + '...') > colWidths[0] - 4 && desc.length > 0) {
+        desc = desc.slice(0, -1);
+      }
+      desc = desc + '...';
+    }
+    doc.text(desc, startX + 2, yPos + 4.5);
+    doc.text(item.quantity.toString(), startX + colWidths[0] + 2, yPos + 4.5);
+    doc.text(formatCurrency(item.unitPrice), startX + colWidths[0] + colWidths[1] + 2, yPos + 4.5);
+    doc.text(formatCurrency(item.total), startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 4.5);
+    yPos += 7;
+  });
+
+  yPos += 5;
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Subtotal: ${formatCurrency(data.subtotal)}`, 140, yPos);
+  yPos += 6;
+  if (data.discountAmount > 0) {
+    doc.text(`Discount: -${formatCurrency(data.discountAmount)}`, 140, yPos);
+    yPos += 6;
+  }
+  if (data.taxRate > 0) {
+    doc.text(`Tax (${data.taxRate}%): ${formatCurrency(data.taxAmount)}`, 140, yPos);
+    yPos += 6;
+  }
+  doc.setFontSize(12);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text(`Total Due: ${formatCurrency(data.total)}`, 140, yPos);
+
+  addFooter(doc, yPos + 20);
+
+  if (preview) {
+    const pdfBlob = doc.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    window.open(url, '_blank');
+    URL.revokeObjectURL(url);
+  } else {
+    const fileName = `Invoice_${data.invoiceNumber}.pdf`;
+    doc.save(fileName);
+  }
+};
+
+const getSignatureByUser = (user) => {
+  if (!user) return { name: 'Shadrack Kesumet', title: 'Director' };
+  const role = user.role;
+  const username = (user.username || '').toLowerCase();
+
+  // Director
+  if (role === 'director') {
+    if (username === 'director') return { name: 'Shadrack Kesumet', title: 'Director' };
+    if (username === 'millicent') return { name: 'Millicent Mantaine', title: 'Deputy Director' };
+    return { name: 'Shadrack Kesumet', title: 'Director' };
+  }
+  // Deputy Director (also role director)
+  if (role === 'deputy_director') {
+    return { name: 'Millicent Mantaine', title: 'Deputy Director' };
+  }
+  // Secretary
+  if (role === 'secretary') {
+    return { name: 'Florence Wacuka', title: 'Secretary' };
+  }
+  // Accountant
+  if (role === 'accountant') {
+    return { name: 'Gideon Matunta', title: 'Head Accountant' };
+  }
+  // Head of IT
+  if (role === 'head_of_it') {
+    return { name: 'Joseph Ngugi', title: 'Head of I.T' };
+  }
+  // Valuer
+  if (role === 'valuer') {
+    if (username === 'robert') return { name: 'Robert Kalama', title: 'Valuer' };
+    if (username === 'george') return { name: 'George Marite', title: 'Senior Valuer' };
+    return { name: 'George Marite', title: 'Senior Valuer' };
+  }
+  // Default
+  return { name: 'Shadrack Kesumet', title: 'Director' };
+};
+
+const formatCurrency = (amount) => {
+  return `KES ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+};
+
+
+// generate loan invoice pdf
+export const generateLoanInvoicePDF = async (loan, transactions = []) => {
+  const initialPrincipal = loan.principal_amount || 0;
+  const currentPrincipal = loan.current_principal || 0;
+  const periodicInterest = loan.interest || 0;                 // interest for current period
+  const unpaidInterest = loan.accrued_interest || 0;           // total unpaid interest
+  const totalBalance = currentPrincipal + unpaidInterest;
+
+  const formatMoney = (amount) => `KES ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : 'N/A';
+
+  const { default: jsPDF } = await import('jspdf');
+  const doc = new jsPDF();
+
+  addOptimizedWatermark(doc, 'receipt');
+
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('LOAN PAYMENT INVOICE', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  // Invoice basic info
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  const invoiceNumber = `INV-LOAN-${loan.id}-${Date.now()}`;
+  doc.text(`Invoice Number: ${invoiceNumber}`, 20, yPos);
+  doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, 150, yPos);
+  yPos += 8;
+  doc.text(`Client: ${loan.name}`, 20, yPos);
+  yPos += 6;
+  doc.text(`Phone: ${loan.contacts || 'N/A'}`, 20, yPos);
+  yPos += 6;
+  doc.text(`ID Number: ${loan.id_number || 'N/A'}`, 20, yPos);
+  yPos += 6;
+  doc.text(`Loan Disbursement Date: ${formatDate(loan.disbursement_date)}`, 20, yPos);
+  yPos += 6;
+  doc.text(`Payment Plan: ${loan.repayment_plan === 'daily' ? 'Daily (4.5% per day)' : 'Weekly (30% per week)'}`, 20, yPos);
+  yPos += 12;
+
+  // ================= PAYMENT HISTORY (first) =================
+  const startX = 20;  // defined once for all tables
+
+  if (transactions && transactions.length > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('PAYMENT HISTORY', 20, yPos);
+    yPos += 8;
+
+    const sortedTxns = [...transactions].sort((a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at));
+
+    doc.setFillColor(...COLORS.primaryBlue);
+    doc.setTextColor(...COLORS.white);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.rect(startX, yPos, 170, 8, 'F');
+    doc.text('Date', startX + 2, yPos + 5.5);
+    doc.text('Type', startX + 50, yPos + 5.5);
+    doc.text('Amount (KES)', startX + 100, yPos + 5.5);
+    yPos += 8;
+
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'normal');
+
+    sortedTxns.forEach((txn, idx) => {
+      if (yPos > 250) {
+        doc.addPage();
+        addWatermarkToCurrentPage(doc, 'receipt');
+        yPos = 20;
+        doc.setFillColor(...COLORS.primaryBlue);
+        doc.setTextColor(...COLORS.white);
+        doc.setFont('helvetica', 'bold');
+        doc.rect(startX, yPos, 170, 8, 'F');
+        doc.text('Date', startX + 2, yPos + 5.5);
+        doc.text('Type', startX + 50, yPos + 5.5);
+        doc.text('Amount (KES)', startX + 100, yPos + 5.5);
+        yPos += 8;
+        doc.setTextColor(...COLORS.textDark);
+        doc.setFont('helvetica', 'normal');
+      }
+      if (idx % 2 === 0) {
+        doc.setFillColor(...COLORS.border);
+        doc.rect(startX, yPos, 170, 7, 'F');
+      }
+      const date = formatDate(txn.date || txn.created_at);
+      let type = txn.transaction_type || txn.type || '';
+      if (type === 'payment') {
+        type = txn.payment_type ? `${txn.payment_type} Payment` : 'Payment';
+      } else if (type === 'disbursement') {
+        type = 'Disbursement';
+      } else if (type === 'topup') {
+        type = 'Top-up';
+      } else if (type === 'adjustment') {
+        type = 'Adjustment';
+      }
+      const amount = txn.amount || 0;
+      doc.text(date, startX + 2, yPos + 4.5);
+      doc.text(type, startX + 50, yPos + 4.5);
+      doc.text(formatMoney(amount), startX + 100, yPos + 4.5);
+      yPos += 7;
+    });
+  } else {
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(...COLORS.textLight);
+    doc.text('No payment history available for this loan.', 20, yPos);
+    yPos += 8;
+  }
+
+  // ================= LOAN BREAKDOWN TABLE =================
+  yPos += 8;  // extra spacing before breakdown
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('LOAN BREAKDOWN', 20, yPos);
+  yPos += 8;
+
+  const colWidths = [90, 80];
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.rect(startX, yPos, 170, 8, 'F');
+  doc.text('Description', startX + 2, yPos + 5.5);
+  doc.text('Amount (KES)', startX + colWidths[0] + 2, yPos + 5.5);
+  yPos += 8;
+
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+
+  const breakdown = [
+    { label: 'Initial Principal Borrowed', amount: initialPrincipal },
+    { label: 'Current Principal Owed', amount: currentPrincipal },
+    { label: 'Current Period Interest', amount: periodicInterest },
+    { label: 'Outstanding Interest (Unpaid)', amount: unpaidInterest },
+    { label: 'Total Balance Due', amount: totalBalance, bold: true },
+  ];
+
+  breakdown.forEach((item, idx) => {
+    if (yPos > 250) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'receipt');
+      yPos = 20;
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.setTextColor(...COLORS.white);
+      doc.setFont('helvetica', 'bold');
+      doc.rect(startX, yPos, 170, 8, 'F');
+      doc.text('Description', startX + 2, yPos + 5.5);
+      doc.text('Amount (KES)', startX + colWidths[0] + 2, yPos + 5.5);
+      yPos += 8;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    }
+    if (idx % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, yPos, 170, 7, 'F');
+    }
+    if (item.bold) {
+      doc.setFont('helvetica', 'bold');
+    } else {
+      doc.setFont('helvetica', 'normal');
+    }
+    doc.text(item.label, startX + 2, yPos + 4.5);
+    doc.text(formatMoney(item.amount), startX + colWidths[0] + 2, yPos + 4.5);
+    yPos += 7;
+  });
+
+  // ================= PAYMENT INSTRUCTIONS =================
+  yPos += 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('PAYMENT METHOD', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('Paybill No: 247247', 22, yPos);
+  yPos += 5;
+  doc.text('Account No: 651259', 22, yPos);
+  yPos += 5;
+  doc.text('Account Name: NAGOLIE ENTERPRISES', 22, yPos);
+
+  addFooter(doc, yPos + 15);
+
+  const fileName = `Loan_Invoice_${loan.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
 };

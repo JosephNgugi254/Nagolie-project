@@ -3363,3 +3363,39 @@ section {
     flex-shrink: 0;
   }
 }
+
+
+/* ===== UTILITIES BUTTONS – FORCE ROW LAYOUT ON TABLETS & DESKTOP ===== */
+.letter-writer .d-flex.flex-wrap.gap-2,
+.invoice-generator .d-flex.flex-wrap.gap-2 {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;      /* prevent wrapping */
+  gap: 0.75rem !important;
+  overflow-x: auto !important;       /* scroll if too wide */
+  overflow-y: hidden !important;
+  padding-bottom: 0.5rem;            /* space for scrollbar */
+  width: 100%;
+}
+
+/* Buttons keep their natural width, text never wraps */
+.letter-writer .d-flex.flex-wrap.gap-2 button,
+.invoice-generator .d-flex.flex-wrap.gap-2 button {
+  white-space: nowrap !important;
+  flex: 0 0 auto !important;
+}
+
+/* On very small phones – stack vertically */
+@media (max-width: 575px) {
+  .letter-writer .d-flex.flex-wrap.gap-2,
+  .invoice-generator .d-flex.flex-wrap.gap-2 {
+    flex-direction: column !important;
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+  }
+  .letter-writer .d-flex.flex-wrap.gap-2 button,
+  .invoice-generator .d-flex.flex-wrap.gap-2 button {
+    width: 100% !important;
+    white-space: normal !important;
+  }
+}

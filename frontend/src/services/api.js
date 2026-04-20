@@ -207,6 +207,8 @@ export const recoveryAPI = {
 
   // Renew Loan
   renewLoan: (loanId) => api.post(`/recovery/loan/${loanId}/renew`),
+
+  getLoanTransactions: (loanId) => api.get(`/recovery/loan/${loanId}/transactions`),
 };
 
 export const userAPI = {

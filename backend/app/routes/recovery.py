@@ -497,3 +497,27 @@ def renew_loan_recovery(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    
+@recovery_bp.route('/loan/<int:loan_id>/transactions', methods=['GET'])
+@jwt_required()
+@role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director'])
+def get_loan_transactions(loan_id):
+    try:
+        loan = db.session.get(Loan, loan_id)
+        if not loan:
+            return jsonify({'error': 'Loan not found'}), 404
+        transactions = Transaction.query.filter_by(loan_id=loan_id).order_by(Transaction.created_at.desc()).all()
+        result = [{
+            'id': t.id,
+            'date': t.created_at.isoformat() if t.created_at else None,
+            'type': t.transaction_type,
+            'payment_type': t.payment_type,
+            'amount': float(t.amount),
+            'method': t.payment_method,
+            'status': t.status,
+            'notes': t.notes,
+            'mpesa_receipt': t.mpesa_receipt
+        } for t in transactions]
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
