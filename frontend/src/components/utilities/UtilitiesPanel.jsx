@@ -17,8 +17,8 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('forms');
 
-  // Determine which tabs are allowed
-  const canAccessFull = ['admin', 'secretary', 'director', 'head_of_it'].includes(userRole);
+  // Allow accountant and valuer as well (for Recovery Module)
+  const canAccessFull = ['admin', 'secretary', 'director', 'head_of_it', 'accountant', 'valuer'].includes(userRole);
   const canAccessManualForms = true; // always
   const canAccessLetter = canAccessFull;
   const canAccessInvoice = canAccessFull;
