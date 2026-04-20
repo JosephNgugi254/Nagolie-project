@@ -4625,12 +4625,25 @@ const formatCurrency = (amount) => {
 
 
 // generate loan invoice pdf
+// generate loan invoice pdf (fixed)
 export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   const initialPrincipal = loan.principal_amount || 0;
   const currentPrincipal = loan.current_principal || 0;
-  const periodicInterest = loan.interest || 0;                 // interest for current period
-  const unpaidInterest = loan.accrued_interest || 0;           // total unpaid interest
-  const totalBalance = currentPrincipal + unpaidInterest;
+  const currentPeriodInterest = Number(loan.current_period_interest) || 0;
+  const periodPrepaid = Number(loan.period_interest_prepaid) || 0;
+  const periodFullyPaid = loan.period_interest_fully_paid === true;
+  const isWeekly = loan.repayment_plan === 'weekly';
+
+  // Compute total outstanding interest exactly like TakeActionModal
+  let totalOutstandingInterest;
+  if (isWeekly) {
+    const owedInterest = periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid);
+    totalOutstandingInterest = owedInterest;
+  } else {
+    totalOutstandingInterest = Number(loan.accrued_interest) || 0;
+  }
+
+  const totalBalance = currentPrincipal + totalOutstandingInterest;
 
   const formatMoney = (amount) => `KES ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : 'N/A';
@@ -4759,8 +4772,8 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   const breakdown = [
     { label: 'Initial Principal Borrowed', amount: initialPrincipal },
     { label: 'Current Principal Owed', amount: currentPrincipal },
-    { label: 'Current Period Interest', amount: periodicInterest },
-    { label: 'Outstanding Interest (Unpaid)', amount: unpaidInterest },
+    { label: 'Current Period Interest', amount: currentPeriodInterest },
+    { label: 'Outstanding Interest (Unpaid)', amount: totalOutstandingInterest },
     { label: 'Total Balance Due', amount: totalBalance, bold: true },
   ];
 

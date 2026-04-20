@@ -811,7 +811,7 @@ function RecoveryModule() {
                                             </button>
                                           )}
 
-                                          {loan.days_left <= 1 && (
+                                          
                                             <button
                                               className="btn btn-outline-info btn-sm"
                                               onClick={(e) => {
@@ -822,7 +822,7 @@ function RecoveryModule() {
                                             >
                                               <i className="fas fa-file-invoice"></i>
                                             </button>
-                                          )}
+                                          
 
                                           {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                             <button 
