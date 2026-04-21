@@ -143,41 +143,14 @@ def register_complete():
     if not expected_challenge:
         return jsonify({"error": "Challenge expired or not found"}), 400
 
-    # --- Manually build RegistrationCredential from the incoming JSON ---
-    from webauthn.helpers.structs import RegistrationCredential
-    from webauthn.helpers import bytes_to_base64url
-
-    def b64url_to_bytes(s: str) -> bytes:
-        padding = 4 - (len(s) % 4)
-        if padding != 4:
-            s += "=" * padding
-        return base64.urlsafe_b64decode(s)
-
+    # ✅ Use the library's parser instead of manual construction
+    from webauthn.helpers import parse_registration_credential
     try:
-        # Convert rawId from base64url string to bytes
-        raw_id_bytes = b64url_to_bytes(body["rawId"])
-        # Convert clientDataJSON and attestationObject from base64url to bytes
-        client_data_bytes = b64url_to_bytes(body["response"]["clientDataJSON"])
-        attestation_bytes = b64url_to_bytes(body["response"]["attestationObject"])
-
-        # Create the RegistrationCredential instance manually
-        credential = RegistrationCredential(
-            id=body["id"],
-            rawId=raw_id_bytes,
-            response={
-                "clientDataJSON": client_data_bytes,
-                "attestationObject": attestation_bytes,
-                "transports": body["response"].get("transports", []),
-            },
-            type=body["type"],
-            clientExtensionResults=body.get("clientExtensionResults", {}),
-            authenticatorAttachment=body.get("authenticatorAttachment"),
-        )
+        credential = parse_registration_credential(body)
     except Exception as parse_err:
-        current_app.logger.error(f"Credential construction error: {parse_err}", exc_info=True)
+        current_app.logger.error(f"Failed to parse credential: {parse_err}", exc_info=True)
         return jsonify({"error": f"Invalid credential data: {str(parse_err)}"}), 400
 
-    # --- Verify the registration ---
     try:
         verification = verify_registration_response(
             credential=credential,
@@ -187,11 +160,11 @@ def register_complete():
             require_user_verification=False,
         )
 
-        # Store the credential in the database
+        transports = body.get("response", {}).get("transports", [])
         user.webauthn_credential_id = _b64url(verification.credential_id)
         user.webauthn_public_key = verification.credential_public_key
         user.webauthn_sign_count = verification.sign_count
-        user.webauthn_transports = body["response"].get("transports", [])
+        user.webauthn_transports = transports
         db.session.commit()
 
         return jsonify({"success": True, "credentialId": user.webauthn_credential_id}), 200
