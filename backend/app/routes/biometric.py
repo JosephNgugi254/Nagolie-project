@@ -16,6 +16,7 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
     PublicKeyCredentialDescriptor,
 )
+from webauthn.helpers.structs import RegistrationCredential
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from app import db
 from app.models import User
@@ -144,8 +145,8 @@ def register_complete():
 
     from webauthn.helpers.structs import RegistrationCredential
     try:
-        # Use model_validate_json for safer Pydantic v2 parsing
-        credential = RegistrationCredential.model_validate_json(json.dumps(body))
+        # ✅ Use parse_raw (compatible with your library version)
+        credential = RegistrationCredential.parse_raw(json.dumps(body))
     except Exception as parse_err:
         current_app.logger.error(f"WebAuthn parse error: {str(parse_err)}", exc_info=True)
         return jsonify({"error": f"Invalid credential format: {str(parse_err)}"}), 400
@@ -159,7 +160,7 @@ def register_complete():
             require_user_verification=False,
         )
 
-        # FIX 5: Store transports safely
+        # Transports are inside response.transports
         transports = body.get("response", {}).get("transports", [])
         user.webauthn_credential_id = _b64url(verification.credential_id)
         user.webauthn_public_key = verification.credential_public_key
