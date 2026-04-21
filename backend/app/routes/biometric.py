@@ -143,7 +143,12 @@ def register_complete():
         return jsonify({"error": "Challenge expired or not found"}), 400
 
     from webauthn.helpers.structs import RegistrationCredential
-    credential = RegistrationCredential.parse_raw(json.dumps(body))
+    try:
+        # Use model_validate_json for safer Pydantic v2 parsing
+        credential = RegistrationCredential.model_validate_json(json.dumps(body))
+    except Exception as parse_err:
+        current_app.logger.error(f"WebAuthn parse error: {str(parse_err)}", exc_info=True)
+        return jsonify({"error": f"Invalid credential format: {str(parse_err)}"}), 400
 
     try:
         verification = verify_registration_response(
@@ -154,19 +159,19 @@ def register_complete():
             require_user_verification=False,
         )
 
-        # FIX 5: Store transports if provided
-        transports = body.get("transports", [])
+        # FIX 5: Store transports safely
+        transports = body.get("response", {}).get("transports", [])
         user.webauthn_credential_id = _b64url(verification.credential_id)
         user.webauthn_public_key = verification.credential_public_key
         user.webauthn_sign_count = verification.sign_count
-        user.webauthn_transports = transports  # add this column to User model
+        user.webauthn_transports = transports
         db.session.commit()
 
         return jsonify({"success": True, "credentialId": user.webauthn_credential_id}), 200
     except Exception as e:
         current_app.logger.error(f"WebAuthn verification error: {str(e)}", exc_info=True)
         return jsonify({"error": f"Verification failed: {str(e)}"}), 500
-
+    
 # ---------- Authentication ----------
 @biometric_bp.route("/login/begin", methods=["POST"])
 def login_begin():

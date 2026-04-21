@@ -54,27 +54,34 @@ function InvestorPanel() {
 
   const enrollBiometrics = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      });
-      if (!beginRes.ok) throw new Error(await beginRes.text());
-      const { cacheKey, options } = await beginRes.json();
-      const attResp = await startRegistration(options);
-      const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...attResp, cacheKey }),
-      });
-      if (!completeRes.ok) throw new Error(await completeRes.text());
-      showToast.success('Biometric login enabled successfully!');
-      if (updateUserData) {
-        updateUserData({ ...user, webauthn_credential_id: 'enrolled' });
-      }
+        const token = localStorage.getItem('token');
+        const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        });
+        if (!beginRes.ok) throw new Error(await beginRes.text());
+        
+        const { cacheKey, options } = await beginRes.json();
+        
+        // ✅ FIXED: Wrap options in optionsJSON to match @simplewebauthn/browser API
+        const attResp = await startRegistration({ optionsJSON: options });
+        
+        const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...attResp, cacheKey }),
+        });
+        
+        if (!completeRes.ok) throw new Error(await completeRes.text());
+        showToast.success('Biometric login enabled successfully!');
+        
+        // Optional: refresh user state
+        if (updateUserData) {
+            updateUserData({ ...user, webauthn_credential_id: attResp.id });
+        }
     } catch (err) {
-      console.error(err);
-      showToast.error(err.message || 'Failed to enable biometrics');
+        console.error(err);
+        showToast.error(err.message || 'Failed to enable biometrics');
     }
   };
 
@@ -1078,7 +1085,7 @@ function InvestorPanel() {
                           </div>
                         </div>
                       </div>
-                                        
+
                       <div className="col-md-6 mb-4">
                         <div className="card shadow">
                           <div className="card-header bg-warning text-white">
@@ -1173,7 +1180,7 @@ function InvestorPanel() {
                                   </small>
                                 </div>
                               )}
-                
+
                               <div className="d-flex gap-2">
                                 <button
                                   type="submit"
@@ -1253,7 +1260,7 @@ function InvestorPanel() {
                         </div>
                       </div>
                     </div>
-                                        
+
                     {/* Security Information */}
                     <div className="card mb-4">
                       <div className="card-header bg-light">

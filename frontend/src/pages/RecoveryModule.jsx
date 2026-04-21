@@ -100,63 +100,38 @@ function RecoveryModule() {
   const handleOpenSettings = () => {
     setShowSettingsModal(true);
     if (isMobile) setSidebarOpen(false);
-  };
-
-  
+  };  
 
   const enrollBiometrics = async () => {
     try {
-      const token = localStorage.getItem('token');
-
-      const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
- 
-      if (!beginRes.ok) {
-        const txt = await beginRes.text();
-        let msg = 'Failed to start registration';
-        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* raw */ }
-        throw new Error(msg);
-      }
- 
-      const beginData = await beginRes.json();
-      const { cacheKey, options } = beginData;
- 
-      const attResp = await startRegistration(options);
-
-      const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ ...attResp, cacheKey }),
-      });
- 
-      if (!completeRes.ok) {
-        const txt = await completeRes.text();
-        let msg = 'Biometric registration failed';
-        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* raw */ }
-        throw new Error(msg);
-      }
- 
-      const completeData = await completeRes.json();
-      showToast.success('Biometric login enabled successfully!');
- 
-      if (updateUserData) {
-        updateUserData({ ...user, webauthn_credential_id: completeData.credentialId || 'enrolled' });
-      }
+        const token = localStorage.getItem('token');
+        const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        });
+        if (!beginRes.ok) throw new Error(await beginRes.text());
+        
+        const { cacheKey, options } = await beginRes.json();
+        
+        // ✅ FIXED: Wrap options in optionsJSON to match @simplewebauthn/browser API
+        const attResp = await startRegistration({ optionsJSON: options });
+        
+        const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...attResp, cacheKey }),
+        });
+        
+        if (!completeRes.ok) throw new Error(await completeRes.text());
+        showToast.success('Biometric login enabled successfully!');
+        
+        // Optional: refresh user state
+        if (updateUserData) {
+            updateUserData({ ...user, webauthn_credential_id: attResp.id });
+        }
     } catch (err) {
-      console.error('Biometric enroll error:', err);
-      if (err.name === 'NotAllowedError') {
-        showToast.error('Biometric prompt was cancelled or timed out.');
-      } else {
+        console.error(err);
         showToast.error(err.message || 'Failed to enable biometrics');
-      }
     }
   };
 
