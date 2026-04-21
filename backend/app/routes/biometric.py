@@ -90,7 +90,7 @@ def register_begin():
         user_display_name=user.username,
         authenticator_selection=AuthenticatorSelectionCriteria(
             # FIX 4: Allow any authenticator (no strict user verification)
-            user_verification=UserVerificationRequirement.DISCOURAGED,
+            user_verification=UserVerificationRequirement.PREFERRED,
             resident_key="preferred",
         ),
         supported_pub_key_algs=[
@@ -116,7 +116,7 @@ def register_begin():
                 {"alg": -257, "type": "public-key"},
             ],
             "authenticatorSelection": {
-                "userVerification": "discouraged",
+                "userVerification": "preferred",
                 "residentKey": "preferred",
             },
             "timeout": 60000,
@@ -145,23 +145,27 @@ def register_complete():
     from webauthn.helpers.structs import RegistrationCredential
     credential = RegistrationCredential.parse_raw(json.dumps(body))
 
-    verification = verify_registration_response(
-        credential=credential,
-        expected_challenge=expected_challenge,
-        expected_rp_id=_rp_id(),
-        expected_origin=_origin(),
-        require_user_verification=False,
-    )
+    try:
+        verification = verify_registration_response(
+            credential=credential,
+            expected_challenge=expected_challenge,
+            expected_rp_id=_rp_id(),
+            expected_origin=_origin(),
+            require_user_verification=False,
+        )
 
-    # FIX 5: Store transports if provided
-    transports = body.get("transports", [])
-    user.webauthn_credential_id = _b64url(verification.credential_id)
-    user.webauthn_public_key = verification.credential_public_key
-    user.webauthn_sign_count = verification.sign_count
-    user.webauthn_transports = transports  # add this column to User model
-    db.session.commit()
+        # FIX 5: Store transports if provided
+        transports = body.get("transports", [])
+        user.webauthn_credential_id = _b64url(verification.credential_id)
+        user.webauthn_public_key = verification.credential_public_key
+        user.webauthn_sign_count = verification.sign_count
+        user.webauthn_transports = transports  # add this column to User model
+        db.session.commit()
 
-    return jsonify({"success": True, "credentialId": user.webauthn_credential_id}), 200
+        return jsonify({"success": True, "credentialId": user.webauthn_credential_id}), 200
+    except Exception as e:
+        current_app.logger.error(f"WebAuthn verification error: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Verification failed: {str(e)}"}), 500
 
 # ---------- Authentication ----------
 @biometric_bp.route("/login/begin", methods=["POST"])
