@@ -143,20 +143,25 @@ def register_complete():
     if not expected_challenge:
         return jsonify({"error": "Challenge expired or not found"}), 400
 
-    # ✅ Use the library's parser instead of manual construction
+    # --- Parse the credential using the library's helper ---
     from webauthn.helpers import parse_registration_credential
     try:
         credential = parse_registration_credential(body)
     except Exception as parse_err:
-        current_app.logger.error(f"Failed to parse credential: {parse_err}", exc_info=True)
-        return jsonify({"error": f"Invalid credential data: {str(parse_err)}"}), 400
+        current_app.logger.error(f"parse_registration_credential failed: {parse_err}", exc_info=True)
+        return jsonify({"error": f"Parse failed: {str(parse_err)}"}), 400
 
+    # --- Verify with detailed logging ---
     try:
+        rp_id = _rp_id()
+        origin = _origin()
+        current_app.logger.info(f"Verifying with rp_id={rp_id}, origin={origin}")
+
         verification = verify_registration_response(
             credential=credential,
             expected_challenge=expected_challenge,
-            expected_rp_id=_rp_id(),
-            expected_origin=_origin(),
+            expected_rp_id=rp_id,
+            expected_origin=origin,
             require_user_verification=False,
         )
 
@@ -170,7 +175,7 @@ def register_complete():
         return jsonify({"success": True, "credentialId": user.webauthn_credential_id}), 200
 
     except Exception as e:
-        current_app.logger.error(f"WebAuthn verification error: {e}", exc_info=True)
+        current_app.logger.error(f"Verification error: {e}", exc_info=True)
         return jsonify({"error": f"Verification failed: {str(e)}"}), 500
     
 # ---------- Authentication ----------
