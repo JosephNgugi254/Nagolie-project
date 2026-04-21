@@ -46,3 +46,6 @@ class Config:
     CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
     CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
     CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
+
+    WEBAUTHN_RP_ID = os.environ.get('WEBAUTHN_RP_ID', 'localhost')  
+    FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')

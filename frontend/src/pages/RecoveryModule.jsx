@@ -28,6 +28,11 @@ function RecoveryModule() {
   const navigate = useNavigate();
   useSessionTimeout(logout, isAuthenticated, userRole);
 
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 
+  (window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000/api' 
+    : 'https://nagolie-backend.onrender.com/api');
+
   const [showUtilities, setShowUtilities] = useState(false);
 
   const handleOpenUtilities = () => {
@@ -97,11 +102,13 @@ function RecoveryModule() {
     if (isMobile) setSidebarOpen(false);
   };
 
+  
+
   const enrollBiometrics = async () => {
     try {
       const token = localStorage.getItem('token');
- 
-      const beginRes = await fetch('/api/auth/biometric/register/begin', {
+
+      const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -120,8 +127,8 @@ function RecoveryModule() {
       const { cacheKey, options } = beginData;
  
       const attResp = await startRegistration(options);
- 
-      const completeRes = await fetch('/api/auth/biometric/register/complete', {
+
+      const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -156,7 +163,7 @@ function RecoveryModule() {
   const disableBiometrics = async () => {
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/auth/biometric/disable', {
+      const res = await fetch(`${API_BASE}/auth/biometric/disable`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });

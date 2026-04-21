@@ -10,11 +10,15 @@ import InvestorStatsCard from "../components/investor/InvestorStatsCard"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Modal from "../components/common/Modal"
 import Toast, { showToast } from "../components/common/Toast"
+import { startRegistration } from '@simplewebauthn/browser';
+
 
 function InvestorPanel() {
   const { user, userRole, isAuthenticated, loading: authLoading, logout, updateUserData } = useAuth()
   const navigate = useNavigate()
   useSessionTimeout(logout, isAuthenticated, userRole);
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 
+  (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://nagolie-backend.onrender.com/api');
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
@@ -47,6 +51,50 @@ function InvestorPanel() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [usernameLoading, setUsernameLoading] = useState(false)
   const [passwordLoading, setPasswordLoading] = useState(false)
+
+  const enrollBiometrics = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      if (!beginRes.ok) throw new Error(await beginRes.text());
+      const { cacheKey, options } = await beginRes.json();
+      const attResp = await startRegistration(options);
+      const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...attResp, cacheKey }),
+      });
+      if (!completeRes.ok) throw new Error(await completeRes.text());
+      showToast.success('Biometric login enabled successfully!');
+      if (updateUserData) {
+        updateUserData({ ...user, webauthn_credential_id: 'enrolled' });
+      }
+    } catch (err) {
+      console.error(err);
+      showToast.error(err.message || 'Failed to enable biometrics');
+    }
+  };
+
+  const disableBiometrics = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/auth/biometric/disable`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      showToast.success('Biometrics disabled.');
+      if (updateUserData) {
+        updateUserData({ ...user, webauthn_credential_id: null });
+      }
+    } catch (err) {
+      console.error(err);
+      showToast.error(err.message || 'Failed to disable biometrics');
+    }
+  };
 
   const handleUsernameChange = async (e) => {
     e.preventDefault()
@@ -936,7 +984,7 @@ function InvestorPanel() {
                         <i className="fas fa-arrow-left me-1"></i> Back to Account
                       </button>
                     </div>
-
+                
                     <div className="row">
                       <div className="col-md-6 mb-4">
                         <div className="card shadow">
@@ -958,7 +1006,7 @@ function InvestorPanel() {
                                   disabled
                                 />
                               </div>
-
+                
                               <div className="mb-3">
                                 <label className="form-label">New Username</label>
                                 <input
@@ -975,7 +1023,7 @@ function InvestorPanel() {
                                   Username must be 3-20 characters and unique
                                 </div>
                               </div>
-
+                
                               <div className="mb-3">
                                 <label className="form-label">Current Password</label>
                                 <div className="input-group">
@@ -996,7 +1044,7 @@ function InvestorPanel() {
                                   </button>
                                 </div>
                               </div>
-
+                
                               <div className="d-flex gap-2">
                                 <button
                                   type="submit"
@@ -1030,7 +1078,7 @@ function InvestorPanel() {
                           </div>
                         </div>
                       </div>
-                                
+                                        
                       <div className="col-md-6 mb-4">
                         <div className="card shadow">
                           <div className="card-header bg-warning text-white">
@@ -1125,7 +1173,7 @@ function InvestorPanel() {
                                   </small>
                                 </div>
                               )}
-
+                
                               <div className="d-flex gap-2">
                                 <button
                                   type="submit"
@@ -1162,6 +1210,50 @@ function InvestorPanel() {
                       </div>
                     </div>
                                 
+                    {/* Biometric Login Card */}
+                    <div className="row">
+                      <div className="col-md-6 mb-4">
+                        <div className="card shadow h-100">
+                          <div className="card-header bg-info text-white">
+                            <h5 className="mb-0">
+                              <i className="fas fa-fingerprint me-2"></i>
+                              Biometric Login
+                            </h5>
+                          </div>
+                          <div className="card-body d-flex flex-column justify-content-center">
+                            {!window.PublicKeyCredential ? (
+                              <div className="alert alert-warning mb-0">
+                                <i className="fas fa-exclamation-triangle me-2" />
+                                Your browser or device does not support biometric authentication.
+                              </div>
+                            ) : user?.webauthn_credential_id ? (
+                              <div className="d-flex align-items-center justify-content-between">
+                                <div>
+                                  <p className="mb-1 text-success fw-semibold">
+                                    <i className="fas fa-check-circle me-2" />Biometrics Enabled
+                                  </p>
+                                  <small className="text-muted">You can log in with fingerprint or Face ID.</small>
+                                </div>
+                                <button className="btn btn-sm btn-outline-danger" onClick={disableBiometrics}>
+                                  <i className="fas fa-times me-1" />Disable
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="d-flex align-items-center justify-content-between">
+                                <div>
+                                  <p className="mb-1 fw-semibold">Enable Biometric Login</p>
+                                  <small className="text-muted">Use fingerprint or Face ID to log in without a password.</small>
+                                </div>
+                                <button className="btn btn-sm btn-primary" onClick={enrollBiometrics}>
+                                  <i className="fas fa-fingerprint me-1" />Enable
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                                        
                     {/* Security Information */}
                     <div className="card mb-4">
                       <div className="card-header bg-light">
@@ -1185,22 +1277,6 @@ function InvestorPanel() {
                               <li className="mb-2">
                                 <i className="fas fa-check text-success me-2"></i>
                                 Change your password regularly
-                              </li>
-                            </ul>
-                          </div>
-                          <div className="col-md-6">
-                            <ul className="list-unstyled">
-                              <li className="mb-2">
-                                <i className="fas fa-check text-success me-2"></i>
-                                Log out after each session
-                              </li>
-                              <li className="mb-2">
-                                <i className="fas fa-check text-success me-2"></i>
-                                Use a secure internet connection
-                              </li>
-                              <li className="mb-2">
-                                <i className="fas fa-check text-success me-2"></i>
-                                Contact admin if you suspect unauthorized access
                               </li>
                             </ul>
                           </div>

@@ -18,7 +18,7 @@ class User(db.Model):
     webauthn_credential_id = db.Column(db.String(255), nullable=True, unique=True)
     webauthn_public_key = db.Column(db.LargeBinary, nullable=True)
     webauthn_sign_count = db.Column(db.Integer, default=0)
-
+    webauthn_transports = db.Column(db.JSON, nullable=True)  # stores list of strings
     
     # investor role relationship
     investor_profile = db.relationship('Investor',back_populates='user',uselist=False,overlaps="investor,investor_user")    
@@ -57,6 +57,13 @@ class User(db.Model):
             'webauthn_credential_id': self.webauthn_credential_id,
             'webauthn_enabled': bool(self.webauthn_credential_id),
         }
+    
+class WebauthnChallenge(db.Model):
+    __tablename__ = 'webauthn_challenges'
+    token = db.Column(db.String(64), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    challenge = db.Column(db.String(256), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
 
 class Client(db.Model):
     __tablename__ = 'clients'

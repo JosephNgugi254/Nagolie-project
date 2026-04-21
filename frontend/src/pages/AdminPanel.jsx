@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useRef, } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
-import { adminAPI, paymentAPI } from "../services/api"
+import { adminAPI, paymentAPI, userAPI } from "../services/api"
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
+import { startRegistration } from '@simplewebauthn/browser';
 import AdminSidebar from "../components/admin/AdminSidebar"
 import AdminCard from "../components/admin/AdminCard"
 import AdminTable from "../components/admin/AdminTable"
@@ -25,7 +26,11 @@ import { getStatusBadge } from '../components/admin/Clientstatusbadge';
 import UtilitiesPanel from "../components/utilities/UtilitiesPanel"
 
 function AdminPanel() {
-  const { user, userRole, isAuthenticated, logout, loading: authLoading } = useAuth()
+  const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth()
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 
+  (window.location.hostname === 'localhost' 
+    ? "http://localhost:5000/api" 
+    : "https://nagolie-backend.onrender.com/api");
   const navigate = useNavigate()
   const location = useLocation()
   useSessionTimeout(logout, isAuthenticated, userRole);
@@ -34,6 +39,104 @@ function AdminPanel() {
   const [imageUploading, setImageUploading] = useState(false);
   const [audio, setAudio] = useState(null);
   const prevPendingCountRef = useRef(0);
+
+  // Username/Password change states (for Settings Modal)
+  const [usernameForm, setUsernameForm] = useState({ newUsername: '', currentPassword: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [usernameLoading, setUsernameLoading] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [showUsernameCurrentPass, setShowUsernameCurrentPass] = useState(false);
+
+  const handleUsernameChange = async (e) => {
+    e.preventDefault();
+    setUsernameLoading(true);
+    try {
+      const response = await userAPI.changeUsername({
+        new_username: usernameForm.newUsername,
+        current_password: usernameForm.currentPassword
+      });
+      if (response.data.success) {
+        showToast.success('Username updated successfully!');
+        const updatedUser = { ...user, username: response.data.new_username };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        updateUserData(updatedUser);
+        setUsernameForm({ newUsername: '', currentPassword: '' });
+      }
+    } catch (error) {
+      showToast.error(error.response?.data?.error || 'Failed to update username');
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      showToast.error('New passwords do not match');
+      return;
+    }
+    setPasswordLoading(true);
+    try {
+      const response = await userAPI.changePassword({
+        current_password: passwordForm.currentPassword,
+        new_password: passwordForm.newPassword,
+        confirm_password: passwordForm.confirmPassword
+      });
+      if (response.data.success) {
+        showToast.success('Password updated successfully! Please log in again.');
+        setTimeout(() => handleLogout(), 3000);
+      }
+    } catch (error) {
+      showToast.error(error.response?.data?.error || 'Failed to update password');
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+
+  // Biometric enrollment state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [biometricEnrolling, setBiometricEnrolling] = useState(false);
+
+  const enrollBiometrics = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (!beginRes.ok) throw new Error(await beginRes.text());
+      const { cacheKey, options } = await beginRes.json();
+      const attResp = await startRegistration(options);
+      const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...attResp, cacheKey }),
+      });
+      if (!completeRes.ok) throw new Error(await completeRes.text());
+      showToast.success('Biometric login enabled!');
+      // Optionally update user state
+    } catch (err) {
+      showToast.error(err.message || 'Failed to enable biometrics');
+    }
+  };
+
+  const disableBiometrics = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE}/auth/biometric/disable`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      showToast.success('Biometrics disabled');
+    } catch (err) {
+      showToast.error(err.message);
+    }
+  };
 
   //loan renewal states
   const [showRenewalModal, setShowRenewalModal] = useState(false);
@@ -1266,21 +1369,11 @@ const handleInvestorPasswordSubmit = (e) => {
     }
   }, [location.pathname, isInvestorSectionAuthenticated]); 
 
-
-  // Generate temporary password for new investor
-  // Remove the old generateTemporaryPassword function and replace it with:
-const generateTemporaryPassword = (name, id) => {
-  if (!name || name.trim().length === 0) {
-    return '';
-  }
-  
-  // For new investors, we'll let the backend generate the password
-  // This function is just for display in the form
+  const generateTemporaryPassword = (name) => {
+  if (!name || name.trim().length === 0) return '';
   const cleanName = name.toLowerCase().replace(/[^a-z]/g, '');
   const namePart = cleanName.substring(0, 3);
-  const randomNum = Math.floor(100 + Math.random() * 900); // 100-999
-  
-  // Format: inv{id}_{name}{randomNum} (backend will generate similar)
+  const randomNum = Math.floor(100 + Math.random() * 900);
   return `inv?${namePart}${randomNum}`;
 };
 
@@ -1635,10 +1728,15 @@ const generateTemporaryPassword = (name, id) => {
       return;
     }
 
-    // If trying to access investor section, check authentication first
     if (section === "investors") {
       handleInvestorSectionClick(); // This will check auth and show modal if needed
       return; // Don't proceed with normal section change
+    }
+
+    if (section === "settings") {
+      setShowSettingsModal(true); // Open modal instead of navigating to a page
+      // Keep current section active (don't change it)
+      return;
     }
 
     // For all other sections, proceed normally
@@ -1649,15 +1747,14 @@ const generateTemporaryPassword = (name, id) => {
       fetchPaymentStats();
     }
 
+    // Navigation logic
     if (section === "overview") {
       navigate("/admin");
     } else if (section === "company-gallery") {
-      navigate("admin/company-gallery");
+      navigate("/admin/company-gallery");
     } else {
       navigate(`/admin/${section}`);
     }
-
-    
   };
 
   const formatAgreementData = (agreement) => { 
@@ -2423,103 +2520,7 @@ Thank you for choosing us.`;
                     <i className="fas fa-calendar me-1"></i>
                     <span>{new Date().toLocaleDateString()}</span>
                   </div>
-                </div>
-
-                {/* ===== TEMPORARY WITHDRAWAL CONFIRMATION LETTER BUTTON ===== */}
-                {/* <div className="mb-4 text-center">
-                  <button
-                    className="btn btn-outline-primary btn-lg"
-                    onClick={async () => {
-                      try {
-                        await generateWithdrawalConfirmationLetter();
-                        showToast.success("Withdrawal confirmation letter downloaded!");
-                      } catch (error) {
-                        console.error("Error generating letter:", error);
-                        showToast.error("Failed to download letter");
-                      }
-                    }}
-                  >
-                    <i className="fas fa-file-pdf me-2"></i>
-                    📄 Download Withdrawal Confirmation Letter
-                  </button>
-                </div> */}
-
-                {/* ===== TEMPORARY PROPOSAL DOWNLOAD BUTTON ===== */}
-                {/* Uncomment the button below to download the proposal PDF */}                
-                {/* <div className="mb-4 text-center">
-                  <button
-                    className="btn btn-outline-primary btn-lg"
-                    onClick={async () => {
-                      try {
-                        await generateProposalPDF();
-                        showToast.success("Proposal PDF downloaded successfully!");
-                      } catch (error) {
-                        console.error("Error generating proposal:", error);
-                        showToast.error("Failed to download proposal");
-                      }
-                    }}
-                  >
-                    <i className="fas fa-file-pdf me-2"></i>
-                    📄 Download Digital Growth Proposal
-                  </button>
-                </div>               */}
-
-                {/* ===== TEMPORARY MANUAL LOAN AGREEMENT DOWNLOAD BUTTON ===== */}
-                {/* <div className="mb-4 text-center">
-                  <button
-                    className="btn btn-outline-primary btn-lg"
-                    onClick={async () => {
-                      try {
-                        await generateManualLoanAgreementPDF();
-                        showToast.success("Manual loan agreement downloaded successfully!");
-                      } catch (error) {
-                        console.error("Error generating manual agreement:", error);
-                        showToast.error("Failed to download manual agreement");
-                      }
-                    }}
-                  >
-                    <i className="fas fa-file-pdf me-2"></i>
-                    📄 Download Manual Loan Agreement Form
-                  </button>
-                </div> */}
-
-                {/* ===== TEMPORARY LOAN RENEWAL AGREEMENT DOWNLOAD BUTTON ===== */}
-                {/* <div className="mb-4 text-center">
-                  <button
-                    className="btn btn-outline-primary btn-lg"
-                    onClick={async () => {
-                      try {
-                        await generateManualLoanRenewalAgreementPDF();
-                        showToast.success("Loan renewal agreement downloaded successfully!");
-                      } catch (error) {
-                        console.error("Error generating renewal agreement:", error);
-                        showToast.error("Failed to download renewal agreement");
-                      }
-                    }}
-                  >
-                    <i className="fas fa-file-pdf me-2"></i>
-                    📄 Download Manual Loan Renewal Form
-                  </button>
-                </div> */}
-                {/* =========NEXT OF KIN MANUAL FORM BUTTON(WITH STAMP DIGITAL)============= */}
-                {/* <div className="mb-4 text-center">
-                  <button 
-                    className="btn btn-outline-primary btn-lg" 
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        await generateManualNextOfKinConsentPDF();
-                        showToast.success("Next of Kin consent form downloaded!");
-                      } catch (error) {
-                        console.error("Error generating next of kin consent:", error);
-                        showToast.error("Failed to download next of kin consent form");
-                      }
-                    }}                  
-                  >
-                    <i className="fas fa-file-pdf me-2"></i>
-                      📄 Download Next of Kin Consent
-                  </button>
-                </div> */}
+                </div>  
 
                 {loading ? (
                   <div className="text-center py-5">
@@ -6312,6 +6313,134 @@ Thank you for choosing us.`;
             >
               Cancel
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
+          {/* Change Username */}
+          <div className="mb-4">
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>
+            <form onSubmit={handleUsernameChange}>
+              <div className="mb-3">
+                <label className="form-label">Current Username</label>
+                <input type="text" className="form-control" value={user?.username || ''} disabled readOnly />
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Username</label>
+                <input type="text" className="form-control" value={usernameForm.newUsername}
+                       onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })}
+                       required minLength="3" placeholder="Enter new username" />
+                <small className="text-muted">Minimum 3 characters</small>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input type={showUsernameCurrentPass ? 'text' : 'password'} className="form-control"
+                         value={usernameForm.currentPassword}
+                         onChange={(e) => setUsernameForm({ ...usernameForm, currentPassword: e.target.value })}
+                         required placeholder="Enter your current password" />
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowUsernameCurrentPass(!showUsernameCurrentPass)}>
+                    <i className={`fas fa-${showUsernameCurrentPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={usernameLoading}>
+                {usernameLoading ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</> : 'Update Username'}
+              </button>
+            </form>
+          </div>
+      
+          <hr />
+      
+          {/* Change Password */}
+          <div className="mb-4">
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
+            <form onSubmit={handlePasswordChange}>
+              {/* ... same as RecoveryModule password form ... */}
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input type={showCurrentPass ? 'text' : 'password'} className="form-control"
+                         value={passwordForm.currentPassword}
+                         onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                         required placeholder="Current password" />
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowCurrentPass(!showCurrentPass)}>
+                    <i className={`fas fa-${showCurrentPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Password</label>
+                <div className="input-group">
+                  <input type={showNewPass ? 'text' : 'password'} className="form-control"
+                         value={passwordForm.newPassword}
+                         onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                         required minLength="6" placeholder="Min 6 characters" />
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowNewPass(!showNewPass)}>
+                    <i className={`fas fa-${showNewPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Confirm New Password</label>
+                <div className="input-group">
+                  <input type={showConfirmPass ? 'text' : 'password'} className="form-control"
+                         value={passwordForm.confirmPassword}
+                         onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                         required placeholder="Confirm new password" />
+                  <button className="btn btn-outline-secondary" type="button"
+                          onClick={() => setShowConfirmPass(!showConfirmPass)}>
+                    <i className={`fas fa-${showConfirmPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-warning" disabled={passwordLoading}>
+                {passwordLoading ? <><span className="spinner-border spinner-border-sm me-2" />Updating…</> : 'Update Password'}
+              </button>
+            </form>
+          </div>
+      
+          <hr />
+      
+          {/* Biometric Login */}
+          <div className="mt-3">
+            <h6 className="fw-bold fs-5 text-center mb-3">
+              <i className="fas fa-fingerprint me-2 text-primary" />Biometric Login
+            </h6>
+            {!window.PublicKeyCredential ? (
+              <div className="alert alert-warning mb-0">
+                <i className="fas fa-exclamation-triangle me-2" />
+                Your browser or device does not support biometric authentication.
+              </div>
+            ) : user?.webauthn_credential_id ? (
+              <div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div>
+                  <p className="mb-1 text-success fw-semibold">
+                    <i className="fas fa-check-circle me-2" />Biometrics Enabled
+                  </p>
+                  <small className="text-muted">You can log in with fingerprint or Face ID on supported devices.</small>
+                </div>
+                <button className="btn btn-sm btn-outline-danger ms-3" onClick={disableBiometrics}>
+                  <i className="fas fa-times me-1" />Disable
+                </button>
+              </div>
+            ) : (
+              <div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background: '#fafafa', border: '1px solid #e5e7eb' }}>
+                <div>
+                  <p className="mb-1 fw-semibold">Enable Biometric Login</p>
+                  <small className="text-muted">Use fingerprint or Face ID to log in without typing a password.</small>
+                </div>
+                <button className="btn btn-sm btn-primary ms-3" onClick={enrollBiometrics}>
+                  <i className="fas fa-fingerprint me-1" />Enable
+                </button>
+              </div>
+            )}
           </div>
         </Modal>
       )}
