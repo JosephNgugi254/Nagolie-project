@@ -143,15 +143,33 @@ def register_complete():
     if not expected_challenge:
         return jsonify({"error": "Challenge expired or not found"}), 400
 
-    # --- Parse the credential using the library's helper ---
-    from webauthn.helpers import parse_registration_credential
-    try:
-        credential = parse_registration_credential(body)
-    except Exception as parse_err:
-        current_app.logger.error(f"parse_registration_credential failed: {parse_err}", exc_info=True)
-        return jsonify({"error": f"Parse failed: {str(parse_err)}"}), 400
+    def b64url_to_bytes(s: str) -> bytes:
+        padding = 4 - (len(s) % 4)
+        if padding != 4:
+            s += "=" * padding
+        return base64.urlsafe_b64decode(s)
 
-    # --- Verify with detailed logging ---
+    from webauthn.helpers.structs import RegistrationCredential, AuthenticatorAttestationResponse
+
+    try:
+        # ✅ Build the response object correctly
+        attestation_response = AuthenticatorAttestationResponse(
+            client_data_json=b64url_to_bytes(body["response"]["clientDataJSON"]),
+            attestation_object=b64url_to_bytes(body["response"]["attestationObject"]),
+            transports=body["response"].get("transports", []),
+        )
+
+        credential = RegistrationCredential(
+            id=body["id"],
+            raw_id=b64url_to_bytes(body["rawId"]),
+            response=attestation_response,
+            type=body["type"],
+            # clientExtensionResults and authenticatorAttachment are optional – omit them
+        )
+    except Exception as parse_err:
+        current_app.logger.error(f"Credential construction error: {parse_err}", exc_info=True)
+        return jsonify({"error": f"Invalid credential data: {str(parse_err)}"}), 400
+
     try:
         rp_id = _rp_id()
         origin = _origin()
@@ -165,7 +183,7 @@ def register_complete():
             require_user_verification=False,
         )
 
-        transports = body.get("response", {}).get("transports", [])
+        transports = body["response"].get("transports", [])
         user.webauthn_credential_id = _b64url(verification.credential_id)
         user.webauthn_public_key = verification.credential_public_key
         user.webauthn_sign_count = verification.sign_count
@@ -175,7 +193,7 @@ def register_complete():
         return jsonify({"success": True, "credentialId": user.webauthn_credential_id}), 200
 
     except Exception as e:
-        current_app.logger.error(f"Verification error: {e}", exc_info=True)
+        current_app.logger.error(f"WebAuthn verification error: {e}", exc_info=True)
         return jsonify({"error": f"Verification failed: {str(e)}"}), 500
     
 # ---------- Authentication ----------

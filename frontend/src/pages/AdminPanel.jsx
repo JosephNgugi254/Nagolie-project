@@ -101,52 +101,71 @@ function AdminPanel() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [biometricEnrolling, setBiometricEnrolling] = useState(false);
 
-  const enrollBiometrics = async () => {  
+  const enrollBiometrics = async () => {
     try {
-        const token = localStorage.getItem('token');
-        const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        });
-        if (!beginRes.ok) throw new Error(await beginRes.text());
-        
-        const { cacheKey, options } = await beginRes.json();
-        
-        // ✅ FIXED: Wrap options in optionsJSON to match @simplewebauthn/browser API
-        const attResp = await startRegistration({ optionsJSON: options });
-        
-        const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...attResp, cacheKey }),
-        });
-        
-        if (!completeRes.ok) throw new Error(await completeRes.text());
-        showToast.success('Biometric login enabled successfully!');
-        
-        // Optional: refresh user state
-        if (updateUserData) {
-            updateUserData({ ...user, webauthn_credential_id: attResp.id });
-        }
+      const token = localStorage.getItem('token');
+      const beginRes = await fetch(`${API_BASE}/auth/biometric/register/begin`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (!beginRes.ok) throw new Error(await beginRes.text());
+
+      const { cacheKey, options } = await beginRes.json();
+      const attResp = await startRegistration({ optionsJSON: options });
+
+      const completeRes = await fetch(`${API_BASE}/auth/biometric/register/complete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...attResp, cacheKey }),
+      });
+      if (!completeRes.ok) throw new Error(await completeRes.text());
+
+      showToast.success('Biometric login enabled successfully!');
+
+      // ✅ Refetch fresh user data from backend
+      const userRes = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (userRes.ok) {
+        const freshUser = await userRes.json();
+        if (updateUserData) updateUserData(freshUser);
+      } else {
+        // Fallback: manually update webauthn_credential_id
+        if (updateUserData) updateUserData({ ...user, webauthn_credential_id: attResp.id });
+      }
     } catch (err) {
-        console.error(err);
-        showToast.error(err.message || 'Failed to enable biometrics');
+      console.error(err);
+      showToast.error(err.message || 'Failed to enable biometrics');
     }
   };
 
   const disableBiometrics = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_BASE}/auth/biometric/disable`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      showToast.success('Biometrics disabled');
-    } catch (err) {
-      showToast.error(err.message);
+  try {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`${API_BASE}/auth/biometric/disable`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    showToast.success('Biometrics disabled.');
+
+    // ✅ Refetch fresh user data from backend
+    const userRes = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (userRes.ok) {
+      const freshUser = await userRes.json();
+      if (updateUserData) updateUserData(freshUser);
+    } else {
+      // Fallback: manually set webauthn_credential_id to null
+      if (updateUserData) updateUserData({ ...user, webauthn_credential_id: null });
     }
-  };
+  } catch (err) {
+    console.error('Biometric disable error:', err);
+    showToast.error(err.message || 'Failed to disable biometrics');
+  }
+};
 
   //loan renewal states
   const [showRenewalModal, setShowRenewalModal] = useState(false);
