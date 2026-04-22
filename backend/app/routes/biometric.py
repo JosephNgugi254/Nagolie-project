@@ -247,48 +247,84 @@ def login_complete():
     if not cache_key:
         return jsonify({"error": "Missing cacheKey"}), 400
 
-    expected_challenge = get_and_delete_challenge(cache_key)
-    if not expected_challenge:
-        return jsonify({"error": "Challenge expired"}), 400
-
-    from webauthn.helpers.structs import AuthenticationCredential
-    credential = AuthenticationCredential.parse_raw(json.dumps(body))
-
-    # We need the user ID from the cache (store it too)
-    # We stored user_id in the challenge record. Retrieve it.
+    # Get challenge and user_id from the stored record (do NOT delete yet)
     record = WebauthnChallenge.query.filter_by(token=cache_key).first()
-    if not record:
-        return jsonify({"error": "Invalid session"}), 400
+    if not record or record.expires_at < datetime.utcnow():
+        return jsonify({"error": "Challenge expired or not found"}), 400
+
+    expected_challenge = _b64url_decode(record.challenge)
     user = db.session.get(User, record.user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    if not user or not user.webauthn_credential_id:
+        return jsonify({"error": "User not found or no biometric credential"}), 404
 
-    verification = verify_authentication_response(
-        credential=credential,
-        expected_challenge=expected_challenge,
-        expected_rp_id=_rp_id(),
-        expected_origin=_origin(),
-        credential_public_key=user.webauthn_public_key,
-        credential_current_sign_count=user.webauthn_sign_count,
-        require_user_verification=False,
-    )
+    # Helper: base64url to bytes
+    def b64url_to_bytes(s: str) -> bytes:
+        padding = 4 - (len(s) % 4)
+        if padding != 4:
+            s += "=" * padding
+        return base64.urlsafe_b64decode(s)
 
-    user.webauthn_sign_count = verification.new_sign_count
-    db.session.commit()
+    # --- Construct AuthenticatorAssertionResponse and AuthenticationCredential ---
+    from webauthn.helpers.structs import AuthenticationCredential, AuthenticatorAssertionResponse
 
-    access_token = create_access_token(identity=str(user.id))
-    if user.role == "admin":
-        redirect_to = "/admin"
-    elif user.role == "investor":
-        redirect_to = "/investor"
-    else:
-        redirect_to = "/recovery"
+    try:
+        # Build the assertion response object
+        assertion_response = AuthenticatorAssertionResponse(
+            client_data_json=b64url_to_bytes(body["response"]["clientDataJSON"]),
+            authenticator_data=b64url_to_bytes(body["response"]["authenticatorData"]),
+            signature=b64url_to_bytes(body["response"]["signature"]),
+            user_handle=b64url_to_bytes(body["response"]["userHandle"]) if body["response"].get("userHandle") else None,
+        )
 
-    return jsonify({
-        "access_token": access_token,
-        "user": user.to_dict(),
-        "redirect_to": redirect_to,
-    }), 200
+        # Build the credential
+        credential = AuthenticationCredential(
+            id=body["id"],
+            raw_id=b64url_to_bytes(body["rawId"]),
+            response=assertion_response,
+            type=body["type"],
+        )
+    except Exception as parse_err:
+        current_app.logger.error(f"Credential construction error: {parse_err}", exc_info=True)
+        return jsonify({"error": f"Invalid credential data: {str(parse_err)}"}), 400
+
+    # --- Verify authentication ---
+    try:
+        verification = verify_authentication_response(
+            credential=credential,
+            expected_challenge=expected_challenge,
+            expected_rp_id=_rp_id(),
+            expected_origin=_origin(),
+            credential_public_key=user.webauthn_public_key,
+            credential_current_sign_count=user.webauthn_sign_count,
+            require_user_verification=False,
+        )
+
+        # Update sign count
+        user.webauthn_sign_count = verification.new_sign_count
+        db.session.commit()
+
+        # Delete the challenge ONLY after successful verification
+        db.session.delete(record)
+        db.session.commit()
+
+        # Create JWT and return
+        access_token = create_access_token(identity=str(user.id))
+        if user.role == "admin":
+            redirect_to = "/admin"
+        elif user.role == "investor":
+            redirect_to = "/investor"
+        else:
+            redirect_to = "/recovery"
+
+        return jsonify({
+            "access_token": access_token,
+            "user": user.to_dict(),
+            "redirect_to": redirect_to,
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"WebAuthn authentication verification error: {e}", exc_info=True)
+        return jsonify({"error": f"Verification failed: {str(e)}"}), 500
 
 # ---------- Disable ----------
 @biometric_bp.route("/disable", methods=["DELETE"])
