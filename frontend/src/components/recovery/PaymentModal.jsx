@@ -24,10 +24,17 @@ function PaymentModal({ loan, onClose, onSuccess }) {
   const periodFullyPaid       = loan.period_interest_fully_paid === true;
 
   const maxPrincipal = currentPrincipal;
-  const maxInterestRaw = isWeekly
-    ? Math.max(0, currentPeriodInterest - periodPrepaid)
-    : Math.max(0, unpaidInterest);
-  const maxInterest = periodFullyPaid ? 0 : maxInterestRaw;
+  let maxInterest;
+  if (periodFullyPaid) {
+    maxInterest = 0;
+  } else if (periodPrepaid > 0) {
+    maxInterest = Math.max(0, currentPeriodInterest - periodPrepaid);
+  } else if (unpaidInterest > 0.01) {
+    maxInterest = isWeekly ? currentPrincipal : unpaidInterest;
+  } else {
+    // Allow pre‑payment of the current period's interest
+    maxInterest = currentPeriodInterest;
+  }
 
   let totalBalance;
   if (isWeekly) {
