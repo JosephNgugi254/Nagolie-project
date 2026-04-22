@@ -27,6 +27,7 @@ function LoanApply({ onSubmit }) {
   const [photos, setPhotos] = useState([])
   const [showTermsModal, setShowTermsModal] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)  // NEW: submission loading state
 
   const getSelectStyle = () => ({
     width: '100%',
@@ -38,7 +39,7 @@ function LoanApply({ onSubmit }) {
     appearance: 'none',
     WebkitAppearance: 'none',
     MozAppearance: 'none',
-    backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+    backgroundImage: `url("image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
     backgroundRepeat: 'no-repeat',
     backgroundPosition: window.innerWidth < 768 ? 'right 8px center' : 'right 12px center',
     backgroundSize: window.innerWidth < 768 ? '12px' : '16px',
@@ -105,7 +106,7 @@ function LoanApply({ onSubmit }) {
     }
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {   // MAKE ASYNC
     e.preventDefault()
 
     if (!formData.agreeTerms) {
@@ -138,27 +139,34 @@ function LoanApply({ onSubmit }) {
       repaymentPlan: formData.repaymentPlan,
     }
 
-    console.log("Submitting data:", submissionData)
+    console.log("Submitting ", submissionData)
 
-    onSubmit(submissionData)
-
-    // Reset form
-    setFormData({
-      fullName: "",
-      phoneNumber: "",
-      idNumber: "",
-      email: "",
-      loanAmount: "",
-      livestockType: "",
-      count: "",
-      estimatedValue: "",
-      location: "",
-      notes: "",
-      agreeTerms: false,
-      repaymentPlan: "weekly",
-    })
-    setMainLivestockType("")
-    setPhotos([])
+    setIsSubmitting(true)   // START LOADING
+    try {
+      await onSubmit(submissionData)   // AWAIT THE ASYNC SUBMISSION
+      // Reset form only on success (assuming onSubmit doesn't throw on success)
+      setFormData({
+        fullName: "",
+        phoneNumber: "",
+        idNumber: "",
+        email: "",
+        loanAmount: "",
+        livestockType: "",
+        count: "",
+        estimatedValue: "",
+        location: "",
+        notes: "",
+        agreeTerms: false,
+        repaymentPlan: "weekly",
+      })
+      setMainLivestockType("")
+      setPhotos([])
+    } catch (error) {
+      console.error("Submission error:", error)
+      // Optionally show error toast here; parent may already handle it
+    } finally {
+      setIsSubmitting(false)   // STOP LOADING
+    }
   }
 
   return (
@@ -435,9 +443,9 @@ function LoanApply({ onSubmit }) {
             type="submit" 
             size="lg" 
             className="px-5"
-            disabled={uploading}
+            disabled={uploading || isSubmitting}   // DISABLE DURING BOTH
           >
-            {uploading ? "Processing..." : "Submit Application"}
+            {uploading ? "Compressing images..." : isSubmitting ? "Submitting application..." : "Submit Application"}
           </Button>
         </div>
       </form>

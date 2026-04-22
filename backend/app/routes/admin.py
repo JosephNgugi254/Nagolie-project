@@ -400,12 +400,11 @@ def get_dashboard_stats():
         overdue_data = []
         for loan in overdue_loans:
             loan = recalculate_loan(loan)
-            last_ip = loan.last_interest_payment_date
-            if last_ip:
-                ld = last_ip.date() if hasattr(last_ip, 'date') else last_ip
-                weeks_overdue = (today - ld).days // 7
-            else:
-                weeks_overdue = 0
+            # Compute weeks overdue from due_date
+            due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
+            days_overdue = (today - due_date).days
+            weeks_overdue = max(0, (days_overdue + 6) // 7) if days_overdue > 0 else 0
+
             overdue_data.append({
                 'id': loan.id, 'client_id': loan.client_id, 'loan_id': loan.id,
                 'client_name': loan.client.full_name if loan.client else 'Unknown',
@@ -414,6 +413,7 @@ def get_dashboard_stats():
                 'weeks_overdue': weeks_overdue,
                 'phone': loan.client.phone_number if loan.client else 'N/A',
                 'repayment_plan': loan.repayment_plan,
+                'expectedReturnDate': loan.due_date.isoformat() if loan.due_date else None
             })
 
         return jsonify({

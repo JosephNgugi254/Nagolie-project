@@ -267,7 +267,7 @@ function RecoveryModule() {
       const r = await logout();
       if (r.success) {
         showToast.success('Logged out');
-        navigate('/login');
+        navigate('/');
       }
     } catch (e) {
       showToast.error('Logout failed');
