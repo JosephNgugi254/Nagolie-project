@@ -218,7 +218,7 @@ function About() {
               </div>
             </div>            
 
-            {/* Head Accountant */}
+            {/* Head Accountant
             <div className="col-lg-4 col-md-6 mb-5">
               <div className="team-card">
                 <div className="team-image">
@@ -243,7 +243,7 @@ function About() {
                   </p>
                 </div>
               </div>
-            </div>
+            </div> */}
 
             {/* secretary */}
             <div className="col-lg-4 col-md-6 mb-5">
