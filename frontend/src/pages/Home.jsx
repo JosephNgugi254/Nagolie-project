@@ -2,6 +2,8 @@
 
 import { Link } from "react-router-dom"
 import { useEffect, useRef, useState } from "react"
+import { motion, useMotionValue, useSpring, useInView } from "framer-motion"
+import CountUp from "react-countup"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import LoanApply from "../features/loans/LoanApply"
@@ -10,11 +12,44 @@ import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
 import SEO from '../components/common/SEO'
 
+// ========== Interactive Livestock Icon (Floating Cow) ==========
+const InteractiveLivestockIcon = () => {
+  const cursorX = useMotionValue(0)
+  const cursorY = useMotionValue(0)
+  const springX = useSpring(cursorX, { damping: 30, stiffness: 200 })
+  const springY = useSpring(cursorY, { damping: 30, stiffness: 200 })
+
+  useEffect(() => {
+    const move = (e) => {
+      cursorX.set(e.clientX - 25)
+      cursorY.set(e.clientY - 25)
+    }
+    window.addEventListener('mousemove', move)
+    return () => window.removeEventListener('mousemove', move)
+  }, [cursorX, cursorY])
+
+  return (
+    <motion.div
+      className="floating-cow"
+      style={{ x: springX, y: springY, position: 'fixed', pointerEvents: 'none', zIndex: 1000 }}
+      initial={{ opacity: 0, scale: 0.5 }}
+      animate={{ opacity: 0.6, scale: 1 }}
+      transition={{ delay: 1, duration: 0.5 }}
+    >
+      <i className="fas fa-cow fa-2x"></i>
+    </motion.div>
+  )
+}
+
 function Home() {
   const sliderRef = useRef(null)
   const dotsRef = useRef(null)
   const currentIndexRef = useRef(0)
   const autoSlideIntervalRef = useRef(null)
+
+  // Stats animation ref
+  const statsRef = useRef(null)
+  const isStatsInView = useInView(statsRef, { once: true, amount: 0.3 })
 
   // state variables
   const [showImageModal, setShowImageModal] = useState(false);
@@ -30,6 +65,24 @@ function Home() {
   const [livestockHasMore, setLivestockHasMore] = useState(false);
   const [livestockTotalPages, setLivestockTotalPages] = useState(1);
 
+  // Typewriter effect state
+  const [typewriterText, setTypewriterText] = useState("");
+  const fullTagline = "Investing in Living Assets";
+  const [typewriterIndex, setTypewriterIndex] = useState(0);
+  const [typewriterComplete, setTypewriterComplete] = useState(false);
+
+  useEffect(() => {
+    if (typewriterIndex < fullTagline.length) {
+      const timeout = setTimeout(() => {
+        setTypewriterText(prev => prev + fullTagline[typewriterIndex]);
+        setTypewriterIndex(prev => prev + 1);
+      }, 80);
+      return () => clearTimeout(timeout);
+    } else if (!typewriterComplete) {
+      setTypewriterComplete(true);
+    }
+  }, [typewriterIndex, typewriterComplete]);
+
   // image clicks handler
   const handleImageClick = (livestock, imageIndex = 0) => {
     setSelectedLivestockItem(livestock);
@@ -41,7 +94,6 @@ function Home() {
     try {
       console.log("Loan application submitted:", formData)
 
-      // Format the data for the backend - NOW MATCHES BACKEND EXPECTATIONS
       const applicationData = {
         full_name: formData.fullName,
         phone_number: formData.phoneNumber,
@@ -59,14 +111,11 @@ function Home() {
 
       console.log("Sending to backend:", applicationData)
 
-      // Send to backend using the new API endpoint
       const response = await loanAPI.apply(applicationData)
 
       if (response.data.success) {
         showToast.success("Thank you for your application! We will contact you shortly.")
         console.log("Application submitted successfully:", response.data)
-
-        // Optional: Reset form or redirect
         return { success: true, data: response.data }
       } else {
         showToast.error("There was an error submitting your application. Please try again.")
@@ -88,17 +137,15 @@ function Home() {
     const testimonialCards = slider.querySelectorAll(".testimonial-card")
     const totalTestimonials = testimonialCards.length
 
-    // Get number of cards to show based on screen size
     const getCardsPerView = () => {
-      if (window.innerWidth < 768) return 1 // Mobile: 1 card
-      if (window.innerWidth < 992) return 2 // Tablet: 2 cards
-      return 3 // Desktop: 3 cards
+      if (window.innerWidth < 768) return 1
+      if (window.innerWidth < 992) return 2
+      return 3
     }
 
     let cardsPerView = getCardsPerView()
     let totalSlides = Math.ceil(totalTestimonials / cardsPerView)
 
-    // Create dots
     const createDots = () => {
       dotsContainer.innerHTML = ""
       for (let i = 0; i < totalSlides; i++) {
@@ -110,38 +157,32 @@ function Home() {
       }
     }
 
-    // Update slider position
     const updateSlider = () => {
       const cardWidth = testimonialCards[0].offsetWidth + 30
       const translateX = -currentIndexRef.current * cardWidth * cardsPerView
       slider.style.transform = `translateX(${translateX}px)`
-
-      // Update active dot
       const dots = dotsContainer.querySelectorAll(".testimonial-dot")
       dots.forEach((dot, index) => {
         dot.classList.toggle("active", index === currentIndexRef.current)
       })
     }
 
-    // Go to specific slide
     const goToSlide = (index) => {
       currentIndexRef.current = index
       updateSlider()
     }
 
-    // Handle window resize
     const handleResize = () => {
       const newCardsPerView = getCardsPerView()
       if (newCardsPerView !== cardsPerView) {
         cardsPerView = newCardsPerView
         totalSlides = Math.ceil(totalTestimonials / cardsPerView)
-        currentIndexRef.current = 0 // Reset to first slide
+        currentIndexRef.current = 0
         createDots()
         updateSlider()
       }
     }
 
-    // Auto slide
     const startAutoSlide = () => {
       autoSlideIntervalRef.current = setInterval(() => {
         if (currentIndexRef.current < totalSlides - 1) {
@@ -163,12 +204,10 @@ function Home() {
     updateSlider()
     startAutoSlide()
 
-    // Event listeners
     window.addEventListener("resize", handleResize)
     slider.addEventListener("mouseenter", stopAutoSlide)
     slider.addEventListener("mouseleave", startAutoSlide)
 
-    // Cleanup
     return () => {
       stopAutoSlide()
       window.removeEventListener("resize", handleResize)
@@ -239,10 +278,9 @@ function Home() {
           setLivestock(response.data.items);
         }
       } else if (Array.isArray(response.data)) {
-        // Fallback if the API changes (unlikely)
         console.log('Direct array response, items count:', response.data.length);
         setLivestock(response.data);
-        setLivestockHasMore(false); // no pagination info, assume no more
+        setLivestockHasMore(false);
       } else {
         console.error('Unexpected response format:', response.data);
         setLivestock([]);
@@ -259,7 +297,6 @@ function Home() {
     }
   };
 
-  //useEffect to fetch livestock on component mount
   useEffect(() => {
     fetchLivestock(1, false);
   }, []);
@@ -271,52 +308,42 @@ function Home() {
     }).format(Number(amount) || 0);
   };
 
-  // Add this useEffect after your existing useEffect hooks
   useEffect(() => {
-    // Check if there's a livestock ID in the URL
     const hash = window.location.hash;
     if (hash.includes('?livestock=')) {
       const params = new URLSearchParams(hash.split('?')[1]);
       const livestockId = params.get('livestock');
 
       if (livestockId) {
-        // Wait for livestock data to load
         if (!livestockLoading && livestock.length > 0) {
-          // Find the livestock item
           const selectedItem = livestock.find(item => item.id.toString() === livestockId.toString());
 
           if (selectedItem) {
-            // Scroll to gallery section
             const gallerySection = document.getElementById('gallery');
             if (gallerySection) {
               gallerySection.scrollIntoView({ behavior: 'smooth' });
             }
 
-            // Open the modal for this livestock after a short delay
             setTimeout(() => {
               setSelectedLivestockItem(selectedItem);
               setSelectedImage(selectedItem.images[0] || null);
               setShowImageModal(true);
               
-              // Highlight the livestock item with pulsing effect
               const livestockElement = document.querySelector(`[data-livestock-id="${livestockId}"]`);
               if (livestockElement) {
                 livestockElement.classList.add('highlight-livestock');
-                
-                // Remove highlight after 5 seconds
                 setTimeout(() => {
                   livestockElement.classList.remove('highlight-livestock');
                 }, 5000);
               }
             }, 1000);
             
-            // Clear the URL hash after processing
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
           }
         }
       }
     }
-  }, [livestock, livestockLoading]); // Run when livestock data is loaded
+  }, [livestock, livestockLoading]);
 
   return (
     <div>
@@ -327,6 +354,7 @@ function Home() {
       />
       <Navbar />
       <Toast />
+      <InteractiveLivestockIcon />
 
       {/* Hero Section */}
       <section id="home" className="hero-section">
@@ -335,11 +363,28 @@ function Home() {
           <div className="row align-items-center min-vh-100">
             <div className="col-lg-8 mx-auto text-center text-white">
               <div className="hero-content">
-                <h1 className="display-3 fw-bold mb-4">Investing in Living Assets</h1>
-                <p className="lead mb-5">
+                <h1 className="display-3 fw-bold mb-4">
+                  {typewriterText}
+                  {!typewriterComplete && (
+                    <motion.span
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse" }}
+                      style={{ display: "inline-block", width: "3px", backgroundColor: "white", marginLeft: "4px" }}
+                    >
+                      |
+                    </motion.span>
+                  )}
+                </h1>
+                <motion.p
+                  className="lead mb-5"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.8, delay: 1.2 }}
+                >
                   Transform your livestock into immediate financial opportunities. Quick, secure, reliable and trusted
                   services in Isinya, Kajiado County.
-                </p>
+                </motion.p>
                 <div className="hero-buttons">
                   <a href="#loan-application" className="btn btn-primary btn-lg me-3">
                     Submit Livestock Offer
@@ -358,48 +403,49 @@ function Home() {
       <section className="py-5 bg-light">
         <div className="container">
           <div className="row">
-            <div className="col-lg-4 text-center mb-4">
-              <div className="feature-card h-100 p-4">
-                <div className="feature-icon mb-3">
-                  <i className="fas fa-clock fa-3x text-primary"></i>
-                </div>
-                <h4>Quick Processing</h4>
-                <p className="text-muted">
-                  Get cash for your livestock in hours. Our streamlined process ensures
-                  fast access to cash when you need them most.
-                </p>
-              </div>
-            </div>
-            <div className="col-lg-4 text-center mb-4">
-              <div className="feature-card h-100 p-4">
-                <div className="feature-icon mb-3">
-                  <i className="fas fa-shield-alt fa-3x text-primary"></i>
-                </div>
-                <h4>Secure & Reliable</h4>
-                <p className="text-muted">
-                  We secure your livestock sale with transparent terms, professional valuations,
-                  and reliable handling every step of the way.
-                </p>
-              </div>
-            </div>
-            <div className="col-lg-4 text-center mb-4">
-              <div className="feature-card h-100 p-4">
-                <div className="feature-icon mb-3">
-                  <i className="fas fa-mobile-alt fa-3x text-primary"></i>
-                </div>
-                <h4>M-Pesa Integration</h4>
-                <p className="text-muted">
-                  Convenient payment options through M-Pesa. Receive funds directly through your
-                  mobile phone.
-                </p>
-              </div>
-            </div>
+            {[
+              { icon: "fa-clock", title: "Quick Processing", text: "Get cash for your livestock in hours. Our streamlined process ensures fast access to cash when you need them most." },
+              { icon: "fa-shield-alt", title: "Secure & Reliable", text: "We secure your livestock sale with transparent terms, professional valuations, and reliable handling every step of the way." },
+              { icon: "fa-mobile-alt", title: "M-Pesa Integration", text: "Convenient payment options through M-Pesa. Receive funds directly through your mobile phone." }
+            ].map((feature, index) => (
+              <motion.div
+                key={index}
+                className="col-lg-4 text-center mb-4"
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+              >
+                <motion.div 
+                  className="feature-card h-100 p-4"
+                  whileHover={{ scale: 1.03, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                >
+                  <div className="feature-icon mb-3">
+                    <motion.i
+                      className={`fas ${feature.icon} fa-3x text-primary`}
+                      whileHover={{ rotate: 5, scale: 1.1 }}
+                      transition={{ type: "spring", stiffness: 300 }}
+                    ></motion.i>
+                  </div>
+                  <h4>{feature.title}</h4>
+                  <p className="text-muted">{feature.text}</p>
+                </motion.div>
+              </motion.div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* About Section */}
-      <section id="about" className="py-5">
+      {/* About Section with CountUp Stats */}
+      <motion.section
+        id="about"
+        className="py-5"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, amount: 0.3 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="container">
           <div className="row align-items-center">
             <div className="col-lg-12 mb-5 col-sm-12 text-justify">
@@ -418,23 +464,29 @@ function Home() {
                 With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
               </p>
 
-              {/* Stats */}
-              <div className="row mt-5">
+              {/* Stats with CountUp */}
+              <div className="row mt-5" ref={statsRef}>
                 <div className="col-4">
                   <div className="stat-item text-center">
-                    <h3 className="text-primary fw-bold">2500+</h3>
+                    <h3 className="text-primary fw-bold">
+                      {isStatsInView && <CountUp end={2500} duration={2} suffix="+" />}
+                    </h3>
                     <p className="text-muted">Happy Clients</p>
                   </div>
                 </div>
                 <div className="col-4">
                   <div className="stat-item text-center">
-                    <h3 className="text-primary fw-bold">KSh 10M+</h3>
+                    <h3 className="text-primary fw-bold">
+                      {isStatsInView && <CountUp end={10} duration={2} suffix="M+" prefix="KSh " />}
+                    </h3>
                     <p className="text-muted">Disbursed funds</p>
                   </div>
                 </div>
                 <div className="col-4">
                   <div className="stat-item text-center">
-                    <h3 className="text-primary fw-bold">5+ Years</h3>
+                    <h3 className="text-primary fw-bold">
+                      {isStatsInView && <CountUp end={5} duration={2} suffix="+ Years" />}
+                    </h3>
                     <p className="text-muted">Trusted Service</p>
                   </div>
                 </div>
@@ -442,126 +494,119 @@ function Home() {
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Mission, Vision, Values */}
-      <section className="py-5 bg-primary text-white">
+      <motion.section
+        className="py-5 bg-primary text-white"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+      >
         <div className="container">
           <div className="row">
-            {/* Mission */}
-            <div className="col-lg-4 mb-4">
-              <div className="mvv-card text-center">
-                <i className="fas fa-bullseye fa-3x mb-3"></i>
-                <h4>Our Mission</h4>
-                <p>
-                  To provide accessible, financial solutions that empower rural communities, strengthen
-                  livelihoods, and drive agricultural growth across Kenya.
-                </p>
-              </div>
-            </div>
-            {/* Vision */}
-            <div className="col-lg-4 mb-4">
-              <div className="mvv-card text-center">
-                <i className="fas fa-eye fa-3x mb-3"></i>
-                <h4>Our Vision</h4>
-                <p>
-                  To become the premier livestock acquisition partner, driving sustainable economic
-                  development through innovation and reliability.
-                </p>
-              </div>
-            </div>
-            {/* Values */}
-            <div className="col-lg-4 mb-4">
-              <div className="mvv-card text-center">
-                <i className="fas fa-heart fa-3x mb-3"></i>
-                <h4>Our Values</h4>
-                <p>
-                  Integrity, transparency, respect for livestock owners, and a firm commitment to efficiency, fairness,
-                  and supporting rural prosperity.
-                </p>
-              </div>
-            </div>
+            {[
+              { icon: "bullseye", title: "Our Mission", text: "To provide accessible, financial solutions that empower rural communities, strengthen livelihoods, and drive agricultural growth across Kenya." },
+              { icon: "eye", title: "Our Vision", text: "To become the premier livestock acquisition partner, driving sustainable economic development through innovation and reliability." },
+              { icon: "heart", title: "Our Values", text: "Integrity, transparency, respect for livestock owners, and a firm commitment to efficiency, fairness, and supporting rural prosperity." }
+            ].map((item, idx) => (
+              <motion.div
+                key={idx}
+                className="col-lg-4 mb-4"
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: idx * 0.1 }}
+              >
+                <motion.div 
+                  className="mvv-card text-center"
+                  whileHover={{ scale: 1.03, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                >
+                  <i className={`fas fa-${item.icon} fa-3x mb-3`}></i>
+                  <h4>{item.title}</h4>
+                  <p>{item.text}</p>
+                </motion.div>
+              </motion.div>
+            ))}
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Services Section */}
-      <section id="services" className="py-5">
+      <motion.section
+        id="services"
+        className="py-5"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="container">
           <div className="text-center mb-5">
             <h2 className="display-5 fw-bold">Our Services</h2>
             <p className="lead text-muted">Comprehensive livestock purchase solutions</p>
           </div>
           <div className="row">
-            <div className="col-lg-4 mb-4">
-              <div className="service-card p-4 h-100">
-                <i className="fas fa-coins fa-2x text-primary mb-3"></i>
-                <h4>Quick Purchases</h4>
-                <p className="text-muted">
-                  Get cash offers from as low as KSh 1,000 up to KSh 1,000,000 for your livestock .
-                  Professional valuation ensures fair terms.
-                </p>
-                <ul className="list-unstyled">
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Purchases processed within 24 to 48 hours
-                  </li>
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Competitive market rates
-                  </li>
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Flexible sale terms
-                  </li>
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Professional livestock valuation
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div className="col-lg-4 mb-4">
-              <div className="service-card p-4 h-100">
-                <i className="fas fa-mobile-alt fa-2x text-primary mb-3"></i>
-                <h4>Mobile Money Services</h4>
-                <p className="text-muted">
-                  Enjoy seamless transactions directly from your phone. 
-                  Instantly receive purchase disbursement funds and handle your sales through M-Pesa.
-                </p>
-                <ul className="list-unstyled">
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Instant fund disbursement
-                  </li>
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Secure, reliable transactions
-                  </li>
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Convenient sale confirmations
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div className="col-lg-4 mb-4">
-              <div className="service-card p-4 h-100">
-                <i className="fas fa-store fa-2x text-primary mb-3"></i>
-                <h4>Livestock Marketplace</h4>
-                <p className="text-muted">
-                  Access a trusted marketplace to buy or sell livestock with ease. Whether you're sourcing new stock or
-                  offloading animals for cash, Nagolie ensures you get the best value.
-                </p>
-                <ul className="list-unstyled">
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Better market access for your livestock
-                  </li>
-                  <li>
-                    <i className="fas fa-check text-success me-2"></i>Reliable sourcing for quality livestock
-                  </li>
-                </ul>
-              </div>
-            </div>
+            {[
+              {
+                icon: "fa-coins",
+                title: "Quick Purchases",
+                text: "Get cash offers from as low as KSh 1,000 up to KSh 1,000,000 for your livestock. Professional valuation ensures fair terms.",
+                items: ["Purchases processed within 24 to 48 hours", "Competitive market rates", "Flexible sale terms", "Professional livestock valuation"]
+              },
+              {
+                icon: "fa-mobile-alt",
+                title: "Mobile Money Services",
+                text: "Enjoy seamless transactions directly from your phone. Instantly receive purchase disbursement funds and handle your sales through M-Pesa.",
+                items: ["Instant fund disbursement", "Secure, reliable transactions", "Convenient sale confirmations"]
+              },
+              {
+                icon: "fa-store",
+                title: "Livestock Marketplace",
+                text: "Access a trusted marketplace to buy or sell livestock with ease. Whether you're sourcing new stock or offloading animals for cash, Nagolie ensures you get the best value.",
+                items: ["Better market access for your livestock", "Reliable sourcing for quality livestock"]
+              }
+            ].map((service, index) => (
+              <motion.div
+                key={index}
+                className="col-lg-4 mb-4"
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+              >
+                <motion.div 
+                  className="service-card p-4 h-100"
+                  whileHover={{ scale: 1.03, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                >
+                  <i className={`fas ${service.icon} fa-2x text-primary mb-3`}></i>
+                  <h4>{service.title}</h4>
+                  <p className="text-muted">{service.text}</p>
+                  <ul className="list-unstyled">
+                    {service.items.map((item, i) => (
+                      <li key={i}>
+                        <i className="fas fa-check text-success me-2"></i>{item}
+                      </li>
+                    ))}
+                  </ul>
+                </motion.div>
+              </motion.div>
+            ))}
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Testimonials Section */}
-      <section id="testimonials" className="py-5 bg-light">
+      <motion.section
+        id="testimonials"
+        className="py-5 bg-light"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="container">
           <div className="text-center mb-5">
             <h2 className="display-5 fw-bold">What Our clients Say</h2>
@@ -576,113 +621,36 @@ function Home() {
 
               <div className="testimonials-slider-container">
                 <div className="testimonials-slider" ref={sliderRef}>
-                  {/* Testimonial 1 */}
-                  <div className="testimonial-card">
-                    <div className="testimonial-content">
-                      <div className="client-image">
-                        <img src="/user-image.png" alt="Terry Nashipai" />
-                      </div>
-                      <div className="testimonial-text">
-                        <p className="quote">
-                          "Nagolie bought my livestock when I needed cash fast for my children's school fees. Their quick processing meant my kids didn't miss a single day of school. The M-Pesa payment was so convenient!"
-                        </p>
-                        <div className="client-info">
-                          <h5 className="client-name">Terry Nashipai</h5>
-                          <p className="client-location">Isinya, Kajiado</p>
+                  {[
+                    { name: "Terry Nashipai", location: "Isinya, Kajiado", quote: "Nagolie bought my livestock when I needed cash fast for my children's school fees. Their quick processing meant my kids didn't miss a single day of school. The M-Pesa payment was so convenient!" },
+                    { name: "Ivy Akinyi", location: "Isinya, Kajiado", quote: "When my mother was hospitalized, I sold my goats to Nagolie to clear the medical bills. Their valuation was fair, and I got the cash the same day. They truly understand emergencies." },
+                    { name: "Kelvin Lemayian", location: "Isinya, Kajiado", quote: "My small shop was running out of stock, and I needed quick cash to restock. Selling to Nagolie saved my business. The terms were flexible and fair." },
+                    { name: "Francis Katei", location: "Isinya, Kajiado", quote: "I needed capital to expand my poultry farming, so I sold some chickens to Nagolie. Now my business has doubled in size thanks to that quick cash!" },
+                    { name: "Beatrice Nayian", location: "Isinya, Kajiado", quote: "During the drought season, I needed money to buy feed for my cattle, so I sold a few to Nagolie. Their quick process helped me save my herd. Their service is a lifeline for livestock farmers." },
+                    { name: "Elijah Matura", location: "Isinya, Kajiado", quote: "I was able to pay for my daughter's university fees after selling my sheep to Nagolie. The process was straightforward, transparent, and respectful." }
+                  ].map((testimonial, index) => (
+                    <motion.div
+                      key={index}
+                      className="testimonial-card"
+                      initial={{ opacity: 0, x: -20 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: true }}
+                      transition={{ duration: 0.4, delay: index * 0.1 }}
+                    >
+                      <div className="testimonial-content">
+                        <div className="client-image">
+                          <img src="/user-image.png" alt={testimonial.name} />
+                        </div>
+                        <div className="testimonial-text">
+                          <p className="quote">"{testimonial.quote}"</p>
+                          <div className="client-info">
+                            <h5 className="client-name">{testimonial.name}</h5>
+                            <p className="client-location">{testimonial.location}</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Testimonial 2 */}
-                  <div className="testimonial-card">
-                    <div className="testimonial-content">
-                      <div className="client-image">
-                        <img src="/user-image.png" alt="Ivy Akinyi" />
-                      </div>
-                      <div className="testimonial-text">
-                        <p className="quote">
-                          "When my mother was hospitalized, I sold my goats to Nagolie to clear the medical bills. Their valuation was fair, and I got the cash the same day. They truly understand emergencies."
-                        </p>
-                        <div className="client-info">
-                          <h5 className="client-name">Ivy Akinyi</h5>
-                          <p className="client-location">Isinya, Kajiado</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Testimonial 3 */}
-                  <div className="testimonial-card">
-                    <div className="testimonial-content">
-                      <div className="client-image">
-                        <img src="/user-image.png" alt="Kelvin Lemayian" />
-                      </div>
-                      <div className="testimonial-text">
-                        <p className="quote">
-                          "My small shop was running out of stock, and I needed quick cash to restock. Selling to Nagolie saved my business. The terms were flexible and fair."
-                        </p>
-                        <div className="client-info">
-                          <h5 className="client-name">Kelvin Lemayian</h5>
-                          <p className="client-location">Isinya, Kajiado</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Testimonial 4 */}
-                  <div className="testimonial-card">
-                    <div className="testimonial-content">
-                      <div className="client-image">
-                        <img src="/user-image.png" alt="Francis Katei" />
-                      </div>
-                      <div className="testimonial-text">
-                        <p className="quote">
-                          "I needed capital to expand my poultry farming, so I sold some chickens to Nagolie. Now my business has doubled in size thanks to that quick cash!"
-                        </p>
-                        <div className="client-info">
-                          <h5 className="client-name">Francis Katei</h5>
-                          <p className="client-location">Isinya, Kajiado</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Testimonial 5 */}
-                  <div className="testimonial-card">
-                    <div className="testimonial-content">
-                      <div className="client-image">
-                        <img src="/user-image.png" alt="Beatrice Nayian" />
-                      </div>
-                      <div className="testimonial-text">
-                        <p className="quote">
-                          "During the drought season, I needed money to buy feed for my cattle, so I sold a few to Nagolie. Their quick process helped me save my herd. Their service is a lifeline for livestock farmers."
-                        </p>
-                        <div className="client-info">
-                          <h5 className="client-name">Beatrice Nayian</h5>
-                          <p className="client-location">Isinya, Kajiado</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Testimonial 6 */}
-                  <div className="testimonial-card">
-                    <div className="testimonial-content">
-                      <div className="client-image">
-                        <img src="/user-image.png" alt="Elijah Matura" />
-                      </div>
-                      <div className="testimonial-text">
-                        <p className="quote">
-                          "I was able to pay for my daughter's university fees after selling my sheep to Nagolie. The process was straightforward, transparent, and respectful."
-                        </p>
-                        <div className="client-info">
-                          <h5 className="client-name">Elijah Matura</h5>
-                          <p className="client-location">Isinya, Kajiado</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    </motion.div>
+                  ))}
                 </div>
               </div>
 
@@ -691,13 +659,12 @@ function Home() {
               </button>
             </div>
 
-            {/* Dots indicator */}
             <div className="testimonial-dots" ref={dotsRef}></div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
-      {/* Livestock Gallery */}
+      {/* Livestock Gallery - NO DELAYS, INSTANT APPEARANCE */}
       <section id="gallery" className="py-5">
         <div className="container">
           <div className="text-center mb-5">
@@ -730,8 +697,20 @@ function Home() {
             <>
               <div className="row" id="livestock-gallery">
                 {livestock.map((item) => (
-                  <div key={item.id} className="col-md-4 mb-4" data-livestock-id={item.id}>
-                    <div className="card h-100">
+                  <motion.div
+                    key={item.id}
+                    className="col-md-4 mb-4"
+                    data-livestock-id={item.id}
+                    initial={{ opacity: 0, y: 15 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "-20px" }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <motion.div 
+                      className="card h-100"
+                      whileHover={{ scale: 1.02, boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)" }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
                       <ImageCarousel 
                         images={item.images} 
                         title={item.title}
@@ -769,12 +748,11 @@ function Home() {
                           {item.location || 'Isinya, Kajiado'}
                         </small>
                       </div>
-                    </div>
-                  </div>
+                    </motion.div>
+                  </motion.div>
                 ))}
               </div>
               
-              {/* Load More Button */}
               {livestockHasMore && (
                 <div className="text-center mt-4">
                   <button
@@ -803,25 +781,43 @@ function Home() {
       </section>
           
       {/* Loan Application Form */}
-      <section id="loan-application" className="py-5">
+      <motion.section
+        id="loan-application"
+        className="py-5"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="container">
           <div className="row justify-content-center">
             <div className="col-lg-8">
-              <div className="card shadow">
+              <motion.div 
+                className="card shadow"
+                whileHover={{ boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)" }}
+                transition={{ type: "spring", stiffness: 300, damping: 20 }}
+              >
                 <div className="card-header bg-primary text-white text-center">
                   <h3 className="mb-0">Livestock Sales Proposal Form</h3>
                 </div>
                 <div className="card-body p-4">
                   <LoanApply onSubmit={handleLoanSubmit} />
                 </div>
-              </div>
+              </motion.div>
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Contact Section */}
-      <section id="contact" className="py-5 bg-dark text-white">
+      <motion.section
+        id="contact"
+        className="py-5 bg-dark text-white"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="container">
           <div className="row">
             <div className="col-lg-6 mb-4">
@@ -882,7 +878,7 @@ function Home() {
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       <Footer />
 
@@ -913,7 +909,6 @@ function Home() {
                   />
                 </div>
                 
-                {/* Image Carousel for multiple images */}
                 {selectedLivestockItem.images.length > 1 && (
                   <div className="row mt-3">
                     <div className="col-12">
@@ -939,7 +934,6 @@ function Home() {
                   </div>
                 )}
 
-                {/* Livestock Details */}
                 <div className="mt-4">
                   <h6>Details</h6>
                   <p>{selectedLivestockItem.description}</p>

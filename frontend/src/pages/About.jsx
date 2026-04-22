@@ -1,11 +1,91 @@
 "use client"
 
 import { Link } from "react-router-dom"
+import { motion, useInView } from "framer-motion"
+import { useRef, useState } from "react"
+import CountUp from "react-countup"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import SEO from '../components/common/SEO'
 
 function About() {
+  const statsRef = useRef(null)
+  const isStatsInView = useInView(statsRef, { once: true, amount: 0.3 })
+
+  const teamMembers = [
+    {
+      name: "Shadrack Kesumet",
+      role: "Chief Executive Officer and Founder",
+      bio: "He has a deep understanding of rural financial needs and brings an ambitious, problem-solving mentality to every challenge.",
+      image: "/Shaddy CEO.png",
+      whatsapp: "https://wa.me/254721451707",
+      email: "kesumetshadrack@gmail.com"
+    },
+    {
+      name: "Millicent Mantaine",
+      role: "Deputy Director",
+      bio: "She works closely with the Director to drive the organization's vision, providing strategic support and ensuring efficient operations",
+      image: "/Milly.jpeg",
+      whatsapp: "https://wa.me/",
+      email: ""
+    },
+    {
+      name: "George Marite",
+      role: "Senior Livestock Valuer",
+      bio: "Expert in livestock valuation and local market dynamics, ensuring accurate assessments and fair purchase terms for all clients.",
+      image: "/george1.jpeg",
+      whatsapp: "https://wa.me/254703994290",
+      email: "georgemarite@gmail.com"
+    },
+    {
+      name: "Florence Wacuka",
+      role: "Secretary",
+      bio: "Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises.",
+      image: "/flo.png",
+      whatsapp: "https://wa.me/0722370124",
+      email: ""
+    },
+    {
+      name: "Joseph Ngugi",
+      role: "Technical Operations Manager",
+      bio: "Head of IT Operations, responsible for managing the Company's systems, ensuring smooth performance, and fulfilling all company IT needs.",
+      image: "/solitary.png",
+      whatsapp: "https://wa.me/254797644034",
+      email: "solitaryjoe069@gmail.com",
+      linkedin: "www.linkedin.com/in/joseph-ngugi-2a78991b7"
+    },
+    {
+      name: "Tait Lesiamon",
+      role: "Legal Consultant",
+      bio: "Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises and its clients in every transaction.",
+      image: "/Timothy.png",
+      whatsapp: "https://wa.me/",
+      email: ""
+    },
+    {
+      name: "Joshua Partapipi",
+      role: "Livestock Production Officer",
+      bio: "Provides expert veterinary care and health checks for the company's collateral livestock, oversees all animal health services, and offers farmers guidance on best practices for effective livestock management.",
+      image: "./Joshua.png",
+      whatsapp: "https://wa.me/",
+      email: ""
+    },
+    {
+      name: "Robert Kalama",
+      role: "Livestock Valuer",
+      bio: "Livestock Valuer leading our Emarti branch providing accurate and fair assessments for loans and purchases.",
+      image: "/kalama-valuer-emarti.jpeg",
+      whatsapp: "https://wa.me/+254711744388",
+      email: ""
+    }
+  ]
+
+  const mvvItems = [
+    { icon: "bullseye", title: "Our Mission", text: "To provide accessible, financial solutions that empower rural communities, strengthen livelihoods, and drive agricultural growth across Kenya." },
+    { icon: "eye", title: "Our Vision", text: "To become the premier livestock acquisition partner, driving sustainable economic development through innovation and reliability." },
+    { icon: "heart", title: "Our Values", text: "Integrity, transparency, respect for livestock owners, and a firm commitment to efficiency, fairness, and supporting rural prosperity." }
+  ]
+
   return (
     <div>
       <SEO 
@@ -16,7 +96,12 @@ function About() {
       <Navbar />
 
       {/* About Hero Section */}
-      <section className="about-hero-section py-5 mt-5">
+      <motion.section
+        className="about-hero-section py-5 mt-5"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="container">
           <div className="row align-items-center">
             <div className="col-lg-8 mx-auto text-center">
@@ -25,14 +110,26 @@ function About() {
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* About Content Section */}
-      <section className="py-5">
+      <motion.section
+        className="py-5"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true, amount: 0.2 }}
+        transition={{ duration: 0.7 }}
+      >
         <div className="container">
           <div className="row align-items-center">
             {/* About Text */}
-            <div className="col-lg-6 mb-5">
+            <motion.div
+              className="col-lg-6 mb-5"
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+            >
               <h2 className="display-5 fw-bold mb-4">Our Story</h2>
               <p className="lead mb-4">
                 Your local partner for turning livestock into cash in Isinya, Kajiado County,
@@ -48,31 +145,43 @@ function About() {
                 With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
               </p>
 
-              {/* Stats */}
-              <div className="row mt-5">
+              {/* Stats with CountUp */}
+              <div className="row mt-5" ref={statsRef}>
                 <div className="col-4">
                   <div className="stat-item text-center">
-                    <h3 className="text-primary fw-bold">2500+</h3>
+                    <h3 className="text-primary fw-bold">
+                      {isStatsInView && <CountUp end={2500} duration={2} suffix="+" />}
+                    </h3>
                     <p className="text-muted">Happy Clients</p>
                   </div>
                 </div>
                 <div className="col-4">
                   <div className="stat-item text-center">
-                    <h3 className="text-primary fw-bold">KSh 10M+</h3>
+                    <h3 className="text-primary fw-bold">
+                      {isStatsInView && <CountUp end={10} duration={2} suffix="M+" prefix="KSh " />}
+                    </h3>
                     <p className="text-muted">Disbursed funds</p>
                   </div>
                 </div>
                 <div className="col-4">
                   <div className="stat-item text-center">
-                    <h3 className="text-primary fw-bold">5+ Years</h3>
+                    <h3 className="text-primary fw-bold">
+                      {isStatsInView && <CountUp end={5} duration={2} suffix="+ Years" />}
+                    </h3>
                     <p className="text-muted">Trusted Service</p>
                   </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
 
             {/* About Image */}
-            <div className="col-lg-6">
+            <motion.div
+              className="col-lg-6"
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.6 }}
+            >
               <div className="about-image">
                 <img
                   src="/logo.png"
@@ -82,54 +191,52 @@ function About() {
                   height="400"
                 />
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Mission, Vision, Values */}
-      <section className="py-5 bg-primary text-white">
+      <motion.section
+        className="py-5 bg-primary text-white"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+      >
         <div className="container">
           <div className="row">
-            {/* Mission */}
-            <div className="col-lg-4 mb-4">
-              <div className="mvv-card text-center">
-                <i className="fas fa-bullseye fa-3x mb-3"></i>
-                <h4>Our Mission</h4>
-                <p>
-                  To provide accessible, financial solutions that empower rural communities, strengthen
-                  livelihoods, and drive agricultural growth across Kenya.
-                </p>
-              </div>
-            </div>
-            {/* Vision */}
-            <div className="col-lg-4 mb-4">
-              <div className="mvv-card text-center">
-                <i className="fas fa-eye fa-3x mb-3"></i>
-                <h4>Our Vision</h4>
-                <p>
-                  To become the premier livestock acquisition partner, driving sustainable economic
-                  development through innovation and reliability.
-                </p>
-              </div>
-            </div>
-            {/* Values */}
-            <div className="col-lg-4 mb-4">
-              <div className="mvv-card text-center">
-                <i className="fas fa-heart fa-3x mb-3"></i>
-                <h4>Our Values</h4>
-                <p>
-                  Integrity, transparency, respect for livestock owners, and a firm commitment to efficiency, fairness,
-                  and supporting rural prosperity.
-                </p>
-              </div>
-            </div>
+            {mvvItems.map((item, idx) => (
+              <motion.div
+                key={idx}
+                className="col-lg-4 mb-4"
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: idx * 0.1 }}
+              >
+                <motion.div 
+                  className="mvv-card text-center"
+                  whileHover={{ scale: 1.03, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+                  transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                >
+                  <i className={`fas fa-${item.icon} fa-3x mb-3`}></i>
+                  <h4>{item.title}</h4>
+                  <p>{item.text}</p>
+                </motion.div>
+              </motion.div>
+            ))}
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Team Section */}
-      <section id="team" className="py-5 bg-light">
+      <motion.section
+        id="team"
+        className="py-5 bg-light"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+      >
         <div className="container">
           <div className="text-center mb-5">
             <h2 className="display-4 fw-bold mb-3">Meet Our Leadership Team</h2>
@@ -137,254 +244,62 @@ function About() {
           </div>
 
           <div className="row justify-content-center">
-            {/* CEO */}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/Shaddy CEO.png" alt="CEO" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="https://wa.me/254721451707" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="mailto:kesumetshadrack@gmail.com" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
+            {teamMembers.map((member, index) => (
+              <motion.div
+                key={index}
+                className="col-lg-4 col-md-6 mb-5"
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+              >
+                <motion.div 
+                  className="team-card"
+                  whileHover={{ y: -8, boxShadow: "0 15px 35px rgba(0,0,0,0.15)" }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                >
+                  <div className="team-image">
+                    <img src={member.image} alt={member.name} className="img-fluid" />
+                    <div className="team-overlay">
+                      <div className="team-social">
+                        {member.linkedin && (
+                          <a href={member.linkedin} className="social-link" target="_blank" rel="noopener noreferrer">
+                            <i className="fab fa-linkedin"></i>
+                          </a>
+                        )}
+                        {member.whatsapp && (
+                          <a href={member.whatsapp} className="social-link" target="_blank" rel="noopener noreferrer">
+                            <i className="fab fa-whatsapp"></i>
+                          </a>
+                        )}
+                        {member.email && (
+                          <a href={`mailto:${member.email}`} className="social-link">
+                            <i className="fas fa-envelope"></i>
+                          </a>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Shadrack Kesumet</h4>
-                  <p className="team-role">Chief Executive Officer and Founder</p>
-                  <p className="team-bio">
-                    He has a deep understanding of rural financial needs and brings an ambitious, problem-solving
-                    mentality to every challenge.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Deputy Director */}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/Milly.jpeg" alt="Deputy Director" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="https://wa.me/" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
+                  <div className="team-info">
+                    <h4 className="team-name">{member.name}</h4>
+                    <p className="team-role">{member.role}</p>
+                    <p className="team-bio">{member.bio}</p>
                   </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Millicent Mantaine</h4>
-                  <p className="team-role">Deputy Director</p>
-                  <p className="team-bio">
-                    She works closely with the Director to drive the organization’s vision,
-                    providing strategic support and ensuring efficient operations
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Livestock Valuer */}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/george1.jpeg" alt="livestock Valuer" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">                      
-                      <a href="https://wa.me/254703994290" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="mailto:georgemarite@gmail.com" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">George Marite</h4>
-                  <p className="team-role">Senior Livestock Valuer</p>
-                  <p className="team-bio">
-                    Expert in livestock valuation and local market dynamics, ensuring accurate assessments and fair
-                    purchase terms for all clients.
-                  </p>
-                </div>
-              </div>
-            </div>            
-
-            {/* Head Accountant
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/gideon.jpeg" alt="Head Accountant" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="https://wa.me/254720916093" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="mailto:gmatunta2015@gmail.com" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Gideon Matunta</h4>
-                  <p className="team-role">Head Accountant</p>
-                  <p className="team-bio">
-                    Oversees all financial operations, ensures accurate record-keeping,
-                    and supports sound financial decision-making for Nagolie Enterprises.
-                  </p>
-                </div>
-              </div>
-            </div> */}
-
-            {/* secretary */}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/flo.png" alt="secretary" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="https://wa.me/0722370124" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Florence Wacuka</h4>
-                  <p className="team-role">Secretary</p>
-                  <p className="team-bio">
-                    Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises.
-                  </p>    
-                </div>
-              </div>
-            </div>
-
-            {/* Technical Operation Manager */}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/solitary.png" alt="Head of IT" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="www.linkedin.com/in/joseph-ngugi-2a78991b7" className="social-link">
-                        <i className="fab fa-linkedin"></i>
-                      </a>
-                      <a href="https://wa.me/254797644034" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="mailto:solitaryjoe069@gmail.com" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Joseph Ngugi</h4>
-                  <p className="team-role">Technical Operations Manager</p>
-                  <p className="team-bio">
-                    Head of IT Operations, responsible for managing the Company's systems, ensuring smooth performance,
-                    and fulfilling all company IT needs.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Legal Consultant */}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/Timothy.png" alt="Legal consultant" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="https://wa.me/" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Tait Lesiamon</h4>
-                  <p className="team-role">Legal Consultant</p>
-                  <p className="team-bio">
-                    Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises and its clients in every transaction.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* livestock production officer*/}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="./Joshua.png" alt="livestock production officer" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="https://wa.me/" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="" className="social-link">
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Joshua Partapipi</h4>
-                  <p className="team-role">Livestock Production Officer</p>
-                  <p className="team-bio">
-                      Provides expert veterinary care  and health checks for the company’s collateral livestock, oversees all animal health services, and offers farmers guidance on best practices for effective livestock management.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Livestock Valuer - Emarti Branch */}
-            <div className="col-lg-4 col-md-6 mb-5">
-              <div className="team-card">
-                <div className="team-image">
-                  <img src="/kalama-valuer-emarti.jpeg" alt="Livestock Valuer Emarti" className="img-fluid" />
-                  <div className="team-overlay">
-                    <div className="team-social">
-                      <a href="https://wa.me/+254711744388" className="social-link">
-                        <i className="fab fa-whatsapp"></i>
-                      </a>
-                      <a href="" className="social-link"> 
-                        <i className="fas fa-envelope"></i>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="team-info">
-                  <h4 className="team-name">Robert Kalama</h4>
-                  <p className="team-role">Livestock Valuer</p>
-                  <p className="team-bio">
-                    Livestock Valuer leading our Emarti branch providing accurate and fair assessments for loans and purchases.
-                  </p>
-                </div>
-              </div>
-            </div>
-            
+                </motion.div>
+              </motion.div>
+            ))}
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* Call to Action Section */}
-      <section className="py-5 bg-primary text-white">
+      <motion.section
+        className="py-5 bg-primary text-white"
+        initial={{ opacity: 0 }}
+        whileInView={{ opacity: 1 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6 }}
+      >
         <div className="container">
           <div className="row justify-content-center text-center">
             <div className="col-lg-8">
@@ -403,7 +318,7 @@ function About() {
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       <Footer />
     </div>
