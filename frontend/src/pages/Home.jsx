@@ -622,12 +622,12 @@ function Home() {
               <div className="testimonials-slider-container">
                 <div className="testimonials-slider" ref={sliderRef}>
                   {[
-                    { name: "Terry Nashipai", location: "Isinya, Kajiado", quote: "Nagolie bought my livestock when I needed cash fast for my children's school fees. Their quick processing meant my kids didn't miss a single day of school. The M-Pesa payment was so convenient!" },
-                    { name: "Ivy Akinyi", location: "Isinya, Kajiado", quote: "When my mother was hospitalized, I sold my goats to Nagolie to clear the medical bills. Their valuation was fair, and I got the cash the same day. They truly understand emergencies." },
-                    { name: "Kelvin Lemayian", location: "Isinya, Kajiado", quote: "My small shop was running out of stock, and I needed quick cash to restock. Selling to Nagolie saved my business. The terms were flexible and fair." },
-                    { name: "Francis Katei", location: "Isinya, Kajiado", quote: "I needed capital to expand my poultry farming, so I sold some chickens to Nagolie. Now my business has doubled in size thanks to that quick cash!" },
-                    { name: "Beatrice Nayian", location: "Isinya, Kajiado", quote: "During the drought season, I needed money to buy feed for my cattle, so I sold a few to Nagolie. Their quick process helped me save my herd. Their service is a lifeline for livestock farmers." },
-                    { name: "Elijah Matura", location: "Isinya, Kajiado", quote: "I was able to pay for my daughter's university fees after selling my sheep to Nagolie. The process was straightforward, transparent, and respectful." }
+                    { name: "Terry Nashipai", location: "Isinya, Kajiado", quote: "Nagolie bought my livestock when I needed cash fast for my children's school fees. Their quick processing meant my kids didn't miss a single day of school. The M-Pesa payment was so convenient!", image: "terry.png" },
+                    { name: "Ivy Akinyi", location: "Isinya, Kajiado", quote: "When my mother was hospitalized, I sold my goats to Nagolie to clear the medical bills. Their valuation was fair, and I got the cash the same day. They truly understand emergencies.", image: "ivy.png" },
+                    { name: "Kelvin Lemayian", location: "Isinya, Kajiado", quote: "My small shop was running out of stock, and I needed quick cash to restock. Selling to Nagolie saved my business. The terms were flexible and fair.", image: "kelvin.png" },
+                    { name: "Francis Katei", location: "Isinya, Kajiado", quote: "I needed capital to expand my poultry farming, so I sold some chickens to Nagolie. Now my business has doubled in size thanks to that quick cash!", image: "francis.png" },
+                    { name: "Beatrice Nayian", location: "Isinya, Kajiado", quote: "During the drought season, I needed money to buy feed for my cattle, so I sold a few to Nagolie. Their quick process helped me save my herd. Their service is a lifeline for livestock farmers.", image: "beatrice.png" },
+                    { name: "Elijah Matura", location: "Isinya, Kajiado", quote: "I was able to pay for my daughter's university fees after selling my sheep to Nagolie. The process was straightforward, transparent, and respectful.", image: "elijah.png" }
                   ].map((testimonial, index) => (
                     <motion.div
                       key={index}
@@ -639,7 +639,7 @@ function Home() {
                     >
                       <div className="testimonial-content">
                         <div className="client-image">
-                          <img src="/user-image.png" alt={testimonial.name} />
+                          <img src={`/${testimonial.image}`} alt={testimonial.name} />
                         </div>
                         <div className="testimonial-text">
                           <p className="quote">"{testimonial.quote}"</p>
@@ -664,7 +664,7 @@ function Home() {
         </div>
       </motion.section>
 
-      {/* Livestock Gallery - NO DELAYS, INSTANT APPEARANCE */}
+      {/* Livestock Gallery */}
       <section id="gallery" className="py-5">
         <div className="container">
           <div className="text-center mb-5">
