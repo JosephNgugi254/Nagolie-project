@@ -24,15 +24,18 @@ function PaymentModal({ loan, onClose, onSuccess }) {
   const periodFullyPaid       = loan.period_interest_fully_paid === true;
 
   const maxPrincipal = currentPrincipal;
+
+  // ✅ FIXED: correct maxInterest for weekly plans
   let maxInterest;
   if (periodFullyPaid) {
     maxInterest = 0;
   } else if (periodPrepaid > 0) {
     maxInterest = Math.max(0, currentPeriodInterest - periodPrepaid);
   } else if (unpaidInterest > 0.01) {
-    maxInterest = isWeekly ? currentPrincipal : unpaidInterest;
+    // For weekly: allow unpaid + current period interest
+    // For daily: only unpaid interest
+    maxInterest = isWeekly ? unpaidInterest + currentPeriodInterest : unpaidInterest;
   } else {
-    // Allow pre‑payment of the current period's interest
     maxInterest = currentPeriodInterest;
   }
 
@@ -158,7 +161,6 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                 )}
               </div>
 
-              {/* Interest info alerts – FIXED: wrap adjacent elements in a fragment */}
               {interestInfo && (
                 <div className={`alert alert-${interestInfo.type} py-2 mb-3`}>
                   <i className={`fas fa-${interestInfo.type === 'warning' ? 'exclamation-triangle' : 'info-circle'} me-2`}></i>
@@ -172,7 +174,6 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                 </div>
               )}
 
-              {/* Payment type radios */}
               <div className="mb-3">
                 <label className="form-label fw-bold">Payment Type</label>
                 <div className="d-flex gap-4">
@@ -207,7 +208,6 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                 )}
               </div>
 
-              {/* Payment method */}
               <div className="mb-3">
                 <label className="form-label fw-bold">Payment Method</label>
                 <select className="form-select" value={paymentMethod}
@@ -227,7 +227,6 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                 </div>
               )}
 
-              {/* Amount */}
               <div className="mb-3">
                 <label className="form-label fw-bold">
                   Amount (KSh) <span className="text-danger">*</span>
@@ -241,7 +240,6 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                 <small className="text-muted">Maximum: {fmt(currentMax)}</small>
               </div>
 
-              {/* Notes */}
               <div className="mb-3">
                 <label className="form-label">Notes (optional)</label>
                 <textarea className="form-control" rows="2"
