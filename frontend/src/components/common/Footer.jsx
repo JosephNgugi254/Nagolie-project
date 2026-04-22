@@ -5,7 +5,7 @@ function Footer() {
         <div className="row align-items-center">
           <div className="col-md-6">
             <div className="d-flex align-items-center">
-              <span>&copy; 2025 Nagolie Enterprises Ltd. All rights reserved.</span>
+              <span>&copy; {new Date().getFullYear()} Nagolie Enterprises Ltd. All rights reserved.</span>
             </div>
           </div>
           <div className="col-md-6 text-md-end">
