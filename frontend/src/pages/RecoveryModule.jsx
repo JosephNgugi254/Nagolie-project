@@ -6,7 +6,11 @@ import { userAPI } from '../services/api';
 import { adminAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
-import { generateTransactionReceipt, generateClientStatement, generateLoanAgreementPDF, generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF, generateProposalPDF, generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF, generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF , generateLoanInvoicePDF } from "../components/admin/ReceiptPDF";
+import { generateTransactionReceipt, generateClientStatement, generateLoanAgreementPDF,
+generateInvestorAgreementPDF, generateInvestorStatementPDF, generateInvestorTransactionReceipt,
+generateManualLoanAgreementPDF, generateProposalPDF, generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF,
+generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF ,
+generateLoanInvoicePDF, generateLoanWaiverAgreementAutoPDF } from "../components/admin/ReceiptPDF";
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
 import PaymentModal from '../components/recovery/PaymentModal';
@@ -95,6 +99,12 @@ function RecoveryModule() {
 
   // Digital clock
   const [currentDateTime, setCurrentDateTime] = useState(new Date());
+
+  // Renewal Modal States
+  const [renewalType, setRenewalType] = useState('renew'); // 'renew' or 'waive'
+  const [waiverAmount, setWaiverAmount] = useState(0);
+  const [waiverDuration, setWaiverDuration] = useState(14);
+  const [waiverProcessing, setWaiverProcessing] = useState(false);
 
   // ---------- HANDLERS ----------
   const handleOpenSettings = () => {
@@ -474,7 +484,13 @@ function RecoveryModule() {
       );
     }
     if (planFilter !== 'all') {
-      filtered = filtered.filter(loan => loan.repayment_plan === planFilter);
+      if (planFilter === 'waived') {
+        // Show only loans with zero interest
+        filtered = filtered.filter(loan => loan.interest_rate === 0);
+      } else {
+        // 'weekly' or 'daily' – show only non‑waived loans that match the plan
+        filtered = filtered.filter(loan => loan.repayment_plan === planFilter && loan.interest_rate !== 0);
+      }
     }
     if (dateFilter) {
       filtered = filtered.filter(loan => {
@@ -660,6 +676,7 @@ function RecoveryModule() {
                             <option value="all">All</option>
                             <option value="weekly">Weekly</option>
                             <option value="daily">Daily</option>
+                            <option value="waived">Waived</option>
                           </select>
                         </div>
                         <div className="col-md-2">
@@ -747,7 +764,7 @@ function RecoveryModule() {
                                       <td>
                                         <div>{loan.name}</div>
                                         <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
-                                          {loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}
+                                          {loan.interest_rate === 0 ? 'Waived' : (loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}
                                         </span>
                                         {badge && (
                                           <span className={`badge ${badge.cls}`}>
@@ -1100,83 +1117,218 @@ function RecoveryModule() {
         />
       )}
 
-      {/* Loan Renewal Modal */}
+      {/* Loan Renewal / Waiver Modal */}
       {showRenewalModal && renewalLoan && (
         <Modal
           isOpen={showRenewalModal}
           onClose={() => {
             setShowRenewalModal(false);
             setRenewalLoan(null);
+            setRenewalType('renew');
+            setWaiverAmount(0);
+            setWaiverDuration(14);
           }}
-          title="Loan Renewal"
+          title="Loan Renewal / Waiver"
           size="md"
         >
-          <div className="mb-3">
-            <p><strong>Client:</strong> {renewalLoan.name}</p>
-            <p><strong>Current Balance:</strong> {fmt(renewalLoan.current_principal + renewalLoan.accrued_interest)}</p>
-            <p><strong>New Principal after Renewal:</strong> {fmt(renewalLoan.current_principal + renewalLoan.accrued_interest)}</p>
-            <p><strong>Repayment Plan:</strong> {renewalLoan.repayment_plan === 'daily' ? 'Daily (4.5% simple)' : 'Weekly (30% compound)'}</p>
-            <p><strong>Interest continues on new principal at same rate.</strong></p>
-          </div>
-          <div className="alert alert-warning">
-            <i className="fas fa-file-pdf me-2"></i>
-            You must download and have the client sign the renewal agreement before processing.
-          </div>
-          <div className="d-flex gap-2 justify-content-between">
-            <button
-              className="btn btn-primary"
-              onClick={async () => {
-                try {
-                  const outstanding = renewalLoan.current_principal + renewalLoan.accrued_interest;
-                  const loanData = {
-                    name: renewalLoan.name,
-                    idNumber: renewalLoan.id_number,
-                    phone: renewalLoan.contacts,
-                    borrowedAmount: renewalLoan.principal_amount,
-                    expectedReturnDate: renewalLoan.disbursement_date,
-                    balance: outstanding,
-                    repayment_plan: renewalLoan.repayment_plan,
-                  };
-                  await generateLoanRenewalAgreementAutoPDF(loanData, outstanding);
-                  showToast.success("Renewal agreement downloaded. Have client sign it.");
-                } catch (err) {
-                  console.error(err);
-                  showToast.error("Failed to download agreement");
-                }
-              }}
-            >
-              <i className="fas fa-download me-2"></i>Download Agreement
-            </button>
-            <button
-              className="btn btn-success"
-              onClick={async () => {
-                setProcessingRenewal(true);
-                try {
-                  const response = await recoveryAPI.renewLoan(renewalLoan.id);
-                  if (response.data.success) {
-                    showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
-                    setShowRenewalModal(false);
-                    fetchData();
-                  }
-                } catch (error) {
-                  showToast.error(error.response?.data?.error || "Renewal failed");
-                } finally {
-                  setProcessingRenewal(false);
-                }
-              }}
-              disabled={processingRenewal}
-            >
-              {processingRenewal ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Renewal"}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowRenewalModal(false)}
-            >
-              Cancel
-            </button>
-          </div>
+          {(() => {
+            const principal = Number(renewalLoan.current_principal || renewalLoan.currentPrincipal || renewalLoan.borrowedAmount || 0);
+            const isWeekly = renewalLoan.repayment_plan === 'weekly';
+            let totalBalance;
+            if (isWeekly) {
+              // Weekly: principal + current period interest (30% of principal)
+              const currentPeriodInterest = principal * 0.30;
+              totalBalance = principal + currentPeriodInterest;
+            } else {
+              // Daily: principal + unpaid accrued interest
+              const unpaidInterest = Number(renewalLoan.accrued_interest || renewalLoan.unpaidInterest || 0);
+              totalBalance = principal + unpaidInterest;
+            }
+          
+            return (
+              <>
+                <div className="mb-3">
+                  <p><strong>Client:</strong> {renewalLoan.name}</p>
+                  <p><strong>Current Balance:</strong> {fmt(totalBalance)}</p>
+                  <hr />
+                  <div className="btn-group w-100 mb-3" role="group">
+                    <button
+                      type="button"
+                      className={`btn ${renewalType === 'renew' ? 'btn-primary' : 'btn-outline-primary'}`}
+                      onClick={() => setRenewalType('renew')}
+                    >
+                      <i className="fas fa-sync-alt me-2"></i>Renewal
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${renewalType === 'waive' ? 'btn-success' : 'btn-outline-success'}`}
+                      onClick={() => {
+                        setRenewalType('waive');
+                        setWaiverAmount(totalBalance);
+                      }}
+                    >
+                      <i className="fas fa-hand-holding-heart me-2"></i>Waive
+                    </button>
+                  </div>
+                    
+                  {renewalType === 'renew' && (
+                    <>
+                      <div className="alert alert-warning">
+                        <i className="fas fa-file-pdf me-2"></i>
+                        Download and have the client sign the renewal agreement before confirming renewal.
+                      </div>
+                      <div className="d-flex flex-column gap-2">
+                        <button
+                          className="btn btn-primary w-100"
+                          onClick={async () => {
+                            try {
+                              // Map fields from recovery loan object to expected PDF format
+                              const loanDataForPdf = {
+                                name: renewalLoan.name,
+                                idNumber: renewalLoan.id_number,
+                                phone: renewalLoan.contacts,
+                                borrowedAmount: renewalLoan.principal_amount,
+                                expectedReturnDate: renewalLoan.disbursement_date,
+                                balance: totalBalance,
+                                repayment_plan: renewalLoan.repayment_plan,
+                              };
+                              await generateLoanRenewalAgreementAutoPDF(loanDataForPdf, totalBalance);
+                              showToast.success("Renewal agreement downloaded. Have client sign it.");
+                            } catch (err) {
+                              console.error(err);
+                              showToast.error("Failed to download agreement");
+                            }
+                          }}
+                        >
+                          <i className="fas fa-download me-2"></i>Download Agreement
+                        </button>
+                        <button
+                          className="btn btn-success w-100"
+                          onClick={async () => {
+                            setProcessingRenewal(true);
+                            try {
+                              const response = await recoveryAPI.renewLoan(renewalLoan.id);
+                              if (response.data.success) {
+                                showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
+                                setShowRenewalModal(false);
+                                fetchData();
+                              }
+                            } catch (error) {
+                              showToast.error(error.response?.data?.error || "Renewal failed");
+                            } finally {
+                              setProcessingRenewal(false);
+                            }
+                          }}
+                          disabled={processingRenewal}
+                        >
+                          {processingRenewal ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Renewal"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+      
+                  {renewalType === 'waive' && (
+                    <>
+                      <div className="mb-3">
+                        <label className="form-label">Agreed Repayment Amount (KES)</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={waiverAmount}
+                          onChange={(e) => setWaiverAmount(parseFloat(e.target.value))}
+                          min="0"
+                          max={totalBalance}
+                          step="100"
+                          required
+                        />
+                        <small className="text-muted">Maximum: {fmt(totalBalance)}</small>
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Repayment Duration (days)</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={waiverDuration}
+                          onChange={(e) => setWaiverDuration(parseInt(e.target.value))}
+                          min="1"
+                          max="90"
+                          required
+                        />
+                        <small className="text-muted">Default 14 days</small>
+                      </div>
+                      <div className="alert alert-info">
+                        <i className="fas fa-info-circle me-2"></i>
+                        The agreed amount will become a new zero‑interest loan. The original loan will be marked as waived.
+                        No further interest will accrue on the new amount.
+                      </div>
+                      <div className="alert alert-warning">
+                        <i className="fas fa-file-pdf me-2"></i>
+                        Download and have the client sign the waiver agreement before confirming waive.
+                      </div>
+                      <div className="d-flex flex-column gap-2">
+                        <button
+                          className="btn btn-primary w-100"
+                          onClick={async () => {
+                            try {
+                              const loanDataForPdf = {
+                                name: renewalLoan.name,
+                                idNumber: renewalLoan.id_number,
+                                phone: renewalLoan.contacts,
+                                borrowedAmount: renewalLoan.principal_amount,
+                                balance: totalBalance
+                              };
+                              await generateLoanWaiverAgreementAutoPDF(loanDataForPdf, waiverAmount, waiverDuration);
+                              showToast.success("Waiver agreement downloaded. Have client sign it.");
+                            } catch (err) {
+                              console.error(err);
+                              showToast.error("Failed to download waiver agreement");
+                            }
+                          }}
+                        >
+                          <i className="fas fa-download me-2"></i>Download Waiver Agreement
+                        </button>
+                        <button
+                          className="btn btn-success w-100"
+                          onClick={async () => {
+                            if (waiverAmount <= 0 || waiverAmount > totalBalance) {
+                              showToast.error("Please enter a valid agreed amount");
+                              return;
+                            }
+                            setWaiverProcessing(true);
+                            try {
+                              const response = await recoveryAPI.waiveLoan 
+                                ? await recoveryAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration)
+                                : await adminAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration);
+                              if (response.data.success) {
+                                showToast.success(`Loan waived! New loan ID: ${response.data.new_loan.id}`);
+                                setShowRenewalModal(false);
+                                fetchData();
+                              }
+                            } catch (error) {
+                              console.error("Waiver error details:", error);
+                              console.error("Response data:", error.response?.data);
+                              showToast.error(error.response?.data?.error || "Waiver failed");
+                            } finally {
+                              setWaiverProcessing(false);
+                            }
+                          }}
+                          disabled={waiverProcessing}
+                        >
+                          {waiverProcessing ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Waive"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="mt-3">
+                  <button className="btn btn-secondary w-100" onClick={() => setShowRenewalModal(false)}>Cancel</button>
+                </div>
+              </>
+            );
+          })()}
         </Modal>
       )}
+      
     </div>
   );
 }

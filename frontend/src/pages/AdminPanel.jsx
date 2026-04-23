@@ -18,7 +18,8 @@ import Toast, { showToast } from "../components/common/Toast"
 import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF,
  generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,
  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF,
- generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF, generateWithdrawalConfirmationLetter  } from "../components/admin/ReceiptPDF";
+ generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF,
+ generateWithdrawalConfirmationLetter, generateLoanWaiverAgreementAutoPDF  } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
@@ -96,7 +97,6 @@ function AdminPanel() {
     }
   };
 
-
   // Biometric enrollment state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [biometricEnrolling, setBiometricEnrolling] = useState(false);
@@ -172,6 +172,10 @@ function AdminPanel() {
   const [renewalLoan, setRenewalLoan] = useState(null);
   const [renewalOutstanding, setRenewalOutstanding] = useState(0);
   const [processingRenewal, setProcessingRenewal] = useState(false);
+  const [renewalType, setRenewalType] = useState('renew'); // 'renew' or 'waive'
+  const [waiverAmount, setWaiverAmount] = useState(0);
+  const [waiverDuration, setWaiverDuration] = useState(14);
+  const [waiverProcessing, setWaiverProcessing] = useState(false);
 
   const canRenewLoan = (loan) => {
     const allowedRoles = ['admin','director', 'secretary', 'head_of_it', 'deputy_director'];
@@ -2750,7 +2754,26 @@ Thank you for choosing us.`;
                           { header: "Amount Borrowed", field: "borrowedAmount", render: (row) => formatCurrency(row.borrowedAmount) },
                           { header: "Expected Return", field: "expectedReturnDate", render: (row) => formatDate(row.expectedReturnDate) },
                           { header: "Amount Paid", field: "amountPaid", render: (row) => formatCurrency(row.amountPaid) },
-                          { header: "Balance", field: "balance", render: (row) => formatCurrency(row.balance) },
+                          { header: "Plan", field: "repayment_plan", render: (row) => (
+                            <span className="badge bg-secondary">
+                              {row.interest_rate === 0 ? 'Waived' : (row.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}
+                            </span>
+                          )},
+                          {
+                            header: "Total Balance",
+                            field: "balance",
+                            render: (row) => {
+                              const principal = Number(row.current_principal || row.currentPrincipal || row.borrowedAmount || 0);
+                              const isWeekly = row.repayment_plan === 'weekly';
+                              // For weekly: use current_period_interest (the interest due for the current week)
+                              // For daily: use total unpaid interest (accrued but not paid)
+                              const interest = isWeekly
+                                ? Number(row.current_period_interest || row.interest || 0)
+                                : Number(row.unpaidInterest || row.unpaid_interest || 0);
+                              const totalBalance = principal + interest;
+                              return <span className="text-danger fw-bold">{formatCurrency(totalBalance)}</span>;
+                            }
+                          },
                           { 
                             header: "Status", 
                             field: "status",
@@ -4557,18 +4580,18 @@ Thank you for choosing us.`;
                   Principal Payment (Reduces loan amount)
                 </label>
               </div>
-              <div className="form-check">
-                <input 
-                  className="form-check-input" type="radio" name="paymentTypeRadio" id="interestPayment" 
-                  checked={paymentType === 'interest'}
-                  onChange={() => setPaymentType('interest')}
-                />
-                <label className="form-check-label" htmlFor="interestPayment">
-                  Interest Payment
-                  {selectedClient?.interest_type === 'compound' && ' (Weekly compound plan)'}
-                  {selectedClient?.interest_type === 'simple' && ' (Daily simple plan)'}
-                </label>
-              </div>
+              {selectedClient?.interest_rate !== 0 && (
+                <div className="form-check">
+                  <input className="form-check-input" type="radio" name="paymentTypeRadio" id="interestPayment"
+                         checked={paymentType === 'interest'}
+                         onChange={() => setPaymentType('interest')} />
+                  <label className="form-check-label" htmlFor="interestPayment">
+                    Interest Payment
+                    {selectedClient?.interest_type === 'compound' && ' (Weekly compound plan)'}
+                    {selectedClient?.interest_type === 'simple' && ' (Daily simple plan)'}
+                  </label>
+                </div>
+              )}
             </div>
         
             {/* Pre-period interest info banner */}
@@ -4613,30 +4636,36 @@ Thank you for choosing us.`;
 
             {/* Smart max amount for interest - pre-period aware */}
             {paymentType === 'interest' && (() => {
-              const isWeekly = selectedClient?.interest_type === 'compound';
+              const isWeekly = selectedClient?.interest_type === 'compound' || selectedClient?.repayment_plan === 'weekly';
+              const currentPeriodInterest = Number(selectedClient?.current_period_interest || selectedClient?.interest || 0);
+              const periodPrepaid = Number(selectedClient?.period_interest_prepaid || 0);
+              const periodFullyPaid = selectedClient?.period_interest_fully_paid === true;
+              const unpaidAccrued = Number(selectedClient?.unpaidInterest || 0);
+
               let maxInt = 0;
-
-              if (selectedClient?.period_interest_fully_paid) {
+              if (periodFullyPaid) {
                 maxInt = 0;
-              } else if ((selectedClient?.period_interest_prepaid || 0) > 0) {
-                maxInt = Math.max(0, (selectedClient.current_period_interest || 0) - (selectedClient.period_interest_prepaid || 0));
-              } else if ((selectedClient?.unpaidInterest || 0) > 0.01) {
-                maxInt = isWeekly ? (selectedClient.currentPrincipal || 0) : (selectedClient.unpaidInterest || 0);
+              } else if (periodPrepaid > 0) {
+                maxInt = Math.max(0, currentPeriodInterest - periodPrepaid);
+              } else if (unpaidAccrued > 0.01) {
+                // For weekly plans, the only "unpaid" interest is the current period's interest.
+                // For daily plans, unpaidAccrued is the total accrued interest.
+                maxInt = isWeekly ? currentPeriodInterest : unpaidAccrued;
               } else {
-                maxInt = selectedClient?.current_period_interest || 0;
+                maxInt = currentPeriodInterest;
               }
-
+            
               return (
                 <div className="mb-3">
                   <label className="form-label">
-                    {(selectedClient?.unpaidInterest || 0) > 0.01 ? 'Unpaid Interest' : "This Period's Interest"}
+                    {(selectedClient?.unpaidInterest || 0) > 0.01 && !isWeekly ? 'Unpaid Interest' : "This Period's Interest"}
                   </label>
                   <input type="text" className="form-control" 
                          value={formatCurrency(maxInt)} readOnly />
                   <small className="text-muted">
-                    {(selectedClient?.unpaidInterest || 0) > 0.01 
+                    {(selectedClient?.unpaidInterest || 0) > 0.01 && !isWeekly
                       ? 'Accrued interest balance'
-                      : `Pre-paying interest for current ${selectedClient?.repayment_plan === 'weekly' ? 'week' : 'day'}`}
+                      : `Interest for current ${isWeekly ? 'week' : 'period'}. ${periodPrepaid > 0 ? 'Remaining after pre‑payment.' : ''}`}
                   </small>
                 </div>
               );
@@ -6278,73 +6307,201 @@ Thank you for choosing us.`;
         </div>
       )}
 
-      {/* Loan renewal modal  */}
+      {/* Loan renewal / waiver modal */}
       {showRenewalModal && renewalLoan && (
         <Modal
           isOpen={showRenewalModal}
           onClose={() => {
             setShowRenewalModal(false);
             setRenewalLoan(null);
+            setRenewalType('renew');
+            setWaiverAmount(0);
+            setWaiverDuration(14);
           }}
-          title="Loan Renewal"
+          title="Loan Renewal / Waiver"
           size="md"
         >
-          <div className="mb-3">
-            <p><strong>Client:</strong> {renewalLoan.name}</p>
-            <p><strong>Current Balance:</strong> {formatCurrency(renewalLoan.balance)}</p>
-            <p><strong>New Principal after Renewal:</strong> {formatCurrency(renewalLoan.balance)}</p>
-            <p><strong>Repayment Plan:</strong> {renewalLoan.repayment_plan === 'daily' ? 'Daily (4.5% simple)' : 'Weekly (30% compound)'}</p>
-            <p><strong>Interest continues on new principal at same rate.</strong></p>
-          </div>
-          <div className="alert alert-warning">
-            <i className="fas fa-file-pdf me-2"></i>
-            You must download and have the client sign the renewal agreement before processing.
-          </div>
-          <div className="d-flex gap-2 justify-content-between">
-            <button
-              className="btn btn-primary"
-              onClick={async () => {
-                try {
-                  await generateLoanRenewalAgreementAutoPDF(renewalLoan, renewalLoan.balance);
-                  showToast.success("Renewal agreement downloaded. Have client sign it.");
-                } catch (err) {
-                  showToast.error("Failed to download agreement");
-                }
-              }}
-            >
-              <i className="fas fa-download me-2"></i>Download Agreement
-            </button>
-            <button
-              className="btn btn-success"
-              onClick={async () => {
-                setProcessingRenewal(true);
-                try {
-                  const response = await adminAPI.renewLoan(renewalLoan.loan_id);
-                  if (response.data.success) {
-                    showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
-                    setShowRenewalModal(false);
-                    // Refresh data
-                    await Promise.all([fetchClients(), fetchDashboardData(), fetchTransactions(), fetchPaymentStats()]);
-                  }
-                } catch (error) {
-                  showToast.error(error.response?.data?.error || "Renewal failed");
-                } finally {
-                  setProcessingRenewal(false);
-                }
-              }}
-              disabled={processingRenewal}
-            >
-              {processingRenewal ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Renewal"}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowRenewalModal(false)}
-            >
-              Cancel
-            </button>
-          </div>
+          {(() => {
+            const principal = Number(renewalLoan.current_principal || renewalLoan.currentPrincipal || renewalLoan.borrowedAmount || 0);
+            const isWeekly = renewalLoan.repayment_plan === 'weekly';
+            // For weekly: use current period interest (not total accrued)
+            // For daily: use total unpaid interest (accrued)
+            const interest = isWeekly
+              ? Number(renewalLoan.current_period_interest || renewalLoan.interest || 0)
+              : Number(renewalLoan.unpaidInterest || renewalLoan.unpaid_interest || 0);
+            const totalBalance = principal + interest;
+          
+            return (
+              <>
+                <div className="mb-3">
+                  <p><strong>Client:</strong> {renewalLoan.name}</p>
+                  <p><strong>Current Balance:</strong> {formatCurrency(totalBalance)}</p>
+                  <hr />
+                  <div className="btn-group w-100 mb-3" role="group">
+                    <button
+                      type="button"
+                      className={`btn ${renewalType === 'renew' ? 'btn-primary' : 'btn-outline-primary'}`}
+                      onClick={() => setRenewalType('renew')}
+                    >
+                      <i className="fas fa-sync-alt me-2"></i>Renewal
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${renewalType === 'waive' ? 'btn-success' : 'btn-outline-success'}`}
+                      onClick={() => {
+                        setRenewalType('waive');
+                        setWaiverAmount(totalBalance);
+                      }}
+                    >
+                      <i className="fas fa-hand-holding-heart me-2"></i>Waive
+                    </button>
+                  </div>
+                    
+                  {renewalType === 'renew' && (
+                    <>
+                      <div className="alert alert-warning">
+                        <i className="fas fa-file-pdf me-2"></i>
+                        Download and have the client sign the renewal agreement before confirming renewal.
+                      </div>
+                      <div className="d-flex flex-column gap-2">
+                        <button
+                          className="btn btn-primary w-100"
+                          onClick={async () => {
+                            try {
+                              await generateLoanRenewalAgreementAutoPDF(renewalLoan, totalBalance);
+                              showToast.success("Renewal agreement downloaded. Have client sign it.");
+                            } catch (err) {
+                              console.error(err);
+                              showToast.error("Failed to download agreement");
+                            }
+                          }}
+                        >
+                          <i className="fas fa-download me-2"></i>Download Agreement
+                        </button>
+                        <button
+                          className="btn btn-success w-100"
+                          onClick={async () => {
+                            setProcessingRenewal(true);
+                            try {
+                              const response = await adminAPI.renewLoan(renewalLoan.loan_id);
+                              if (response.data.success) {
+                                showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
+                                setShowRenewalModal(false);
+                                await Promise.all([fetchClients(), fetchDashboardData(), fetchTransactions(), fetchPaymentStats()]);
+                              }
+                            } catch (error) {
+                              showToast.error(error.response?.data?.error || "Renewal failed");
+                            } finally {
+                              setProcessingRenewal(false);
+                            }
+                          }}
+                          disabled={processingRenewal}
+                        >
+                          {processingRenewal ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Renewal"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {renewalType === 'waive' && (
+                    <>
+                      <div className="mb-3">
+                        <label className="form-label">Agreed Repayment Amount (KES)</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={waiverAmount}
+                          onChange={(e) => setWaiverAmount(parseFloat(e.target.value))}
+                          min="0"
+                          max={totalBalance}
+                          step="100"
+                          required
+                        />
+                        <small className="text-muted">Maximum: {formatCurrency(totalBalance)}</small>
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label">Repayment Duration (days)</label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={waiverDuration}
+                          onChange={(e) => setWaiverDuration(parseInt(e.target.value))}
+                          min="1"
+                          max="90"
+                          required
+                        />
+                        <small className="text-muted">Default 14 days</small>
+                      </div>
+                      <div className="alert alert-info">
+                        <i className="fas fa-info-circle me-2"></i>
+                        The agreed amount will become a new zero‑interest loan. The original loan will be marked as waived.
+                        No further interest will accrue on the new amount.
+                      </div>
+                      <div className="alert alert-warning">
+                        <i className="fas fa-file-pdf me-2"></i>
+                        Download and have the client sign the waiver agreement before confirming waive.
+                      </div>
+                      <div className="d-flex flex-column gap-2">
+                        <button
+                          className="btn btn-primary w-100"
+                          onClick={async () => {
+                            try {
+                              const loanDataForPdf = {
+                                name: renewalLoan.name,
+                                idNumber: renewalLoan.idNumber,
+                                phone: renewalLoan.phone,
+                                borrowedAmount: renewalLoan.borrowedAmount,
+                                balance: totalBalance
+                              };
+                              await generateLoanWaiverAgreementAutoPDF(loanDataForPdf, waiverAmount, waiverDuration);
+                              showToast.success("Waiver agreement downloaded. Have client sign it.");
+                            } catch (err) {
+                              console.error(err);
+                              showToast.error("Failed to download waiver agreement");
+                            }
+                          }}
+                        >
+                          <i className="fas fa-download me-2"></i>Download Waiver Agreement
+                        </button>
+                        <button
+                          className="btn btn-success w-100"
+                          onClick={async () => {
+                            if (waiverAmount <= 0 || waiverAmount > totalBalance) {
+                              showToast.error("Please enter a valid agreed amount");
+                              return;
+                            }
+                            setWaiverProcessing(true);
+                            try {
+                              const response = await adminAPI.waiveLoan(renewalLoan.loan_id, waiverAmount, waiverDuration);
+                              if (response.data.success) {
+                                showToast.success(`Loan waived! New loan ID: ${response.data.new_loan.id}`);
+                                setShowRenewalModal(false);
+                                await Promise.all([fetchClients(), fetchDashboardData(), fetchTransactions(), fetchPaymentStats()]);
+                              }
+                            } catch (error) {
+                              console.error("Waiver error:", error);
+                              showToast.error(error.response?.data?.error || "Waiver failed");
+                            } finally {
+                              setWaiverProcessing(false);
+                            }
+                          }}
+                          disabled={waiverProcessing}
+                        >
+                          {waiverProcessing ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Waive"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="mt-3">
+                  <button className="btn btn-secondary w-100" onClick={() => setShowRenewalModal(false)}>Cancel</button>
+                </div>
+              </>
+            );
+          })()}
         </Modal>
       )}
+      
 
       {/* Settings Modal */}
       {showSettingsModal && (

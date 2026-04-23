@@ -3816,6 +3816,31 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     addOptimizedWatermark(doc, 'agreement');
     let yPos = await addHeader(doc, 8);  // reduced top margin
 
+    // ---- Helper functions for thumbprint & checkboxes ----
+    const drawThumbprintBox = (x, y, width = 40, height = 35) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+      doc.text('R.T', x + 5, y + 3.5);
+      doc.rect(x + 22, y, 4, 4);
+      doc.text('L.T', x + 27, y + 3.5);
+    };
+
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleDateString('en-GB', {
       day: '2-digit', month: '2-digit', year: 'numeric'
@@ -3828,7 +3853,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     yPos += 6;
     yPos = addDivider(doc, yPos);
 
-    // Borrower Information (tightened)
+    // Borrower Information
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'bold');
@@ -3843,7 +3868,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.text('Phone: _________________________', 25, yPos);
     yPos += 6;
 
-    // Loan Details (tightened)
+    // Loan Details
     doc.setFont('helvetica', 'bold');
     doc.text('Loan Details:', 20, yPos);
     yPos += 4;
@@ -3866,7 +3891,6 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'normal');
 
-    // Fixed terms list – separate lines for New Principal and Interest
     const renewalTerms = [
       "1. The Borrower acknowledges that the original loan is overdue and that the Company has agreed to renew the loan",
       "   under the following terms.",
@@ -3886,18 +3910,14 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
       const lines = doc.splitTextToSize(text, maxWidth);
       lines.forEach(line => {
         doc.text(line, x, y);
-        y += 4.0;   // tighter line height
+        y += 4.0;
       });
       return y;
     };
 
     for (const term of renewalTerms) {
-      if (term.trim() === "") {
-        yPos += 0;   // no extra blank line
-        continue;
-      }
+      if (term.trim() === "") continue;
       yPos = addWrappedText(term, 20, yPos);
-      // no extra gap between terms
     }
 
     // Signatures section
@@ -3950,7 +3970,14 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
 
     yPos += 18;
 
-    // Stamp box – original size 60x35 (no squish)
+    // ---- Stamp Box (left) and Thumbprint Box (right) ----
+    const boxWidth = 60;
+    const boxHeight = 35;
+    const leftBoxX = 20;                 // stamp on left
+    const rightBoxX = 210 - 20 - boxWidth; // thumbprint on right
+    const boxesY = yPos;
+
+    // Stamp box (left) – load manual stamp image
     let stampBase64 = null;
     try {
       stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');
@@ -3958,24 +3985,34 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
       console.warn('Failed to load stamp image:', error);
     }
 
-    const stampBoxWidth = 60;
-    const stampBoxHeight = 35;   // back to original height
-    const stampBoxX = (210 - stampBoxWidth) / 2;
-    const stampBoxY = yPos;
-
     if (stampBase64) {
-      // Maintain aspect ratio: use same width/height as box
-      doc.addImage(stampBase64, 'PNG', stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight);
+      doc.addImage(stampBase64, 'PNG', leftBoxX, boxesY, boxWidth, boxHeight);
     } else {
+      // Fallback to drawn box
       doc.setDrawColor(230, 235, 245);
       doc.setLineWidth(0.3);
-      doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+      doc.roundedRect(leftBoxX, boxesY, boxWidth, boxHeight, 2, 2);
+      const stampCenterX = leftBoxX + boxWidth / 2;
+      const stampCenterY = boxesY + boxHeight / 2;
       doc.setTextColor(230, 235, 240);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'italic');
-      doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2, { align: 'center' });
+      doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
+      doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
     }
 
+    // Thumbprint box (right)
+    drawThumbprintBox(rightBoxX, boxesY, boxWidth, boxHeight);
+    // Place checkboxes centered below the thumbprint box
+    const checkY = boxesY + boxHeight + 4;
+    const groupWidth = 50 + 5 + 20;
+    const checkX = rightBoxX + (boxWidth / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+
+    // Advance yPos past the boxes (plus checkboxes)
+    yPos = checkY + 12;
+
+    // Footer
     const footerY = 285;
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
@@ -4625,7 +4662,6 @@ const formatCurrency = (amount) => {
 
 
 // generate loan invoice pdf
-// generate loan invoice pdf (fixed)
 export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   const initialPrincipal = loan.principal_amount || 0;
   const currentPrincipal = loan.current_principal || 0;
@@ -4772,8 +4808,7 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   const breakdown = [
     { label: 'Initial Principal Borrowed', amount: initialPrincipal },
     { label: 'Current Principal Owed', amount: currentPrincipal },
-    { label: 'Current Period Interest', amount: currentPeriodInterest },
-    { label: 'Outstanding Interest (Unpaid)', amount: totalOutstandingInterest },
+    { label: (isWeekly ? 'Current Period Interest' : 'Accrued Interest'), amount: isWeekly ? currentPeriodInterest : totalOutstandingInterest },
     { label: 'Total Balance Due', amount: totalBalance, bold: true },
   ];
 
@@ -4824,4 +4859,451 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
 
   const fileName = `Loan_Invoice_${loan.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(fileName);
+};
+
+// generate loan waiver agreement pdf
+export const generateLoanWaiverAgreementAutoPDF = async (loanData, newPrincipal, durationDays) => {
+  try {
+    const doc = new jsPDF();
+    addOptimizedWatermark(doc, 'agreement');
+    let yPos = await addHeader(doc, 10);
+
+    // ---- Helper functions (thumbprint & checkboxes) ----
+    const drawThumbprintBox = (x, y, width = 40, height = 35) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+      doc.text('R.T', x + 5, y + 3.5);
+      doc.rect(x + 22, y, 4, 4);
+      doc.text('L.T', x + 27, y + 3.5);
+    };
+
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleDateString('en-GB', {
+      day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+    const dueDate = new Date(Date.now() + durationDays * 86400000).toLocaleDateString('en-GB');
+
+    // ---- Title ----
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('LOAN WAIVER AGREEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    yPos = addDivider(doc, yPos);
+
+    // ---- Borrower Information ----
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Borrower Information:', 20, yPos);
+    yPos += 6;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: ', 25, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text(loanData.name || '___________________', 25 + doc.getTextWidth('Name: '), yPos);
+    yPos += 5.5;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('ID Number: ', 25, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text(loanData.idNumber || '___________________', 25 + doc.getTextWidth('ID Number: '), yPos);
+    yPos += 5.5;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Phone: ', 25, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text(loanData.phone || '___________________', 25 + doc.getTextWidth('Phone: '), yPos);
+    yPos += 10;
+
+    // ---- Original Loan Details ----
+    doc.setFont('helvetica', 'bold');
+    doc.text('Original Loan Details:', 20, yPos);
+    yPos += 6;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Original Loan Amount: ', 25, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`KES ${(loanData.borrowedAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      25 + doc.getTextWidth('Original Loan Amount: '), yPos);
+    yPos += 5.5;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Outstanding Balance before Waiver: ', 25, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`KES ${(loanData.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+      25 + doc.getTextWidth('Outstanding Balance before Waiver: '), yPos);
+    yPos += 10;
+
+    // ---- Waiver Terms heading ----
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('WAIVER TERMS', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    // ---- Waiver Terms list ----
+    doc.setFontSize(10.5);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'normal');
+
+    const addWrappedLine = (text, y) => {
+      const lines = doc.splitTextToSize(text, 170);
+      lines.forEach(line => {
+        doc.text(line, 20, y);
+        y += 5;
+      });
+      return y;
+    };
+
+    yPos = addWrappedLine("1. The Borrower acknowledges that the original loan has become difficult to repay due to genuine challenges.", yPos);
+    yPos = addWrappedLine("2. The Company, in good faith, agrees to waive a portion of the outstanding balance.", yPos);
+
+    // Clause 3 (with bold amount)
+    const clause3Prefix = "3. The Borrower shall now repay an agreed amount of ";
+    doc.setFont('helvetica', 'normal');
+    doc.text(clause3Prefix, 20, yPos);
+    const xAfter = 20 + doc.getTextWidth(clause3Prefix);
+    doc.setFont('helvetica', 'bold');
+    const amountText = `KES ${newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+    doc.text(amountText, xAfter, yPos);
+    doc.setFont('helvetica', 'normal');
+    yPos += 5;
+
+    // Clause 4 (with bold due date)
+    const clause4Prefix = `4. The agreed amount must be repaid within ${durationDays} days from the date of this agreement (due date: `;
+    doc.setFont('helvetica', 'normal');
+    doc.text(clause4Prefix, 20, yPos);
+    const xAfter4 = 20 + doc.getTextWidth(clause4Prefix);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${dueDate})`, xAfter4, yPos);
+    doc.setFont('helvetica', 'normal');
+    yPos += 5;
+
+    // Remaining clauses
+    yPos = addWrappedLine("5. No further interest will accrue on this waived amount. The new loan carries 0% interest.", yPos);
+    yPos = addWrappedLine("6. All other terms of the original Livestock Advance Payment Agreement (collateral, ownership, etc.) remain in full force.", yPos);
+    yPos = addWrappedLine("7. Failure to repay the agreed amount by the due date will constitute default, and the Company may take possession of the collateral livestock without further notice.", yPos);
+    yPos = addWrappedLine("8. This waiver agreement is effective from the date signed below.", yPos);
+    yPos += 8;
+
+    // ---- Signatures section ----
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('SIGNATURES', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CLIENT:', 20, yPos);
+    yPos += 5;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Name: ${loanData.name || '___________________'}`, 25, yPos);
+    yPos += 4.5;
+    doc.text('Signature: ___________________', 25, yPos);
+    yPos += 4.5;
+    doc.text(`Date: ${formattedDate}`, 25, yPos);
+    yPos += 8;
+
+    const leftX = 20;
+    const rightX = 20 + 95;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('CONFIRMED BY:', 20, yPos);
+    yPos += 6;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Shadrack Kesumet', leftX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Director', leftX, yPos + 5);
+    doc.text('Sign: ___________________', leftX, yPos + 10);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Name: _________________________', rightX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Livestock Valuer', rightX, yPos + 5);
+    doc.text('Sign: ___________________', rightX, yPos + 10);
+
+    yPos += 18;
+
+    // ---- Stamp Box (left) and Thumbprint Box (right) ----
+    const boxWidth = 60;
+    const boxHeight = 35;
+    const leftBoxX = 20;                 // stamp on left
+    const rightBoxX = 210 - 20 - boxWidth; // thumbprint on right
+    const boxesY = yPos;
+
+    // Stamp box (left)
+    doc.setDrawColor(230, 235, 245);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(leftBoxX, boxesY, boxWidth, boxHeight, 2, 2);
+    const stampCenterX = leftBoxX + boxWidth / 2;
+    const stampCenterY = boxesY + boxHeight / 2;
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
+    doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
+
+    // Thumbprint box (right)
+    drawThumbprintBox(rightBoxX, boxesY, boxWidth, boxHeight);
+    // Place checkboxes centered below the thumbprint box
+    const checkY = boxesY + boxHeight + 4;
+    const groupWidth = 50 + 5 + 20; // approximate width of both checkboxes + labels
+    const checkX = rightBoxX + (boxWidth / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+
+    // Advance yPos past the boxes (plus checkboxes)
+    yPos = checkY + 12;
+
+    // ---- Footer ----
+    const footerY = 285;
+    doc.setTextColor(...COLORS.textLight);
+    doc.setFontSize(8);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(9);
+    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+
+    const fileName = `Loan_Waiver_${loanData.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
+    doc.save(fileName);
+
+  } catch (error) {
+    console.error('Error generating loan waiver agreement:', error);
+    throw error;
+  }
+};
+
+//generate manual loan waiver agreement pdf
+export const generateManualLoanWaiverAgreementPDF = async () => {
+  try {
+    const doc = new jsPDF();
+    addOptimizedWatermark(doc, 'agreement');
+    let yPos = await addHeader(doc, 10);
+
+    // ---- Helper functions (thumbprint & checkboxes) ----
+    const drawThumbprintBox = (x, y, width = 40, height = 35) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+      doc.text('R.T', x + 5, y + 3.5);
+      doc.rect(x + 22, y, 4, 4);
+      doc.text('L.T', x + 27, y + 3.5);
+    };
+
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleDateString('en-GB', {
+      day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+
+    // ---- Title ----
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('LOAN WAIVER AGREEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    yPos = addDivider(doc, yPos);
+
+    // ---- Borrower Information (blank fields) ----
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Borrower Information:', 20, yPos);
+    yPos += 6;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: _______________________________', 25, yPos);
+    yPos += 5.5;
+    
+    doc.text('ID Number: _______________________________', 25, yPos);
+    yPos += 5.5;
+    
+    doc.text('Phone: _______________________________', 25, yPos);
+    yPos += 10;
+
+    // ---- Original Loan Details (blank fields) ----
+    doc.setFont('helvetica', 'bold');
+    doc.text('Original Loan Details:', 20, yPos);
+    yPos += 6;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Original Loan Amount: KES _________________', 25, yPos);
+    yPos += 5.5;
+    
+    doc.text('Outstanding Balance before Waiver: KES _________________', 25, yPos);
+    yPos += 10;
+
+    // ---- Waiver Terms heading ----
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('WAIVER TERMS', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    // ---- Waiver Terms list (plain text, no auto‑filled values) ----
+    doc.setFontSize(10.5);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'normal');
+
+    const addWrappedLine = (text, y) => {
+      const lines = doc.splitTextToSize(text, 170);
+      lines.forEach(line => {
+        doc.text(line, 20, y);
+        y += 5;
+      });
+      return y;
+    };
+
+    yPos = addWrappedLine("1. The Borrower acknowledges that the original loan has become difficult to repay due to genuine challenges.", yPos);
+    yPos = addWrappedLine("2. The Company, in good faith, agrees to waive a portion of the outstanding balance.", yPos);
+
+    // Clause 3 – with blank for amount
+    doc.setFont('helvetica', 'normal');
+    doc.text("3. The Borrower shall now repay an agreed amount of KES ____________________.", 20, yPos);
+    yPos += 5;
+
+    // Clause 4 – with blanks for duration and due date
+    doc.setFont('helvetica', 'normal');
+    doc.text("4. The agreed amount must be repaid within ____ days from the date of this agreement (due date: ____________).", 20, yPos);
+    yPos += 5;
+
+    // Remaining clauses
+    yPos = addWrappedLine("5. No further interest will accrue on this waived amount. The new loan carries 0% interest.", yPos);
+    yPos = addWrappedLine("6. All other terms of the original Livestock Advance Payment Agreement (collateral, ownership, etc.) remain in full force.", yPos);
+    yPos = addWrappedLine("7. Failure to repay the agreed amount by the due date will constitute default, and the Company may take possession of the collateral livestock without further notice.", yPos);
+    yPos = addWrappedLine("8. This waiver agreement is effective from the date signed below.", yPos);
+    yPos += 8;
+
+    // ---- Signatures section ----
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('SIGNATURES', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CLIENT:', 20, yPos);
+    yPos += 5;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: _________________________', 25, yPos);
+    yPos += 4.5;
+    doc.text('Signature: ___________________', 25, yPos);
+    yPos += 4.5;
+    doc.text(`Date: ___________________`, 25, yPos);
+    yPos += 8;
+
+    const leftX = 20;
+    const rightX = 20 + 95;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('CONFIRMED BY:', 20, yPos);
+    yPos += 6;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Shadrack Kesumet', leftX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Director', leftX, yPos + 5);
+    doc.text('Sign: ___________________', leftX, yPos + 10);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Name: _________________________', rightX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Livestock Valuer', rightX, yPos + 5);
+    doc.text('Sign: ___________________', rightX, yPos + 10);
+
+    yPos += 18;
+
+    // ---- Stamp Box (left) with image, Thumbprint Box (right) ----
+    const boxWidth = 60;
+    const boxHeight = 35;
+    const leftBoxX = 20;                 // stamp on left
+    const rightBoxX = 210 - 20 - boxWidth; // thumbprint on right
+    const boxesY = yPos;
+
+    // Stamp box (left) – load manual stamp image
+    let stampBase64 = null;
+    try {
+      stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');
+    } catch (error) {
+      console.warn('Failed to load stamp image:', error);
+    }
+
+    if (stampBase64) {
+      doc.addImage(stampBase64, 'PNG', leftBoxX, boxesY, boxWidth, boxHeight);
+    } else {
+      // Fallback to drawn box
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(leftBoxX, boxesY, boxWidth, boxHeight, 2, 2);
+      const stampCenterX = leftBoxX + boxWidth / 2;
+      const stampCenterY = boxesY + boxHeight / 2;
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
+      doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
+    }
+
+    // Thumbprint box (right)
+    drawThumbprintBox(rightBoxX, boxesY, boxWidth, boxHeight);
+    // Place checkboxes centered below the thumbprint box
+    const checkY = boxesY + boxHeight + 4;
+    const groupWidth = 50 + 5 + 20;
+    const checkX = rightBoxX + (boxWidth / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+
+    // Advance yPos past the boxes (plus checkboxes)
+    yPos = checkY + 12;
+
+    // ---- Footer ----
+    const footerY = 285;
+    doc.setTextColor(...COLORS.textLight);
+    doc.setFontSize(8);
+    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(9);
+    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+
+    const fileName = `Manual_Loan_Waiver_Agreement_${formattedDate.replace(/\//g, '-')}.pdf`;
+    doc.save(fileName);
+
+  } catch (error) {
+    console.error('Error generating manual loan waiver agreement:', error);
+    throw error;
+  }
 };

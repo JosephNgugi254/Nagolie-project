@@ -92,6 +92,7 @@ def get_recovery_data():
             'period_interest_fully_paid': period_fully_paid,
             'interest_prepaid_period': loan.interest_prepaid_period,
             'interest_prepaid_amount': float(loan.interest_prepaid_amount or 0),
+            'interest_rate':    float(loan.interest_rate), 
         })
 
     for day in result:

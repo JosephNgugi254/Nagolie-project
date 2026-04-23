@@ -40,6 +40,12 @@ def recalculate_loan(loan):
     """
     if loan.status != 'active':
         return loan
+    
+    # No interest accrual for zero‑interest loans
+    if loan.interest_rate == 0:
+        # Ensure balance is simply current_principal (no interest)
+        loan.balance = loan.current_principal
+        return loan
 
     today = datetime.now().date()
 

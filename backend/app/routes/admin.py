@@ -330,6 +330,7 @@ def get_all_clients():
                 'current_period_interest': float(period_interest),
                 'period_interest_prepaid': float(period_prepaid),
                 'period_interest_fully_paid': period_interest_paid,
+                'interest_rate':    float(active_loan.interest_rate), 
             })
 
         # Sort by client name then loan date for clean display
@@ -1292,6 +1293,117 @@ def renew_loan(loan_id):
             'old_loan': loan.to_dict(),
             'new_loan': new_loan.to_dict(),
             'outstanding_balance': float(outstanding_balance)
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
+# app/routes/admin_bp.py – add this route (place after the renew_loan route)
+
+@admin_bp.route('/loans/<int:loan_id>/waive', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director'])
+def waive_loan(loan_id):
+    """
+    Waive a portion of an active loan and create a new zero‑interest loan
+    for the agreed amount and duration.
+    """
+    try:
+        from app.routes.payments import recalculate_loan, _loan_summary
+        from decimal import Decimal
+        from datetime import datetime, timedelta
+
+        data = request.get_json()
+        new_principal = Decimal(str(data.get('new_principal', 0)))
+        duration_days = int(data.get('duration_days', 14))
+
+        if new_principal <= 0:
+            return jsonify({'error': 'Agreed amount must be positive'}), 400
+
+        loan = db.session.get(Loan, loan_id)
+        if not loan or loan.status != 'active':
+            return jsonify({'error': 'Loan not found or not active'}), 404
+
+        loan = recalculate_loan(loan)
+        current_balance = loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+
+        if new_principal >= current_balance - Decimal('0.01'):
+            return jsonify({'error': 'New principal must be less than current balance'}), 400
+
+        reduction = current_balance - new_principal
+
+        # --- Mark old loan as waived ---
+        loan.status = 'waived'
+        loan.balance = Decimal('0')
+        loan.amount_paid = loan.total_amount
+        loan.notes = (loan.notes or '') + f"\nWaived on {datetime.utcnow().isoformat()} – reduced from {current_balance:.2f} to {new_principal:.2f}"
+
+        # Transaction on old loan (negative adjustment)
+        waiver_txn = Transaction(
+            loan_id=loan.id,
+            transaction_type='adjustment',
+            amount=-reduction,  # negative amount represents write‑off
+            payment_method='waiver',
+            notes=f'Loan waived – balance reduced by {reduction:.2f} to agreed amount {new_principal:.2f}',
+            status='completed',
+            created_at=datetime.utcnow()
+        )
+        db.session.add(waiver_txn)
+
+        # --- Create new zero‑interest loan ---
+        now = datetime.utcnow()
+        new_loan = Loan(
+            client_id=loan.client_id,
+            livestock_id=loan.livestock_id,
+            principal_amount=new_principal,
+            current_principal=new_principal,
+            total_amount=new_principal,          # no interest added
+            balance=new_principal,
+            interest_rate=Decimal('0'),
+            interest_type='simple',               # irrelevant when rate=0
+            repayment_plan='daily',               # daily plan with zero interest, but duration is respected
+            funding_source=loan.funding_source,
+            investor_id=loan.investor_id,
+            disbursement_date=now,
+            due_date=now + timedelta(days=duration_days),
+            status='active',
+            collateral_text=loan.collateral_text,
+            notes=f"Waiver of loan #{loan.id}. Original balance {current_balance:.2f} → agreed {new_principal:.2f}. Repay within {duration_days} days.",
+            created_at=now,
+            principal_paid=Decimal('0'),
+            interest_paid=Decimal('0'),
+            accrued_interest=Decimal('0'),
+            last_interest_payment_date=now,
+            interest_prepaid_period=None,
+            interest_prepaid_amount=Decimal('0')
+        )
+
+        db.session.add(new_loan)
+        db.session.flush()
+
+        # Optional: link livestock to the new loan (collateral remains)
+        if new_loan.livestock:
+            new_loan.livestock.description = f"Collateral for waived loan #{new_loan.id}"
+
+        db.session.commit()
+
+        log_audit('loan_waived', 'loan', loan.id, {
+            'old_loan_id': loan.id,
+            'new_loan_id': new_loan.id,
+            'old_balance': float(current_balance),
+            'new_principal': float(new_principal),
+            'duration_days': duration_days
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'Loan waived. New loan ID: {new_loan.id}',
+            'old_loan': loan.to_dict(),
+            'new_loan': new_loan.to_dict(),
+            'reduction': float(reduction)
         }), 200
 
     except Exception as e:

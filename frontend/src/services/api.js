@@ -138,6 +138,14 @@ export const adminAPI = {
   deleteCompanyGalleryImage: (id) => api.delete(`/company-gallery/admin/${id}`),
   updateCompanyGalleryImage: (id, data) => api.put(`/company-gallery/admin/${id}`, data),
   renewLoan: (loanId) => api.post(`/admin/loans/${loanId}/renew`),
+
+  waiveLoan: (loanId, newPrincipal, durationDays) => {
+    const token = localStorage.getItem('admin_token');
+    return axios.post(`${API_URL}/admin/loans/${loanId}/waive`, 
+      { new_principal: newPrincipal, duration_days: durationDays },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  },
 };
 
 export const paymentAPI = {
@@ -164,9 +172,7 @@ export const recoveryAPI = {
   getRecoveryData: () => api.get('/recovery'),
   addClient: (data) => api.post('/recovery/client', data),
 
-  // ── Payment (syncs with admin panel) ──────────────────────────────────────
-  // Processes cash or M-Pesa manual payments from the recovery module.
-  // Uses the same backend logic as the admin panel, so both sides stay in sync.
+  // ── Payment (syncs with admin panel)
   processPayment: (loanId, data) => api.post(`/recovery/loan/${loanId}/payment`, data),
 
   // Comments
@@ -205,8 +211,16 @@ export const recoveryAPI = {
   // claim livestock ownership
   claimOwnership: (loanId) => api.post(`/recovery/loan/${loanId}/claim`),
 
-  // Renew Loan
+  // Renew Loan & waive loan
   renewLoan: (loanId) => api.post(`/recovery/loan/${loanId}/renew`),
+
+  waiveLoan: (loanId, newPrincipal, durationDays) => {
+    const token = localStorage.getItem('token');
+    return axios.post(`${API_URL}/admin/loans/${loanId}/waive`,
+      { new_principal: newPrincipal, duration_days: durationDays },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  },
 
   getLoanTransactions: (loanId) => api.get(`/recovery/loan/${loanId}/transactions`),
 };

@@ -11,6 +11,8 @@ function PaymentModal({ loan, onClose, onSuccess }) {
   const [notes,         setNotes]         = useState('');
   const [processing,    setProcessing]    = useState(false);
 
+  const isZeroInterest = loan.interest_rate === 0;
+
   const fmt = (v) =>
     new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(Number(v) || 0);
 
@@ -25,9 +27,11 @@ function PaymentModal({ loan, onClose, onSuccess }) {
 
   const maxPrincipal = currentPrincipal;
 
-  // ✅ FIXED: correct maxInterest for weekly plans
+  // ✅ FIXED: correct maxInterest for weekly plans, plus zero‑interest guard
   let maxInterest;
-  if (periodFullyPaid) {
+  if (isZeroInterest) {
+    maxInterest = 0;
+  } else if (periodFullyPaid) {
     maxInterest = 0;
   } else if (periodPrepaid > 0) {
     maxInterest = Math.max(0, currentPeriodInterest - periodPrepaid);
@@ -185,18 +189,23 @@ function PaymentModal({ loan, onClose, onSuccess }) {
                       Principal <small className="text-muted">(max {fmt(maxPrincipal)})</small>
                     </label>
                   </div>
-                  <div className="form-check">
-                    <input className="form-check-input" type="radio" id="ptInterest"
-                           checked={paymentType === 'interest'}
-                           onChange={() => { setPaymentType('interest'); setAmount(''); }} />
-                    <label className="form-check-label" htmlFor="ptInterest">
-                      Interest&nbsp;
-                      <small className="text-muted">
-                        (max {fmt(maxInterest)})
-                      </small>
-                    </label>
-                  </div>
+                  {!isZeroInterest && (
+                    <div className="form-check">
+                      <input className="form-check-input" type="radio" id="ptInterest"
+                             checked={paymentType === 'interest'}
+                             onChange={() => { setPaymentType('interest'); setAmount(''); }} />
+                      <label className="form-check-label" htmlFor="ptInterest">
+                        Interest&nbsp;
+                        <small className="text-muted">(max {fmt(maxInterest)})</small>
+                      </label>
+                    </div>
+                  )}
                 </div>
+                {isZeroInterest && (
+                  <div className="alert alert-info mt-2 mb-0 py-1">
+                    <small><i className="fas fa-info-circle me-1"></i>This is a waived loan – no interest applies. Only principal payments are allowed.</small>
+                  </div>
+                )}
                 {paymentType === 'interest' && isWeekly && (
                   <div className="alert alert-warning py-1 mt-2 mb-0">
                     <small>

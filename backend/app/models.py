@@ -156,7 +156,7 @@ class Loan(db.Model):
     disbursement_date = db.Column(db.DateTime)
     due_date = db.Column(db.DateTime, nullable=False)
     last_interest_payment_date = db.Column(db.DateTime)  # NEW: Track when last interest was paid
-    status = db.Column(db.String(20), default='pending') # pending, active, completed, rejected, claimed, renewed
+    status = db.Column(db.String(20), default='pending') # pending, active, completed, rejected, claimed, renewed , waived
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow) 
 

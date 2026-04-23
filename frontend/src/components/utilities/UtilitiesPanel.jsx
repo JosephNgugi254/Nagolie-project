@@ -5,6 +5,7 @@ import {
   generateManualLoanAgreementPDF,
   generateManualNextOfKinConsentPDF,
   generateManualLoanRenewalAgreementPDF,
+  generateManualLoanWaiverAgreementPDF,   // <-- ADD THIS
   generateLetterPDF,
   downloadLetterPDF,
   generateInvoicePDF,
@@ -34,6 +35,9 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
           break;
         case 'renewal':
           await generateManualLoanRenewalAgreementPDF();
+          break;
+        case 'waiver':                       // <-- ADD THIS CASE
+          await generateManualLoanWaiverAgreementPDF();
           break;
         default:
           return;
@@ -88,12 +92,12 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
           <div className="tab-content">
             {activeTab === 'forms' && (
               <div className="row g-4">
-                <div className="col-md-4">
+                <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-primary">
                     <div className="card-body text-center">
                       <i className="fas fa-file-signature fa-3x text-primary mb-3"></i>
                       <h5>Loan Agreement</h5>
-                      <p className="text-muted">Blank form with all legal clauses.</p>
+                      <p className="text-muted">Manual loan agreement form for loan applications</p>
                       <button
                         className="btn btn-primary"
                         onClick={() => handleDownloadForm('loan')}
@@ -103,12 +107,12 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                <div className="col-md-4">
+                <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-warning">
                     <div className="card-body text-center">
                       <i className="fas fa-user-friends fa-3x text-warning mb-3"></i>
                       <h5>Next of Kin Consent</h5>
-                      <p className="text-muted">Blank consent form for client signatures.</p>
+                      <p className="text-muted">Manual next of kin consent form for clients' next of kin</p>
                       <button
                         className="btn btn-warning"
                         onClick={() => handleDownloadForm('nextOfKin')}
@@ -118,15 +122,31 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                <div className="col-md-4">
+                <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-success">
                     <div className="card-body text-center">
                       <i className="fas fa-sync-alt fa-3x text-success mb-3"></i>
                       <h5>Loan Renewal Agreement</h5>
-                      <p className="text-muted">Blank renewal form for overdue loans.</p>
+                      <p className="text-muted">Manual loan renewal form for overdue loans</p>
                       <button
                         className="btn btn-success"
                         onClick={() => handleDownloadForm('renewal')}
+                      >
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {/* NEW: Loan Waiver Agreement card */}
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-info">
+                    <div className="card-body text-center">
+                      <i className="fas fa-hand-holding-heart fa-3x text-info mb-3"></i>
+                      <h5>Loan Waiver Agreement</h5>
+                      <p className="text-muted">Manual waiver form for loans waived</p>
+                      <button
+                        className="btn btn-info text-white"
+                        onClick={() => handleDownloadForm('waiver')}
                       >
                         <i className="fas fa-download me-2"></i>Download PDF
                       </button>
