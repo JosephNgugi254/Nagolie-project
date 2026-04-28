@@ -1243,8 +1243,12 @@ export const generateManualLoanAgreementPDF = async () => {
         "",
         { checkbox: true, label: "Weekly Plan:"},
         "",
-        "The loan is repayable within seven (7) days from the date of disbursement", 
-        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
+        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30% (negotiable)", 
+        "of the disbursed funds. The weekly interest rate of thirty percent (30%) constitutes a comprehensive charge",
+        "inclusive of all ancillary costs related to the loan, including but not limited to processing fees,",
+        "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
+        "due diligence,risk management, and ongoing asset maintenance during the tenure of the loan.",
+        "Interest shall be charged on a weekly basis for a",
         "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
         "accrue. The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
@@ -1286,9 +1290,9 @@ export const generateManualLoanAgreementPDF = async () => {
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
+        "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
         "   renewal agreement",
-        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 30 days holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest of 4.5% daily on overdue amounts",
         ""
@@ -2419,8 +2423,12 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "",
         "Weekly Plan:",
         "",
-        "The loan is repayable within seven (7) days from the date of disbursement", 
-        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
+        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30% (negotiable)", 
+        "of the disbursed funds. The weekly interest rate of thirty percent (30%) constitutes a comprehensive charge",
+        "inclusive of all ancillary costs related to the loan, including but not limited to processing fees,",
+        "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
+        "due diligence,risk management, and ongoing asset maintenance during the tenure of the loan.",
+        "Interest shall be charged on a weekly basis for a",
         "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
         "accrue. The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
@@ -2462,9 +2470,9 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
+        "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
         "   renewal agreement",
-        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 30 days holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
@@ -2530,7 +2538,6 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
     throw error;
   }
 };
-
 
 // ================= MANUAL NEXT OF KIN CONSENT =================
 export const generateManualNextOfKinConsentPDF = async () => {
@@ -2817,8 +2824,12 @@ export const generateManualNextOfKinConsentPDF = async () => {
         "",
         "Weekly Plan:",
         "",
-        "The loan is repayable within seven (7) days from the date of disbursement", 
-        "with an interest of 30% (negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a",
+        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30% (negotiable)", 
+        "of the disbursed funds. The weekly interest rate of thirty percent (30%) constitutes a comprehensive charge",
+        "inclusive of all ancillary costs related to the loan, including but not limited to processing fees,",
+        "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
+        "due diligence,risk management, and ongoing asset maintenance during the tenure of the loan.",
+        "Interest shall be charged on a weekly basis for a",
         "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
         "accrue. The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
@@ -2860,9 +2871,9 @@ export const generateManualNextOfKinConsentPDF = async () => {
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
+        "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
         "   renewal agreement",
-        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 30-day holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
@@ -2929,7 +2940,6 @@ export const generateManualNextOfKinConsentPDF = async () => {
 };
 
 // Helper function
-
 const formatNumber = (num) => {
   return num ? num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "0";
 };
