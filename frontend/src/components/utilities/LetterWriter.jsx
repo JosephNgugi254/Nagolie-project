@@ -33,7 +33,7 @@ const LetterWriter = ({ userRole }) => {
     }
   }, [user]);
 
-  // Save draft whenever any field changes (auto-save)
+  // Auto-save draft
   useEffect(() => {
     if (title || recipient || re || body) {
       const draft = { title, recipient, re, body, lastSaved: new Date().toISOString() };
@@ -113,7 +113,7 @@ const LetterWriter = ({ userRole }) => {
         body: body.trim(),
         date: new Date().toLocaleDateString('en-GB'),
         user: userRole,
-      });      
+      });
     } catch (error) {
       console.error(error);
       showToast.error('Failed to generate letter preview');
@@ -160,14 +160,15 @@ const LetterWriter = ({ userRole }) => {
           />
         </div>
         <div className="col-md-6 mb-4">
-          <label className="form-label fw-bold">Recipient</label>
-          <input
-            type="text"
+          <label className="form-label fw-bold">Recipient (Full Address)</label>
+          <textarea
             className="form-control"
-            placeholder="e.g., The Human Resources Manager, John Doe"
+            rows="4"
+            placeholder="e.g., Nagolie Enterprises Ltd&#10;P.O. BOX 359-01100&#10;Kajiado&#10;Email: nagolieenterprises@gmail.com&#10;Tel: 0721451707 / 0763003182"
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
           />
+          <small className="text-muted">Use line breaks for multi‑line addresses.</small>
         </div>
         <div className="col-md-6 mb-4">
           <label className="form-label fw-bold">RE: (Subject)</label>

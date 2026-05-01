@@ -4,7 +4,7 @@ import fs from 'fs';
 
 // Company constants (branded info)
 const COMPANY_INFO = {
-  name: 'NAGOLIE ENTERPRISES LTD',
+  name: 'NAGOLIE ENTERPRISES',
   tagline: 'Investing in Living Assets',
   address: 'Target - Isinya, Kajiado County, Kenya',
   phone1: '+254 721 451 707',
@@ -64,7 +64,7 @@ const addOptimizedWatermark = (doc, type = 'agreement') => {
       
       watermarks.forEach(pos => {
         doc.setFontSize(28);
-        doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
+        doc.text('NAGOLIE ENTERPRISES', pos.x, pos.y, { align: 'center', angle });
         doc.setFontSize(18);
         doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
       });
@@ -118,7 +118,7 @@ const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
     
     watermarks.forEach(pos => {
       doc.setFontSize(28);
-      doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
+      doc.text('NAGOLIE ENTERPRISES', pos.x, pos.y, { align: 'center', angle });
       doc.setFontSize(18);
       doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
     });
@@ -722,14 +722,14 @@ export const generateLoanAgreementPDF = async (application) => {
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
         " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
         ""
       ],
 
       // ── 2. Ownership Transfer and Custody ────────────────────────────────
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -759,8 +759,8 @@ export const generateLoanAgreementPDF = async (application) => {
           { text: application.idNumber || "___________________", style: 'bold' },
           { text: " acknowledge that I have read and fully understood the terms of this", style: 'normal' }
         ],
-        "Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
-        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized",
+        "Agreement, particularly the rights of Nagolie Enterprises to recover the collateral livestock upon default.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises and its authorized",
         "agents may immediately take possession of the collateral livestock without the need for a court order, further",
         "notice, or additional consent from any party. I hereby waive all rights to legally obstruct or delay such",
         "recovery. This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the",
@@ -798,8 +798,12 @@ export const generateLoanAgreementPDF = async (application) => {
 
         // Auto-filled interest line
         { interestPlaceholder: true },
+        "",        
+        "A loan shall only be deemed fully repaid and settled upon payment in full of the entire outstanding principal",
+        "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
+        "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
         "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
@@ -817,7 +821,7 @@ export const generateLoanAgreementPDF = async (application) => {
       // ── 5. Livestock Valuation ─────────────────────────────────────────────
       [
         { text: "5. Livestock Valuation", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
@@ -826,7 +830,7 @@ export const generateLoanAgreementPDF = async (application) => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises Ltd to:",
+        "  Nagolie Enterprises to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -1184,13 +1188,13 @@ export const generateManualLoanAgreementPDF = async () => {
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
         " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -1225,8 +1229,8 @@ export const generateManualLoanAgreementPDF = async () => {
         ],
         
         // Remaining lines
-        "terms of this Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
-        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents",
+        "terms of this Agreement, particularly the rights of Nagolie Enterprises to recover the collateral livestock upon default.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises and its authorized agents",
         "may immediately take possession of the collateral livestock without the need for a court order, further notice,",
         "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery",
         "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest extent",
@@ -1263,10 +1267,14 @@ export const generateManualLoanAgreementPDF = async () => {
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         "The interest for this loan is Ksh________",
+        "",        
+        "A loan shall only be deemed fully repaid and settled upon payment in full of the entire outstanding principal",
+        "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
+        "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
-        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
-        " upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
+        "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
+        "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
       // 4. Loan Settlement and Ownership Return
@@ -1280,7 +1288,7 @@ export const generateManualLoanAgreementPDF = async () => {
       // 5. Livestock Valuation
       [
         { text: "5. Livestock Valuation", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
@@ -1288,7 +1296,7 @@ export const generateManualLoanAgreementPDF = async () => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises Ltd to:",
+        "  Nagolie Enterprises to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -1736,7 +1744,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
 
     // Company Details
     doc.setFont('helvetica', 'bold');
-    doc.text('1. NAGOLIE ENTERPRISES LTD (hereinafter referred to as "the Company"):', 20, yPos);
+    doc.text('1. NAGOLIE ENTERPRISES (hereinafter referred to as "the Company"):', 20, yPos);
     yPos += 6;
     doc.setFont('helvetica', 'normal');
     doc.text(` Registered Office: ${COMPANY_INFO.address}`, 25, yPos);
@@ -1814,7 +1822,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
     const termGroups = [
       [
         { text: "1. Agreement Overview", bold: true },
-        "This Investment Agreement (\"Agreement\") is entered into between Nagolie Enterprises Ltd",
+        "This Investment Agreement (\"Agreement\") is entered into between Nagolie Enterprises ",
         "(the \"Company\") and the investor named above (the \"Investor\"). The Investor agrees to",
         "invest the specified amount in the Company's livestock financing operations, and the Company",
         "agrees to manage the investment and provide returns as specified herein.",
@@ -2042,7 +2050,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
     // Company/Director Section
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('FOR AND ON BEHALF OF NAGOLIE ENTERPRISES LTD:', 20, yPos);
+    doc.text('FOR AND ON BEHALF OF NAGOLIE ENTERPRISES:', 20, yPos);
     yPos += 8;
 
     doc.text('DIRECTOR:', 25, yPos);
@@ -2218,13 +2226,13 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
     doc.setTextColor(...COLORS.textDark);
 
     const consentParagraph = "I, the undersigned Next of Kin to the above-named Borrower, hereby acknowledge and consent that:\n\n" +
-      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises Ltd.\n" +
-      "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises Ltd.\n" +
+      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises.\n" +
+      "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises.\n" +
       "3. I acknowledge that the livestock specified in the loan agreement will serve as collateral for this loan.\n" +
       "4. I understand the implications of default as outlined in the loan agreement.\n" +
       "5. I agree to act as a point of contact in matters relating to this loan.\n" +
-      "6. In the event of default, I understand that Nagolie Enterprises Ltd will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not, after the second missed payment date.\n" +
-      "7. I will cooperate with Nagolie Enterprises Ltd in their recovery efforts should the need arise.";
+      "6. In the event of default, I understand that Nagolie Enterprises will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not, after the second missed payment date.\n" +
+      "7. I will cooperate with Nagolie Enterprises in their recovery efforts should the need arise.";
 
     const consentLines = doc.splitTextToSize(consentParagraph, 170);
     consentLines.forEach(line => {
@@ -2386,13 +2394,13 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
         " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody (without 2.3)
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -2443,10 +2451,14 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         "The interest for this loan is Ksh________",
+        "",        
+        "A loan shall only be deemed fully repaid and settled upon payment in full of the entire outstanding principal",
+        "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
+        "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
-        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
-        " upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
+        "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
+        "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
       // 4. Loan Settlement and Ownership Return
@@ -2460,7 +2472,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       // 5. Livestock Valuation
       [
         { text: "5. Livestock Valuation", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
@@ -2468,7 +2480,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises Ltd to:",
+        "  Nagolie Enterprises to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -2610,13 +2622,13 @@ export const generateManualNextOfKinConsentPDF = async () => {
     doc.setTextColor(...COLORS.textDark);
 
     const consentParagraph = "I, the undersigned Next of Kin to the above-named Borrower, hereby acknowledge and consent that:\n\n" +
-      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises Ltd.\n" +
-      "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises Ltd.\n" +
+      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises.\n" +
+      "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises.\n" +
       "3. I acknowledge that the livestock specified in the loan agreement will serve as collateral for this loan.\n" +
       "4. I understand the implications of default as outlined in the loan agreement.\n" +
       "5. I agree to act as a point of contact in matters relating to this loan.\n" +
-      "6. In the event of default, I understand that Nagolie Enterprises Ltd will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not , after the second missed payment date.\n" +
-      "7. I will cooperate with Nagolie Enterprises Ltd in their recovery efforts should the need arise.";
+      "6. In the event of default, I understand that Nagolie Enterprises will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not , after the second missed payment date.\n" +
+      "7. I will cooperate with Nagolie Enterprises in their recovery efforts should the need arise.";
 
     const consentLines = doc.splitTextToSize(consentParagraph, 170);
     consentLines.forEach(line => {
@@ -2787,13 +2799,13 @@ export const generateManualNextOfKinConsentPDF = async () => {
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
         " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody (without 2.3)
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -2844,10 +2856,14 @@ export const generateManualNextOfKinConsentPDF = async () => {
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         "The interest for this loan is Ksh________",
+        "",        
+        "A loan shall only be deemed fully repaid and settled upon payment in full of the entire outstanding principal",
+        "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
+        "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the CEO of Nagolie Enterprises Ltd may at their discretion",
-        " grant an extension of the repayment period after consultation with the Recipient. Any extension must be agreed",
-        " upon in writing by both parties, specifying the new repayment date.",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
+        "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
+        "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
       // 4. Loan Settlement and Ownership Return
@@ -2861,7 +2877,7 @@ export const generateManualNextOfKinConsentPDF = async () => {
       // 5. Livestock Valuation
       [
         { text: "5. Livestock Valuation", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         ""
       ],
@@ -2869,7 +2885,7 @@ export const generateManualNextOfKinConsentPDF = async () => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises Ltd to:",
+        "  Nagolie Enterprises to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -4145,7 +4161,7 @@ export const generateWithdrawalConfirmationLetter = async (investorData = null) 
     // Signature block
     yPos += 6;
     doc.setFont('helvetica', 'normal');
-    doc.text('For and on behalf of Nagolie Enterprises Ltd', 20, yPos);
+    doc.text('For and on behalf of Nagolie Enterprises', 20, yPos);
     yPos += 12;
     doc.setFont('helvetica', 'bold');
     doc.text('SHADRACK KESUMET', 20, yPos);
@@ -4209,26 +4225,35 @@ export const generateLetterPDF = async (data) => {
   doc.setTextColor(...COLORS.textDark);
   doc.text(`Date: ${data.date}`, 150, yPos - 6);
 
-  // Recipient – "TO:" on same line
+  // Recipient (multi‑line)
   doc.setFont('helvetica', 'bold');
   doc.text('TO:', 20, yPos);
   const toX = 20 + doc.getTextWidth('TO:');
   doc.setFont('helvetica', 'normal');
-  doc.text(data.recipient, toX, yPos);
-  yPos += 6;
+  const recipientLines = data.recipient.split(/\r?\n/);
+  recipientLines.forEach((line, idx) => {
+    if (idx === 0) {
+      doc.text(line, toX, yPos);
+    } else {
+      yPos += 6;
+      doc.text(line, toX, yPos);
+    }
+  });
+  yPos += 8;
 
-  // RE: – bold, no extra spaces
+  // RE: – entire line bold
   if (data.re) {
     doc.setFont('helvetica', 'bold');
-    doc.text('RE:', 20, yPos);
-    const reX = 20 + doc.getTextWidth('RE:');
-    doc.text(` ${data.re}`, reX, yPos);
+    doc.text(`RE: ${data.re}`, 20, yPos);
     yPos += 8;
   } else {
-    yPos += 4;
+    yPos += 6;
   }
 
-  // ---------- ROBUST MARKDOWN PARSER (handles all formatting) ----------
+  // Reset font to normal before body
+  doc.setFont('helvetica', 'normal');
+
+  // ---------- MARKDOWN PARSER ----------
   const parseMarkdown = (text) => {
     const parts = [];
     let i = 0;
@@ -4244,35 +4269,35 @@ export const generateLetterPDF = async (data) => {
     };
 
     while (i < len) {
-      // Check for bold **
-      if (text[i] === '*' && text[i+1] === '*') {
+      // Bold **
+      if (text[i] === '*' && i + 1 < len && text[i+1] === '*') {
         flushBuffer();
         currentStyle = (currentStyle === 'normal' ? 'bold' : 'normal');
         i += 2;
         continue;
       }
-      // Check for italic *
-      if (text[i] === '*' && text[i+1] !== '*') {
+      // Italic *
+      if (text[i] === '*' && (i + 1 >= len || text[i+1] !== '*')) {
         flushBuffer();
         currentStyle = (currentStyle === 'normal' ? 'italic' : 'normal');
         i += 1;
         continue;
       }
-      // Check for underline __
-      if (text[i] === '_' && text[i+1] === '_') {
+      // Underline __
+      if (text[i] === '_' && i + 1 < len && text[i+1] === '_') {
         flushBuffer();
         currentStyle = (currentStyle === 'normal' ? 'underline' : 'normal');
         i += 2;
         continue;
       }
-      // Regular character
       buffer += text[i];
       i++;
     }
-    flushBuffer(); // add any remaining text
+    flushBuffer();
     return parts;
   };
 
+  // CORRECTED styled line renderer – draws text for all styles
   const writeStyledLine = (lineParts, y) => {
     let x = 20;
     doc.setFontSize(10);
@@ -4280,61 +4305,78 @@ export const generateLetterPDF = async (data) => {
       switch (part.style) {
         case 'bold':
           doc.setFont('helvetica', 'bold');
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
           break;
         case 'italic':
           doc.setFont('helvetica', 'italic');
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
           break;
         case 'underline':
           doc.setFont('helvetica', 'normal');
           doc.setLineWidth(0.3);
           doc.setDrawColor(...COLORS.textDark);
-          const textWidth = doc.getTextWidth(part.text);
+          const tw = doc.getTextWidth(part.text);
           doc.text(part.text, x, y);
-          doc.line(x, y + 1, x + textWidth, y + 1);
-          x += textWidth;
+          doc.line(x, y + 1, x + tw, y + 1);
+          x += tw;
           doc.setLineWidth(0.2);
-          return;
+          break;
         default:
           doc.setFont('helvetica', 'normal');
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
       }
-      doc.text(part.text, x, y);
-      x += doc.getTextWidth(part.text);
     });
+    // Reset to normal after the line
+    doc.setFont('helvetica', 'normal');
   };
 
-  // Process each line of the body
+  // Process body line by line
   const lines = data.body.split('\n');
   for (const line of lines) {
     if (yPos > 270) {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'letter');
       yPos = 20;
+      doc.setFont('helvetica', 'normal');
     }
     const parts = parseMarkdown(line);
-    if (parts.length === 1 && parts[0].style === 'normal') {
-      // Plain text – wrap if needed
-      const wrapped = doc.splitTextToSize(parts[0].text, 170);
+    if (parts.length === 0) {
+      // Empty line – add spacing
+      yPos += 5;
+      continue;
+    }
+    // Check if the line contains only normal text
+    const allNormal = parts.every(p => p.style === 'normal');
+    if (allNormal) {
+      doc.setFont('helvetica', 'normal');
+      const plainText = parts.map(p => p.text).join('');
+      const wrapped = doc.splitTextToSize(plainText, 170);
       wrapped.forEach(w => {
         if (yPos > 270) {
           doc.addPage();
           addWatermarkToCurrentPage(doc, 'letter');
           yPos = 20;
+          doc.setFont('helvetica', 'normal');
         }
         doc.text(w, 20, yPos);
         yPos += 5;
       });
     } else {
-      // Styled line – combine parts and check width
+      // Styled line – check if it fits, otherwise fallback to wrapped (styling lost)
       let fullText = '';
       parts.forEach(p => fullText += p.text);
       if (doc.getTextWidth(fullText) > 170) {
-        // If too long, fallback to plain wrapped text (styling lost but no overflow)
+        doc.setFont('helvetica', 'normal');
         const wrapped = doc.splitTextToSize(fullText, 170);
         wrapped.forEach(w => {
           if (yPos > 270) {
             doc.addPage();
             addWatermarkToCurrentPage(doc, 'letter');
             yPos = 20;
+            doc.setFont('helvetica', 'normal');
           }
           doc.text(w, 20, yPos);
           yPos += 5;
@@ -4348,18 +4390,18 @@ export const generateLetterPDF = async (data) => {
 
   // Signature
   yPos += 15;
-  const sign = getSignatureByUser(data.user);
   doc.setFont('helvetica', 'bold');
   doc.text('Yours faithfully,', 20, yPos);
   yPos += 12;
   doc.setFont('helvetica', 'normal');
+  const sign = getSignatureByUser(data.user);
   doc.text(sign.name, 20, yPos);
   yPos += 6;
   doc.text(sign.title, 20, yPos);
 
   addFooter(doc, yPos + 20);
 
-  // Preview: open in new tab
+  // Preview
   const pdfBlob = doc.output('blob');
   const url = URL.createObjectURL(pdfBlob);
   window.open(url, '_blank');
@@ -4391,21 +4433,30 @@ export const downloadLetterPDF = async (data) => {
   doc.text('TO:', 20, yPos);
   const toX = 20 + doc.getTextWidth('TO:');
   doc.setFont('helvetica', 'normal');
-  doc.text(data.recipient, toX, yPos);
-  yPos += 6;
+  const recipientLines = data.recipient.split(/\r?\n/);
+  recipientLines.forEach((line, idx) => {
+    if (idx === 0) {
+      doc.text(line, toX, yPos);
+    } else {
+      yPos += 6;
+      doc.text(line, toX, yPos);
+    }
+  });
+  yPos += 8;
 
   // RE:
   if (data.re) {
     doc.setFont('helvetica', 'bold');
-    doc.text('RE:', 20, yPos);
-    const reX = 20 + doc.getTextWidth('RE:');
-    doc.text(` ${data.re}`, reX, yPos);
+    doc.text(`RE: ${data.re}`, 20, yPos);
     yPos += 8;
   } else {
-    yPos += 4;
+    yPos += 6;
   }
 
-  // Same robust parser as preview
+  // Reset font to normal before body
+  doc.setFont('helvetica', 'normal');
+
+  // Same parser and renderer as preview
   const parseMarkdown = (text) => {
     const parts = [];
     let i = 0;
@@ -4419,19 +4470,19 @@ export const downloadLetterPDF = async (data) => {
       }
     };
     while (i < len) {
-      if (text[i] === '*' && text[i+1] === '*') {
+      if (text[i] === '*' && i+1 < len && text[i+1] === '*') {
         flushBuffer();
         currentStyle = (currentStyle === 'normal' ? 'bold' : 'normal');
         i += 2;
         continue;
       }
-      if (text[i] === '*' && text[i+1] !== '*') {
+      if (text[i] === '*' && (i+1 >= len || text[i+1] !== '*')) {
         flushBuffer();
         currentStyle = (currentStyle === 'normal' ? 'italic' : 'normal');
         i += 1;
         continue;
       }
-      if (text[i] === '_' && text[i+1] === '_') {
+      if (text[i] === '_' && i+1 < len && text[i+1] === '_') {
         flushBuffer();
         currentStyle = (currentStyle === 'normal' ? 'underline' : 'normal');
         i += 2;
@@ -4449,8 +4500,16 @@ export const downloadLetterPDF = async (data) => {
     doc.setFontSize(10);
     lineParts.forEach(part => {
       switch (part.style) {
-        case 'bold': doc.setFont('helvetica', 'bold'); break;
-        case 'italic': doc.setFont('helvetica', 'italic'); break;
+        case 'bold':
+          doc.setFont('helvetica', 'bold');
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
+          break;
+        case 'italic':
+          doc.setFont('helvetica', 'italic');
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
+          break;
         case 'underline':
           doc.setFont('helvetica', 'normal');
           doc.setLineWidth(0.3);
@@ -4460,12 +4519,14 @@ export const downloadLetterPDF = async (data) => {
           doc.line(x, y + 1, x + tw, y + 1);
           x += tw;
           doc.setLineWidth(0.2);
-          return;
-        default: doc.setFont('helvetica', 'normal');
+          break;
+        default:
+          doc.setFont('helvetica', 'normal');
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
       }
-      doc.text(part.text, x, y);
-      x += doc.getTextWidth(part.text);
     });
+    doc.setFont('helvetica', 'normal');
   };
 
   const lines = data.body.split('\n');
@@ -4474,15 +4535,24 @@ export const downloadLetterPDF = async (data) => {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'letter');
       yPos = 20;
+      doc.setFont('helvetica', 'normal');
     }
     const parts = parseMarkdown(line);
-    if (parts.length === 1 && parts[0].style === 'normal') {
-      const wrapped = doc.splitTextToSize(parts[0].text, 170);
+    if (parts.length === 0) {
+      yPos += 5;
+      continue;
+    }
+    const allNormal = parts.every(p => p.style === 'normal');
+    if (allNormal) {
+      doc.setFont('helvetica', 'normal');
+      const plainText = parts.map(p => p.text).join('');
+      const wrapped = doc.splitTextToSize(plainText, 170);
       wrapped.forEach(w => {
         if (yPos > 270) {
           doc.addPage();
           addWatermarkToCurrentPage(doc, 'letter');
           yPos = 20;
+          doc.setFont('helvetica', 'normal');
         }
         doc.text(w, 20, yPos);
         yPos += 5;
@@ -4491,12 +4561,14 @@ export const downloadLetterPDF = async (data) => {
       let fullText = '';
       parts.forEach(p => fullText += p.text);
       if (doc.getTextWidth(fullText) > 170) {
+        doc.setFont('helvetica', 'normal');
         const wrapped = doc.splitTextToSize(fullText, 170);
         wrapped.forEach(w => {
           if (yPos > 270) {
             doc.addPage();
             addWatermarkToCurrentPage(doc, 'letter');
             yPos = 20;
+            doc.setFont('helvetica', 'normal');
           }
           doc.text(w, 20, yPos);
           yPos += 5;
@@ -4510,11 +4582,11 @@ export const downloadLetterPDF = async (data) => {
 
   // Signature
   yPos += 15;
-  const sign = getSignatureByUser(data.user);
   doc.setFont('helvetica', 'bold');
   doc.text('Yours faithfully,', 20, yPos);
   yPos += 12;
   doc.setFont('helvetica', 'normal');
+  const sign = getSignatureByUser(data.user);
   doc.text(sign.name, 20, yPos);
   yPos += 6;
   doc.text(sign.title, 20, yPos);
@@ -4669,7 +4741,6 @@ const getSignatureByUser = (user) => {
 const formatCurrency = (amount) => {
   return `KES ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 };
-
 
 // generate loan invoice pdf
 export const generateLoanInvoicePDF = async (loan, transactions = []) => {

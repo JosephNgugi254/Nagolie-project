@@ -19,7 +19,7 @@ import { generateTransactionReceipt, generateClientStatement,generateLoanAgreeme
  generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,
  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF,
  generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF,
- generateWithdrawalConfirmationLetter, generateLoanWaiverAgreementAutoPDF  } from "../components/admin/ReceiptPDF";
+ generateWithdrawalConfirmationLetter, generateLoanWaiverAgreementAutoPDF } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
@@ -2547,12 +2547,13 @@ Thank you for choosing us.`;
             {/* Overview Section */}
             {activeSection === "overview" && (
               <div id="overview-section" className="content-section">
-                <div className="d-flex justify-content-between align-items-center mb-4">
+                <div className="d-flex justify-content-between align-items-center mb-4">                  
                   <h2>Dashboard Overview</h2>
                   <div className="text-muted">
                     <i className="fas fa-calendar me-1"></i>
                     <span>{new Date().toLocaleDateString()}</span>
                   </div>
+                  
                 </div>  
 
                 {loading ? (
