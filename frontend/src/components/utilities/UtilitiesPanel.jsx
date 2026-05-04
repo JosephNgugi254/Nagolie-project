@@ -10,6 +10,7 @@ import {
   downloadLetterPDF,
   generateInvoicePDF,
 } from '../admin/ReceiptPDF';
+import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
 import { useAuth } from '../../context/AuthContext';
 import LetterWriter from './LetterWriter';
 import InvoiceGenerator from './InvoiceGenerator';
@@ -153,6 +154,20 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
+                {/* <button
+                  className="btn btn-outline-primary w-100 mb-2"
+                  onClick={async () => {
+                    try {
+                      await generateSecretaryContractPDF();
+                      showToast.success('Secretary employment contract downloaded!');
+                    } catch (error) {
+                      showToast.error('Failed to generate contract');
+                    }
+                  }}
+                >
+                  <i className="fas fa-file-contract me-2"></i>
+                  Secretary Employment Contract
+                </button> */}                
               </div>
             )}
 

@@ -38,11 +38,11 @@ function About() {
       email: "georgemarite@gmail.com"
     },
     {
-      name: "Florence Wacuka",
+      name: "Gladys Sakinoi",
       role: "Secretary",
       bio: "Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises.",
-      image: "/flo.png",
-      whatsapp: "https://wa.me/0722370124",
+      image: "/Glado.png",
+      whatsapp: "https://wa.me/0727635515",
       email: ""
     },
     {

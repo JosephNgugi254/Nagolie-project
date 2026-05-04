@@ -5388,3 +5388,239 @@ export const generateManualLoanWaiverAgreementPDF = async () => {
     throw error;
   }
 };
+
+// ========== SECRETARY EMPLOYMENT CONTRACT PDF ==========
+export const generateSecretaryContractPDF = async () => {
+  try {
+    const doc = new jsPDF();
+    addOptimizedWatermark(doc, 'agreement');
+
+    let yPos = await addHeader(doc, 10);
+
+    // Main Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('EMPLOYMENT CONTRACT', 105, yPos, { align: 'center' });
+    yPos += 6;
+    doc.setFontSize(13);
+    doc.text('SECRETARY EMPLOYMENT AGREEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    yPos = addDivider(doc, yPos);
+
+    // Parties
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('This Employment Agreement is made between:', 20, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'normal');
+    doc.text('Nagolie Enterprises (hereinafter referred to as “the Employer”)', 25, yPos);
+    yPos += 6;
+    doc.text('and', 25, yPos);
+    yPos += 6;
+    doc.text('_________________________ (hereinafter referred to as “the Employee”)', 25, yPos);
+    yPos += 12;
+
+    // 1. Position
+    doc.setFont('helvetica', 'bold');
+    doc.text('1. Position', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee is hereby employed as an Office Secretary based at the Isinya Office,', 20, yPos);
+    yPos += 4.5;
+    doc.text('with responsibilities that include coordination with other company branches.', 20, yPos);
+    yPos += 8;
+
+    // 2. Duties and Responsibilities
+    doc.setFont('helvetica', 'bold');
+    doc.text('2. Duties and Responsibilities', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    const duties = [
+      'Receive and attend to clients visiting the office',
+      'Manage and update the recovery module in line with directives from the Director',
+      'Conduct client follow-ups through calls and other communication channels',
+      'Prepare reports on payments, client issues, and operational updates',
+      'Coordinate communication between the main office and branch offices',
+      'Manage petty cash and maintain proper accountability',
+      'Support general office operations, including maintaining a conducive working environment',
+      'Perform any other reasonable administrative duties assigned by the Employer'
+    ];
+    duties.forEach(duty => {
+      if (yPos > 270) {
+        doc.addPage();
+        addWatermarkToCurrentPage(doc, 'agreement');
+        doc.setFont('helvetica', 'normal');
+        yPos = 20;
+      }
+      doc.text(`• ${duty}`, 25, yPos);
+      yPos += 4.5;
+    });
+    yPos += 4;
+
+    // 3. Working Hours
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('3. Working Hours', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee shall work from 8:00 AM to 5:00 PM, Monday to Friday.', 20, yPos);
+    yPos += 5;
+    doc.text('Due to the Company’s 24-hour operational nature, the Employee may be required to work on weekends', 20, yPos);
+    yPos += 4.5;
+    doc.text('to support business operations as needed.', 20, yPos);
+    yPos += 5;
+    doc.text('Any changes to working hours shall be communicated by the Employer.', 20, yPos);
+    yPos += 8;
+
+    // 4. Salary
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('4. Salary', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee shall receive a monthly salary of KES 13,000 (Thirteen Thousand Only).', 20, yPos);
+    yPos += 4.5;
+    doc.text('Salary shall be paid at the end of each month.', 20, yPos);
+    yPos += 8;
+
+    // 5. Growth and Role Development
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('5. Growth and Role Development', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee acknowledges that this role carries potential for advancement into a Head', 20, yPos);
+    yPos += 4.5;
+    doc.text('Secretary position as the company expands. Additional responsibilities may be assigned', 20, yPos);
+    yPos += 4.5;
+    doc.text('in line with company growth.', 20, yPos);
+    yPos += 8;
+
+    // 6. Conduct and Performance
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('6. Conduct and Performance', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee is expected to work with minimal supervision, demonstrate professionalism,', 20, yPos);
+    yPos += 4.5;
+    doc.text('and align with the company’s mission and objectives. The Employee shall perform duties', 20, yPos);
+    yPos += 4.5;
+    doc.text('diligently, honestly, and in the best interest of the Employer.', 20, yPos);
+    yPos += 8;
+
+    // 7. Confidentiality
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('7. Confidentiality', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee shall not disclose any confidential company or client information', 20, yPos);
+    yPos += 4.5;
+    doc.text('during or after employment.', 20, yPos);
+    yPos += 8;
+
+    // 8. Termination
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('8. Termination', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('Either party may terminate this agreement by giving 14 days notice or payment in lieu', 20, yPos);
+    yPos += 4.5;
+    doc.text('of notice. The Employer reserves the right to terminate employment in cases of', 20, yPos);
+    yPos += 4.5;
+    doc.text('misconduct or breach of contract.', 20, yPos);
+    yPos += 8;
+
+    // 9. Commencement Date
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('9. Commencement Date', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('This agreement shall take effect from _______________________.', 20, yPos);
+    yPos += 10;
+
+    // Signatures
+    if (yPos > 230) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('10. Acceptance', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+
+    // Employer signature block
+    doc.setFont('helvetica', 'bold');
+    doc.text('FOR NAGOLIE ENTERPRISES (Employer):', 20, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: Shadrack Kesumet', 25, yPos);
+    yPos += 5;
+    doc.text('Title: Director', 25, yPos);
+    yPos += 5;
+    doc.text('Signature: _________________________', 25, yPos);
+    yPos += 5;
+    doc.text('Date: _________________________', 25, yPos);
+    yPos += 10;
+
+    // Employee signature block
+    doc.setFont('helvetica', 'bold');
+    doc.text('EMPLOYEE:', 20, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: _________________________', 25, yPos);
+    yPos += 5;
+    doc.text('Signature: _________________________', 25, yPos);
+    yPos += 5;
+    doc.text('Date: _________________________', 25, yPos);
+
+    // Footer
+    addFooter(doc, yPos + 15);
+
+    const fileName = `Secretary_Employment_Contract_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+  } catch (error) {
+    console.error('Error generating secretary contract:', error);
+    throw error;
+  }
+};
