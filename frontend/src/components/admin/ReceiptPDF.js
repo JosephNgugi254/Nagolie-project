@@ -587,7 +587,7 @@ export const generateLoanAgreementPDF = async (application) => {
       doc.rect(x + 22, y, 4, 4);   doc.text('L.T', x + 27, y + 3.5);
     };
 
-    const LH = 3.5; // reduced from 3.8
+    const LH = 3.5;
 
     const renderLine = (line, y) => {
       doc.setFontSize(10);
@@ -644,7 +644,7 @@ export const generateLoanAgreementPDF = async (application) => {
         const cbY = boxY + boxH + 4;
         const cbX = boxX + (boxW / 2) - 17;
         drawRtLtCheckboxes(cbX, cbY);
-        return boxH + 10; // reduced from +12
+        return boxH + 10;
       }
 
       if (typeof line === 'object' && line.classificationStatement) {
@@ -664,16 +664,12 @@ export const generateLoanAgreementPDF = async (application) => {
       const wrapped = doc.splitTextToSize(String(line), 170);
       wrapped.forEach((w, idx) => {
         if (idx === 0) doc.text(w, 20, y);
-        else {
-          // Additional lines go at y + (idx * LH)
-          doc.text(w, 20, y + idx * LH);
-        }
+        else doc.text(w, 20, y + idx * LH);
       });
       return LH * wrapped.length;
     };
 
     const termGroups = [
-      // (same as original – unchanged)
       // 1. Agreement Overview
       [
         { text: "1. Agreement Overview", heading: true },
@@ -837,6 +833,14 @@ export const generateLoanAgreementPDF = async (application) => {
         yPos += renderLine(line, yPos);
       }
     }
+
+    // ========== ADD SIGNATURE LINE AT BOTTOM OF PAGE 2 ==========
+    // Ensure there is enough space; place it at y = 270 (near page bottom)
+    const signatureY = Math.min(yPos + 15, 280);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
+    doc.text(`Client's Signature: ________________________`, 105, signatureY, { align: 'center' });
 
     // ---- PAGE 3: Valuation Report + Signatures ----
     doc.addPage();
@@ -1128,7 +1132,7 @@ export const generateManualLoanAgreementPDF = async () => {
       doc.text('Left Thumb', x + 50, y + 3.5);
     };
 
-    const LH = 3.5; // reduced from 3.8
+    const LH = 3.5;
 
     const termGroups = [
       // 1. Agreement Overview
@@ -1335,10 +1339,10 @@ export const generateManualLoanAgreementPDF = async () => {
         const groupWidth = 50 + 5 + 20;
         const checkX = boxX + (boxW / 2) - (groupWidth / 2);
         drawRtLtCheckboxes(checkX, checkY);
-        return boxH + 10; // reduced from +12
+        return boxH + 10;
       }
 
-      // Plain string – wrap to avoid horizontal overflow
+      // Plain string – wrap to avoid overflow
       const wrapped = doc.splitTextToSize(String(line), 170);
       wrapped.forEach((w, idx) => {
         if (idx === 0) doc.text(w, 20, y);
@@ -1373,6 +1377,13 @@ export const generateManualLoanAgreementPDF = async () => {
         yPos += renderLine(line, yPos);
       }
     }
+
+    // ========== ADD CLIENT SIGNATURE LINE AT BOTTOM OF PAGE 2 ==========
+    const signatureY = Math.min(yPos + 15, 294);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
+    doc.text(`Client's Signature: ________________________`, 105, signatureY, { align: 'center' });
 
     // ---- PAGE 3: Valuation Report + Signatures ----
     doc.addPage();
