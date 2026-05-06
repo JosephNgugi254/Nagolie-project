@@ -120,7 +120,8 @@ def get_applications():
                 'additionalInfo': app.notes or 'None',
                 'photos': lv.photos if lv and lv.photos else [],
                 'status': app.status,
-                'repayment_plan': app.repayment_plan or 'weekly'
+                'repayment_plan': app.repayment_plan or 'weekly',
+                'production_classification': lv.production_classification if lv else ''
             })
         return jsonify(result), 200
     except Exception as e:
@@ -827,7 +828,8 @@ def get_approved_loans():
             Client.full_name.label('client_name'), Client.phone_number, Client.id_number,
             Client.location.label('client_location'),
             Livestock.livestock_type, Livestock.count, Livestock.estimated_value,
-            Livestock.photos, Livestock.location.label('livestock_location')
+            Livestock.photos, Livestock.location.label('livestock_location'),
+            Livestock.production_classification
         ).join(Client, Loan.client_id == Client.id
         ).outerjoin(Livestock, Loan.livestock_id == Livestock.id
         ).filter(Loan.status == 'active'
@@ -843,7 +845,8 @@ def get_approved_loans():
             'location': l.client_location or l.livestock_location or 'N/A',
             'additionalInfo': l.notes or 'None provided',
             'photos': l.photos or [], 'status': 'active',
-            'repayment_plan': l.repayment_plan or 'weekly'
+            'repayment_plan': l.repayment_plan or 'weekly',
+            'production_classification': l.production_classification or 'Unspecified'
         } for l in loans]), 200
     except Exception as e:
         return jsonify({'error': 'Failed to load approved loans'}), 500
@@ -1410,4 +1413,65 @@ def waive_loan(loan_id):
         db.session.rollback()
         import traceback
         traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
+
+@admin_bp.route('/livestock/<int:livestock_id>', methods=['GET'])
+@cross_origin(origins="*")
+def get_single_livestock(livestock_id):
+    """Return a single livestock item (public) – used for deep linking."""
+    try:
+        item = db.session.get(Livestock, livestock_id)
+        if not item or item.status != 'active':
+            return jsonify({'error': 'Livestock not found'}), 404
+
+        # --- Apply same sanitization as in get_public_livestock_gallery ---
+        desc = str(item.description or '').strip()
+        if not desc or desc in ('NaN', 'None') or 'claimed' in desc.lower():
+            desc = 'Livestock for purchase'
+        if '|' in desc:
+            desc = desc.split('|', 1)[0].strip()
+
+        loc = str(item.location or '').strip()
+        if not loc or loc in ('NaN', 'None'):
+            loc = 'Isinya, Kajiado'
+        if '|' in loc:
+            p1, p2 = [p.strip() for p in loc.split('|', 1)]
+            kw = ['isinya', 'kajiado', 'town', 'county', 'moonlight', 'kwa', 'timo']
+            loc = p2 if any(k in p2.lower() for k in kw) else (p1 if any(k in p1.lower() for k in kw) else 'Isinya, Kajiado')
+        if 'available' in loc.lower() or 'claimed' in loc.lower():
+            loc = 'Isinya, Kajiado'
+
+        # If the livestock is collateral for a loan, change description
+        assoc = Loan.query.filter_by(livestock_id=item.id).order_by(Loan.created_at.desc()).first()
+        if assoc and 'Collateral for' in desc:
+            desc = 'Livestock for purchase'
+
+        # Determine availability info (simple version)
+        available_info = 'Available now'
+        days_remaining = 0
+        if assoc and assoc.status == 'active' and assoc.due_date:
+            due = assoc.due_date.date() if hasattr(assoc.due_date, 'date') else assoc.due_date
+            today = datetime.now().date()
+            days_remaining = (due - today).days
+            if days_remaining > 0:
+                available_info = f'Available in {days_remaining} days'
+            else:
+                available_info = 'Available now'
+
+        return jsonify({
+            'item': {
+                'id': item.id,
+                'title': f"{item.livestock_type.capitalize()} - {item.count} head",
+                'type': item.livestock_type,
+                'count': item.count,
+                'price': float(item.estimated_value) if item.estimated_value else 0,
+                'description': desc,
+                'images': item.photos or [],
+                'availableInfo': available_info,
+                'daysRemaining': days_remaining,
+                'location': loc
+            }
+        }), 200
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

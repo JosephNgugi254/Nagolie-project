@@ -131,20 +131,18 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       console.log("Logging out...");
-      
-      // Clear all localStorage
+      // Clear all localStorage first
       clearLocalStorage();
-      
+      // Update state synchronously (no network call needed)
       setUser(null);
       setUserRole(null);
-      
       console.log("Logout successful");
       return { success: true };
     } catch (error) {
       console.error("Logout error:", error);
       return { success: false, error: "Logout failed" };
     }
-  }
+  };
   
   // Check if user is authenticated
   const isAuthenticated = () => {

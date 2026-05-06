@@ -394,20 +394,23 @@ function RecoveryModule() {
 
   useEffect(() => {
     if (authLoading) return;
+    
     if (!isAuthenticated()) {
       navigate('/login');
       return;
     }
-    const allowed = ['director','secretary','accountant','valuer','head_of_it'];
-    if (userRole && !allowed.includes(userRole)) {
-      if (userRole === 'admin') {
-        navigate('/admin');
-      } else {
-        logout();
-        navigate('/login');
-      }
+    
+    if (userRole === 'admin') {
+      navigate('/admin');
       return;
     }
+    const allowed = ['director','secretary','accountant','valuer','head_of_it'];
+    if (userRole && !allowed.includes(userRole)) {
+      logout();
+      navigate('/login');
+      return;
+    }
+    
     if (!userRole) return;
 
     fetchData();

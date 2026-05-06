@@ -108,7 +108,10 @@ class Livestock(db.Model):
     status = db.Column(db.String(20), default='active')
     ownership_type = db.Column(db.String(20), default='company')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
+    # new field
+    production_classification = db.Column(db.String(100), nullable=True)
+
     # Relationships
     investor = db.relationship('Investor', backref='livestock', lazy=True)
     
@@ -127,7 +130,8 @@ class Livestock(db.Model):
             'status': self.status,
             'ownership_type': self.ownership_type,
             'investor_name': self.investor.name if self.investor else None,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'production_classification': self.production_classification,
         }
 
 class Loan(db.Model):

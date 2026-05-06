@@ -32,6 +32,8 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+let lastTokenClear = 0;
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -48,21 +50,24 @@ api.interceptors.response.use(
       }
     }
 
-    // Enhanced 401 Handling
     if (error.response?.status === 401) {
-      // Clear all authentication data
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('user_role');
-      localStorage.removeItem('admin_token');
-      localStorage.removeItem('admin_user');
-      localStorage.removeItem('investor_token');
-      localStorage.removeItem('investor_user');
-
-      // Redirect to login if not already there
-      const currentPath = window.location.pathname;
-      if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
-        window.location.href = '/login';
+      const now = Date.now();
+      if (now - lastTokenClear > 3000) {
+        lastTokenClear = now;
+        // Clear ALL authentication data
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('user_role');
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('admin_user');
+        localStorage.removeItem('investor_token');
+        localStorage.removeItem('investor_user');
+      
+        const currentPath = window.location.pathname;
+        if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+          // Use replace() to avoid back-button issues
+          window.location.replace('/login');
+        }
       }
     }
 

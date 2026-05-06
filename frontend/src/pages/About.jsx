@@ -136,13 +136,19 @@ function About() {
                 through fair and innovative buying solutions
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
+                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that 
+                recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
                 while our streamlined approach guarantees you access to funds when you need them most.
               </p>
               <p className="mb-4">
                 Built on the pillars of <strong>integrity, transparency, and efficiency</strong>, 
                 we are committed to empowering livestock owners with purchase opportunities that inspire trust and deliver results.
                 With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
+              </p>
+              <p className="mb-4">
+                At Nagolie Enterprises, we go beyond traditional livestock financing by recognizing each animal as part of a broader agricultural value chain.
+                Through structured classification and professional valuation, we assess not only the physical asset, but also its income-generating potential, enabling smarter financing, 
+                better risk management, and more sustainable outcomes for our farmers.
               </p>
 
               {/* Stats with CountUp */}

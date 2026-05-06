@@ -99,6 +99,7 @@ function LoanApprovalModal({
           <p className="mb-1"><strong>Phone:</strong> {application.phone}</p>
           <p className="mb-1"><strong>Loan Amount:</strong> {formatCurrency(application.loanAmount)}</p>
           <p className="mb-0"><strong>Livestock:</strong> {application.livestockType} ({application.livestockCount})</p>
+          <p className="mb-0"><strong>Production Classification:</strong> {application.production_classification || 'Not specified'}</p>
         </div>
       </div>
 

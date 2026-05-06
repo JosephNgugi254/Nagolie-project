@@ -40,6 +40,8 @@ function AdminPanel() {
   const [imageUploading, setImageUploading] = useState(false);
   const [audio, setAudio] = useState(null);
   const prevPendingCountRef = useRef(0);
+  // ref for infinite scroll
+  const sentinelRef = useRef(null);
 
   // Username/Password change states (for Settings Modal)
   const [usernameForm, setUsernameForm] = useState({ newUsername: '', currentPassword: '' });
@@ -1344,18 +1346,28 @@ const handleInvestorPasswordSubmit = (e) => {
   const filteredClients = filterClients()
   const filteredTransactions = filterTransactions()
 
-  // Redirect to login if not authenticated as admin
+  useEffect(() => {
+    if (!authLoading && isAuthenticated() && userRole && userRole !== 'admin') {
+      showToast.warning('Access denied. Redirecting to your dashboard.');
+      if (userRole === 'investor') {
+        navigate('/investor');
+      } else {
+        navigate('/recovery');
+      }
+    }
+  }, [authLoading, isAuthenticated, userRole, navigate]);
+
   useEffect(() => {
     if (!authLoading) {
       if (!isAuthenticated()) {
+        // Save the full URL (with query parameters) to sessionStorage
+        sessionStorage.setItem('redirectAfterLogin', window.location.href);
         navigate("/login");
-      } else if (userRole === 'investor') { // Check userRole
-        // If investor is logged in, they shouldn't access admin panel
+      } else if (userRole === 'investor') {
         navigate("/investor");
       }
-      // Admin users can stay
     }
-  }, [isAuthenticated, userRole, authLoading, navigate]);
+  }, [isAuthenticated, userRole, authLoading, navigate, location]);
 
   //use effect for section selection in admin panel
   useEffect(() => {
@@ -1470,7 +1482,7 @@ const handleInvestorPasswordSubmit = (e) => {
     } finally {
       setApprovedLoansLoading(false)
     }
-  }, [navigate, approvedLoans.length]);
+  }, [navigate]);
 
   // Staggered data loading implementation(MAIN DATA INITIALIZATION)
   useEffect(() => {
@@ -1579,6 +1591,74 @@ const handleInvestorPasswordSubmit = (e) => {
     setLivestockLoading(false);
   }
 }, [navigate]); 
+
+// Infinite scroll for admin gallery
+useEffect(() => {
+  if (activeSection !== 'gallery') return;
+  if (!sentinelRef.current || !livestockHasMore || livestockLoading) return;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries[0].isIntersecting && livestockHasMore && !livestockLoading) {
+        const nextPage = livestockPage + 1;
+        setLivestockPage(nextPage);
+        fetchLivestock(nextPage, true);
+      }
+    },
+    { threshold: 0.5, rootMargin: '100px' }
+  );
+
+  observer.observe(sentinelRef.current);
+  return () => observer.disconnect();
+}, [activeSection, livestockHasMore, livestockLoading, livestockPage, fetchLivestock]);
+
+useEffect(() => {
+  if (activeSection !== 'gallery') return;
+
+  const params = new URLSearchParams(window.location.search);
+  const livestockId = params.get('livestock');
+  if (!livestockId) return;
+
+  // Wait a bit for the gallery to render
+  const timer = setTimeout(() => {
+    const highlightAndOpen = async () => {
+      let item = livestock.find(l => l.id.toString() === livestockId);
+      if (!item) {
+        try {
+          const res = await fetch(`${API_BASE}/admin/livestock/${livestockId}`);
+          const data = await res.json();
+          if (data.item) {
+            item = data.item;
+            setLivestock(prev => [...prev, item]);
+          } else {
+            showToast.error('Livestock not found');
+            return;
+          }
+        } catch (err) {
+          console.error('Failed to fetch livestock for deep link:', err);
+          showToast.error('Could not load the requested livestock');
+          return;
+        }
+      }
+      if (item) {
+        const galleryElem = document.getElementById('gallery-section');
+        if (galleryElem) galleryElem.scrollIntoView({ behavior: 'smooth' });
+        setTimeout(() => {
+          handleEditLivestock(item);
+          const card = document.querySelector(`[data-livestock-id="${item.id}"]`);
+          if (card) {
+            card.classList.add('highlight-livestock');
+            setTimeout(() => card.classList.remove('highlight-livestock'), 4000);
+          }
+        }, 600);
+      }
+    };
+    highlightAndOpen();
+  }, 500);
+
+  return () => clearTimeout(timer);
+}, [activeSection, livestock]);
+
 
 // Livestock gallery section use effect
   useEffect(() => {
@@ -1945,7 +2025,8 @@ const handleInvestorPasswordSubmit = (e) => {
       await Promise.all([
         fetchApplications(),
         fetchClients(),
-        fetchDashboardData()
+        fetchDashboardData(),
+        fetchApprovedLoans()
       ])
 
       setShowApplicationModal(false)
@@ -2976,8 +3057,8 @@ Thank you for choosing us.`;
                     <i className="fas fa-plus me-1"></i>Add Livestock
                   </button>
                 </div>
-            
-                {livestockLoading ? (
+
+                {livestockLoading && livestock.length === 0 ? (
                   <div className="text-center py-5">
                     <div className="spinner-border text-primary" role="status">
                       <span className="visually-hidden">Loading livestock...</span>
@@ -3001,7 +3082,7 @@ Thank you for choosing us.`;
                       <>
                         <div className="row" id="adminGallery">
                           {livestock.map((item) => (
-                            <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4">
+                            <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4" data-livestock-id={item.id}>
                               <div className="card gallery-card h-100">
                                 <ImageCarousel images={item.images} title={item.title} />
                                 <div className="card-body d-flex flex-column">
@@ -3058,27 +3139,14 @@ Thank you for choosing us.`;
                           ))}
                         </div>
                         
-                        {/* Load More Button */}
+                        {/* Infinite scroll sentinel */}
                         {livestockHasMore && (
-                          <div className="text-center mt-4">
-                            <button
-                              className="btn btn-outline-primary"
-                              onClick={() => {
-                                const nextPage = livestockPage + 1;
-                                setLivestockPage(nextPage);
-                                fetchLivestock(nextPage, true);
-                              }}
-                              disabled={livestockLoading}
-                            >
-                              {livestockLoading ? (
-                                <>
-                                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                  Loading...
-                                </>
-                              ) : (
-                                'Load More'
-                              )}
-                            </button>
+                          <div ref={sentinelRef} className="text-center mt-4">
+                            {livestockLoading && (
+                              <div className="spinner-border text-primary" role="status">
+                                <span className="visually-hidden">Loading more...</span>
+                              </div>
+                            )}
                           </div>
                         )}
                       </>
@@ -3338,7 +3406,7 @@ Thank you for choosing us.`;
                                             onClick={async (e) => {
                                               e.stopPropagation();
                                               try {
-                                                const loanWithPlan = { ...row, repaymentPlan: row.repayment_plan };
+                                                const loanWithPlan = { ...row, repaymentPlan: row.repayment_plan, productionClassification: row.production_classification };
                                                 await generateLoanAgreementPDF(loanWithPlan);
                                                 showToast.success("Loan agreement downloaded successfully!");
                                               } catch (error) {
@@ -4018,6 +4086,7 @@ Thank you for choosing us.`;
               <p><strong>Loan Amount:</strong> {formatCurrency(selectedApplication.loanAmount)}</p>
               <p><strong>Payment Plan:</strong> {selectedApplication.repayment_plan === 'daily'? 'Daily – 4.5% per day': 'Weekly – 30% interest'}</p>
               <p><strong>Livestock:</strong> {selectedApplication.livestockCount || 'N/A'} {selectedApplication.livestockType || 'N/A'}</p>
+              <p><strong>Production Classification:</strong> {selectedApplication.production_classification || 'Not specified'}</p>
               <p><strong>Estimated Value:</strong> {formatCurrency(selectedApplication.estimatedValue)}</p>
               <p><strong>Location:</strong> {selectedApplication.location || 'N/A'}</p>
               <p><strong>Additional Info:</strong> {selectedApplication.additionalInfo || "None"}</p>

@@ -12,11 +12,11 @@ export const useSessionTimeout = (logout, isAuthenticated, userRole) => {
   const resetTimer = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      // Only logout if user is actually authenticated
       if (isAuthenticated()) {
         showToast.warning('Session expired due to inactivity. Please log in again.');
-        logout().then(() => {
-          navigate('/login');
+        // Perform logout, then force a full reload to /login
+        logout().finally(() => {
+          window.location.replace('/login');
         });
       }
     }, INACTIVITY_LIMIT);
@@ -34,5 +34,5 @@ export const useSessionTimeout = (logout, isAuthenticated, userRole) => {
       if (timerRef.current) clearTimeout(timerRef.current);
       events.forEach(event => window.removeEventListener(event, handleActivity));
     };
-  }, [isAuthenticated, userRole]); // Re-run when auth state changes
+  }, [isAuthenticated, userRole]);
 };

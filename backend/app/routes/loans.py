@@ -237,7 +237,8 @@ def apply_for_loan():
             count=data.get('count', 1),
             estimated_value=Decimal(str(data.get('estimated_value', 0))),
             location=location,
-            photos=photo_urls
+            photos=photo_urls,
+            production_classification = data.get('productionClassification') or data.get('production_classification', '') 
         )
         db.session.add(livestock)
         db.session.flush()

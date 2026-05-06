@@ -1,15 +1,3 @@
-/**
- * BiometricModal.jsx  –  Fixed for Nagolie Enterprises
- *
- * Key fixes vs original:
- *  1. Sends cacheKey (returned by /begin) back to /complete so the server can
- *     retrieve the challenge without relying on flask_session.
- *  2. The `id` fields in allowCredentials are already Base64URL strings from
- *     the server – passed through as-is; SimpleWebAuthn decodes them internally.
- *  3. Correct option shapes for startAuthentication (rpId, not rp.id, etc.).
- *  4. Graceful error messages surfaced to the user.
- */
-
 import { useState, useEffect } from 'react';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import Modal from '../common/Modal';
@@ -19,18 +7,6 @@ const API_BASE =
   (window.location.hostname === 'localhost'
     ? 'http://localhost:5000/api'
     : 'https://nagolie-backend.onrender.com/api');
-
-const authFetch = (url, opts = {}) => {
-  const token = localStorage.getItem('token');
-  return fetch(url, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(opts.headers || {}),
-    },
-  });
-};
 
 export default function BiometricModal({ isOpen, onClose, onUsePassword, onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -44,16 +20,18 @@ export default function BiometricModal({ isOpen, onClose, onUsePassword, onLogin
     }
   }, [isOpen]);
 
-  // -------------------------------------------------------------------------
   const handleBiometricLogin = async () => {
     const trimmed = username.trim();
-    if (!trimmed) { setError('Please enter your username'); return; }
+    if (!trimmed) {
+      setError('Please enter your username');
+      return;
+    }
 
     setLoading(true);
     setError('');
 
     try {
-      /* ── Step 1: get challenge + options ── */
+      // Step 1: get challenge + options
       const beginRes = await fetch(`${API_BASE}/auth/biometric/login/begin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,18 +41,17 @@ export default function BiometricModal({ isOpen, onClose, onUsePassword, onLogin
       if (!beginRes.ok) {
         const txt = await beginRes.text();
         let msg = 'Failed to start authentication';
-        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* raw text */ }
+        try { msg = JSON.parse(txt).error || msg; } catch (_) {}
         throw new Error(msg);
       }
 
       const beginData = await beginRes.json();
       const { cacheKey, options } = beginData;
 
-      /* ── Step 2: invoke device biometric ── */
-      // startAuthentication expects a PublicKeyCredentialRequestOptionsJSON shape
+      // Step 2: invoke device biometric
       const asseResp = await startAuthentication(options);
 
-      /* ── Step 3: send result + cacheKey to server ── */
+      // Step 3: send result + cacheKey to server
       const verifyRes = await fetch(`${API_BASE}/auth/biometric/login/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -84,36 +61,37 @@ export default function BiometricModal({ isOpen, onClose, onUsePassword, onLogin
       if (!verifyRes.ok) {
         const txt = await verifyRes.text();
         let msg = 'Biometric verification failed';
-        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* raw text */ }
+        try { msg = JSON.parse(txt).error || msg; } catch (_) {}
         throw new Error(msg);
       }
 
       const verifyData = await verifyRes.json();
 
-      /* ── Step 4: persist tokens & navigate ── */
-      localStorage.setItem('token',     verifyData.access_token);
-      localStorage.setItem('user',      JSON.stringify(verifyData.user));
+      // Step 4: persist tokens
+      localStorage.setItem('token', verifyData.access_token);
+      localStorage.setItem('user', JSON.stringify(verifyData.user));
       localStorage.setItem('user_role', verifyData.user.role);
       localStorage.setItem('last_biometric_username', trimmed);
 
       if (verifyData.user.role === 'admin') {
         localStorage.setItem('admin_token', verifyData.access_token);
-        localStorage.setItem('admin_user',  JSON.stringify(verifyData.user));
+        localStorage.setItem('admin_user', JSON.stringify(verifyData.user));
       } else if (verifyData.user.role === 'investor') {
         localStorage.setItem('investor_token', verifyData.access_token);
-        localStorage.setItem('investor_user',  JSON.stringify(verifyData.user));
+        localStorage.setItem('investor_user', JSON.stringify(verifyData.user));
       }
 
-      onLoginSuccess(verifyData.user, verifyData.redirect_to);
+      // Wait a moment for storage to settle, then redirect
+      setTimeout(() => {
+        onLoginSuccess(verifyData.user, verifyData.redirect_to);
+      }, 200);
     } catch (err) {
-      // SimpleWebAuthn throws a readable Error on user cancellation, timeout, etc.
       setError(err.message || 'Biometric authentication failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // -------------------------------------------------------------------------
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Login with Biometrics" size="md">
       <div className="text-center mb-4">

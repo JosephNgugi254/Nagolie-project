@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom" 
 import { useAuth } from "../../context/AuthContext"
 import Toast, { showToast } from "../../components/common/Toast"
 import BiometricModal from "../../components/auth/BiometricModal"
@@ -12,6 +12,7 @@ function AdminLoginPage() {
   const [showBiometricModal, setShowBiometricModal] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation() 
   const [formData, setFormData] = useState({ username: "", password: "" })
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -37,10 +38,20 @@ function AdminLoginPage() {
   }, [isWebAuthnSupported])
 
   const handleBiometricSuccess = (userData, redirectTo) => {
-    // AuthContext already stores tokens via localStorage, but we need to update context state
-    // For simplicity, reload the page so AuthProvider re‑reads localStorage
-    window.location.href = redirectTo
-  }
+    const savedRedirect = sessionStorage.getItem('redirectAfterLogin');
+    if (savedRedirect) {
+      sessionStorage.removeItem('redirectAfterLogin');
+      let targetUrl = savedRedirect;
+      // If it's a relative URL, prepend the origin
+      if (savedRedirect.startsWith('/')) {
+        targetUrl = window.location.origin + savedRedirect;
+      }
+      // Navigate to the full URL (preserving query parameters)
+      window.location.href = targetUrl;
+    } else {
+      window.location.href = redirectTo;
+    }
+  };
 
   const handleUsePassword = () => {
     setShowPasswordForm(true)
@@ -65,7 +76,23 @@ function AdminLoginPage() {
       const result = await login(formData);
       if (result.success) {
         showToast.success('Login successful!');
-        navigate(result.redirect_to || (result.user?.role === 'investor' ? '/investor' : '/admin'));
+
+        // ---- NEW: Check for saved redirect URL ----
+        const savedRedirect = sessionStorage.getItem('redirectAfterLogin');
+        if (savedRedirect) {
+          sessionStorage.removeItem('redirectAfterLogin');
+          // Extract the path + query from the saved URL
+          const url = new URL(savedRedirect);
+          navigate(url.pathname + url.search);
+        } else {
+          // Fallback to role-based redirect
+          const from = location.state?.from;
+          if (from) {
+            navigate(from.pathname + from.search);
+          } else {
+            navigate(result.redirect_to || (result.user?.role === 'investor' ? '/investor' : '/admin'));
+          }
+        }
       } else {
         showToast.error(result.error || 'Login failed');
         setError(result.error || 'Login failed');
@@ -77,7 +104,7 @@ function AdminLoginPage() {
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   const handleClose = () => navigate("/")
 

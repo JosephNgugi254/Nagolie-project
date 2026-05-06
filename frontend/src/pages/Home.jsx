@@ -12,6 +12,11 @@ import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
 import SEO from '../components/common/SEO'
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ||
+  (window.location.hostname === 'localhost'
+    ? "http://localhost:5000/api"
+    : "https://nagolie-backend.onrender.com/api");
+
 // ========== Interactive Livestock Icon (Floating Cow) ==========
 const InteractiveLivestockIcon = () => {
   const cursorX = useMotionValue(0)
@@ -46,6 +51,7 @@ function Home() {
   const dotsRef = useRef(null)
   const currentIndexRef = useRef(0)
   const autoSlideIntervalRef = useRef(null)
+  const sentinelRef = useRef(null)   // <-- for infinite scroll
 
   // Stats animation ref
   const statsRef = useRef(null)
@@ -106,7 +112,8 @@ function Home() {
         location: formData.location || '',
         notes: formData.notes || '',
         photos: formData.photos || [],
-        repaymentPlan: formData.repaymentPlan
+        repaymentPlan: formData.repaymentPlan,
+        production_classification: formData.productionClassification, 
       }
 
       console.log("Sending to backend:", applicationData)
@@ -129,6 +136,7 @@ function Home() {
     }
   }
 
+  // --- Testimonials slider logic (unchanged) ---
   useEffect(() => {
     const slider = sliderRef.current
     const dotsContainer = dotsRef.current
@@ -255,6 +263,7 @@ function Home() {
     }
   }
 
+  // --- Livestock fetching (supports append) ---
   const fetchLivestock = async (page = 1, append = false) => {
     try {
       setLivestockLoading(true);
@@ -297,6 +306,26 @@ function Home() {
     }
   };
 
+  // --- Infinite scroll: IntersectionObserver on sentinel ---
+  useEffect(() => {
+    if (!sentinelRef.current || !livestockHasMore || livestockLoading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && livestockHasMore && !livestockLoading) {
+          const nextPage = livestockPage + 1;
+          setLivestockPage(nextPage);
+          fetchLivestock(nextPage, true);
+        }
+      },
+      { threshold: 0.5, rootMargin: '100px' }
+    );
+
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [livestockHasMore, livestockLoading, livestockPage, fetchLivestock]);
+
+  // --- Initial load ---
   useEffect(() => {
     fetchLivestock(1, false);
   }, []);
@@ -308,42 +337,58 @@ function Home() {
     }).format(Number(amount) || 0);
   };
 
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.includes('?livestock=')) {
-      const params = new URLSearchParams(hash.split('?')[1]);
-      const livestockId = params.get('livestock');
+ useEffect(() => {
+  const hash = window.location.hash;
+  if (!hash.includes('?livestock=')) return;
 
-      if (livestockId) {
-        if (!livestockLoading && livestock.length > 0) {
-          const selectedItem = livestock.find(item => item.id.toString() === livestockId.toString());
+  const params = new URLSearchParams(hash.split('?')[1]);
+  const livestockId = params.get('livestock');
+  if (!livestockId) return;
 
-          if (selectedItem) {
-            const gallerySection = document.getElementById('gallery');
-            if (gallerySection) {
-              gallerySection.scrollIntoView({ behavior: 'smooth' });
-            }
-
-            setTimeout(() => {
-              setSelectedLivestockItem(selectedItem);
-              setSelectedImage(selectedItem.images[0] || null);
-              setShowImageModal(true);
-              
-              const livestockElement = document.querySelector(`[data-livestock-id="${livestockId}"]`);
-              if (livestockElement) {
-                livestockElement.classList.add('highlight-livestock');
-                setTimeout(() => {
-                  livestockElement.classList.remove('highlight-livestock');
-                }, 5000);
-              }
-            }, 1000);
-            
-            window.history.replaceState(null, '', window.location.pathname + window.location.search);
-          }
-        }
+  const openModalAndScroll = (item) => {
+    const gallerySection = document.getElementById('gallery');
+    if (gallerySection) gallerySection.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      setSelectedLivestockItem(item);
+      setSelectedImage(item.images?.[0] || null);
+      setShowImageModal(true);
+      const livestockElement = document.querySelector(`[data-livestock-id="${item.id}"]`);
+      if (livestockElement) {
+        livestockElement.classList.add('highlight-livestock');
+        setTimeout(() => livestockElement.classList.remove('highlight-livestock'), 5000);
       }
+    }, 500);
+  };
+
+  const findAndOpen = async () => {
+    let selected = livestock.find(item => item.id.toString() === livestockId);
+    if (selected) {
+      openModalAndScroll(selected);
+      return;
     }
-  }, [livestock, livestockLoading]);
+
+    try {
+      const response = await fetch(`${API_BASE}/admin/livestock/${livestockId}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const data = await response.json();
+      if (data.item) {
+        selected = data.item;
+        setLivestock(prev => [...prev, selected]);
+        openModalAndScroll(selected);
+      } else {
+        showToast.error('Livestock not found');
+      }
+    } catch (error) {
+      console.error('Failed to fetch livestock for deep link:', error);
+      showToast.error('Could not load the requested livestock. Please try again later.');
+    }
+  };
+
+    findAndOpen();
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, [livestock]);
 
   return (
     <div>
@@ -382,7 +427,8 @@ function Home() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.8, delay: 1.2 }}
                 >
-                  Transform your livestock into immediate financial opportunities. Quick, secure, reliable and trusted
+                  Transform your livestock into financial opportunities, powered by value chain insights,
+                  productivity and real asset value. Quick, secure, reliable and trusted
                   services in Isinya, Kajiado County.
                 </motion.p>
                 <div className="hero-buttons">
@@ -664,7 +710,7 @@ function Home() {
         </div>
       </motion.section>
 
-      {/* Livestock Gallery */}
+      {/* Livestock Gallery with Infinite Scroll */}
       <section id="gallery" className="py-5">
         <div className="container">
           <div className="text-center mb-5">
@@ -672,7 +718,7 @@ function Home() {
             <p className="lead">Quality livestock available for purchase</p>
           </div>
           
-          {livestockLoading ? (
+          {livestockLoading && livestock.length === 0 ? (
             <div className="text-center py-5">
               <div className="spinner-border text-primary" style={{ width: '3rem', height: '3rem' }} role="status">
                 <span className="visually-hidden">Loading livestock...</span>
@@ -734,9 +780,10 @@ function Home() {
                         <button 
                           className="btn btn-primary mt-auto"
                           onClick={() => {
-                            const message = `Hello team, I am interested in the ${item.title} going for ${formatCurrency(item.price)}. Could you kindly provide more information regarding its availability and purchase process?`
-                            const encodedMessage = encodeURIComponent(message)
-                            window.open(`https://wa.me/254721451707?text=${encodedMessage}`, '_blank')
+                            const adminLink = `${window.location.origin}/admin/gallery?livestock=${item.id}`;
+                            const message = `Hello team, I am interested in the ${item.title} going for ${formatCurrency(item.price)}. Could you kindly provide more information regarding its availability and purchase process?\n\n Admin reference: ${adminLink}`;
+                            const encodedMessage = encodeURIComponent(message);
+                            window.open(`https://wa.me/254721451707?text=${encodedMessage}`, '_blank');
                           }}
                         >
                           <i className="fab fa-whatsapp me-2"></i>Inquire on WhatsApp
@@ -753,26 +800,14 @@ function Home() {
                 ))}
               </div>
               
+              {/* Infinite scroll sentinel (triggers next page) */}
               {livestockHasMore && (
-                <div className="text-center mt-4">
-                  <button
-                    className="btn btn-outline-primary"
-                    onClick={() => {
-                      const nextPage = livestockPage + 1;
-                      setLivestockPage(nextPage);
-                      fetchLivestock(nextPage, true);
-                    }}
-                    disabled={livestockLoading}
-                  >
-                    {livestockLoading ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Loading...
-                      </>
-                    ) : (
-                      'Load More'
-                    )}
-                  </button>
+                <div ref={sentinelRef} className="text-center py-3">
+                  {livestockLoading && (
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Loading more...</span>
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -909,7 +944,7 @@ function Home() {
                   />
                 </div>
                 
-                {selectedLivestockItem.images.length > 1 && (
+                {selectedLivestockItem.images && selectedLivestockItem.images.length > 1 && (
                   <div className="row mt-3">
                     <div className="col-12">
                       <p className="text-muted mb-2">More images:</p>
