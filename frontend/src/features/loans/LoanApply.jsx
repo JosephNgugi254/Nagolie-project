@@ -313,9 +313,9 @@ function LoanApply({ onSubmit }) {
             <FormInput label="Amount (KSh)" name="loanAmount" type="number" value={formData.loanAmount} onChange={handleChange} placeholder="Enter desired amount" min="1000" max="1000000" required />
           </div>
           <div className="col-md-6">
-            <label htmlFor="mainCategory" className="form-label">Livestock Category <span className="text-danger">*</span></label>
+            <label htmlFor="mainCategory" className="form-label">Livestock Type <span className="text-danger">*</span></label>
             <select className="form-control" id="mainCategory" value={mainCategory} onChange={handleMainCategoryChange} required style={getSelectStyle()}>
-              <option value="">Select livestock category</option>
+              <option value="">Select livestock type</option>
               <option value="cattle">Cattle</option>
               <option value="goats">Goats</option>
               <option value="sheep">Sheep</option>

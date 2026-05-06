@@ -17,7 +17,7 @@ function About() {
       name: "Shadrack Kesumet",
       role: "Chief Executive Officer and Founder",
       bio: "He has a deep understanding of rural financial needs and brings an ambitious, problem-solving mentality to every challenge.",
-      image: "/Shaddy CEO.png",
+      image: "/mrdirector.png",
       whatsapp: "https://wa.me/254721451707",
       email: "kesumetshadrack@gmail.com"
     },
