@@ -7,6 +7,7 @@ from app import db
 from app.models import CompanyGalleryImage
 from app.utils.cloudinary_upload import upload_base64_image, delete_image
 from app.utils.security import admin_required
+from app.utils.decorators import role_required
 import traceback
 
 company_gallery_bp = Blueprint('company_gallery', __name__)
