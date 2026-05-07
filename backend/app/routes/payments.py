@@ -101,7 +101,7 @@ def _accrue_weekly(loan, today, last_date):
     that payment is applied rather than compounding the full amount.
     """
     days_since  = (today - last_date).days
-    weeks_passed = days_since // 7
+    weeks_passed = max(0, (days_since - 1) // 7)
 
     if weeks_passed > 0:
         disb = (
