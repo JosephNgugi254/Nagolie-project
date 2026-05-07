@@ -10,6 +10,7 @@ import {
  generateTransactionReceipt,
  generateClientStatement,
  generateLoanAgreementPDF,
+ generateLoanInvoicePDF,
  generateInvestorAgreementPDF,
  generateInvestorStatementPDF,
  generateInvestorTransactionReceipt,
@@ -932,15 +933,20 @@ function RecoveryModule() {
     }
     if (isMobile) setSidebarOpen(false);
   };
+
   const handleDownloadInvoice = async (loan) => {
+    console.log('Download invoice clicked for loan:', loan);
     try {
       const response = await recoveryAPI.getLoanTransactions(loan.id);
+      console.log('Transactions response:', response);
       await generateLoanInvoicePDF(loan, response.data || []);
       showToast.success('Invoice downloaded');
     } catch (error) {
+      console.error('Invoice error:', error);
       showToast.error('Failed to generate invoice');
     }
   };
+
   const enrollBiometrics = async () => {
     try {
       const token = localStorage.getItem('token');
