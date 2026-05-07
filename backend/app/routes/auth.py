@@ -5,6 +5,7 @@ from app import db
 from app.models import User, Investor
 from app.schemas.user_schema import UserRegistrationSchema, UserLoginSchema
 from app.utils.security import admin_required, log_audit
+from app.utils.decorators import role_required
 
 auth_bp = Blueprint('auth', __name__)
 
