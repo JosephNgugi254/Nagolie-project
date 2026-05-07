@@ -82,6 +82,7 @@ def _days_left_label(loan, today):
 
 @admin_bp.route('/test', methods=['GET'])
 @jwt_required()
+
 def test_endpoint():
     try:
         user = db.session.get(User, int(get_jwt_identity()))
@@ -97,7 +98,7 @@ def test_endpoint():
 
 @admin_bp.route('/applications', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_applications():
     try:
         apps = Loan.query.filter_by(status='pending').order_by(Loan.created_at.desc()).all()
@@ -134,7 +135,7 @@ def get_applications():
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def approve_application(loan_id):
     try:
         data           = request.get_json()
@@ -236,7 +237,7 @@ def approve_application(loan_id):
 
 @admin_bp.route('/applications/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def reject_application(loan_id):
     try:
         loan = db.session.get(Loan, loan_id)
@@ -260,7 +261,7 @@ def reject_application(loan_id):
 
 @admin_bp.route('/clients', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_all_clients():
     try:
         today = datetime.now().date()
@@ -349,7 +350,7 @@ def get_all_clients():
 
 @admin_bp.route('/dashboard', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_dashboard_stats():
     try:
         total_clients = db.session.query(Client).join(Loan).filter(
@@ -438,7 +439,7 @@ def get_dashboard_stats():
 
 @admin_bp.route('/payment-stats', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_payment_stats():
     try:
         loans = Loan.query.filter(
@@ -501,7 +502,7 @@ def get_payment_stats():
 
 @admin_bp.route('/livestock', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_all_livestock():
     try:
         page     = request.args.get('page', 1, type=int)
@@ -639,7 +640,7 @@ def get_public_livestock_gallery():
 
 @admin_bp.route('/transactions', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_all_transactions():
     try:
         txns = Transaction.query.order_by(Transaction.created_at.desc()).all()
@@ -665,7 +666,7 @@ def get_all_transactions():
 
 @admin_bp.route('/livestock', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def add_livestock():
     try:
         data = request.json
@@ -691,7 +692,7 @@ def add_livestock():
 
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def update_livestock(livestock_id):
     try:
         lv = db.session.get(Livestock, livestock_id)
@@ -724,7 +725,7 @@ def update_livestock(livestock_id):
 
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['DELETE'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def delete_livestock(livestock_id):
     try:
         lv = db.session.get(Livestock, livestock_id)
@@ -740,7 +741,7 @@ def delete_livestock(livestock_id):
 
 @admin_bp.route('/send-reminder', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def send_reminder():
     data = request.json
     if not data.get('phone') or not data.get('message'):
@@ -750,7 +751,7 @@ def send_reminder():
 
 @admin_bp.route('/claim-ownership', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def claim_ownership():
     try:
         data      = request.get_json()
@@ -777,7 +778,7 @@ def claim_ownership():
 
 @admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def process_topup(loan_id):
     try:
         data             = request.json
@@ -820,7 +821,7 @@ def process_topup(loan_id):
 
 @admin_bp.route('/approved-loans', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_approved_loans():
     try:
         loans = db.session.query(
@@ -858,7 +859,7 @@ def get_approved_loans():
 
 @admin_bp.route('/investors', methods=['GET', 'POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def manage_investors():
     if request.method == 'GET':
         try:
@@ -921,7 +922,7 @@ def manage_investors():
 
 @admin_bp.route('/investors/<int:investor_id>', methods=['GET', 'PUT', 'DELETE'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def manage_investor(investor_id):
     inv = db.session.get(Investor, investor_id)
     if not inv:
@@ -952,7 +953,7 @@ def manage_investor(investor_id):
 
 @admin_bp.route('/investors/<int:investor_id>/calculate-return', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def calculate_investor_return(investor_id):
     try:
         inv = db.session.get(Investor, investor_id)
@@ -981,7 +982,7 @@ def calculate_investor_return(investor_id):
 
 @admin_bp.route('/investors/<int:investor_id>/process-return', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def process_investor_return(investor_id):
     try:
         inv = db.session.get(Investor, investor_id)
@@ -1012,7 +1013,7 @@ def process_investor_return(investor_id):
 
 @admin_bp.route('/investors/stats', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_investor_stats():
     try:
         tlv  = float(db.session.query(func.sum(Livestock.estimated_value)).filter(Livestock.status=='active').scalar() or 0)
@@ -1037,7 +1038,7 @@ def get_investor_stats():
 
 @admin_bp.route('/investors/<int:investor_id>/create-user-account', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def create_investor_user_account(investor_id):
     try:
         inv = db.session.get(Investor, investor_id)
@@ -1072,7 +1073,7 @@ def create_investor_user_account(investor_id):
 
 @admin_bp.route('/investors/<int:investor_id>/adjust-investment', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def adjust_investor_investment(investor_id):
     try:
         data   = request.json
@@ -1110,7 +1111,7 @@ def adjust_investor_investment(investor_id):
 
 @admin_bp.route('/investor-transactions', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_investor_transactions():
     try:
         rows = []
@@ -1148,7 +1149,7 @@ def get_investor_transactions():
 
 @admin_bp.route('/investors/<int:investor_id>/statement', methods=['GET'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def get_investor_statement(investor_id):
     try:
         inv = db.session.get(Investor, investor_id)

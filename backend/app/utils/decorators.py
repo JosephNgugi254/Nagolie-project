@@ -10,6 +10,7 @@ def role_required(roles):
             verify_jwt_in_request()
             user_id = int(get_jwt_identity())
             user = User.query.get(user_id)
+            print(f"🔍 role_required: user_id={user_id}, role={user.role if user else None}, required={roles}")
             if not user or user.role not in roles:
                 return jsonify({'error': 'Permission denied'}), 403
             return fn(*args, **kwargs)

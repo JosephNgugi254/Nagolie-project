@@ -5,6 +5,7 @@ from decimal import Decimal
 from app import db
 from app.models import Investor, InvestorReturn, Livestock, Loan, User
 from app.utils.security import admin_required, investor_required, log_audit
+from app.utils.decorators import role_required
 from app.schemas.user_schema import ChangePasswordSchema, ChangeUsernameSchema
 from marshmallow import ValidationError
 from sqlalchemy.orm import selectinload

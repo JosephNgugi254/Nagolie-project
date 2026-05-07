@@ -6,6 +6,7 @@ from app import db, limiter
 from app.models import Payment, Loan, Transaction
 from app.utils.daraja import DarajaAPI
 from app.utils.security import log_audit, role_required
+from app.utils.decorators import role_required
 
 payments_bp = Blueprint('payments', __name__)
 

@@ -1,3 +1,4 @@
+//admin/TakeActionModal.jsx
 import { useState } from 'react';
 
 function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) {

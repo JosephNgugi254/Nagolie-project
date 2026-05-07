@@ -10,7 +10,7 @@ auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route('/register', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def register():
     """Register new user (admin only)"""
     schema = UserRegistrationSchema()

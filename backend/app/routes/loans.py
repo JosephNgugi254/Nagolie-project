@@ -7,12 +7,13 @@ from app import db
 from app.models import Loan, Client, Transaction, Livestock  
 from app.schemas.loan_schema import LoanApplicationSchema
 from app.utils.security import log_audit, admin_required  
+from app.utils.decorators import role_required
 
 loans_bp = Blueprint('loans', __name__)
 
 @loans_bp.route('/<int:loan_id>/approve', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def approve_loan(loan_id):
     """Approve a loan application"""
     loan = db.session.get(Loan, loan_id)
@@ -313,7 +314,7 @@ def apply_for_loan():
             
 @loans_bp.route('/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def reject_loan(loan_id):
     """Reject a loan application"""
     loan = db.session.get(Loan, loan_id)

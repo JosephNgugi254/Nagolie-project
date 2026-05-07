@@ -29,7 +29,7 @@ def get_public_gallery():
 
 @company_gallery_bp.route('/admin', methods=['POST'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def add_gallery_images():
     print("=== Starting image upload ===")
     try:
@@ -92,7 +92,7 @@ def add_gallery_images():
 
 @company_gallery_bp.route('/admin/<int:image_id>', methods=['DELETE'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def delete_gallery_image(image_id):
     """Delete a single image from database and Cloudinary."""
     try:
@@ -118,7 +118,7 @@ def delete_gallery_image(image_id):
 # Optional: update an image (title, description, category)
 @company_gallery_bp.route('/admin/<int:image_id>', methods=['PUT'])
 @jwt_required()
-@admin_required
+@role_required(['admin', 'director'])
 def update_gallery_image(image_id):
     """Update metadata of a single image."""
     try:
