@@ -806,24 +806,38 @@ function RecoveryModule() {
     setShowActionModal(false);
     setSelectedClient(null);
   };
+
   const handleSendReminder = (client, message) => {
     try {
-      if (!client.phone) throw new Error('Phone number missing');
-      let phoneNumber = client.phone.toString().trim();
+      // Support both client.phone (from admin) and client.contacts (from recovery)
+      let phoneNumber = client?.phone || client?.contacts;
+      if (!phoneNumber) throw new Error('Phone number missing');
+
+      // Clean and format
+      phoneNumber = phoneNumber.toString().trim();
       phoneNumber = phoneNumber.replace(/\s+/g, '').replace(/[-\s()]/g, '');
+
       if (!phoneNumber.startsWith('+')) {
-        if (phoneNumber.startsWith('0')) phoneNumber = '+254' + phoneNumber.substring(1);
-        else if (phoneNumber.startsWith('254')) phoneNumber = '+' + phoneNumber;
-        else throw new Error('Invalid phone format');
+        if (phoneNumber.startsWith('0')) {
+          phoneNumber = '+254' + phoneNumber.substring(1);
+        } else if (phoneNumber.startsWith('254')) {
+          phoneNumber = '+' + phoneNumber;
+        } else {
+          throw new Error('Invalid phone format');
+        }
       }
+
       const encodedMessage = encodeURIComponent(message);
       window.location.href = `sms:${phoneNumber}?body=${encodedMessage}`;
+
+      // Close modals that might have been open
       setShowActionModal(false);
       setSelectedClient(null);
     } catch (error) {
       showToast.error(error.message);
     }
   };
+  
   const handleClaimOwnership = async (client) => {
     try {
       const response = await adminAPI.claimOwnership({
