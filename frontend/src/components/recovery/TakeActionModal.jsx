@@ -1,11 +1,19 @@
-//recovery/TakeActionModal.jsx
 import { useState } from 'react';
 
 function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
   const [selectedAction, setSelectedAction] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const isOverdue = loan.days_left < 0;
+  // --- Overdue detection ---
+  const weeksOverdue = loan.weeks_overdue ?? 0;
+  const daysLeft = loan.days_left ?? loan.daysLeft ?? 0;
+  
+  // Any overdue (1+ weeks or negative days)
+  const isOverdue = weeksOverdue > 0 || daysLeft < 0;
+  
+  // Claim ownership is available for ALL overdue loans
+  const canClaim = isOverdue;
+
   const isWeekly = loan.repayment_plan === 'weekly';
 
   const currentPrincipal = Number(loan.current_principal) || 0;
@@ -13,7 +21,7 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
   const periodPrepaid = Number(loan.period_interest_prepaid) || 0;
   const periodFullyPaid = loan.period_interest_fully_paid === true;
 
-  // Calculate total outstanding interest
+  // Total outstanding interest
   let totalOutstandingInterest;
   if (isWeekly) {
     const owedInterest = periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid);
@@ -24,7 +32,6 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
 
   const totalBalance = currentPrincipal + totalOutstandingInterest;
 
-  // Helper to format currency
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-KE', {
       style: 'currency',
@@ -33,7 +40,6 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
     }).format(amount);
   };
 
-  // Default reminder message – pre‑filled in the textarea
   const defaultReminderMessage = `Hello ${loan.name}, this is a reminder from NAGOLIE ENTERPRISES LTD that your loan is due.
 • Principal amount owed: ${formatCurrency(currentPrincipal)}
 • Outstanding interest: ${formatCurrency(totalOutstandingInterest)}
@@ -68,12 +74,19 @@ Thank you for choosing us.`;
     }
   };
 
+  const getOverdueText = () => {
+    if (weeksOverdue > 0) return `${weeksOverdue} week${weeksOverdue !== 1 ? 's' : ''} overdue`;
+    if (daysLeft < 0) return `${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''} overdue`;
+    return 'Overdue';
+  };
+
   return (
     <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
       <div className="modal-dialog modal-dialog-centered">
         <div className="modal-content">
           <div className="modal-header bg-primary text-white">
-            <h5 className="modal-title">Take Action – {loan.name}</h5>
+            <i className="fas fa-bolt text-danger me-2"></i>
+            <h5 className="modal-title text-white">Take Action – {loan.name}</h5>
             <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
           </div>
           <div className="modal-body">
@@ -88,7 +101,7 @@ Thank you for choosing us.`;
                 <div className="col-6">
                   <strong>Status:</strong>
                   <span className={`badge ${isOverdue ? 'bg-danger' : 'bg-warning'} ms-1`}>
-                    {isOverdue ? `${Math.abs(loan.days_left)} days overdue` : 'Due tomorrow'}
+                    {isOverdue ? getOverdueText() : 'Due soon'}
                   </span>
                 </div>
               </div>
@@ -112,7 +125,7 @@ Thank you for choosing us.`;
                   <small className="d-block text-muted">Send a polite reminder about the due loan</small>
                 </label>
               </div>
-              {isOverdue && (
+              {canClaim && (
                 <div className="form-check">
                   <input
                     className="form-check-input"
@@ -126,7 +139,7 @@ Thank you for choosing us.`;
                   <label className="form-check-label" htmlFor="claimOwnership">
                     <i className="fas fa-gavel text-warning me-2"></i>
                     <strong>Claim Livestock Ownership</strong>
-                    <small className="d-block text-muted">Take ownership of the collateral (loan is overdue)</small>
+                    <small className="d-block text-muted">Take ownership of the collateral (overdue loan)</small>
                   </label>
                 </div>
               )}
@@ -141,9 +154,7 @@ Thank you for choosing us.`;
                   value={customMessage}
                   onChange={(e) => setCustomMessage(e.target.value)}
                 />
-                <small className="text-muted">
-                  You can edit the message above. It will be pre‑filled in your SMS app.
-                </small>
+                <small className="text-muted">You can edit the message above. It will be pre‑filled in your SMS app.</small>
               </div>
             )}
 

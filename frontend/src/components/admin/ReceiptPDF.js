@@ -181,6 +181,21 @@ const addHeader = async (doc, yStart = 15) => {
   return yPos;
 };
 
+// ========== PAGE NUMBER FUNCTION FOR AGREEMENTS ==========
+const addPageNumbers = (doc, format = 'page %d') => {
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.setFont('helvetica', 'normal');
+    const pageNumText = format.replace('%d', i);
+    doc.text(pageNumText, pageWidth / 2, pageHeight - 3, { align: 'center' });
+  }
+};
+
 // Common divider function
 const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
   doc.setLineWidth(0.5);
@@ -448,6 +463,7 @@ export const generateClientStatement = async (client, allTransactions) => {
   
     // Footer
     addFooter(doc, yPos);
+    addPageNumbers(doc, 'page %d');
   
     // Save PDF
     doc.save(`Statement_${client.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`);
@@ -1030,6 +1046,8 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFontSize(9);
     doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
 
+    addPageNumbers(doc, 'page %d');
+
     const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
 
@@ -1039,6 +1057,7 @@ export const generateLoanAgreementPDF = async (application) => {
   }
 };
 
+// Generate Manual Loan Agreement PDF (with blanks for manual filling)
 export const generateManualLoanAgreementPDF = async () => {
   try {
     const doc = new jsPDF();
@@ -1596,6 +1615,8 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setFontSize(9);
     doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
 
+    addPageNumbers(doc, 'page %d');
+
     const fileName = `Manual_Loan_Agreement_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
 
@@ -1708,6 +1729,51 @@ const addFooter = (doc, yPos) => {
   doc.setFontSize(9);
   doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 10, { align: 'center' });
 };
+
+// Helper function to get first return date (14 days from agreement date)
+function getFirstReturnDate(date) {
+  const firstReturnDate = new Date(date);
+  firstReturnDate.setDate(firstReturnDate.getDate() + 35);
+  
+  // Adjust to next weekday if it lands on a weekend
+  if (firstReturnDate.getDay() === 6) { // Saturday
+    firstReturnDate.setDate(firstReturnDate.getDate() + 2);
+  } else if (firstReturnDate.getDay() === 0) { // Sunday
+    firstReturnDate.setDate(firstReturnDate.getDate() + 1);
+  }
+  
+  return firstReturnDate;
+}
+
+// Helper function to get subsequent return dates (7 days from return)
+function getNextReturnDate(date) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 28);
+  
+  // Adjust to next weekday if it lands on a weekend
+  if (nextDate.getDay() === 6) { // Saturday
+    nextDate.setDate(nextDate.getDate() + 2);
+  } else if (nextDate.getDay() === 0) { // Sunday
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+  
+  return nextDate;
+}
+
+// Helper function to get next weekday
+function getNextWeekday(date) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 7);
+  
+  // If it's a weekend (Saturday = 6, Sunday = 0), move to Monday
+  if (nextDate.getDay() === 6) { // Saturday
+    nextDate.setDate(nextDate.getDate() + 2);
+  } else if (nextDate.getDay() === 0) { // Sunday
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+  
+  return nextDate;
+}
 
 // Generate Professional Investor Agreement PDF
 export const generateInvestorAgreementPDF = async (investor) => {
@@ -2100,6 +2166,8 @@ export const generateInvestorAgreementPDF = async (investor) => {
     doc.setFontSize(9);
     doc.text('Thank you for investing with Nagolie Enterprises!', 105, footerY + 6, { align: 'center' });
 
+    addPageNumbers(doc, 'page %d');
+
     // Save PDF
     const fileName = `Investment_Agreement_${(investor.name || '').replace(/\s+/g, '_') || 'Investor'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
@@ -2109,51 +2177,6 @@ export const generateInvestorAgreementPDF = async (investor) => {
     throw error;
   }
 };
-
-// Helper function to get first return date (14 days from agreement date)
-function getFirstReturnDate(date) {
-  const firstReturnDate = new Date(date);
-  firstReturnDate.setDate(firstReturnDate.getDate() + 35);
-  
-  // Adjust to next weekday if it lands on a weekend
-  if (firstReturnDate.getDay() === 6) { // Saturday
-    firstReturnDate.setDate(firstReturnDate.getDate() + 2);
-  } else if (firstReturnDate.getDay() === 0) { // Sunday
-    firstReturnDate.setDate(firstReturnDate.getDate() + 1);
-  }
-  
-  return firstReturnDate;
-}
-
-// Helper function to get subsequent return dates (7 days from return)
-function getNextReturnDate(date) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + 28);
-  
-  // Adjust to next weekday if it lands on a weekend
-  if (nextDate.getDay() === 6) { // Saturday
-    nextDate.setDate(nextDate.getDate() + 2);
-  } else if (nextDate.getDay() === 0) { // Sunday
-    nextDate.setDate(nextDate.getDate() + 1);
-  }
-  
-  return nextDate;
-}
-
-// Helper function to get next weekday
-function getNextWeekday(date) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + 7);
-  
-  // If it's a weekend (Saturday = 6, Sunday = 0), move to Monday
-  if (nextDate.getDay() === 6) { // Saturday
-    nextDate.setDate(nextDate.getDate() + 2);
-  } else if (nextDate.getDay() === 0) { // Sunday
-    nextDate.setDate(nextDate.getDate() + 1);
-  }
-  
-  return nextDate;
-}
 
 // ================= AUTO‑FILLED NEXT OF KIN CONSENT =================
 export const generateNextOfKinConsentPDF = async (loanData) => {
@@ -2553,6 +2576,8 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       }
     }
 
+    addPageNumbers(doc, 'page %d');
+
     const fileName = `Next_of_Kin_Consent_${loanData?.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
 
@@ -2949,6 +2974,8 @@ export const generateManualNextOfKinConsentPDF = async () => {
       }
     }
 
+    addPageNumbers(doc, 'page %d');
+
     const fileName = `Next_of_Kin_Consent_Form.pdf`;
     doc.save(fileName);
 
@@ -3178,6 +3205,8 @@ export const generateInvestorStatementPDF = async (investor, transactions = []) 
     
     // Footer
     addFooter(doc, yPos);
+
+    addPageNumbers(doc, 'page %d');
     
     // Save PDF
     const fileName = `Investor_Statement_${investor.name?.replace(/\s+/g, '_') || 'Investor'}_${new Date().toISOString().split('T')[0]}.pdf`;
@@ -3321,6 +3350,8 @@ export const generateInvestorTransactionReceipt = async (transaction) => {
   
     // Footer section
     addFooter(doc, yPos);
+
+    addPageNumbers(doc, 'page %d');
   
     // Save PDF with appropriate filename
     const investorName = (transaction.investor_name || 'Investor').replace(/\s+/g, '_');
@@ -4058,156 +4089,6 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
   }
 };
 
-// ========== OFFICIAL WITHDRAWAL CONFIRMATION LETTER (DYNAMIC) ==========
-export const generateWithdrawalConfirmationLetter = async (investorData = null) => {
-  try {
-    const doc = new jsPDF();
-    
-    // Add watermark (type 'agreement')
-    addOptimizedWatermark(doc, 'agreement');
-    
-    let yPos = await addHeader(doc, 10);
-    
-    // Letter Title
-    doc.setTextColor(...COLORS.primaryBlue);
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('OFFICIAL WITHDRAWAL CONFIRMATION', 105, yPos, { align: 'center' });
-    yPos += 3;
-    
-    yPos = addDivider(doc, yPos);
-    
-    // Reference / Date line
-    const today = new Date();
-    const formattedToday = today.toLocaleDateString('en-GB', {
-      day: '2-digit', month: '2-digit', year: 'numeric'
-    });
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...COLORS.textDark);
-    doc.text(`Date: ${formattedToday}`, 150, yPos - 6);
-    
-    // Recipient address block - use investor data if available
-    const investorName = investorData?.name || 'ALEX BORA';
-    const investorPhone = investorData?.phone || '0715309510';
-    const investorEmail = investorData?.email || 'boraalex06@gmail.com';
-    const investmentAmount = investorData?.investmentAmount || investorData?.investment_amount || 300000;
-    const investmentDateRaw = investorData?.investmentDate || investorData?.invested_date || '2026-02-04';
-    const investmentDate = new Date(investmentDateRaw).toLocaleDateString('en-GB', {
-      day: '2-digit', month: 'long', year: 'numeric'
-    });
-    
-    yPos += 5;
-    doc.setFont('helvetica', 'bold');
-    doc.text('TO:', 20, yPos);
-    yPos += 6;
-    doc.setFont('helvetica', 'normal');
-    doc.text(investorName, 25, yPos);
-    yPos += 5;
-    doc.text(`Phone: ${investorPhone}`, 25, yPos);
-    yPos += 5;
-    doc.text(`Email: ${investorEmail}`, 25, yPos);
-    yPos += 10;
-    
-    // Subject line - dynamic
-    const formattedAmount = `KES ${Number(investmentAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-    doc.setFont('helvetica', 'bold');
-    doc.text(`SUBJECT: WITHDRAWAL REQUEST – ${formattedAmount} (INVESTMENT DATE ${investmentDate.toUpperCase()})`, 20, yPos);
-    yPos += 8;
-    
-    // Salutation
-    const firstName = investorName.split(' ')[0] || 'Investor';
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text(`Dear ${firstName},`, 20, yPos);
-    yPos += 6;
-    
-    // Body paragraphs with dynamic placeholders
-    const letterBody = [
-      `We acknowledge receipt of your official withdrawal request regarding your investment of ${formattedAmount} dated ${investmentDate}.`,
-      "",
-      "Following a review of your request and your explanation, and in good faith as part of our commitment to maintaining a strong and trustworthy business relationship, we hereby confirm acceptance of your withdrawal. The withdrawal process takes effect from today's date, and in this instance, no deductions or processing fees will be applied to your principal investment, notwithstanding the provisions of Clause 6.5 of the Agreement.",
-      "",
-      `In accordance with Clause 6.3 of the Investment Agreement, the refund will be processed within the stipulated ninety (90) day period from today. Accordingly, you should expect full settlement on or before the completion of this period.`,
-      "",
-      "We would also like to take this opportunity to provide context regarding the delay in meeting the expected return schedule. The company is currently managing a recovery case involving a client who defaulted on loan obligations. The client initially took a loan of KES 50,000 and subsequently an additional KES 180,000, and the outstanding amount has significantly accumulated over time. The matter is now under legal proceedings, and we are prepared to share the relevant court case details for transparency.",
-      "",
-      "This situation has temporarily affected liquidity and, consequently, the timely disbursement of returns. However, as per the structure of the investment, returns continue to accrue, meaning any unpaid amounts remain accounted for and accumulate over time.",
-      "",
-      "We sincerely regret any inconvenience caused and appreciate your understanding. Please be assured that we remain committed to fulfilling all our obligations under the agreement and ensuring a smooth withdrawal process.",
-      "",
-      "Kindly confirm receipt of this communication.",
-      "",
-      "Yours faithfully,"
-    ];
-    
-    for (const para of letterBody) {
-      if (para === "") {
-        yPos += 4;
-        continue;
-      }
-      const lines = doc.splitTextToSize(para, 170);
-      for (const line of lines) {
-        if (yPos > 270) {
-          doc.addPage();
-          addWatermarkToCurrentPage(doc, 'agreement');
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(10);
-          yPos = 20;
-        }
-        doc.text(line, 20, yPos);
-        yPos += 5;
-      }
-      yPos += 2;
-    }
-    
-    // Signature block
-    yPos += 6;
-    doc.setFont('helvetica', 'normal');
-    doc.text('For and on behalf of Nagolie Enterprises', 20, yPos);
-    yPos += 12;
-    doc.setFont('helvetica', 'bold');
-    doc.text('SHADRACK KESUMET', 20, yPos);
-    yPos += 6;
-    doc.setFont('helvetica', 'normal');
-    doc.text('Director', 20, yPos);
-    
-    // Optional: Add a small summary table of investment details (like a reference)
-    yPos += 15;
-    if (yPos < 270) {
-      doc.setDrawColor(...COLORS.border);
-      doc.setLineWidth(0.3);
-      doc.rect(20, yPos, 170, 35);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(...COLORS.primaryBlue);
-      doc.text('INVESTMENT REFERENCE SUMMARY', 105, yPos + 5, { align: 'center' });
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(...COLORS.textDark);
-      doc.text(`Investor: ${investorName}`, 25, yPos + 12);
-      doc.text(`ID Number: ${investorData?.idNumber || investorData?.id_number || '41069155'}`, 25, yPos + 18);
-      doc.text(`Investment Amount: ${formattedAmount}`, 25, yPos + 24);
-      doc.text(`Investment Date: ${investmentDate}`, 25, yPos + 30);
-      // Add right column
-      doc.text(`Returns Received: ${formatCurrency(investorData?.totalReturnsReceived || 0)}`, 110, yPos + 12);
-      doc.text(`Next Return Date: ${investorData?.nextReturnDate ? new Date(investorData.nextReturnDate).toLocaleDateString('en-GB') : 'N/A'}`, 110, yPos + 18);
-      doc.text(`Account Status: ${investorData?.status || 'INACTIVE'}`, 110, yPos + 24);
-      yPos += 40;
-    }
-    
-    // Footer
-    addFooter(doc, yPos + 10);
-    
-    // Save PDF with investor name
-    const safeName = investorName.replace(/\s+/g, '_');
-    doc.save(`Withdrawal_Confirmation_${safeName}_${formattedToday.replace(/\//g, '-')}.pdf`);
-  } catch (error) {
-    console.error('Error generating withdrawal confirmation letter:', error);
-    throw error;
-  }
-};
-
 // ========== LETTER WRITER PDF (PREVIEW - opens in new tab) ==========
 export const generateLetterPDF = async (data) => {
   const doc = new jsPDF();
@@ -4940,6 +4821,8 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   doc.text('Account Name: NAGOLIE ENTERPRISES', 22, yPos);
 
   addFooter(doc, yPos + 15);
+
+  addPageNumbers(doc, 'page %d');
 
   const fileName = `Loan_Invoice_${loan.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(fileName);

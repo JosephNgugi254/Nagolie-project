@@ -22,7 +22,7 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
   const getCurrentUserId = () => {
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     if (userData.id) return userData.id;
-    const token = localStorage.getItem('access_token');
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
     if (token) {
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
@@ -35,24 +35,25 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
   const getSocketUrl = () => {
     const apiBase = import.meta.env.VITE_API_BASE_URL;
     if (apiBase) {
-      let base = apiBase.replace(/\/api\/?$/, '');
-      return base;
+      return apiBase.replace(/\/api\/?$/, '');
     }
     return window.location.origin;
   };
 
+  // ─── Socket setup ──────────────────────────────────────────────────────────
   useEffect(() => {
     const socketUrl = getSocketUrl();
     const token = localStorage.getItem('token');
-    
+    console.log('Socket connecting to:', getSocketUrl());
+
     const socket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
+      // polling first so the HTTP handshake completes before WS upgrade
+      transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionAttempts: 5,
-      query: { token: localStorage.getItem('token') },       // fallback
-      extraHeaders: {
-        Authorization: `Bearer ${localStorage.getItem('token')}`
-      }
+      reconnectionDelay: 1000,
+      auth: { token },        // preferred — python-socketio reads this
+      query: { token },       // fallback for query-param auth
     });
 
     socketRef.current = socket;
@@ -63,19 +64,21 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     });
 
     socket.on('disconnect', () => setSocketConnected(false));
+
     socket.on('connect_error', (err) => {
-      console.warn('Socket connection error:', err);
+      console.warn('Socket connection error:', err.message);
       setSocketConnected(false);
     });
 
     socket.on('new_message', (data) => {
       const newMsg = data.message;
       const currentId = getCurrentUserId();
-      if ((newMsg.sender_id === user.id && newMsg.recipient_id === currentId) ||
-          (newMsg.sender_id === currentId && newMsg.recipient_id === user.id)) {
+      if (
+        (newMsg.sender_id === user.id && newMsg.recipient_id === currentId) ||
+        (newMsg.sender_id === currentId && newMsg.recipient_id === user.id)
+      ) {
         setMessages(prev => [...prev, newMsg]);
         scrollToBottom();
-        // Immediately mark as read if it's from the other user and chat is open
         if (newMsg.sender_id === user.id && newMsg.status !== 'read') {
           markMessageAsRead(newMsg.id);
         }
@@ -84,26 +87,21 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
 
     socket.on('message_status_update', (data) => {
       setMessages(prev =>
-        prev.map(msg =>
-          msg.id === data.message_id ? { ...msg, status: data.status } : msg
-        )
+        prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg)
       );
     });
 
     socket.on('message_sent', (data) => {
       setMessages(prev =>
-        prev.map(msg =>
-          msg.id === data.message_id ? { ...msg, status: data.status } : msg
-        )
+        prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg)
       );
       setSending(false);
     });
 
-    return () => {
-      socket.disconnect();
-    };
+    return () => socket.disconnect();
   }, [user.id]);
 
+  // ─── Viewport resize (mobile keyboard) ────────────────────────────────────
   useEffect(() => {
     if (!windowRef.current) return;
     const handleResize = () => {
@@ -115,6 +113,7 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     return () => window.visualViewport?.removeEventListener('resize', handleResize);
   }, []);
 
+  // ─── Mark read ─────────────────────────────────────────────────────────────
   const markMessageAsRead = async (messageId) => {
     try {
       if (socketRef.current && socketConnected) {
@@ -126,10 +125,9 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     }
   };
 
-  // Mark all received messages as read when they become visible (IntersectionObserver)
+  // IntersectionObserver — mark visible received messages as read
   useEffect(() => {
     if (!messagesEndRef.current) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach(entry => {
@@ -145,21 +143,15 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
       },
       { threshold: 0.5 }
     );
-
-    // Observe all received message bubbles
-    const messageElements = document.querySelectorAll('.chat-message.received');
-    messageElements.forEach(el => observer.observe(el));
-
+    document.querySelectorAll('.chat-message.received').forEach(el => observer.observe(el));
     return () => observer.disconnect();
   }, [messages, user.id]);
 
-  // After fetching messages, mark any already visible unread messages as read
+  // After fetch — mark already-visible unread as read
   useEffect(() => {
     if (!loading && messages.length > 0) {
-      // Give time for DOM to render
       setTimeout(() => {
-        const visibleReceived = document.querySelectorAll('.chat-message.received');
-        visibleReceived.forEach(el => {
+        document.querySelectorAll('.chat-message.received').forEach(el => {
           const msgId = parseInt(el.dataset.msgId);
           const msg = messages.find(m => m.id === msgId);
           if (msg && msg.sender_id === user.id && msg.status !== 'read') {
@@ -170,15 +162,14 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     }
   }, [loading, messages, user.id]);
 
+  // ─── Polling fallback ──────────────────────────────────────────────────────
   useEffect(() => {
     fetchMessages();
     const interval = setInterval(fetchMessages, 5000);
     return () => clearInterval(interval);
   }, [user.id]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { scrollToBottom(); }, [messages]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -194,8 +185,8 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
         if (socketRef.current && socketConnected) {
           socketRef.current.emit('mark_read', { message_ids: ids });
         }
+        onNewMessage();
       }
-      if (unreadReceived.length) onNewMessage();
     } catch (err) {
       console.error(err);
     } finally {
@@ -203,9 +194,11 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     }
   };
 
+  // ─── Send message ──────────────────────────────────────────────────────────
   const sendMessage = async () => {
     if (!newMessage.trim() && attachments.length === 0) return;
     setSending(true);
+
     const tempId = Date.now();
     const currentId = getCurrentUserId();
     const optimisticMsg = {
@@ -222,6 +215,7 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
 
     try {
       let attachmentUrl = null, attachmentType = null, attachmentName = null;
+
       if (attachments.length > 0) {
         const formData = new FormData();
         attachments.forEach(file => formData.append('files', file));
@@ -245,6 +239,7 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
         setSending(false);
         fetchMessages();
       }
+
       setNewMessage('');
       setAttachments([]);
     } catch (err) {
@@ -254,41 +249,56 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     }
   };
 
-  const downloadFile = async (url, filename) => {
-    try {
-      const response = await fetch(url);
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
-    } catch (err) {
-      console.error('Download failed:', err);
-      showToast.error('Failed to download file');
-    }
-  };
+  const downloadFile = async (url, originalFilename, mimeType) => {
+  try {
+    const isCloudinary = url.includes('cloudinary.com') || url.includes('res.cloudinary');
+    
+    // Don't send auth header to Cloudinary
+    const headers = isCloudinary ? {} : { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
+    const response = await fetch(url, { headers });
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = originalFilename || `attachment.${mimeType?.split('/')[1] || 'bin'}`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 100);
+  } catch (err) {
+    showToast.error(`Download failed: ${err.message}`);
+  }
+};
 
+  // ─── Message status ticks ──────────────────────────────────────────────────
   const renderMessageStatus = (msg) => {
     if (msg.sender_id !== getCurrentUserId()) return null;
     switch (msg.status) {
+      case 'sending':
+        return <i className="fas fa-clock" style={{ fontSize: '0.7rem', opacity: 0.4 }}></i>;
       case 'sent':
         return <i className="fas fa-check" style={{ fontSize: '0.7rem', opacity: 0.6 }}></i>;
       case 'delivered':
-        return <><i className="fas fa-check"></i><i className="fas fa-check" style={{ marginLeft: '-0.2rem' }}></i></>;
+        return (
+          <>
+            <i className="fas fa-check" style={{ fontSize: '0.7rem' }}></i>
+            <i className="fas fa-check" style={{ fontSize: '0.7rem', marginLeft: '-0.2rem' }}></i>
+          </>
+        );
       case 'read':
-        return <><i className="fas fa-check" style={{ color: '#34b7f1' }}></i><i className="fas fa-check" style={{ color: '#34b7f1', marginLeft: '-0.2rem' }}></i></>;
+        return (
+          <>
+            <i className="fas fa-check" style={{ fontSize: '0.7rem', color: '#34b7f1' }}></i>
+            <i className="fas fa-check" style={{ fontSize: '0.7rem', color: '#34b7f1', marginLeft: '-0.2rem' }}></i>
+          </>
+        );
       default:
         return null;
     }
   };
 
   const formatTime = (dateStr) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   const groupMessagesByDate = () => {
@@ -310,6 +320,7 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
 
   const groups = groupMessagesByDate();
 
+  // ─── Drag handling ─────────────────────────────────────────────────────────
   const handleMouseDown = (e) => {
     if (e.target.closest('.chat-window-header-actions')) return;
     dragState.current.dragging = true;
@@ -338,19 +349,44 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     document.removeEventListener('mouseup', handleMouseUp);
   };
 
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div ref={windowRef} className="chat-window" style={style}>
-      <div className="chat-window-header" onMouseDown={handleMouseDown} style={{ cursor: 'grab', userSelect: 'none' }}>
-        <span><i className="fas fa-grip-lines me-2" style={{ opacity: 0.6 }}></i>{user.username}</span>
+      <div
+        className="chat-window-header"
+        onMouseDown={handleMouseDown}
+        style={{ cursor: 'grab', userSelect: 'none' }}
+      >
+        <span>
+          <i className="fas fa-grip-lines me-2" style={{ opacity: 0.6 }}></i>
+          {user.username}
+          {socketConnected && (
+            <span
+              style={{
+                display: 'inline-block',
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: '#4caf50',
+                marginLeft: 6,
+                verticalAlign: 'middle',
+              }}
+              title="Connected"
+            />
+          )}
+        </span>
         <div className="chat-window-header-actions">
           <button className="btn-close btn-close-white" onClick={onClose}></button>
         </div>
       </div>
+
       <div className="chat-window-messages">
         {loading ? (
-          <div className="text-center py-3">Loading...</div>
+          <div className="text-center py-3">
+            <span className="spinner-border spinner-border-sm me-2"></span>Loading…
+          </div>
         ) : messages.length === 0 ? (
-          <p className="text-muted text-center">No messages yet.</p>
+          <p className="text-muted text-center py-4">No messages yet.</p>
         ) : (
           Object.entries(groups).map(([dateKey, msgs]) => (
             <div key={dateKey}>
@@ -363,31 +399,72 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
                 >
                   <div
                     className="message-bubble"
-                    style={msg.sender_id !== getCurrentUserId() && msg.status === 'read' ? { backgroundColor: '#fff3cd' } : {}}
+                    style={
+                      msg.sender_id !== getCurrentUserId() && msg.status === 'read'
+                        ? { backgroundColor: '#fff3cd' }
+                        : {}
+                    }
                   >
                     <div className="message-content">
                       {msg.content}
+
                       {msg.attachment_url && (
-                        <div className="message-attachment">
+                        <div className="message-attachment mt-1">
                           {msg.attachment_type?.startsWith('image/') ? (
                             <div className="position-relative">
-                              <img src={msg.attachment_url} alt="attachment" className="img-fluid" />
-                              <button className="btn btn-sm btn-light download-image-btn" onClick={() => downloadFile(msg.attachment_url, msg.attachment_name || 'image')}>
+                              <img
+                                src={msg.attachment_url}
+                                alt="attachment"
+                                className="img-fluid rounded"
+                                style={{ maxHeight: 200, cursor: 'pointer' }}
+                              />
+                              <button
+                                className="btn btn-sm btn-light download-image-btn"
+                                style={{
+                                  position: 'absolute',
+                                  bottom: 4,
+                                  right: 4,
+                                  opacity: 0.85,
+                                }}
+                                onClick={() =>
+                                  downloadFile(
+                                    msg.attachment_url,
+                                    msg.attachment_name || 'image',
+                                    msg.attachment_type
+                                  )
+                                }
+                                title="Download image"
+                              >
                                 <i className="fas fa-download"></i>
                               </button>
                             </div>
                           ) : (
-                            <button className="btn btn-sm btn-outline-secondary" onClick={() => downloadFile(msg.attachment_url, msg.attachment_name || 'file')}>
-                              <i className="fas fa-download me-1"></i> {msg.attachment_name || 'Download file'}
+                            <button
+                              className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 mt-1"
+                              onClick={() =>
+                                downloadFile(
+                                  msg.attachment_url,
+                                  msg.attachment_name || 'file',
+                                  msg.attachment_type
+                                )
+                              }
+                            >
+                              <i className="fas fa-file-download"></i>
+                              <span className="text-truncate" style={{ maxWidth: 160 }}>
+                                {msg.attachment_name || 'Download file'}
+                              </span>
                             </button>
                           )}
                         </div>
                       )}
                     </div>
+
                     <div className="message-time">
                       {formatTime(msg.created_at)}
                       {msg.sender_id === getCurrentUserId() && (
-                        <span className="message-status ms-1">{renderMessageStatus(msg)}</span>
+                        <span className="message-status ms-1">
+                          {renderMessageStatus(msg)}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -398,26 +475,72 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
         )}
         <div ref={messagesEndRef} />
       </div>
+
       <div className="chat-window-input" style={{ position: 'relative' }}>
-        <button className="btn btn-link p-1" onClick={() => setShowEmojiPicker(!showEmojiPicker)}><i className="far fa-smile"></i></button>
-        <input type="text" className="form-control" placeholder="Type a message..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} />
-        <input type="file" multiple ref={fileInputRef} style={{ display: 'none' }} onChange={(e) => setAttachments(Array.from(e.target.files))} />
-        <button className="btn btn-link p-1" onClick={() => fileInputRef.current.click()}><i className="fas fa-paperclip"></i></button>
-        <button className="btn btn-primary btn-sm" onClick={sendMessage} disabled={sending}>
-          {sending ? <span className="spinner-border spinner-border-sm"></span> : <i className="fas fa-paper-plane"></i>}
+        <button
+          className="btn btn-link p-1"
+          onClick={() => setShowEmojiPicker(v => !v)}
+        >
+          <i className="far fa-smile"></i>
         </button>
+
+        <input
+          type="text"
+          className="form-control"
+          placeholder="Type a message…"
+          value={newMessage}
+          onChange={e => setNewMessage(e.target.value)}
+          onKeyPress={e => e.key === 'Enter' && sendMessage()}
+        />
+
+        <input
+          type="file"
+          multiple
+          ref={fileInputRef}
+          style={{ display: 'none' }}
+          onChange={e => setAttachments(Array.from(e.target.files))}
+        />
+
+        <button
+          className="btn btn-link p-1"
+          onClick={() => fileInputRef.current.click()}
+          title="Attach file"
+        >
+          <i className="fas fa-paperclip"></i>
+        </button>
+
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={sendMessage}
+          disabled={sending}
+        >
+          {sending
+            ? <span className="spinner-border spinner-border-sm"></span>
+            : <i className="fas fa-paper-plane"></i>
+          }
+        </button>
+
         {showEmojiPicker && (
           <div style={{ position: 'absolute', bottom: '100%', right: 0, zIndex: 9999 }}>
-            <EmojiPicker onEmojiClick={(emoji) => setNewMessage(prev => prev + emoji.emoji)} />
+            <EmojiPicker
+              onEmojiClick={emoji => setNewMessage(prev => prev + emoji.emoji)}
+            />
           </div>
         )}
       </div>
+
       {attachments.length > 0 && (
         <div className="attachment-preview">
           {attachments.map((file, i) => (
             <div key={i} className="attachment-item">
-              <span>{file.name}</span>
-              <button className="btn btn-sm" onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))}>&times;</button>
+              <i className={`fas fa-${file.type.startsWith('image/') ? 'image' : 'file'} me-1`}></i>
+              <span className="text-truncate" style={{ maxWidth: 120 }}>{file.name}</span>
+              <button
+                className="btn btn-sm ms-1"
+                onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+              >
+                &times;
+              </button>
             </div>
           ))}
         </div>

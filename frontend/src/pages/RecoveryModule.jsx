@@ -19,7 +19,6 @@ import {
  generateManualNextOfKinConsentPDF,
  generateLoanRenewalAgreementAutoPDF,
  generateManualLoanRenewalAgreementPDF,
- generateWithdrawalConfirmationLetter,
  generateLoanWaiverAgreementAutoPDF } from "../components/admin/ReceiptPDF";
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
@@ -1067,6 +1066,7 @@ function RecoveryModule() {
     if (!audio) { const a = new Audio('/notification-sound.mp3'); setAudio(a); a.play().catch(() => {}); }
     else audio.play().catch(() => {});
   };
+
   const fetchCommentUnreads = useCallback(async () => {
     try {
       const res = await recoveryAPI.getCommentUnreadCounts();
@@ -1078,6 +1078,7 @@ function RecoveryModule() {
       prevCounts.current = { ...nc };
     } catch (e) { console.error(e); }
   }, []);
+  
   const fetchData = async () => {
     try {
       const res = await recoveryAPI.getRecoveryData();
@@ -1087,6 +1088,7 @@ function RecoveryModule() {
       else showToast.error('Failed to load recovery data');
     } finally { setLoading(false); }
   };
+
   const fetchUnreadCount = async () => {
     try {
       const res = await recoveryAPI.getUnreadCount();
@@ -1094,16 +1096,20 @@ function RecoveryModule() {
       document.title = res.data.count > 0 ? `(${res.data.count}) Nagolie Recovery` : 'Nagolie Recovery';
     } catch (e) { console.error(e); }
   };
+
   const handleSelectUser = (u) => {
     if (openChatWindows.some(w => w.id === u.id)) return;
     if (isMobile) { setOpenChatWindows([u]); return; }
     if (openChatWindows.length >= MAX_CHAT_WINDOWS) { showToast.info('Max chat windows open'); return; }
     setOpenChatWindows(prev => [...prev, u]);
   };
+
   const getChatStyle = (i) => isMobile
     ? { position:'fixed', top:0, left:0, width:'100vw', height:'100vh', zIndex:1050+i, borderRadius:0 }
     : { position:'fixed', bottom:20, left:20+i*(CHAT_WINDOW_WIDTH+CHAT_WINDOW_GAP), width:`${CHAT_WINDOW_WIDTH}px`, height:'500px', zIndex:1050+i };
-  const fmt = (v) => new Intl.NumberFormat('en-KE', { style:'currency', currency:'KES' }).format(Number(v)||0);
+  
+    const fmt = (v) => new Intl.NumberFormat('en-KE', { style:'currency', currency:'KES' }).format(Number(v)||0);
+  
   const fmtDate = (s) => {
     if (!s) return 'N/A';
     try { return new Date(s).toLocaleDateString('en-KE',{year:'numeric',month:'short',day:'numeric'}); }
@@ -1117,11 +1123,13 @@ function RecoveryModule() {
     if (d <= 2) return { text: `${d}d left`, cls: 'bg-warning text-dark' };
     return { text: `${d}d left`, cls: 'bg-success' };
   };
+
   const formatDate = (date) => {
     if (!date) return 'N/A';
     try { return new Date(date).toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' }); }
     catch { return 'N/A'; }
   };
+
   const filterAndSortLoans = (loans) => {
     let filtered = [...loans];
     if (searchTerm.trim()) {
@@ -1158,6 +1166,7 @@ function RecoveryModule() {
     });
     return filtered;
   };
+
   const getFilteredData = () => {
     if (dayFilter === 'all') {
       const newData = {};
@@ -1169,12 +1178,14 @@ function RecoveryModule() {
       return { [dayFilter]: filterAndSortLoans(data[dayFilter] || []) };
     }
   };
+
   const dayTotals = (loans) => loans.reduce((acc, l) => ({
     principal: acc.principal + (l.principal_amount || 0),
     curPrincipal: acc.curPrincipal + (l.current_principal || 0),
     interest: acc.interest + (l.interest || 0),
     accrued: acc.accrued + (l.accrued_interest || 0),
   }), { principal:0, curPrincipal:0, interest:0, accrued:0 });
+
   const overall = () => {
     let total = { principal:0, curPrincipal:0, interest:0, accrued:0 };
     Object.values(data).forEach(loans => {
@@ -1186,6 +1197,13 @@ function RecoveryModule() {
     });
     return total;
   };
+
+  // For the recovery module's "Take Action" button (⚡) – uses recovery/TakeActionModal
+  const handleRecoveryTakeAction = (loan) => {
+    setSelectedLoanForAction(loan);
+    setShowTakeActionModal(true);
+  };
+
   const filteredData = getFilteredData();
   const isMobile = window.innerWidth <= 991.98;
   const mobileChat = isMobile && openChatWindows.length > 0;
@@ -1449,7 +1467,7 @@ function RecoveryModule() {
                                           )}
                                           <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`}><i className="fas fa-phone"></i></button>
                                           <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}><i className="fas fa-comment"></i>{commentUnreads[loan.id] > 0 && <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>{commentUnreads[loan.id]}</span>}</button>
-                                          {loan.days_left <= 1 && <button className="btn btn-outline-danger btn-sm" onClick={() => handleTakeAction(loan)}><i className="fas fa-bolt"></i></button>}
+                                          {loan.days_left <= 1 && <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}><i className="fas fa-bolt"></i></button>}
                                           <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}><i className="fas fa-file-invoice"></i></button>
                                           {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                             <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}><i className="fas fa-sync-alt"></i></button>
@@ -2133,7 +2151,7 @@ function RecoveryModule() {
                   {/* UTILITIES */}
                   {directorSection === 'utilities' && <UtilitiesPanel userRole={userRole} restrictedMode={true} />}
 
-                  {/* ---------- MODALS (identical to AdminPanel) ---------- */}
+                  {/* MODALS (identical to AdminPanel)*/}
                   {showApplicationModal && selectedApplication && (
                     <Modal isOpen={showApplicationModal} onClose={() => setShowApplicationModal(false)} title="Application Details" size="lg">
                       <div className="row">
@@ -2445,7 +2463,7 @@ function RecoveryModule() {
                                               )}
                                             </button>
                                             {loan.days_left <= 1 && (
-                                              <button className="btn btn-outline-danger btn-sm" onClick={() => handleTakeAction(loan)}>
+                                              <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}>
                                                 <i className="fas fa-bolt"></i>
                                               </button>
                                             )}
@@ -2500,21 +2518,414 @@ function RecoveryModule() {
         </div>
       )}
 
-      {/* GLOBAL MODALS (chat, comment, etc.) */}
-      <ChatList isOpen={showChatList} onClose={() => setShowChatList(false)} onSelectUser={handleSelectUser} />
-      {openChatWindows.map((cu, i) => (<ChatWindow key={cu.id} user={cu} onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))} onNewMessage={fetchUnreadCount} style={getChatStyle(i)} />))}
-      {showPaymentModal && selectedLoan && (<PaymentModal loan={selectedLoan} onClose={() => setShowPaymentModal(false)} onSuccess={() => { setShowPaymentModal(false); fetchData(); }} />)}
-      {showCommentBox && selectedLoan && (<CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />)}
-      {showSettingsModal && (
-        <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
-          <div className="mb-4"><h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6><form onSubmit={handleUsernameChange}><div className="mb-3"><label className="form-label">Current Username</label><input type="text" className="form-control" value={user?.username || ''} disabled readOnly /></div><div className="mb-3"><label className="form-label">New Username</label><input type="text" className="form-control" value={usernameForm.newUsername} onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })} required minLength="3" placeholder="Enter new username" /><small className="text-muted">Minimum 3 characters</small></div><div className="mb-3"><label className="form-label">Current Password</label><div className="input-group"><input type={showUsernameCurrentPass ? 'text' : 'password'} className="form-control" value={usernameForm.currentPassword} onChange={(e) => setUsernameForm({ ...usernameForm, currentPassword: e.target.value })} required /><button className="btn btn-outline-secondary" type="button" onClick={() => setShowUsernameCurrentPass(!showUsernameCurrentPass)}><i className={`fas fa-${showUsernameCurrentPass ? 'eye-slash' : 'eye'}`} /></button></div></div><button type="submit" className="btn btn-primary" disabled={usernameLoading}>{usernameLoading ? "Updating..." : "Update Username"}</button></form></div>
-          <hr />
-          <div className="mb-4"><h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6><form onSubmit={handlePasswordChange}><div className="mb-3"><label className="form-label">Current Password</label><div className="input-group"><input type={showCurrentPass ? 'text' : 'password'} className="form-control" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} required /><button className="btn btn-outline-secondary" type="button" onClick={() => setShowCurrentPass(!showCurrentPass)}><i className={`fas fa-${showCurrentPass ? 'eye-slash' : 'eye'}`} /></button></div></div><div className="mb-3"><label className="form-label">New Password</label><div className="input-group"><input type={showNewPass ? 'text' : 'password'} className="form-control" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} required minLength="6" /><button className="btn btn-outline-secondary" type="button" onClick={() => setShowNewPass(!showNewPass)}><i className={`fas fa-${showNewPass ? 'eye-slash' : 'eye'}`} /></button></div></div><div className="mb-3"><label className="form-label">Confirm New Password</label><div className="input-group"><input type={showConfirmPass ? 'text' : 'password'} className="form-control" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} required /><button className="btn btn-outline-secondary" type="button" onClick={() => setShowConfirmPass(!showConfirmPass)}><i className={`fas fa-${showConfirmPass ? 'eye-slash' : 'eye'}`} /></button></div></div><button type="submit" className="btn btn-warning" disabled={passwordLoading}>{passwordLoading ? "Updating..." : "Update Password"}</button></form></div>
-          <hr />
-          <div className="mt-3"><h6 className="fw-bold fs-5 text-center mb-3"><i className="fas fa-fingerprint me-2 text-primary" />Biometric Login</h6>{!window.PublicKeyCredential ? (<div className="alert alert-warning mb-0"><i className="fas fa-exclamation-triangle me-2" />Your browser does not support biometric authentication.</div>) : user?.webauthn_credential_id ? (<div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background:'#f0fdf4', border:'1px solid #bbf7d0' }}><div><p className="mb-1 text-success fw-semibold"><i className="fas fa-check-circle me-2" />Biometrics Enabled</p><small>You can log in with fingerprint or Face ID.</small></div><button className="btn btn-sm btn-outline-danger ms-3" onClick={disableBiometrics}><i className="fas fa-times me-1" />Disable</button></div>) : (<div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background:'#fafafa', border:'1px solid #e5e7eb' }}><div><p className="mb-1 fw-semibold">Enable Biometric Login</p><small>Use fingerprint or Face ID to log in without typing a password.</small></div><button className="btn btn-sm btn-primary ms-3" onClick={enrollBiometrics}><i className="fas fa-fingerprint me-1" />Enable</button></div>)}</div>
+      {/* ========== GLOBAL MODALS (chat, comment, action, renewal, settings) ========== */}          
+      <ChatList
+        isOpen={showChatList}
+        onClose={() => setShowChatList(false)}
+        onSelectUser={handleSelectUser}
+      />
+
+      {openChatWindows.map((cu, i) => (
+        <ChatWindow
+          key={cu.id}
+          user={cu}
+          onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))}
+          onNewMessage={fetchUnreadCount}
+          style={getChatStyle(i)}
+        />
+      ))}
+
+      {showPaymentModal && selectedLoan && (
+        <PaymentModal
+          loan={selectedLoan}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={() => {
+            setShowPaymentModal(false);
+            fetchData();
+          }}
+        />
+      )}
+
+      {showCommentBox && selectedLoan && (
+        <CommentBox loanId={selectedLoan.id} onClose={() => setShowCommentBox(false)} />
+      )}
+
+      {/* ACTION MODAL (Admin version) – used in Director Overview*/}
+      {showActionModal && selectedClient && (
+        <AdminTakeActionModal
+          client={selectedClient}
+          onClose={handleCloseModal}
+          onSendReminder={handleSendReminder}
+          onClaimOwnership={handleClaimOwnership}
+        />
+      )}
+
+      {/* RENEWAL / WAIVER MODAL */}
+      {showRenewalModal && renewalLoan && (
+        <Modal
+          isOpen={showRenewalModal}
+          onClose={() => {
+            setShowRenewalModal(false);
+            setRenewalLoan(null);
+            setRenewalType('renew');
+            setWaiverAmount(0);
+            setWaiverDuration(14);
+          }}
+          title="Loan Renewal / Waiver"
+          size="md"
+        >
+          {(() => {
+            const principal = Number(
+              renewalLoan.current_principal ||
+              renewalLoan.currentPrincipal ||
+              renewalLoan.borrowedAmount || 0
+            );
+            const isWeekly = renewalLoan.repayment_plan === 'weekly';
+            const totalBalance = isWeekly
+              ? principal + principal * 0.30
+              : principal + Number(renewalLoan.accrued_interest || 0);
+          
+            return (
+              <>
+                <div className="mb-3">
+                  <p><strong>Client:</strong> {renewalLoan.name}</p>
+                  <p><strong>Current Balance:</strong> {fmt(totalBalance)}</p>
+                  <hr />
+                  <div className="btn-group w-100 mb-3">
+                    <button
+                      type="button"
+                      className={`btn ${renewalType === 'renew' ? 'btn-primary' : 'btn-outline-primary'}`}
+                      onClick={() => setRenewalType('renew')}
+                    >
+                      <i className="fas fa-sync-alt me-2"></i>Renewal
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${renewalType === 'waive' ? 'btn-success' : 'btn-outline-success'}`}
+                      onClick={() => {
+                        setRenewalType('waive');
+                        setWaiverAmount(totalBalance);
+                      }}
+                    >
+                      <i className="fas fa-hand-holding-heart me-2"></i>Waive
+                    </button>
+                  </div>
+                </div>
+                    
+                {renewalType === 'renew' && (
+                  <>
+                    <div className="alert alert-warning">
+                      <i className="fas fa-file-pdf me-2"></i>
+                      Download and have the client sign the renewal agreement before confirming renewal.
+                    </div>
+                    <div className="d-flex flex-column gap-2">
+                      <button
+                        className="btn btn-primary w-100"
+                        onClick={async () => {
+                          try {
+                            await generateLoanRenewalAgreementAutoPDF(
+                              {
+                                name: renewalLoan.name,
+                                idNumber: renewalLoan.id_number,
+                                phone: renewalLoan.contacts,
+                                borrowedAmount: renewalLoan.principal_amount,
+                                expectedReturnDate: renewalLoan.disbursement_date,
+                                balance: totalBalance,
+                                repayment_plan: renewalLoan.repayment_plan
+                              },
+                              totalBalance
+                            );
+                            showToast.success("Renewal agreement downloaded. Have client sign it.");
+                          } catch (err) {
+                            showToast.error("Failed to download agreement");
+                          }
+                        }}
+                      >
+                        <i className="fas fa-download me-2"></i>Download Agreement
+                      </button>
+                      <button
+                        className="btn btn-success w-100"
+                        onClick={async () => {
+                          setProcessingRenewal(true);
+                          try {
+                            const response = await recoveryAPI.renewLoan(renewalLoan.id);
+                            if (response.data.success) {
+                              showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
+                              setShowRenewalModal(false);
+                              fetchData();
+                            }
+                          } catch (error) {
+                            showToast.error(error.response?.data?.error || "Renewal failed");
+                          } finally {
+                            setProcessingRenewal(false);
+                          }
+                        }}
+                        disabled={processingRenewal}
+                      >
+                        {processingRenewal ? (
+                          <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
+                        ) : "Confirm Renewal"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {renewalType === 'waive' && (
+                  <>
+                    <div className="mb-3">
+                      <label className="form-label">Agreed Repayment Amount (KES)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={waiverAmount}
+                        onChange={e => setWaiverAmount(parseFloat(e.target.value))}
+                        min="0"
+                        max={totalBalance}
+                        step="100"
+                        required
+                      />
+                      <small className="text-muted">Maximum: {fmt(totalBalance)}</small>
+                    </div>
+                    <div className="mb-3">
+                      <label className="form-label">Repayment Duration (days)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={waiverDuration}
+                        onChange={e => setWaiverDuration(parseInt(e.target.value))}
+                        min="1"
+                        max="90"
+                        required
+                      />
+                      <small className="text-muted">Default 14 days</small>
+                    </div>
+                    <div className="alert alert-info">
+                      The agreed amount will become a new zero‑interest loan. The original loan will be marked as waived.
+                    </div>
+                    <div className="alert alert-warning">
+                      <i className="fas fa-file-pdf me-2"></i>
+                      Download and have the client sign the waiver agreement before confirming waive.
+                    </div>
+                    <div className="d-flex flex-column gap-2">
+                      <button
+                        className="btn btn-primary w-100"
+                        onClick={async () => {
+                          try {
+                            await generateLoanWaiverAgreementAutoPDF(
+                              {
+                                name: renewalLoan.name,
+                                idNumber: renewalLoan.id_number,
+                                phone: renewalLoan.contacts,
+                                borrowedAmount: renewalLoan.principal_amount,
+                                balance: totalBalance
+                              },
+                              waiverAmount,
+                              waiverDuration
+                            );
+                            showToast.success("Waiver agreement downloaded. Have client sign it.");
+                          } catch (err) {
+                            showToast.error("Failed to download waiver agreement");
+                          }
+                        }}
+                      >
+                        <i className="fas fa-download me-2"></i>Download Waiver Agreement
+                      </button>
+                      <button
+                        className="btn btn-success w-100"
+                        onClick={async () => {
+                          if (waiverAmount <= 0 || waiverAmount > totalBalance) {
+                            showToast.error("Please enter a valid agreed amount");
+                            return;
+                          }
+                          setWaiverProcessing(true);
+                          try {
+                            const response = await (recoveryAPI.waiveLoan
+                              ? recoveryAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration)
+                              : adminAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration)
+                            );
+                            if (response.data.success) {
+                              showToast.success(`Loan waived! New loan ID: ${response.data.new_loan.id}`);
+                              setShowRenewalModal(false);
+                              fetchData();
+                            }
+                          } catch (error) {
+                            showToast.error(error.response?.data?.error || "Waiver failed");
+                          } finally {
+                            setWaiverProcessing(false);
+                          }
+                        }}
+                        disabled={waiverProcessing}
+                      >
+                        {waiverProcessing ? (
+                          <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
+                        ) : "Confirm Waive"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                <div className="mt-3">
+                  <button className="btn btn-secondary w-100" onClick={() => setShowRenewalModal(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </Modal>
       )}
-      {showTakeActionModal && selectedLoanForAction && (<TakeActionModal loan={selectedLoanForAction} onClose={() => { setShowTakeActionModal(false); setSelectedLoanForAction(null); }} onSendReminder={handleSendReminder} onClaimOwnership={handleClaimOwnership} />)}
+
+      {/* SETTINGS MODAL */}
+      {showSettingsModal && (
+        <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
+          <div className="mb-4">
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>
+            <form onSubmit={handleUsernameChange}>
+              <div className="mb-3">
+                <label className="form-label">Current Username</label>
+                <input type="text" className="form-control" value={user?.username || ''} disabled readOnly />
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Username</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={usernameForm.newUsername}
+                  onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })}
+                  required minLength="3"
+                  placeholder="Enter new username"
+                />
+                <small className="text-muted">Minimum 3 characters</small>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input
+                    type={showUsernameCurrentPass ? 'text' : 'password'}
+                    className="form-control"
+                    value={usernameForm.currentPassword}
+                    onChange={(e) => setUsernameForm({ ...usernameForm, currentPassword: e.target.value })}
+                    required
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowUsernameCurrentPass(!showUsernameCurrentPass)}>
+                    <i className={`fas fa-${showUsernameCurrentPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={usernameLoading}>
+                {usernameLoading ? "Updating..." : "Update Username"}
+              </button>
+            </form>
+          </div>
+      
+          <hr />
+      
+          <div className="mb-4">
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
+            <form onSubmit={handlePasswordChange}>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input
+                    type={showCurrentPass ? 'text' : 'password'}
+                    className="form-control"
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                    required
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowCurrentPass(!showCurrentPass)}>
+                    <i className={`fas fa-${showCurrentPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Password</label>
+                <div className="input-group">
+                  <input
+                    type={showNewPass ? 'text' : 'password'}
+                    className="form-control"
+                    value={passwordForm.newPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                    required minLength="6"
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowNewPass(!showNewPass)}>
+                    <i className={`fas fa-${showNewPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Confirm New Password</label>
+                <div className="input-group">
+                  <input
+                    type={showConfirmPass ? 'text' : 'password'}
+                    className="form-control"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                    required
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowConfirmPass(!showConfirmPass)}>
+                    <i className={`fas fa-${showConfirmPass ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-warning" disabled={passwordLoading}>
+                {passwordLoading ? "Updating..." : "Update Password"}
+              </button>
+            </form>
+          </div>
+      
+          <hr />
+      
+          <div className="mt-3">
+            <h6 className="fw-bold fs-5 text-center mb-3">
+              <i className="fas fa-fingerprint me-2 text-primary" />
+              Biometric Login
+            </h6>
+            {!window.PublicKeyCredential ? (
+              <div className="alert alert-warning mb-0">
+                <i className="fas fa-exclamation-triangle me-2" />
+                Your browser does not support biometric authentication.
+              </div>
+            ) : user?.webauthn_credential_id ? (
+              <div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div>
+                  <p className="mb-1 text-success fw-semibold">
+                    <i className="fas fa-check-circle me-2" />
+                    Biometrics Enabled
+                  </p>
+                  <small>You can log in with fingerprint or Face ID.</small>
+                </div>
+                <button className="btn btn-sm btn-outline-danger ms-3" onClick={disableBiometrics}>
+                  <i className="fas fa-times me-1" />Disable
+                </button>
+              </div>
+            ) : (
+              <div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background: '#fafafa', border: '1px solid #e5e7eb' }}>
+                <div>
+                  <p className="mb-1 fw-semibold">Enable Biometric Login</p>
+                  <small>Use fingerprint or Face ID to log in without typing a password.</small>
+                </div>
+                <button className="btn btn-sm btn-primary ms-3" onClick={enrollBiometrics}>
+                  <i className="fas fa-fingerprint me-1" />Enable
+                </button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* RECOVERY ACTION MODAL*/}
+      {showTakeActionModal && selectedLoanForAction && (
+        <TakeActionModal
+          loan={selectedLoanForAction}
+          onClose={() => {
+            setShowTakeActionModal(false);
+            setSelectedLoanForAction(null);
+          }}
+          onSendReminder={handleSendReminder}
+          onClaimOwnership={handleClaimOwnership}
+        />
+      )}
     </div>
   );
 }

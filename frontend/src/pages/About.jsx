@@ -2,12 +2,71 @@
 
 import { Link } from "react-router-dom"
 import { motion, useInView } from "framer-motion"
-import { useRef, useState } from "react"
+import { useRef, useState, useEffect } from "react"
 import CountUp from "react-countup"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import SEO from '../components/common/SEO'
 
+// ---------- TypewriterRole Component ----------
+const TypewriterRole = ({ role }) => {
+  const [displayedText, setDisplayedText] = useState("")
+  const [index, setIndex] = useState(0)
+  const [isComplete, setIsComplete] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
+  
+  const ref = useRef(null)
+  const isInView = useInView(ref, { once: true, amount: 0.5 }) // triggers when 50% visible
+
+  useEffect(() => {
+    if (isInView && !hasStarted) {
+      setHasStarted(true)
+      setIndex(0)
+      setDisplayedText("")
+      setIsComplete(false)
+    }
+  }, [isInView, hasStarted])
+
+  useEffect(() => {
+    if (!hasStarted) return
+    if (index < role.length) {
+      const timeout = setTimeout(() => {
+        setDisplayedText(prev => prev + role[index])
+        setIndex(prev => prev + 1)
+      }, 80) // same speed as homepage
+      return () => clearTimeout(timeout)
+    } else if (!isComplete) {
+      setIsComplete(true)
+    }
+  }, [index, role, hasStarted, isComplete])
+
+  return (
+    <p className="team-role" ref={ref}>
+      {displayedText}
+      {!isComplete && hasStarted && (
+        <span
+          style={{
+            display: "inline-block",
+            width: "3px",
+            backgroundColor: "currentColor",
+            marginLeft: "4px",
+            animation: "blink 1s step-end infinite"
+          }}
+        >
+          |
+        </span>
+      )}
+      <style>{`
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+      `}</style>
+    </p>
+  )
+}
+
+// ---------- Main About Component ----------
 function About() {
   const statsRef = useRef(null)
   const isStatsInView = useInView(statsRef, { once: true, amount: 0.3 })
@@ -112,7 +171,7 @@ function About() {
         </div>
       </motion.section>
 
-      {/* About Content Section */}
+      {/* About Content Section (unchanged) */}
       <motion.section
         className="py-5"
         initial={{ opacity: 0 }}
@@ -202,7 +261,7 @@ function About() {
         </div>
       </motion.section>
 
-      {/* Mission, Vision, Values */}
+      {/* Mission, Vision, Values (unchanged) */}
       <motion.section
         className="py-5 bg-primary text-white"
         initial={{ opacity: 0 }}
@@ -235,7 +294,7 @@ function About() {
         </div>
       </motion.section>
 
-      {/* Team Section */}
+      {/* Team Section with Typewriter Roles */}
       <motion.section
         id="team"
         className="py-5 bg-light"
@@ -288,7 +347,8 @@ function About() {
                   </div>
                   <div className="team-info">
                     <h4 className="team-name">{member.name}</h4>
-                    <p className="team-role">{member.role}</p>
+                    {/* Replace static role with TypewriterRole */}
+                    <TypewriterRole role={member.role} />
                     <p className="team-bio">{member.bio}</p>
                   </div>
                 </motion.div>
@@ -298,7 +358,7 @@ function About() {
         </div>
       </motion.section>
 
-      {/* Call to Action Section */}
+      {/* Call to Action Section (unchanged) */}
       <motion.section
         className="py-5 bg-primary text-white"
         initial={{ opacity: 0 }}

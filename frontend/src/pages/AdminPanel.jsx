@@ -19,7 +19,7 @@ import { generateTransactionReceipt, generateClientStatement,generateLoanAgreeme
  generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,
  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF,
  generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF,
- generateWithdrawalConfirmationLetter, generateLoanWaiverAgreementAutoPDF } from "../components/admin/ReceiptPDF";
+ generateLoanWaiverAgreementAutoPDF } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
