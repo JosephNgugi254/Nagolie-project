@@ -10,8 +10,8 @@ const getFullName = (user) => {
 
   // Director
   if (role === 'director') {
-    if (username === 'Director') return 'Shadrack Kesumet';
-    if (username === 'Millicent') return 'Millicent Mantaine';
+    if (username === 'director') return 'Shadrack Kesumet';
+    if (username === 'millicent') return 'Millicent Mantaine';
     return 'Shadrack Kesumet';
   }
   // Deputy Director
@@ -24,20 +24,20 @@ const getFullName = (user) => {
   }
   // Accountant
   if (role === 'accountant') {
-    return 'Accountant';
+    return 'Gideon Matunta';
   }
   // Head of IT
   if (role === 'head_of_it') {
-    if (username === 'Ngugi') return 'Joseph Ngugi';
+    if (username === 'ngugi') return 'Joseph Ngugi';
     return 'Joseph Ngugi';
   }
   // Valuer
   if (role === 'valuer') {
-    if (username === 'Robert') return 'Robert Kalama';
-    if (username === 'valuer') return 'George Marite';
+    if (username === 'robert') return 'Robert Kalama';
+    if (username === 'george') return 'George Marite';
     return 'George Marite';
   }
-  // Fallback to username or 'Unknown'
+  // Fallback
   return user.username || user.fullName || 'Unknown';
 };
 
