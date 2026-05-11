@@ -10,7 +10,7 @@ const getFullName = (user) => {
 
   // Director
   if (role === 'director') {
-    if (username === 'director') return 'Shadrack Kesumet';
+    if (username === 'Director') return 'Shadrack Kesumet';
     if (username === 'Millicent') return 'Millicent Mantaine';
     return 'Shadrack Kesumet';
   }
