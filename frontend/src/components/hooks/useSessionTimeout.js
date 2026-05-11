@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { showToast } from '../common/Toast';
 
-const INACTIVITY_LIMIT = 5 * 60 * 1000; // 5 minutes
+const INACTIVITY_LIMIT = 10 * 60 * 1000; // 10 minutes
 
 export const useSessionTimeout = (logout, isAuthenticated, userRole) => {
   const navigate = useNavigate();

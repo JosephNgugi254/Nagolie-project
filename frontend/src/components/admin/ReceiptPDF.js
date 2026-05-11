@@ -36,6 +36,7 @@ const addOptimizedWatermark = (doc, type = 'agreement') => {
     agreement: 'AGREEMENT',
     investor: 'INVESTMENT AGREEMENT',
     letter: 'LETTER',
+    leaveForm: 'LEAVE REQUEST'
   };
   const docType = DOC_LABELS[type] || 'DOCUMENT';
   
@@ -5509,4 +5510,214 @@ export const generateSecretaryContractPDF = async () => {
     console.error('Error generating secretary contract:', error);
     throw error;
   }
+};
+
+// ========== LEAVE REQUEST PDF (AUTO‑FILLED) ==========
+export const generateLeaveRequestPDF = async (data, preview = true) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'leaveForm');
+  let yPos = await addHeader(doc, 15);
+
+  const formatDateToDDMMYYYY = (dateStr) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  };
+
+  // Title
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('LEAVE REQUEST FORM', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+  yPos += 4;
+
+  // Date
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Date: ${data.date || new Date().toLocaleDateString('en-GB')}`, 150, yPos - 6);
+
+  // Requester details
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Requested by:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text(data.requesterName, 55, yPos);
+  yPos += 8;
+  doc.setFont('helvetica', 'bolditalic');
+  doc.text(`Role: ${data.requesterRole}`, 55, yPos);
+  yPos += 10;
+
+  // Leave dates
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Leave Dates:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`From: ${formatDateToDDMMYYYY(data.fromDate)}`, 55, yPos);
+  yPos += 8;
+  doc.text(`To: ${formatDateToDDMMYYYY(data.toDate)}`, 55, yPos);
+  yPos += 10;
+
+  // Reason – render only the actual content, no fixed maximum, then add a blank line
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Reason for leave:', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'normal');
+  const reasonLines = doc.splitTextToSize(data.reason, 170);
+  for (let i = 0; i < reasonLines.length; i++) {
+    doc.text(reasonLines[i], 20, yPos);
+    yPos += 7;
+  }
+  // Add extra spacing after the reason (skip a line)
+  if (reasonLines.length > 0) {
+    yPos += 7;
+  } else {
+    yPos += 7; // still add some space even if empty
+  }
+  yPos += 4; // small additional gap before approval
+
+  // Approval section
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('APPROVAL', 105, yPos, { align: 'center' });
+  yPos += 8;
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Approved by: Shadrack Kesumet', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'bolditalic');
+  doc.text('                        Director', 20, yPos);
+  yPos += 10;
+  doc.setFont('helvetica', 'normal');
+  doc.text('Signature: _________________________', 20, yPos);
+  yPos += 14;
+  doc.text('Date: _________________________', 20, yPos);
+  yPos += 12;
+
+  // Stamp box
+  const stampBoxWidth = 60;
+  const stampBoxHeight = 35;
+  const stampBoxX = (210 - stampBoxWidth) / 2;
+  const stampBoxY = yPos;
+  doc.setDrawColor(230, 235, 245);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+  doc.setTextColor(230, 235, 240);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'italic');
+  doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2 - 3, { align: 'center' });
+  doc.text('(To be affixed here)', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2 + 3, { align: 'center' });
+
+  addFooter(doc, stampBoxY + stampBoxHeight + 10);
+
+  if (preview) {
+    const pdfBlob = doc.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    window.open(url, '_blank');
+    URL.revokeObjectURL(url);
+  } else {
+    const fileName = `Leave_Request_${data.requesterName.replace(/\s+/g, '_')}_${(data.date || new Date().toLocaleDateString('en-GB')).replace(/\//g, '-')}.pdf`;
+    doc.save(fileName);
+  }
+};
+
+// ========== MANUAL LEAVE REQUEST PDF (BLANK – DOWNLOAD ONLY) ==========
+export const generateManualLeaveRequestPDF = async () => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'leaveForm');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('LEAVE REQUEST FORM', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+  yPos += 4;
+
+  // Date of application – blank line
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Date: ________________`, 150, yPos - 6);
+  yPos += 2;
+
+  // Requester details – name and role separate
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Requested by:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('____________________________', 55, yPos);
+  yPos += 8;
+  doc.setFont('helvetica', 'bolditalic');
+  doc.text('Role: __________________', 55, yPos);
+  yPos += 10;
+
+  // Leave dates (blanks)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Leave Dates:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('From: __________________', 55, yPos);
+  yPos += 8;
+  doc.text('To: __________________', 55, yPos);
+  yPos += 10;
+
+  // Reason – 10 blank lines with long underscores (no text)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Reason for leave:', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'normal');
+  for (let i = 0; i < 10; i++) {
+    doc.text('__________________________________________________________________________', 20, yPos);
+    yPos += 7;
+  }
+  yPos += 8;
+
+  // Approval section
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('APPROVAL', 105, yPos, { align: 'center' });
+  yPos += 8;
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('Approved by: Shadrack Kesumet', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'bolditalic');
+  doc.text('                        Director', 20, yPos);
+  yPos += 10;
+  doc.setFont('helvetica', 'normal');
+  doc.text('Signature: ', 20, yPos);
+  yPos += 14;
+  doc.text('Date: _________________________', 20, yPos);
+  yPos += 12;
+
+  // Stamp box
+  const stampBoxWidth = 60;
+  const stampBoxHeight = 35;
+  const stampBoxX = (210 - stampBoxWidth) / 2;
+  const stampBoxY = yPos;
+  doc.setDrawColor(230, 235, 245);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+  doc.setTextColor(230, 235, 240);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'italic');
+  doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2 - 3, { align: 'center' });
+  doc.text('(To be affixed here)', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2 + 3, { align: 'center' });
+
+  addFooter(doc, stampBoxY + stampBoxHeight + 10);
+
+  const fileName = `Manual_Leave_Request_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
 };

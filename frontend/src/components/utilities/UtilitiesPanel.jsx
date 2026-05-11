@@ -9,11 +9,14 @@ import {
   generateLetterPDF,
   downloadLetterPDF,
   generateInvoicePDF,
+  generateLeaveRequestPDF,
+  generateManualLeaveRequestPDF
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
 import { useAuth } from '../../context/AuthContext';
 import LetterWriter from './LetterWriter';
 import InvoiceGenerator from './InvoiceGenerator';
+import LeaveRequestWriter from './LeaveRequestWriter';
 
 const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
   const { user } = useAuth();
@@ -37,7 +40,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
         case 'renewal':
           await generateManualLoanRenewalAgreementPDF();
           break;
-        case 'waiver':                       // <-- ADD THIS CASE
+        case 'waiver':                       
           await generateManualLoanWaiverAgreementPDF();
           break;
         default:
@@ -87,6 +90,17 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                 </button>
               </li>
             )}
+            {canAccessFull && (
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'leave' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('leave')}
+                >
+                  <i className="fas fa-calendar-alt me-2"></i>Leave Request
+                </button>
+              </li>
+            )}
+
           </ul>
 
           {/* Tab Content */}
@@ -154,6 +168,28 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-info">
+                    <div className="card-body text-center">
+                      <i className="fas fa-calendar-week fa-3x text-info mb-3"></i>
+                      <h5>Manual Leave Form</h5>
+                      <p className="text-muted">Blank leave request form (fill by hand)</p>
+                      <button
+                        className="btn btn-info text-white"
+                        onClick={async () => {
+                          try {
+                            await generateManualLeaveRequestPDF();
+                            showToast.success('Manual leave form downloaded!');
+                          } catch (error) {
+                            showToast.error('Failed to generate manual leave form');
+                          }
+                        }}
+                      >
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 {/* <button
                   className="btn btn-outline-primary w-100 mb-2"
                   onClick={async () => {
@@ -177,6 +213,10 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
 
             {activeTab === 'invoice' && canAccessInvoice && (
               <InvoiceGenerator />
+            )}
+
+            {activeTab === 'leave' && (
+              <LeaveRequestWriter user={user} />
             )}
           </div>
         </div>
