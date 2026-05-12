@@ -284,7 +284,6 @@ function RecoveryModule() {
     } catch (err) { console.error(err); }
     finally { setInvestorTransactionsLoading(false); }
   };
-
   // ---------- Director helper functions (investor management) ----------
   const generateTemporaryPassword = (name) => {
     if (!name?.trim()) return '';
@@ -293,6 +292,7 @@ function RecoveryModule() {
     const random = Math.floor(100 + Math.random() * 900);
     return `inv?${prefix}${random}`;
   };
+
   const handleInvestorPasswordSubmit = (e) => {
     e.preventDefault();
     if (investorPassword === "n@g0l13") {
@@ -307,6 +307,7 @@ function RecoveryModule() {
       setInvestorPassword("");
     }
   };
+
   const handleInvestorSectionClick = () => {
     if (window.innerWidth <= 991.98) setSidebarOpen(false);
     if (isInvestorSectionAuthenticated) {
@@ -315,11 +316,13 @@ function RecoveryModule() {
     }
     setShowInvestorLoginModal(true);
   };
+
   const handleInvestorSectionLogout = () => {
     setIsInvestorSectionAuthenticated(false);
     if (directorSection === "investors") setDirectorSection("recovery");
     showToast.info("Investor section locked");
   };
+
   const handleGenerateShareLink = async (investor) => {
     if (investor.account_status !== 'pending') {
       showToast.error("Can only generate link for pending investors");
@@ -347,6 +350,7 @@ function RecoveryModule() {
       setGeneratingLink(false);
     }
   };
+
   const handleEditInvestor = (investor) => {
     setEditingInvestor(investor);
     setUpdatedInvestor({
@@ -355,6 +359,7 @@ function RecoveryModule() {
     });
     setShowEditInvestorModal(true);
   };
+
   const handleUpdateInvestor = async () => {
     try {
       const res = await adminAPI.updateInvestor(editingInvestor.id, updatedInvestor);
@@ -367,10 +372,12 @@ function RecoveryModule() {
       showToast.error(err.response?.data?.error || "Update failed");
     }
   };
+
   const handleToggleAccountStatus = (investor) => {
     setInvestorToToggle(investor);
     setShowActivateDeactivateModal(true);
   };
+
   const confirmToggleAccountStatus = async () => {
     const newStatus = investorToToggle.account_status === 'active' ? 'inactive' : 'active';
     try {
@@ -385,10 +392,12 @@ function RecoveryModule() {
       showToast.error(err.response?.data?.error || "Status update failed");
     }
   };
+
   const handleDeleteInvestor = (investor) => {
     setInvestorToDelete(investor);
     setShowDeleteInvestorModal(true);
   };
+
   const confirmDeleteInvestor = async () => {
     try {
       const res = await adminAPI.deleteInvestor(investorToDelete.id);
@@ -402,6 +411,7 @@ function RecoveryModule() {
       showToast.error(err.response?.data?.error || "Delete failed");
     }
   };
+
   const handleProcessReturn = async (investor) => {
     try {
       const calc = await adminAPI.calculateInvestorReturn(investor.id);
@@ -425,6 +435,7 @@ function RecoveryModule() {
       showToast.error("Failed to load return data");
     }
   };
+
   const handleProcessAction = async () => {
     if (!selectedInvestorForReturn) return;
     if (isTopupAdjustmentMode) {
@@ -480,6 +491,7 @@ function RecoveryModule() {
       }
     }
   };
+
   const handleApplicationAction = async (applicationId, action, fundingData = null) => {
     try {
       if (action === "approve") {
@@ -513,6 +525,7 @@ function RecoveryModule() {
       setApprovingLoan(false);
     }
   };
+
   const filterPendingApplications = () => {
     let filtered = applications.filter(app => app.status === 'pending');
     if (pendingSearch) {
@@ -533,6 +546,7 @@ function RecoveryModule() {
     }
     return filtered;
   };
+
   const filterApprovedLoans = () => {
     let filtered = [...approvedLoans];
     if (approvedSearch) {
@@ -553,6 +567,7 @@ function RecoveryModule() {
     }
     return filtered;
   };
+
   const filterInvestors = () => {
     let filtered = [...investors];
     if (investorSearch) {
@@ -566,6 +581,7 @@ function RecoveryModule() {
     if (investorFilter) filtered = filtered.filter(i => i.account_status === investorFilter);
     return filtered;
   };
+
   const filterInvestorTransactions = () => {
     let filtered = [...investorTransactions];
     if (investorTransactionSearch) {
@@ -599,11 +615,13 @@ function RecoveryModule() {
       showToast.error(err.response?.data?.error || 'Failed to add livestock');
     }
   };
+
   const handleEditLivestock = (livestockItem) => {
     setEditingLivestock(livestockItem);
     setSelectedImages(livestockItem.images || []);
     setShowEditLivestockModal(true);
   };
+
   const handleUpdateLivestock = async (e) => {
     e.preventDefault();
     if (!editingLivestock) return;
@@ -631,10 +649,12 @@ function RecoveryModule() {
       showToast.error(err.response?.data?.error || 'Update failed');
     }
   };
+
   const confirmDeleteLivestock = (livestockId) => {
     setLivestockToDelete(livestockId);
     setShowDeleteConfirmation(true);
   };
+
   const handleDeleteLivestock = async () => {
     if (!livestockToDelete) return;
     try {
@@ -652,6 +672,7 @@ function RecoveryModule() {
       setLivestockToDelete(null);
     }
   };
+
   const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files);
     if (files.length === 0) return;
@@ -672,9 +693,11 @@ function RecoveryModule() {
       setImageUploading(false);
     }
   };
+
   const removeImage = (index) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
+
   const isDescription = (str) => {
     const lowerStr = str.toLowerCase();
     return (
@@ -727,26 +750,40 @@ function RecoveryModule() {
     setMpesaUnpaidInterest(client.unpaidInterest || 0);
     setShowMpesaModal(true);
   };
-  const openTopupModal = (client) => {
-    setSelectedClient(client);
+
+  const openTopupModal = (loan) => {
+    // Create a client object with the required fields
+    const clientForTopup = {
+      ...loan,
+      loan_id: loan.id,          // Add loan_id (critical for the API call)
+      name: loan.name,           // Already present
+      borrowedAmount: loan.current_principal || loan.principal_amount || 0, // For consistency
+      current_principal: loan.current_principal || loan.principal_amount || 0,
+    };
+    setSelectedClient(clientForTopup);
     setTopupAmount("");
+    const currentPrincipal = clientForTopup.current_principal;
+    setAdjustmentAmount(currentPrincipal.toString());
     setTopupMethod("cash");
     setTopupReference("");
     setTopupNotes("");
     setIsTopupMode(true);
     setShowTopupModal(true);
   };
+
   const openShareModal = (livestock) => {
     setSharingLivestock(livestock);
     setShareMessage('');
     setShowShareModal(true);
   };
+
   const formatPhoneNumber = (phone) => {
     let cleaned = phone.replace(/\D/g, '');
     if (cleaned.startsWith('0')) cleaned = '254' + cleaned.substring(1);
     else if (cleaned.startsWith('7') || cleaned.startsWith('1')) cleaned = '254' + cleaned;
     return cleaned;
   };
+
   const handleMpesaPayment = async () => {
     if (!selectedClient?.loan_id || !mpesaAmount) {
       showToast.error("Please enter a valid payment amount");
@@ -798,10 +835,12 @@ function RecoveryModule() {
       setSendingStk(false);
     }
   };
+
   const handleTakeAction = (client) => {
     setSelectedClient(client);
     setShowActionModal(true);
   };
+
   const handleCloseModal = () => {
     setShowActionModal(false);
     setSelectedClient(null);
@@ -853,10 +892,12 @@ function RecoveryModule() {
       showToast.error(error.response?.data?.error || 'Claim failed');
     }
   };
+
   const openPaymentModal = (client) => {
     setSelectedClient(client);
     setShowPaymentModal(true);
   };
+
   const handlePayment = async (paymentData) => {
     // Simplified - similar to AdminPanel
     try {
@@ -878,38 +919,70 @@ function RecoveryModule() {
       showToast.error(error.response?.data?.error || 'Payment failed');
     }
   };
+
   const handleTopup = async () => {
     if (!selectedClient?.loan_id) {
-      showToast.error("No active loan found");
+      showToast.error("Error: No active loan found for this client");
       return;
     }
-    let amount = parseFloat(topupAmount);
-    if (isNaN(amount) || amount <= 0) {
-      showToast.error("Enter a valid amount");
-      return;
+
+    // Get the correct current principal
+    const oldPrincipal = selectedClient.current_principal || selectedClient.principal_amount || selectedClient.borrowedAmount || 0;
+
+    let amount = 0;
+    if (isTopupMode) {
+      amount = parseFloat(topupAmount);
+      if (isNaN(amount) || amount <= 0) {
+        showToast.error("Please enter a valid top-up amount");
+        return;
+      }
+    } else {
+      amount = parseFloat(adjustmentAmount);
+      if (isNaN(amount) || amount <= 0) {
+        showToast.error("Please enter a valid loan amount");
+        return;
+      }
+      // adjustment amount = new total principal - old principal
+      amount = amount - oldPrincipal;
     }
+
     if (topupMethod === 'mpesa' && !topupReference.trim()) {
-      showToast.error("M-Pesa reference required");
+      showToast.error("Please enter M-Pesa reference code for M-Pesa disbursement");
       return;
     }
+
     try {
       const response = await adminAPI.processTopup(selectedClient.loan_id, {
-        topup_amount: amount,
-        adjustment_amount: 0,
+        topup_amount: isTopupMode ? amount : 0,
+        adjustment_amount: !isTopupMode ? (parseFloat(adjustmentAmount) || oldPrincipal) : 0,
         disbursement_method: topupMethod,
         mpesa_reference: topupMethod === 'mpesa' ? topupReference.toUpperCase().trim() : '',
-        notes: topupNotes || `Top-up of ${fmt(amount)}`
+        notes: topupNotes || `${isTopupMode ? 'Top-up' : 'Adjustment'} processed for ${selectedClient.name}`
       });
+
       if (response.data.success) {
-        showToast.success(`Top-up processed`);
+        showToast.success(`Loan ${isTopupMode ? 'top-up' : 'adjustment'} processed successfully!`);
         setShowTopupModal(false);
         setSelectedClient(null);
-        await Promise.all([fetchDirectorClients(), fetchDirectorTransactions(), fetchDirectorDashboard()]);
+        setTopupAmount("");
+        setAdjustmentAmount("");
+        setTopupMethod("cash");
+        setTopupReference("");
+        setTopupNotes("");
+
+        await Promise.all([
+          fetchDirectorClients(),
+          fetchDirectorTransactions(),
+          fetchDirectorDashboard(),
+          fetchData()
+        ]);
       }
     } catch (error) {
-      showToast.error(error.response?.data?.error || 'Top-up failed');
+      const errorMsg = error.response?.data?.error || error.message;
+      showToast.error(`Failed to process ${isTopupMode ? 'top-up' : 'adjustment'}: ${errorMsg}`);
     }
   };
+
   const canRenewLoan = (loan) => {
     const allowed = ['director', 'admin', 'secretary', 'head_of_it', 'deputy_director'];
     if (!allowed.includes(userRole)) return false;
@@ -921,6 +994,7 @@ function RecoveryModule() {
     }
     return false;
   };
+
   const handleDefaulter = async (loanId, mark) => {
     try {
       mark ? await recoveryAPI.markDefaulter(loanId) : await recoveryAPI.resolveDefaulter(loanId);
@@ -928,6 +1002,7 @@ function RecoveryModule() {
       fetchData();
     } catch (e) { showToast.error(e.response?.data?.error || 'Action failed'); }
   };
+
   const openRenewalModal = (loan) => {
     setRenewalLoan(loan);
     setShowRenewalModal(true);
@@ -991,6 +1066,7 @@ function RecoveryModule() {
       showToast.error(err.message || 'Failed to enable biometrics');
     }
   };
+
   const disableBiometrics = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -1014,6 +1090,7 @@ function RecoveryModule() {
       showToast.error(err.message || 'Failed to disable biometrics');
     }
   };
+
   const formatPhoneForSms = (phone) => {
     let cleaned = phone.toString().replace(/\D/g, '');
     if (cleaned.startsWith('0')) cleaned = '254' + cleaned.substring(1);
@@ -1021,6 +1098,7 @@ function RecoveryModule() {
     if (!cleaned.startsWith('+')) cleaned = '+' + cleaned;
     return cleaned;
   };
+
   const handleUsernameChange = async (e) => {
     e.preventDefault();
     setUsernameLoading(true);
@@ -1042,6 +1120,7 @@ function RecoveryModule() {
       setUsernameLoading(false);
     }
   };
+
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
@@ -1065,6 +1144,7 @@ function RecoveryModule() {
       setPasswordLoading(false);
     }
   };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -1074,6 +1154,7 @@ function RecoveryModule() {
       showToast.error('Logout failed');
     }
   };
+
   const formatClockTime = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   const formatClockDate = (date) => date.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const playSound = () => {
@@ -1485,6 +1566,11 @@ function RecoveryModule() {
                                           <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}><i className="fas fa-file-invoice"></i></button>
                                           {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                             <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}><i className="fas fa-sync-alt"></i></button>
+                                          )}
+                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                            <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)}>
+                                              <i className="fas fa-edit"></i>
+                                            </button>
                                           )}
                                           {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
                                             <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}><i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i></button>
@@ -2319,16 +2405,209 @@ function RecoveryModule() {
                   )}
 
                   {showTopupModal && selectedClient && (
-                    <Modal isOpen={showTopupModal} onClose={() => { setShowTopupModal(false); setSelectedClient(null); setTopupAmount(""); setTopupMethod("cash"); setTopupReference(""); setTopupNotes(""); }} title={isTopupMode ? "Loan Top-up" : "Loan Adjustment"} size="md">
-                      <div className="mb-3"><label className="form-label">Client Name</label><input type="text" className="form-control" value={selectedClient.name || 'N/A'} readOnly /></div>
-                      <div className="mb-3"><label className="form-label">Current Loan Amount</label><input type="text" className="form-control" value={fmt(selectedClient.borrowedAmount || 0)} readOnly /></div>
-                      <div className="mb-3"><div className="form-check form-check-inline"><input className="form-check-input" type="radio" name="topupMode" checked={isTopupMode} onChange={() => setIsTopupMode(true)} /><label>Top-up Loan</label></div><div className="form-check form-check-inline"><input className="form-check-input" type="radio" name="topupMode" checked={!isTopupMode} onChange={() => setIsTopupMode(false)} /><label>Adjust Loan</label></div></div>
-                      {isTopupMode ? (<div className="mb-3"><label className="form-label">Top-up Amount (KSh) *</label><input type="number" className="form-control" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} min="1" required /></div>) : (<div className="mb-3"><label className="form-label">New Loan Amount (KSh) *</label><input type="number" className="form-control" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} min="1" required /></div>)}
-                      <div className="mb-3"><label className="form-label">Disbursement Method *</label><select className="form-control" value={topupMethod} onChange={e => setTopupMethod(e.target.value)}><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div>
-                      {topupMethod === 'mpesa' && (<div className="mb-3"><label className="form-label">M-Pesa Reference *</label><input type="text" className="form-control" value={topupReference} onChange={e => setTopupReference(e.target.value)} placeholder="e.g., RB64AX25B1" style={{ textTransform:'uppercase' }} required /></div>)}
-                      <div className="mb-3"><label className="form-label">Notes</label><textarea className="form-control" value={topupNotes} onChange={e => setTopupNotes(e.target.value)} rows="3" /></div>
-                      <div className="alert alert-warning">This action will {isTopupMode ? 'increase' : 'modify'} the loan principal and recalculate the total amount with 30% interest.</div>
-                      <div className="d-flex gap-2"><button type="button" className="btn btn-warning" onClick={handleTopup} disabled={(isTopupMode && !topupAmount) || (!isTopupMode && !topupAmount)}>Process {isTopupMode ? 'Top-up' : 'Adjustment'}</button><button type="button" className="btn btn-secondary" onClick={() => setShowTopupModal(false)}>Cancel</button></div>
+                    <Modal
+                      isOpen={showTopupModal}
+                      onClose={() => {
+                        setShowTopupModal(false);
+                        setSelectedClient(null);
+                        setTopupAmount("");
+                        setAdjustmentAmount("");
+                        setTopupMethod("cash");
+                        setTopupReference("");
+                        setTopupNotes("");
+                      }}
+                      title={isTopupMode ? "Loan Top-up" : "Loan Adjustment"}
+                      size="md"
+                    >
+                      <div className="mb-3">
+                        <label className="form-label">Client Name</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={selectedClient.name || 'N/A'}
+                          readOnly
+                        />
+                      </div>
+                    
+                      <div className="mb-3">
+                        <label className="form-label">Current Loan Amount</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={fmt(selectedClient.current_principal || selectedClient.principal_amount || 0)}
+                          readOnly
+                        />
+                      </div>
+                    
+                      <div className="mb-3">
+                        <label className="form-label">Current Total to Pay</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={fmt(((selectedClient.current_principal || selectedClient.principal_amount || 0)) * 1.3)}
+                          readOnly
+                        />
+                      </div>
+                    
+                      <div className="mb-3">
+                        <div className="form-check form-check-inline">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="topupMode"
+                            id="topupMode"
+                            checked={isTopupMode}
+                            onChange={() => setIsTopupMode(true)}
+                          />
+                          <label className="form-check-label" htmlFor="topupMode">
+                            Top-up Loan
+                          </label>
+                        </div>
+                        <div className="form-check form-check-inline">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="adjustmentMode"
+                            id="adjustmentMode"
+                            checked={!isTopupMode}
+                            onChange={() => setIsTopupMode(false)}
+                          />
+                          <label className="form-check-label" htmlFor="adjustmentMode">
+                            Adjust Loan
+                          </label>
+                        </div>
+                      </div>
+                    
+                      {isTopupMode ? (
+                        <div className="mb-3">
+                          <label htmlFor="topupAmount" className="form-label">
+                            Top-up Amount (KSh) <span className="text-danger">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            className="form-control"
+                            id="topupAmount"
+                            value={topupAmount}
+                            onChange={(e) => setTopupAmount(e.target.value)}
+                            min="1"
+                            placeholder="Enter top-up amount"
+                            required
+                          />
+                        </div>
+                      ) : (
+                        <div className="mb-3">
+                          <label htmlFor="adjustmentAmount" className="form-label">
+                            New Loan Amount (KSh) <span className="text-danger">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            className="form-control"
+                            id="adjustmentAmount"
+                            value={adjustmentAmount}
+                            onChange={(e) => setAdjustmentAmount(e.target.value)}
+                            min="1"
+                            placeholder="Enter new loan amount"
+                            required
+                          />
+                        </div>
+                      )}
+
+                      {(topupAmount > 0 || adjustmentAmount > 0) && (
+                        <div className="alert alert-info">
+                          <h6>Calculation Preview:</h6>
+                          <p><strong>New Loan Amount:</strong> {fmt(
+                            isTopupMode
+                              ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
+                              : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
+                          )}</p>
+                          <p><strong>New Total to Pay:</strong> {fmt(
+                            (isTopupMode
+                              ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
+                              : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
+                            ) * 1.3
+                          )} <small>(including 30% interest)</small></p>
+                        </div>
+                      )}
+
+                      <div className="mb-3">
+                        <label htmlFor="topupMethod" className="form-label">
+                          Disbursement Method <span className="text-danger">*</span>
+                        </label>
+                        <select
+                          className="form-control"
+                          id="topupMethod"
+                          value={topupMethod}
+                          onChange={(e) => setTopupMethod(e.target.value)}
+                          required
+                        >
+                          <option value="cash">Cash</option>
+                          <option value="mpesa">M-Pesa</option>
+                        </select>
+                      </div>
+                    
+                      {topupMethod === 'mpesa' && (
+                        <div className="mb-3">
+                          <label htmlFor="topupReference" className="form-label">
+                            M-Pesa Reference Code <span className="text-danger">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            id="topupReference"
+                            value={topupReference}
+                            onChange={(e) => setTopupReference(e.target.value)}
+                            placeholder="Enter M-Pesa reference (e.g., RB64AX25B1)"
+                            style={{ textTransform: 'uppercase' }}
+                            required
+                          />
+                        </div>
+                      )}
+
+                      <div className="mb-3">
+                        <label htmlFor="topupNotes" className="form-label">
+                          Notes
+                        </label>
+                        <textarea
+                          className="form-control"
+                          id="topupNotes"
+                          value={topupNotes}
+                          onChange={(e) => setTopupNotes(e.target.value)}
+                          placeholder="Additional notes about this top-up or adjustment"
+                          rows="3"
+                        />
+                      </div>
+                    
+                      <div className="alert alert-warning">
+                        <i className="fas fa-exclamation-triangle me-2"></i>
+                        This action will {isTopupMode ? 'increase' : 'modify'} the loan principal and recalculate the total amount with 30% interest.
+                      </div>
+                    
+                      <div className="d-flex gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-warning"
+                          onClick={handleTopup}
+                          disabled={(isTopupMode && !topupAmount) || (!isTopupMode && !adjustmentAmount)}
+                        >
+                          <i className="fas fa-edit me-2"></i>
+                          Process {isTopupMode ? 'Top-up' : 'Adjustment'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => {
+                            setShowTopupModal(false);
+                            setSelectedClient(null);
+                            setTopupAmount("");
+                            setAdjustmentAmount("");
+                            setTopupMethod("cash");
+                            setTopupReference("");
+                            setTopupNotes("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </Modal>
                   )}
 
@@ -2487,6 +2766,11 @@ function RecoveryModule() {
                                             {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                               <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}>
                                                 <i className="fas fa-sync-alt"></i>
+                                              </button>
+                                            )}
+                                            {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                              <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)}>
+                                                <i className="fas fa-edit"></i>
                                               </button>
                                             )}
                                             {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
@@ -2940,6 +3224,7 @@ function RecoveryModule() {
           onClaimOwnership={handleClaimOwnership}
         />
       )}
+
     </div>
   );
 }
