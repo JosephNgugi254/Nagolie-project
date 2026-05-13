@@ -41,35 +41,50 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
   };
 
   // ─── Socket setup ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    const socketUrl = getSocketUrl();
+   useEffect(() => {
+    // Build base URL without /api
+    const socketUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
     const token = localStorage.getItem('token');
-    console.log('Socket connecting to:', getSocketUrl());
-
+    
+    // If no token, don't connect (user not logged in)
+    if (!token) {
+      console.warn('No token found, skipping socket connection');
+      return;
+    }
+  
+    console.log('Socket connecting to:', socketUrl);
+    console.log('Token (first 20 chars):', token.substring(0, 20) + '...');
+  
     const socket = io(socketUrl, {
-      // polling first so the HTTP handshake completes before WS upgrade
-      transports: ['polling', 'websocket'],
+      transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      auth: { token },        // preferred — python-socketio reads this
-      query: { token },       // fallback for query-param auth
+      // ✅ Send token as query parameter – that's what server's get_user_from_token() reads
+      query: { token: token },
+      // Optional: add a timeout for the initial connection
+      timeout: 10000,
     });
-
+  
     socketRef.current = socket;
-
+  
     socket.on('connect', () => {
+      console.log('Socket connected successfully');
       setSocketConnected(true);
+      // Notify server that this client is ready for a specific chat
       socket.emit('join_chat', { other_user_id: user.id });
     });
-
-    socket.on('disconnect', () => setSocketConnected(false));
-
-    socket.on('connect_error', (err) => {
-      console.warn('Socket connection error:', err.message);
+  
+    socket.on('disconnect', () => {
+      console.log('Socket disconnected');
       setSocketConnected(false);
     });
-
+  
+    socket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err.message);
+      setSocketConnected(false);
+    });
+  
     socket.on('new_message', (data) => {
       const newMsg = data.message;
       const currentId = getCurrentUserId();
@@ -84,21 +99,26 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
         }
       }
     });
-
+  
     socket.on('message_status_update', (data) => {
       setMessages(prev =>
         prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg)
       );
     });
-
+  
     socket.on('message_sent', (data) => {
       setMessages(prev =>
         prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg)
       );
       setSending(false);
     });
-
-    return () => socket.disconnect();
+  
+    // Cleanup on unmount or when user changes
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
   }, [user.id]);
 
   // ─── Viewport resize (mobile keyboard) ────────────────────────────────────
@@ -198,6 +218,7 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
   const sendMessage = async () => {
     if (!newMessage.trim() && attachments.length === 0) return;
     setSending(true);
+    console.log('sendMessage called, attachments:', attachments.length);
 
     const tempId = Date.now();
     const currentId = getCurrentUserId();
@@ -217,15 +238,24 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
       let attachmentUrl = null, attachmentType = null, attachmentName = null;
 
       if (attachments.length > 0) {
+        console.log('Uploading attachments...');
         const formData = new FormData();
         attachments.forEach(file => formData.append('files', file));
-        const uploadRes = await recoveryAPI.uploadMessageAttachment(formData);
+
+        // Set a 60-second timeout for the upload
+        const uploadPromise = recoveryAPI.uploadMessageAttachment(formData);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Upload timeout after 60s')), 60000)
+        );
+        const uploadRes = await Promise.race([uploadPromise, timeoutPromise]);
+        console.log('✅ Upload response:', uploadRes.data);
         const firstUpload = uploadRes.data.uploads[0];
         attachmentUrl = firstUpload.url;
         attachmentType = firstUpload.mime_type;
         attachmentName = firstUpload.filename;
       }
 
+      console.log('Sending message, socket connected:', socketConnected);
       if (socketRef.current && socketConnected) {
         socketRef.current.emit('send_message', {
           recipient_id: user.id,
@@ -234,8 +264,11 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
           attachment_type: attachmentType,
           attachment_name: attachmentName,
         });
+        console.log('✅ Message emitted via socket');
       } else {
+        console.log('📡 Using REST fallback');
         await recoveryAPI.sendMessage(user.id, newMessage, attachmentUrl, attachmentType, attachmentName);
+        console.log('✅ Message sent via REST');
         setSending(false);
         fetchMessages();
       }
@@ -243,32 +276,50 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
       setNewMessage('');
       setAttachments([]);
     } catch (err) {
-      showToast.error('Failed to send message');
+      console.error(' Send message error:', err);
+      showToast.error(`Failed to send: ${err.message}`);
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setSending(false);
     }
   };
 
   const downloadFile = async (url, originalFilename, mimeType) => {
-  try {
-    const isCloudinary = url.includes('cloudinary.com') || url.includes('res.cloudinary');
-    
-    // Don't send auth header to Cloudinary
-    const headers = isCloudinary ? {} : { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
-    const response = await fetch(url, { headers });
-    
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    
-    const blob = await response.blob();
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = originalFilename || `attachment.${mimeType?.split('/')[1] || 'bin'}`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 100);
-  } catch (err) {
-    showToast.error(`Download failed: ${err.message}`);
-  }
-};
+    try {
+      // Resolve relative URLs to full backend URL
+      let fullUrl = url;
+      if (!url.startsWith('http')) {
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+        // Remove trailing /api if url already starts with /api
+        const baseWithoutApi = API_BASE.replace(/\/api\/?$/, '');
+        fullUrl = `${baseWithoutApi}${url}`;
+      }
+
+      console.log('Downloading from:', fullUrl);
+
+      const isCloudinary = fullUrl.includes('cloudinary.com');
+      const headers = isCloudinary ? {} : { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
+
+      const response = await fetch(fullUrl, { headers });
+      console.log('Download response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute('download', originalFilename || `attachment.${mimeType?.split('/')[1] || 'bin'}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(link.href), 100);
+    } catch (err) {
+      console.error('Download error details:', err);   // ← now you'll see the real error
+      showToast.error(`Download failed: ${err.message}`);
+    }
+  };
 
   // ─── Message status ticks ──────────────────────────────────────────────────
   const renderMessageStatus = (msg) => {

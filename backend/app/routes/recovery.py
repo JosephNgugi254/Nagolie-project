@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage,
@@ -10,6 +10,9 @@ import cloudinary.uploader
 from datetime import datetime, timedelta
 from decimal import Decimal
 from sqlalchemy.orm import joinedload
+import io
+from flask import send_file
+from app.models import MessageAttachment
 
 recovery_bp = Blueprint('recovery', __name__)
 
@@ -312,15 +315,62 @@ def unread_count_by_user():
 def upload_message_attachment():
     if 'files' not in request.files:
         return jsonify({'error': 'No file'}), 400
+
+    ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp'}
     uploaded = []
+
     for f in request.files.getlist('files'):
-        try:
-            r = cloudinary.uploader.upload(f, folder='chat_attachments', resource_type='auto')
-            uploaded.append({'url': r['secure_url'], 'filename': f.filename, 'mime_type': f.mimetype})
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+        mime = f.mimetype
+        print(f"Uploading file: {f.filename}, MIME: {mime}")
+
+        if mime in ALLOWED_IMAGE_TYPES:
+            # ✅ Upload image to Cloudinary
+            print("  -> Using Cloudinary (image)")
+            try:
+                r = cloudinary.uploader.upload(f, folder='chat_attachments', resource_type='image')
+                url = r['secure_url']
+                uploaded.append({
+                    'url': url,
+                    'filename': f.filename,
+                    'mime_type': mime
+                })
+            except Exception as e:
+                print(f"  -> Cloudinary error: {str(e)}")
+                return jsonify({'error': f'Cloudinary upload failed: {str(e)}'}), 500
+        else:
+            # ✅ Store non-image files in database
+            print("  -> Using database storage")
+            try:
+                attachment = MessageAttachment(
+                    filename=f.filename,
+                    mime_type=mime,
+                    file_data=f.read()
+                )
+                db.session.add(attachment)
+                db.session.commit()
+                url = url_for('recovery.get_message_attachment', attachment_id=attachment.id, _external=False)
+                uploaded.append({
+                    'url': url,
+                    'filename': f.filename,
+                    'mime_type': mime
+                })
+            except Exception as e:
+                db.session.rollback()
+                print(f"  -> Database store error: {str(e)}")
+                return jsonify({'error': f'Database store failed: {str(e)}'}), 500
+
     return jsonify({'uploads': uploaded}), 200
 
+@recovery_bp.route('/messages/attachment/<int:attachment_id>', methods=['GET'])
+@jwt_required()
+def get_message_attachment(attachment_id):
+    attachment = MessageAttachment.query.get_or_404(attachment_id)
+    return send_file(
+        io.BytesIO(attachment.file_data),
+        mimetype=attachment.mime_type,
+        as_attachment=True,
+        download_name=attachment.filename
+    )
 
 @recovery_bp.route('/comment-unread-counts', methods=['GET'])
 @jwt_required()

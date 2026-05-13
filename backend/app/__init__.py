@@ -12,6 +12,7 @@ import cloudinary.api
 import click
 import pytz
 from flask.cli import with_appcontext
+from app.utils.extensions import socketio
 
 db = SQLAlchemy()
 migrate = Migrate()
@@ -94,6 +95,8 @@ def create_app(config_class=Config):
             return response
         
     register_commands(app)
+
+    socketio.init_app(app, cors_allowed_origins="*")
 
     return app
 

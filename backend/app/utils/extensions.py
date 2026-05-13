@@ -1,9 +1,10 @@
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask import request
 from flask_jwt_extended import decode_token
-from app.models import User, PrivateMessage
-from app import db
 from datetime import datetime
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
 
 socketio = SocketIO(cors_allowed_origins="*", async_mode='eventlet')
 online_users = set()
@@ -12,7 +13,8 @@ def get_chat_room(user1_id, user2_id):
     return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
 
 def get_user_from_token():
-    # 1. Try Authorization header
+    from app.models import User   
+
     auth_header = request.headers.get('Authorization')
     if auth_header:
         try:
@@ -24,7 +26,6 @@ def get_user_from_token():
         except:
             pass
 
-    # 2. Fallback to query parameter (for socket.io)
     token = request.args.get('token')
     if token:
         try:
@@ -64,6 +65,9 @@ def handle_join_chat(data):
 
 @socketio.on('send_message')
 def handle_send_message(data):
+    from app import db                     # ← import here
+    from app.models import PrivateMessage, User   # ← import here
+
     user = get_user_from_token()
     if not user:
         return
@@ -101,6 +105,9 @@ def handle_send_message(data):
 
 @socketio.on('mark_read')
 def handle_mark_read(data):
+    from app import db                     # ← import here
+    from app.models import PrivateMessage   # ← import here
+
     user = get_user_from_token()
     if not user:
         return

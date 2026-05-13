@@ -603,12 +603,20 @@ class PrivateMessage(db.Model):
             'recipient': self.recipient.username if self.recipient else None,
             'content': self.content,
             'read': self.read,
-            'status': self.status,                    # <-- added
+            'status': self.status,                   
             'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
             'attachment_url': self.attachment_url,
             'attachment_type': self.attachment_type,
             'attachment_name': self.attachment_name
         }
+    
+class MessageAttachment(db.Model):
+    __tablename__ = 'message_attachments'
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(100), nullable=False)
+    file_data = db.Column(db.LargeBinary, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Defaulter(db.Model):
     __tablename__ = 'defaulters'
