@@ -3305,6 +3305,214 @@ function RecoveryModule() {
         />
       )}
 
+      {showTopupModal && selectedClient && (
+      <Modal
+        isOpen={showTopupModal}
+        onClose={() => {
+          setShowTopupModal(false);
+          setSelectedClient(null);
+          setTopupAmount("");
+          setAdjustmentAmount("");
+          setTopupMethod("cash");
+          setTopupReference("");
+          setTopupNotes("");
+        }}
+        title={isTopupMode ? "Loan Top-up" : "Loan Adjustment"}
+        size="md"
+      >
+        <div className="mb-3">
+          <label className="form-label">Client Name</label>
+          <input
+            type="text"
+            className="form-control"
+            value={selectedClient.name || 'N/A'}
+            readOnly
+          />
+        </div>
+      
+        <div className="mb-3">
+          <label className="form-label">Current Loan Amount</label>
+          <input
+            type="text"
+            className="form-control"
+            value={fmt(selectedClient.current_principal || selectedClient.principal_amount || 0)}
+            readOnly
+          />
+        </div>
+      
+        <div className="mb-3">
+          <label className="form-label">Current Total to Pay</label>
+          <input
+            type="text"
+            className="form-control"
+            value={fmt(((selectedClient.current_principal || selectedClient.principal_amount || 0)) * 1.3)}
+            readOnly
+          />
+        </div>
+      
+        <div className="mb-3">
+          <div className="form-check form-check-inline">
+            <input
+              className="form-check-input"
+              type="radio"
+              name="topupMode"
+              id="topupMode"
+              checked={isTopupMode}
+              onChange={() => setIsTopupMode(true)}
+            />
+            <label className="form-check-label" htmlFor="topupMode">
+              Top-up Loan
+            </label>
+          </div>
+          <div className="form-check form-check-inline">
+            <input
+              className="form-check-input"
+              type="radio"
+              name="adjustmentMode"
+              id="adjustmentMode"
+              checked={!isTopupMode}
+              onChange={() => setIsTopupMode(false)}
+            />
+            <label className="form-check-label" htmlFor="adjustmentMode">
+              Adjust Loan
+            </label>
+          </div>
+        </div>
+      
+        {isTopupMode ? (
+          <div className="mb-3">
+            <label htmlFor="topupAmount" className="form-label">
+              Top-up Amount (KSh) <span className="text-danger">*</span>
+            </label>
+            <input
+              type="number"
+              className="form-control"
+              id="topupAmount"
+              value={topupAmount}
+              onChange={(e) => setTopupAmount(e.target.value)}
+              min="1"
+              placeholder="Enter top-up amount"
+              required
+            />
+          </div>
+        ) : (
+          <div className="mb-3">
+            <label htmlFor="adjustmentAmount" className="form-label">
+              New Loan Amount (KSh) <span className="text-danger">*</span>
+            </label>
+            <input
+              type="number"
+              className="form-control"
+              id="adjustmentAmount"
+              value={adjustmentAmount}
+              onChange={(e) => setAdjustmentAmount(e.target.value)}
+              min="1"
+              placeholder="Enter new loan amount"
+              required
+            />
+          </div>
+        )}
+
+        {(topupAmount > 0 || adjustmentAmount > 0) && (
+          <div className="alert alert-info">
+            <h6>Calculation Preview:</h6>
+            <p><strong>New Loan Amount:</strong> {fmt(
+              isTopupMode
+                ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
+                : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
+            )}</p>
+            <p><strong>New Total to Pay:</strong> {fmt(
+              (isTopupMode
+                ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
+                : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
+              ) * 1.3
+            )} <small>(including 30% interest)</small></p>
+          </div>
+        )}
+
+        <div className="mb-3">
+          <label htmlFor="topupMethod" className="form-label">
+            Disbursement Method <span className="text-danger">*</span>
+          </label>
+          <select
+            className="form-control"
+            id="topupMethod"
+            value={topupMethod}
+            onChange={(e) => setTopupMethod(e.target.value)}
+            required
+          >
+            <option value="cash">Cash</option>
+            <option value="mpesa">M-Pesa</option>
+          </select>
+        </div>
+      
+        {topupMethod === 'mpesa' && (
+          <div className="mb-3">
+            <label htmlFor="topupReference" className="form-label">
+              M-Pesa Reference Code <span className="text-danger">*</span>
+            </label>
+            <input
+              type="text"
+              className="form-control"
+              id="topupReference"
+              value={topupReference}
+              onChange={(e) => setTopupReference(e.target.value)}
+              placeholder="Enter M-Pesa reference (e.g., RB64AX25B1)"
+              style={{ textTransform: 'uppercase' }}
+              required
+            />
+          </div>
+        )}
+
+        <div className="mb-3">
+          <label htmlFor="topupNotes" className="form-label">
+            Notes
+          </label>
+          <textarea
+            className="form-control"
+            id="topupNotes"
+            value={topupNotes}
+            onChange={(e) => setTopupNotes(e.target.value)}
+            placeholder="Additional notes about this top-up or adjustment"
+            rows="3"
+          />
+        </div>
+      
+        <div className="alert alert-warning">
+          <i className="fas fa-exclamation-triangle me-2"></i>
+          This action will {isTopupMode ? 'increase' : 'modify'} the loan principal and recalculate the total amount with 30% interest.
+        </div>
+      
+        <div className="d-flex gap-2">
+          <button
+            type="button"
+            className="btn btn-warning"
+            onClick={handleTopup}
+            disabled={(isTopupMode && !topupAmount) || (!isTopupMode && !adjustmentAmount)}
+          >
+            <i className="fas fa-edit me-2"></i>
+            Process {isTopupMode ? 'Top-up' : 'Adjustment'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setShowTopupModal(false);
+              setSelectedClient(null);
+              setTopupAmount("");
+              setAdjustmentAmount("");
+              setTopupMethod("cash");
+              setTopupReference("");
+              setTopupNotes("");
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </Modal>
+      )}
+      
+
     </div>
   );
 }

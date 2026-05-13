@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { generateInvoicePDF } from '../admin/ReceiptPDF';
+import { generateDeliveryNotePDF } from '../admin/ReceiptPDF';
 import { showToast } from '../common/Toast';
 import { useAuth } from '../../context/AuthContext';
 
-const InvoiceGenerator = () => {
+const DeliveryNoteGenerator = () => {
   const { user } = useAuth();
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [deliveryNumber, setDeliveryNumber] = useState('');
   const [items, setItems] = useState([
     { description: '', quantity: '', unitPrice: '', total: 0 },
   ]);
@@ -20,21 +20,21 @@ const InvoiceGenerator = () => {
   // User-specific draft key
   const getDraftKey = () => {
     const userId = user?.id || user?.username || 'anonymous';
-    return `invoiceDraft_${userId}`;
+    return `deliveryDraft_${userId}`;
   };
 
-  // Auto-generate invoice number on mount
+  // Auto-generate delivery number on mount
   useEffect(() => {
-    const generateInvoiceNumber = () => {
+    const generateDeliveryNumber = () => {
       const now = new Date();
       const year = now.getFullYear().toString().slice(-2);
       const month = (now.getMonth() + 1).toString().padStart(2, '0');
-      let counter = parseInt(localStorage.getItem('invoiceCounter') || '0', 10);
+      let counter = parseInt(localStorage.getItem('deliveryCounter') || '0', 10);
       counter++;
-      localStorage.setItem('invoiceCounter', counter.toString());
-      return `INV-${counter}-${year}${month}`;
+      localStorage.setItem('deliveryCounter', counter.toString());
+      return `DN-${counter}-${year}${month}`;
     };
-    setInvoiceNumber(generateInvoiceNumber());
+    setDeliveryNumber(generateDeliveryNumber());
   }, []);
 
   // Load draft from localStorage on mount
@@ -98,6 +98,7 @@ const InvoiceGenerator = () => {
     }
   };
 
+  // Item logic (unchanged)
   const updateItem = (index, field, value) => {
     const newItems = [...items];
     newItems[index][field] = value;
@@ -144,7 +145,7 @@ const InvoiceGenerator = () => {
     return calculateTaxableAmount() + calculateTax();
   };
 
-  const handleGeneratePreview = async () => {
+  const handlePreview = async () => {
     if (!clientName.trim()) {
       showToast.error('Client name is required');
       return;
@@ -155,8 +156,8 @@ const InvoiceGenerator = () => {
     }
     setIsGenerating(true);
     try {
-      await generateInvoicePDF({
-        invoiceNumber,
+      await generateDeliveryNotePDF({
+        deliveryNumber,
         clientName: clientName.trim(),
         clientEmail: clientEmail.trim(),
         date: new Date().toLocaleDateString('en-GB'),
@@ -174,10 +175,10 @@ const InvoiceGenerator = () => {
         taxRate,
         taxAmount: calculateTax(),
         total: calculateTotal(),
-      }, true); // preview = true      
+      }, true); // preview = true
     } catch (error) {
       console.error(error);
-      showToast.error('Failed to generate invoice preview');
+      showToast.error('Failed to generate preview');
     } finally {
       setIsGenerating(false);
     }
@@ -194,8 +195,8 @@ const InvoiceGenerator = () => {
     }
     setIsGenerating(true);
     try {
-      await generateInvoicePDF({
-        invoiceNumber,
+      await generateDeliveryNotePDF({
+        deliveryNumber,
         clientName: clientName.trim(),
         clientEmail: clientEmail.trim(),
         date: new Date().toLocaleDateString('en-GB'),
@@ -213,18 +214,19 @@ const InvoiceGenerator = () => {
         taxRate,
         taxAmount: calculateTax(),
         total: calculateTotal(),
-      }, false); // download
-      showToast.success('Invoice downloaded');
+      }, false);
+      showToast.success('Delivery note downloaded');
     } catch (error) {
       console.error(error);
-      showToast.error('Failed to download invoice');
+      showToast.error('Failed to download delivery note');
     } finally {
       setIsGenerating(false);
     }
   };
 
+  // Render UI – includes Load Draft and Clear Draft buttons
   return (
-    <div className="invoice-generator">
+    <div className="delivery-note-generator">
       <div className="row mb-4">
         <div className="col-md-6">
           <label className="form-label fw-bold">Client Name *</label>
@@ -250,12 +252,12 @@ const InvoiceGenerator = () => {
 
       <div className="row mb-4">
         <div className="col-md-6">
-          <label className="form-label fw-bold">Invoice Number</label>
+          <label className="form-label fw-bold">Delivery Note Number</label>
           <input
             type="text"
             className="form-control"
-            value={invoiceNumber}
-            onChange={(e) => setInvoiceNumber(e.target.value)}
+            value={deliveryNumber}
+            onChange={(e) => setDeliveryNumber(e.target.value)}
           />
         </div>
         <div className="col-md-6">
@@ -296,6 +298,7 @@ const InvoiceGenerator = () => {
         </div>
       </div>
 
+      {/* Items Table */}
       <div className="table-responsive mb-4">
         <table className="table table-bordered">
           <thead className="table-light">
@@ -316,7 +319,7 @@ const InvoiceGenerator = () => {
                     className="form-control"
                     value={item.description}
                     onChange={(e) => updateItem(idx, 'description', e.target.value)}
-                    placeholder="Item / service description"
+                    placeholder="Item / product description"
                   />
                 </td>
                 <td>
@@ -390,7 +393,7 @@ const InvoiceGenerator = () => {
               </tr>
             )}
             <tr className="table-primary">
-              <td colSpan="3" className="text-end fw-bold">Total Amount Due:</td>
+              <td colSpan="3" className="text-end fw-bold">Total Amount:</td>
               <td className="text-end fw-bold">
                 {calculateTotal().toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </td>
@@ -400,6 +403,7 @@ const InvoiceGenerator = () => {
         </table>
       </div>
 
+      {/* Action Buttons with Draft Support */}
       <div className="d-flex flex-wrap gap-2 justify-content-end">
         <button type="button" className="btn btn-secondary" onClick={addItem}>
           <i className="fas fa-plus me-2"></i>Add Item
@@ -411,20 +415,20 @@ const InvoiceGenerator = () => {
         )}
         <button type="button" className="btn btn-outline-danger" onClick={clearDraft}>
           <i className="fas fa-trash me-2"></i>Clear Draft
-        </button>       
-        <button className="btn btn-primary" onClick={handleGeneratePreview} disabled={isGenerating}>
+        </button>
+        <button className="btn btn-primary" onClick={handlePreview} disabled={isGenerating}>
           {isGenerating ? (
             <><span className="spinner-border spinner-border-sm me-2"></span>Generating...</>
           ) : (
-            <><i className="fas fa-eye me-2"></i>Generate & Preview</>
+            <><i className="fas fa-eye me-2"></i>Preview Delivery</>
           )}
         </button>
-         <button className="btn btn-success" onClick={handleDownload} disabled={isGenerating}>
-          <i className="fas fa-download me-2"></i>Download PDF
-        </button>
+        <button className="btn btn-success" onClick={handleDownload} disabled={isGenerating}>
+          <i className="fas fa-download me-2"></i>Download Delivery PDF
+        </button>        
       </div>
     </div>
   );
 };
 
-export default InvoiceGenerator;
+export default DeliveryNoteGenerator;

@@ -778,7 +778,7 @@ def claim_ownership():
 
 @admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director','secretary','head_of_it'])
 def process_topup(loan_id):
     try:
         data             = request.json

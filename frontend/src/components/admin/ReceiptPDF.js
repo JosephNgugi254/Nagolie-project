@@ -28,7 +28,7 @@ const COLORS = {
 };
 
 // ========== OPTIMIZED WATERMARK FUNCTION ==========
-const addOptimizedWatermark = (doc, type = 'agreement') => {
+export const addOptimizedWatermark = (doc, type = 'agreement') => {
   const totalPages = doc.getNumberOfPages();
   const DOC_LABELS = {
     receipt: 'RECEIPT',
@@ -36,7 +36,9 @@ const addOptimizedWatermark = (doc, type = 'agreement') => {
     agreement: 'AGREEMENT',
     investor: 'INVESTMENT AGREEMENT',
     letter: 'LETTER',
-    leaveForm: 'LEAVE REQUEST'
+    leaveForm: 'LEAVE REQUEST',
+    document: 'DOCUMENT',
+    deliveryNote: 'DELIVERY NOTE'
   };
   const docType = DOC_LABELS[type] || 'DOCUMENT';
   
@@ -136,7 +138,7 @@ const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
 };
 
 // Helper to fetch logo as base64 with proper dimensions
-const getLogoBase64 = async (url) => {
+export const getLogoBase64 = async (url) => {
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error('Logo fetch failed');
@@ -153,7 +155,7 @@ const getLogoBase64 = async (url) => {
 };
 
 // Common header function for all PDFs
-const addHeader = async (doc, yStart = 15) => {
+export const addHeader = async (doc, yStart = 15) => {
   const logoBase64 = await getLogoBase64(COMPANY_INFO.logoUrl);
   let yPos = yStart;
   
@@ -183,7 +185,7 @@ const addHeader = async (doc, yStart = 15) => {
 };
 
 // ========== PAGE NUMBER FUNCTION FOR AGREEMENTS ==========
-const addPageNumbers = (doc, format = 'page %d') => {
+export const addPageNumbers = (doc, format = 'page %d') => {
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
@@ -198,7 +200,7 @@ const addPageNumbers = (doc, format = 'page %d') => {
 };
 
 // Common divider function
-const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
+export const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
   doc.setLineWidth(0.5);
   doc.setDrawColor(...color);
   doc.line(20, yPos, 190, yPos);
@@ -1720,7 +1722,7 @@ const getTransactionReference = (transaction) => {
   }
 };
 
-const addFooter = (doc, yPos) => {
+export const addFooter = (doc, yPos) => {
   if (yPos > 270) return;
   const footerY = Math.min(yPos + 20, 270);
   doc.setTextColor(...COLORS.textLight);
@@ -5721,3 +5723,169 @@ export const generateManualLeaveRequestPDF = async () => {
   const fileName = `Manual_Leave_Request_${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(fileName);
 };
+
+
+// ========== DELIVERY NOTE PDF ==========
+export const generateDeliveryNotePDF = async (data, preview = false) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'deliveryNote');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('DELIVERY NOTE', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  // Delivery Note Number and Date
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Delivery Note No: ${data.deliveryNumber}`, 20, yPos);
+  doc.text(`Date: ${data.date}`, 150, yPos);
+  yPos += 8;
+  doc.text(`Client: ${data.clientName}`, 20, yPos);
+  if (data.clientEmail) {
+    yPos += 5;
+    doc.text(`Email: ${data.clientEmail}`, 20, yPos);
+  }
+  yPos += 12;
+
+  // Table headers
+  const startX = 20;
+  const colWidths = [70, 25, 35, 40];
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.rect(startX, yPos, 170, 8, 'F');
+  doc.text('Description', startX + 2, yPos + 5.5);
+  doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
+  doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
+  doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
+  yPos += 8;
+
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+  // Table drawing loop with text wrapping
+  data.items.forEach((item, idx) => {
+    // Split description into lines that fit in column width
+    const descLines = doc.splitTextToSize(item.description, colWidths[0] - 4);
+    const lineCount = descLines.length;
+    const rowHeight = 7 * lineCount; // each line takes ~7 units
+
+    // Check page break
+    if (yPos + rowHeight > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'deliveryNote');
+      yPos = 20;
+      // Re‑draw table header on new page
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.setTextColor(...COLORS.white);
+      doc.setFont('helvetica', 'bold');
+      doc.rect(startX, yPos, 170, 8, 'F');
+      doc.text('Description', startX + 2, yPos + 5.5);
+      doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
+      doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
+      doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
+      yPos += 8;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    }
+
+    // Alternate row background
+    if (idx % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, yPos, 170, rowHeight, 'F');
+    }
+
+    // Draw description lines
+    let descY = yPos + 4.5;
+    descLines.forEach(line => {
+      doc.text(line, startX + 2, descY);
+      descY += 7;
+    });
+
+    // Quantity (single line, centered vertically)
+    const qtyY = yPos + (rowHeight / 2) + 2;
+    doc.text(item.quantity.toString(), startX + colWidths[0] + 2, qtyY);
+
+    // Unit Price
+    doc.text(formatCurrency(item.unitPrice), startX + colWidths[0] + colWidths[1] + 2, qtyY);
+
+    // Total
+    doc.text(formatCurrency(item.total), startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, qtyY);
+
+    yPos += rowHeight;
+  });
+
+  yPos += 5;
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Subtotal: ${formatCurrency(data.subtotal)}`, 140, yPos);
+  yPos += 6;
+  if (data.discountAmount > 0) {
+    doc.text(`Discount: -${formatCurrency(data.discountAmount)}`, 140, yPos);
+    yPos += 6;
+  }
+  if (data.taxRate > 0) {
+    doc.text(`Tax (${data.taxRate}%): ${formatCurrency(data.taxAmount)}`, 140, yPos);
+    yPos += 6;
+  }
+  doc.setFontSize(12);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text(`Total: ${formatCurrency(data.total)}`, 140, yPos);
+
+  // Signature section – ensure enough space
+  yPos += 15;
+  if (yPos > 260) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'deliveryNote');
+    yPos = 20;
+  }
+
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('DELIVERY CONFIRMATION', 105, yPos, { align: 'center' });
+  yPos += 10;
+
+  doc.setFontSize(12);
+  doc.setTextColor(...COLORS.textDark);
+
+  // Client signature
+  doc.setFont('helvetica', 'bold');
+  doc.text('Client:', 30, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text(data.clientName, 70, yPos);
+  doc.text('Signature: ___________________', 130, yPos);
+  yPos += 12;
+
+  // Director signature
+  doc.setFont('helvetica', 'bold');
+  doc.text('Director:', 30, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('SHADRACK KESUMET', 70, yPos);
+  doc.text('Signature: ___________________', 130, yPos);
+  yPos += 12;  
+
+  // Date line for both
+  doc.text('Date: ___________________', 30, yPos);
+  doc.text('Date: ___________________', 130, yPos);
+
+  // Footer
+  addFooter(doc, yPos + 15);
+  addPageNumbers(doc, 'page %d');
+
+  if (preview) {
+    const pdfBlob = doc.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    window.open(url, '_blank');
+    URL.revokeObjectURL(url);
+  } else {
+    const fileName = `DeliveryNote_${data.deliveryNumber}.pdf`;
+    doc.save(fileName);
+  }
+};
+
+export { COMPANY_INFO, COLORS };

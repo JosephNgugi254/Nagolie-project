@@ -5,7 +5,7 @@ import {
   generateManualLoanAgreementPDF,
   generateManualNextOfKinConsentPDF,
   generateManualLoanRenewalAgreementPDF,
-  generateManualLoanWaiverAgreementPDF,   // <-- ADD THIS
+  generateManualLoanWaiverAgreementPDF,   
   generateLetterPDF,
   downloadLetterPDF,
   generateInvoicePDF,
@@ -17,6 +17,9 @@ import { useAuth } from '../../context/AuthContext';
 import LetterWriter from './LetterWriter';
 import InvoiceGenerator from './InvoiceGenerator';
 import LeaveRequestWriter from './LeaveRequestWriter';
+import DocumentGenerator from './DocumentGenerator';
+import DeliveryNoteGenerator from './DeliveryNoteGenerator'; 
+
 
 const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
   const { user } = useAuth();
@@ -77,6 +80,26 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                   onClick={() => setActiveTab('letter')}
                 >
                   <i className="fas fa-pen-fancy me-2"></i>Letter Writer
+                </button>
+              </li>
+            )}
+            {canAccessLetter && (
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'document' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('document')}
+                >
+                  <i className="fas fa-file-alt me-2"></i>Document Generator
+                </button>
+              </li>
+            )}
+            {canAccessInvoice && (  // or canAccessFull – your decision
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'delivery' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('delivery')}
+                >
+                  <i className="fas fa-truck me-2"></i>Delivery Note
                 </button>
               </li>
             )}
@@ -211,12 +234,20 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
               <LetterWriter userRole={user} />
             )}
 
+            {activeTab === 'delivery' && canAccessInvoice && (
+              <DeliveryNoteGenerator />
+            )}
+
             {activeTab === 'invoice' && canAccessInvoice && (
               <InvoiceGenerator />
             )}
 
             {activeTab === 'leave' && (
               <LeaveRequestWriter user={user} />
+            )}
+
+            {activeTab === 'document' && canAccessLetter && (
+              <DocumentGenerator userRole={user} />
             )}
           </div>
         </div>
