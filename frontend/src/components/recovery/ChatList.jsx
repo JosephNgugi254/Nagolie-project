@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { recoveryAPI } from '../../services/api';
 
-function ChatList({ isOpen, onClose, onSelectUser }) {
+function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [unreadCounts, setUnreadCounts] = useState({});
@@ -62,7 +62,23 @@ function ChatList({ isOpen, onClose, onSelectUser }) {
                 <i className="fas fa-user-circle"></i>
               </div>
               <div className="chat-info">
-                <div className="chat-name">{user.username}</div>
+                <div className="chat-name">
+                  {user.username}
+                  {onlineUsers.has(user.id) && (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        backgroundColor: '#4caf50',
+                        marginLeft: 8,
+                        verticalAlign: 'middle',
+                      }}
+                      title="Online"
+                    />
+                  )}
+                </div>
                 <div className="chat-role">{user.role}</div>
               </div>
               {unreadCounts[user.id] > 0 && (

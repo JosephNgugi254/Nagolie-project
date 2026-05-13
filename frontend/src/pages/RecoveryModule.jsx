@@ -6,6 +6,7 @@ import { userAPI } from '../services/api';
 import { adminAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
+import { io } from 'socket.io-client';
 import { 
  generateTransactionReceipt,
  generateClientStatement,
@@ -51,6 +52,11 @@ function RecoveryModule() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth();
   const navigate = useNavigate();
   useSessionTimeout(logout, isAuthenticated, userRole);
+
+  // socket states
+  const [socket, setSocket] = useState(null);
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const socketRef = useRef(null);
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL ||
     (window.location.hostname === 'localhost'
@@ -1308,11 +1314,13 @@ function RecoveryModule() {
     const timer = setInterval(() => setCurrentDateTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
   useEffect(() => {
     const h = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', h);
     return () => window.removeEventListener('resize', h);
   }, []);
+
   useEffect(() => {
     window.history.replaceState({ recovery: true }, '', window.location.href);
     window.history.pushState({ recovery: true }, '', window.location.href);
@@ -1327,6 +1335,7 @@ function RecoveryModule() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [openChatWindows.length]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!isAuthenticated()) { navigate('/login'); return; }
@@ -1384,7 +1393,58 @@ function RecoveryModule() {
     return () => clearInterval(applicationInterval);
   }, [directorSection, userRole, isInvestorSectionAuthenticated]);
 
-  if (loading) {
+  // Global Socket.IO connection for online status & chat
+  useEffect(() => {
+    // Only connect if user is authenticated and not already connected
+    if (!isAuthenticated() || socketRef.current) return;
+
+    const socketUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    console.log('[Global Socket] Connecting to:', socketUrl);
+    const newSocket = io(socketUrl, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      query: { token },
+    });
+
+    newSocket.on('connect', () => {
+      console.log('[Global Socket] Connected');
+      // Join the user's personal room (already handled on server)
+    });
+
+    newSocket.on('user_online', (data) => {
+      console.log('[Global Socket] User online:', data.user_id);
+      setOnlineUsers(prev => new Set([...prev, data.user_id]));
+    });
+
+    newSocket.on('user_offline', (data) => {
+      console.log('[Global Socket] User offline:', data.user_id);
+      setOnlineUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(data.user_id);
+        return newSet;
+      });
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('[Global Socket] Disconnected');
+    });
+
+    socketRef.current = newSocket;
+    setSocket(newSocket);
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [isAuthenticated]);
+
+   if (loading) {
     return (
       <div className="text-center py-5">
         <div className="spinner-border text-primary" role="status">
@@ -2821,6 +2881,7 @@ function RecoveryModule() {
         isOpen={showChatList}
         onClose={() => setShowChatList(false)}
         onSelectUser={handleSelectUser}
+        onlineUsers={onlineUsers}
       />
 
       {openChatWindows.map((cu, i) => (
@@ -2830,6 +2891,8 @@ function RecoveryModule() {
           onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))}
           onNewMessage={fetchUnreadCount}
           style={getChatStyle(i)}
+          globalSocket={socket}          
+          onlineUsers={onlineUsers} 
         />
       ))}
 

@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import EmojiPicker from 'emoji-picker-react';
-import { io } from 'socket.io-client';
 
-function ChatWindow({ user, onClose, onNewMessage, style }) {
+function ChatWindow({ user, onClose, onNewMessage, style, globalSocket }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -32,60 +31,41 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
     return null;
   };
 
-  const getSocketUrl = () => {
-    const apiBase = import.meta.env.VITE_API_BASE_URL;
-    if (apiBase) {
-      return apiBase.replace(/\/api\/?$/, '');
-    }
-    return window.location.origin;
-  };
+  // ─── Viewport resize (mobile keyboard) ────────────────────────────────────
+  useEffect(() => {
+    if (!windowRef.current) return;
+    const handleResize = () => {
+      if (windowRef.current) {
+        windowRef.current.style.height = `${window.visualViewport?.height || window.innerHeight}px`;
+      }
+    };
+    window.visualViewport?.addEventListener('resize', handleResize);
+    return () => window.visualViewport?.removeEventListener('resize', handleResize);
+  }, []);
 
-  // ─── Socket setup ──────────────────────────────────────────────────────────
-   useEffect(() => {
-    // Build base URL without /api
-    const socketUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
-    const token = localStorage.getItem('token');
-    
-    // If no token, don't connect (user not logged in)
-    if (!token) {
-      console.warn('No token found, skipping socket connection');
-      return;
-    }
+  // ─── Use global socket for real‑time events ────────────────────────────────
+  useEffect(() => {
+    const socket = globalSocket;
+    if (!socket) return;
   
-    console.log('Socket connecting to:', socketUrl);
-    console.log('Token (first 20 chars):', token.substring(0, 20) + '...');
-  
-    const socket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      // ✅ Send token as query parameter – that's what server's get_user_from_token() reads
-      query: { token: token },
-      // Optional: add a timeout for the initial connection
-      timeout: 10000,
-    });
-  
+    // Store the global socket in a ref for easy access in sendMessage
     socketRef.current = socket;
+    setSocketConnected(socket.connected);
   
-    socket.on('connect', () => {
-      console.log('Socket connected successfully');
+    // Define event handlers
+    const handleConnect = () => {
+      console.log('[ChatWindow] Socket connected');
       setSocketConnected(true);
-      // Notify server that this client is ready for a specific chat
+      // Notify server which chat room we are in
       socket.emit('join_chat', { other_user_id: user.id });
-    });
+    };
   
-    socket.on('disconnect', () => {
-      console.log('Socket disconnected');
+    const handleDisconnect = () => {
+      console.log('[ChatWindow] Socket disconnected');
       setSocketConnected(false);
-    });
+    };
   
-    socket.on('connect_error', (err) => {
-      console.error('Socket connection error:', err.message);
-      setSocketConnected(false);
-    });
-  
-    socket.on('new_message', (data) => {
+    const handleNewMessage = (data) => {
       const newMsg = data.message;
       const currentId = getCurrentUserId();
       if (
@@ -98,40 +78,46 @@ function ChatWindow({ user, onClose, onNewMessage, style }) {
           markMessageAsRead(newMsg.id);
         }
       }
-    });
+    };
   
-    socket.on('message_status_update', (data) => {
+    const handleMessageStatusUpdate = (data) => {
       setMessages(prev =>
         prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg)
       );
-    });
+    };
   
-    socket.on('message_sent', (data) => {
+    const handleMessageSent = (data) => {
       setMessages(prev =>
         prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg)
       );
       setSending(false);
-    });
+    };
   
-    // Cleanup on unmount or when user changes
+    // Register listeners
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('new_message', handleNewMessage);
+    socket.on('message_status_update', handleMessageStatusUpdate);
+    socket.on('message_sent', handleMessageSent);
+  
+    // If the socket is already connected, join the chat room immediately
+    if (socket.connected) {
+      socket.emit('join_chat', { other_user_id: user.id });
+    }
+  
+    // Cleanup: remove listeners when component unmounts or socket changes
     return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('new_message', handleNewMessage);
+      socket.off('message_status_update', handleMessageStatusUpdate);
+      socket.off('message_sent', handleMessageSent);
+      // Optionally leave the room
+      if (socket.connected) {
+        socket.emit('leave_chat', { other_user_id: user.id });
       }
     };
-  }, [user.id]);
-
-  // ─── Viewport resize (mobile keyboard) ────────────────────────────────────
-  useEffect(() => {
-    if (!windowRef.current) return;
-    const handleResize = () => {
-      if (windowRef.current) {
-        windowRef.current.style.height = `${window.visualViewport?.height || window.innerHeight}px`;
-      }
-    };
-    window.visualViewport?.addEventListener('resize', handleResize);
-    return () => window.visualViewport?.removeEventListener('resize', handleResize);
-  }, []);
+  }, [globalSocket, user.id]);
 
   // ─── Mark read ─────────────────────────────────────────────────────────────
   const markMessageAsRead = async (messageId) => {
