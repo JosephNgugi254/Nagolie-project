@@ -1309,6 +1309,8 @@ function RecoveryModule() {
   const isMobile = window.innerWidth <= 991.98;
   const mobileChat = isMobile && openChatWindows.length > 0;
 
+  const disconnectTimeouts = useRef({});
+
   // ---------- Effects ----------
   useEffect(() => {
     const timer = setInterval(() => setCurrentDateTime(new Date()), 1000);
@@ -1407,6 +1409,9 @@ function RecoveryModule() {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      pingInterval: 25000,
+      pingTimeout: 60000,
       query: { token },
     });
 
@@ -1417,16 +1422,28 @@ function RecoveryModule() {
 
     newSocket.on('user_online', (data) => {
       console.log('[Global Socket] User online:', data.user_id);
+      if (disconnectTimeouts.current[data.user_id]) {
+        clearTimeout(disconnectTimeouts.current[data.user_id]);
+        delete disconnectTimeouts.current[data.user_id];
+      }
       setOnlineUsers(prev => new Set([...prev, data.user_id]));
     });
 
     newSocket.on('user_offline', (data) => {
       console.log('[Global Socket] User offline:', data.user_id);
-      setOnlineUsers(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(data.user_id);
-        return newSet;
-      });
+      // Delay removal to avoid flickering on temporary disconnects
+      if (disconnectTimeouts.current[data.user_id]) {
+        clearTimeout(disconnectTimeouts.current[data.user_id]);
+      }
+      const timeout = setTimeout(() => {
+        setOnlineUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(data.user_id);
+          return newSet;
+        });
+        delete disconnectTimeouts.current[data.user_id];
+      }, 10000); // 10 seconds grace period
+      disconnectTimeouts.current[data.user_id] = timeout;
     });
 
     newSocket.on('disconnect', () => {

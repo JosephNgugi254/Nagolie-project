@@ -6,7 +6,12 @@ from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
-socketio = SocketIO(cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(
+    cors_allowed_origins="*",
+    async_mode='eventlet',
+    ping_interval=25,   # send a ping every 25 seconds
+    ping_timeout=60     # wait 60 seconds before considering connection dead
+)
 online_users = set()
 
 def get_chat_room(user1_id, user2_id):
