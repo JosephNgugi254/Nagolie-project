@@ -38,7 +38,8 @@ export const addOptimizedWatermark = (doc, type = 'agreement') => {
     letter: 'LETTER',
     leaveForm: 'LEAVE REQUEST',
     document: 'DOCUMENT',
-    deliveryNote: 'DELIVERY NOTE'
+    deliveryNote: 'DELIVERY NOTE',
+    invoice: 'INVOICE'
   };
   const docType = DOC_LABELS[type] || 'DOCUMENT';
   
@@ -184,6 +185,29 @@ export const addHeader = async (doc, yStart = 15) => {
   return yPos;
 };
 
+// Common divider function
+export const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
+  doc.setLineWidth(0.5);
+  doc.setDrawColor(...color);
+  doc.line(20, yPos, 190, yPos);
+  return yPos + 8;
+};
+
+// Helper to calculate current week/day number for a loan
+const getLoanPeriod = (disbursementDate, repaymentPlan) => {
+  if (!disbursementDate) return 'N/A';
+  const start = new Date(disbursementDate);
+  const now = new Date();
+  const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+  if (repaymentPlan === 'daily') {
+    const dayNum = diffDays + 1;
+    return `Day ${dayNum}`;
+  } else {
+    const weekNum = Math.floor(diffDays / 7) + 1;
+    return `Week ${weekNum}`;
+  }
+};
+
 // ========== PAGE NUMBER FUNCTION FOR AGREEMENTS ==========
 export const addPageNumbers = (doc, format = 'page %d') => {
   const totalPages = doc.getNumberOfPages();
@@ -199,12 +223,455 @@ export const addPageNumbers = (doc, format = 'page %d') => {
   }
 };
 
-// Common divider function
-export const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
-  doc.setLineWidth(0.5);
-  doc.setDrawColor(...color);
-  doc.line(20, yPos, 190, yPos);
-  return yPos + 10;
+// Helper function to write lines with mixed styles without overlapping
+const writeStyledLine = (doc, parts, x, y, fontSize = 10) => {
+  let currentX = x;
+  const originalFontSize = doc.internal.getFontSize();
+  const originalFont = doc.getFont();
+  
+  parts.forEach(part => {
+    doc.setFont('helvetica', part.style);
+    doc.setFontSize(fontSize);
+    const text = part.text;
+    doc.text(text, currentX, y);
+    currentX += doc.getTextWidth(text);
+  });
+  
+  // Restore original font
+  doc.setFont(originalFont.fontName, originalFont.fontStyle);
+  doc.setFontSize(originalFontSize);
+};
+
+// Helper Functions
+const formatTransactionType = (type, paymentType) => {
+  if (!type) return 'N/A';
+  const typeLower = type.toLowerCase();
+  const paymentTypeLower = paymentType ? paymentType.toLowerCase() : '';
+  // Handle payment types specifically
+  if (typeLower === 'payment') {
+    if (paymentTypeLower === 'principal') return 'Principal Payment';
+    if (paymentTypeLower === 'interest') return 'Interest Payment';
+    return 'Payment';
+  }
+  const typeMap = {
+    'topup': 'Top-up',
+    'adjustment': 'Adjustment',
+    'payment': 'Payment',
+    'disbursement': 'Disbursement',
+    'claim': 'Claim'
+  };
+  return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
+};
+
+const formatPaymentMethod = (method, transactionType = '') => {
+  if (!method && !transactionType) return 'N/A';
+ 
+  // If transaction type is disbursement, return BANK
+  if ((transactionType || '').toLowerCase() === 'disbursement') {
+    return 'BANK';
+  }
+ 
+  const methodUpper = method ? method.toUpperCase() : '';
+  if (methodUpper === 'DISBURSEMENT') return 'BANK';
+  return methodUpper || 'N/A';
+};
+
+const formatStatus = (status) => {
+  if (!status) return 'N/A';
+  return status.charAt(0).toUpperCase() + status.slice(1);
+};
+
+const getTransactionReference = (transaction) => {
+  const method = (transaction.method || '').toUpperCase();
+  const paymentType = transaction.payment_type || transaction.paymentType || '';
+  const transactionType = (transaction.type || '').toLowerCase();
+  // If transaction type is disbursement, return BANK
+  if (transactionType === 'disbursement') {
+    return 'BANK';
+  }
+  if (method === 'MPESA' && transaction.mpesa_receipt) {
+    // Include payment type in M-Pesa reference
+    if (paymentType) {
+      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
+      return `${transaction.mpesa_receipt}`;
+    }
+    return transaction.mpesa_receipt;
+  } else if (method === 'CASH') {
+    // Include payment type in cash reference
+    if (paymentType) {
+      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
+      return `CASH`;
+    }
+    return 'CASH';
+  } else if (method === 'DISBURSEMENT') {
+    // Handle disbursement as Bank reference
+    return 'BANK';
+  } else {
+    // Include payment type in generic reference
+    if (paymentType) {
+      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
+      return `${paymentTypeFormatted} Payment - TXN-${transaction.id}`;
+    }
+    return `TXN-${transaction.id}`;
+  }
+};
+
+export const addFooter = (doc, yPos) => {
+  if (yPos > 270) return;
+  const footerY = Math.min(yPos + 20, 270);
+  doc.setTextColor(...COLORS.textLight);
+  doc.setFontSize(8);
+  doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`, 20, footerY);
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFontSize(9);
+  doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 10, { align: 'center' });
+};
+
+// Helper function to get first return date (14 days from agreement date)
+function getFirstReturnDate(date) {
+  const firstReturnDate = new Date(date);
+  firstReturnDate.setDate(firstReturnDate.getDate() + 35);
+  
+  // Adjust to next weekday if it lands on a weekend
+  if (firstReturnDate.getDay() === 6) { // Saturday
+    firstReturnDate.setDate(firstReturnDate.getDate() + 2);
+  } else if (firstReturnDate.getDay() === 0) { // Sunday
+    firstReturnDate.setDate(firstReturnDate.getDate() + 1);
+  }
+  
+  return firstReturnDate;
+}
+
+// Helper function to get subsequent return dates (7 days from return)
+function getNextReturnDate(date) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 28);
+  
+  // Adjust to next weekday if it lands on a weekend
+  if (nextDate.getDay() === 6) { // Saturday
+    nextDate.setDate(nextDate.getDate() + 2);
+  } else if (nextDate.getDay() === 0) { // Sunday
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+  
+  return nextDate;
+}
+
+// Helper function to get next weekday
+function getNextWeekday(date) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 7);
+  
+  // If it's a weekend (Saturday = 6, Sunday = 0), move to Monday
+  if (nextDate.getDay() === 6) { // Saturday
+    nextDate.setDate(nextDate.getDate() + 2);
+  } else if (nextDate.getDay() === 0) { // Sunday
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+  
+  return nextDate;
+}
+
+const computeRunningBalances = (loan, transactions) => {
+  const isWeekly = loan.repayment_plan === 'weekly';
+  const originalPrincipal = loan.borrowedAmount || 0;
+  const disbursementDate = new Date(loan.borrowedDate || loan.disbursement_date);
+
+  // Use backend’s current state as the baseline (already includes all interest up to now)
+  let currentPrincipal = loan.currentPrincipal || originalPrincipal;
+  let accruedInterest = Number(loan.unpaidInterest) || Number(loan.accrued_interest) || 0;
+  let interestAdded = isWeekly ? Math.max(0, currentPrincipal - originalPrincipal) : accruedInterest;
+
+  // Sort transactions oldest first
+  const sortedReal = [...transactions].sort(
+    (a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at)
+  );
+
+  const result = [];
+
+  // Helper: get period label (week/day)
+  const getPeriod = (date) => {
+    const daysSince = Math.floor((date - disbursementDate) / (1000 * 60 * 60 * 24));
+    if (isWeekly) {
+      const week = Math.floor(daysSince / 7) + 1;
+      return `Week ${week}`;
+    } else {
+      return `Day ${daysSince + 1}`;
+    }
+  };
+
+  // --- Disbursement entry (no interest accrual needed) ---
+  result.push({
+    date: disbursementDate,
+    type: 'disbursement',
+    method: 'BANK',
+    amount: originalPrincipal,
+    principalBalance: originalPrincipal,
+    interestBalance: 0,
+    totalBalance: originalPrincipal,
+    period: getPeriod(disbursementDate),
+    payment_type: null,
+    reference: 'BANK'
+  });
+
+  // --- Process each transaction, updating balances exactly as the backend does ---
+  for (const txn of sortedReal) {
+    const amount = txn.amount || 0;
+    const txnType = txn.type;
+    let newPrincipal = currentPrincipal;
+    let newInterest = isWeekly ? interestAdded : accruedInterest;
+
+    // Apply transaction EXACTLY as in backend's _apply_payment
+    if (txnType === 'payment') {
+      if (isWeekly) {
+        // Weekly: payment reduces principal directly
+        newPrincipal = Math.max(0, currentPrincipal - amount);
+        newInterest = Math.max(0, newPrincipal - originalPrincipal);
+      } else {
+        // Daily: clear interest first, then principal
+        if (accruedInterest >= amount) {
+          newInterest = accruedInterest - amount;
+          newPrincipal = currentPrincipal;
+        } else {
+          const remainder = amount - accruedInterest;
+          newInterest = 0;
+          newPrincipal = Math.max(0, currentPrincipal - remainder);
+        }
+      }
+    } else if (txnType === 'topup' || txnType === 'adjustment') {
+      newPrincipal = currentPrincipal + amount;
+      if (isWeekly) newInterest = newPrincipal - originalPrincipal;
+    } else if (txnType === 'renewal') {
+      newPrincipal = amount;
+      if (isWeekly) newInterest = newPrincipal - originalPrincipal;
+      else newInterest = 0;
+    } else if (txnType === 'waiver') {
+      newPrincipal = Math.max(0, currentPrincipal - amount);
+      if (isWeekly) newInterest = newPrincipal - originalPrincipal;
+    }
+    // other types (claim, etc.) ignored
+
+    // Update running variables
+    currentPrincipal = newPrincipal;
+    if (isWeekly) interestAdded = newInterest;
+    else accruedInterest = newInterest;
+
+    // Store the transaction with balances AFTER the transaction
+    result.push({
+      date: new Date(txn.date || txn.created_at),
+      type: txnType,
+      method: txn.method,
+      amount: amount,
+      principalBalance: currentPrincipal,
+      interestBalance: isWeekly ? interestAdded : accruedInterest,
+      totalBalance: currentPrincipal + (isWeekly ? 0 : accruedInterest),
+      period: getPeriod(new Date(txn.date || txn.created_at)),
+      payment_type: txn.payment_type,
+      reference: getTransactionReference(txn)
+    });
+  }
+
+  return {
+    transactions: result,
+    currentPrincipal: currentPrincipal,
+    currentInterest: isWeekly ? interestAdded : accruedInterest,
+    totalBalance: currentPrincipal + (isWeekly ? 0 : accruedInterest)
+  };
+};
+
+export const generateClientStatement = async (client, allTransactions) => {
+  try {
+    // Filter transactions for this loan
+    const clientTransactions = allTransactions.filter(t =>
+      t.loan_id === client.loan_id ||
+      (client.loan_id && t.loan_id === client.loan_id.toString())
+    );
+
+    // Compute running balances using the corrected function
+    const balances = computeRunningBalances(client, clientTransactions);
+    const transactionsWithBalances = balances.transactions;
+
+    const doc = new jsPDF();
+    addOptimizedWatermark(doc, 'statement');
+    let yPos = await addHeader(doc);
+
+    // Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CLIENT PAYMENT STATEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    yPos = addDivider(doc, yPos);
+
+    // Client Information
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CLIENT INFORMATION', 20, yPos);
+    yPos += 8;
+
+    const clientDetails = [
+      { label: 'Full Name:', value: client.name || 'N/A' },
+      { label: 'Phone Number:', value: client.phone || 'N/A' },
+      { label: 'ID Number:', value: String(client.idNumber || 'N/A') },
+      { label: 'Loan ID:', value: String(client.loan_id || 'N/A') }
+    ];
+
+    clientDetails.forEach(({ label, value }) => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(value), 60, yPos);
+      yPos += 6;
+    });
+    yPos += 10;
+
+    // Loan Summary (using computed final balances)
+    doc.setFont('helvetica', 'bold');
+    doc.text('LOAN SUMMARY', 20, yPos);
+    yPos += 8;
+
+    const principalAmount = client.borrowedAmount || 0;
+    const repaymentPlan = client.repayment_plan || 'weekly';
+    const interestRate = repaymentPlan === 'daily' ? 4.5 : 30;
+    const interestAmountKes = principalAmount * (interestRate / 100);
+    const expectedTotal = principalAmount + interestAmountKes;
+    const amountPaid = client.amountPaid || 0;
+    const finalPrincipal = balances.currentPrincipal;
+    const finalInterest = balances.currentInterest;
+
+    // ✅ For weekly plans, show total outstanding as principal + current week's interest
+    // (matches Client Management UI). For daily, show principal + unpaid accrued interest.
+    let totalOutstanding;
+    if (repaymentPlan === 'weekly') {
+      const currentWeekInterest = finalPrincipal * (interestRate / 100);
+      totalOutstanding = finalPrincipal + currentWeekInterest;
+    } else {
+      totalOutstanding = balances.totalBalance; // already principal + accrued interest
+    }
+
+    const loanDetails = [
+      { label: 'Principal Amount:', value: `KES ${principalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Interest Rate:', value: `${interestRate}% per ${repaymentPlan === 'daily' ? 'day' : 'week'} (KES ${interestAmountKes.toLocaleString('en-US', { minimumFractionDigits: 2 })})` },
+      { label: 'Expected Total:', value: `KES ${expectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Amount Paid:', value: `KES ${amountPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Outstanding Principal:', value: `KES ${finalPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Outstanding Interest:', value: `KES ${finalInterest.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Total Outstanding Balance:', value: `KES ${totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Disbursement Date:', value: client.borrowedDate ? new Date(client.borrowedDate).toLocaleDateString('en-GB') : 'N/A' },
+      { label: 'Due Date:', value: client.expectedReturnDate ? new Date(client.expectedReturnDate).toLocaleDateString('en-GB') : 'N/A' }
+    ];
+
+    loanDetails.forEach(({ label, value }) => {
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, 25, yPos);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(value), 75, yPos);
+      yPos += 6;
+    });
+    yPos += 15;
+
+    // Transaction History table (unchanged, works correctly)
+    if (transactionsWithBalances.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.text('TRANSACTION HISTORY', 20, yPos);
+      yPos += 10;
+
+      // Your exact column widths
+      const colWidths = {
+        date: 18, type: 25, method: 16, amount: 23,
+        principal: 23, interest: 23, total: 23, period: 20
+      };
+      const startX = 20;
+      const positions = [
+        startX,
+        startX + colWidths.date,
+        startX + colWidths.date + colWidths.type,
+        startX + colWidths.date + colWidths.type + colWidths.method,
+        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount,
+        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount + colWidths.principal,
+        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount + colWidths.principal + colWidths.interest,
+        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount + colWidths.principal + colWidths.interest + colWidths.total
+      ];
+
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.setTextColor(...COLORS.white);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.rect(startX, yPos, 170, 8, 'F');
+
+      const headers = ['Date', 'Type', 'Method', 'Amount', 'Principal', 'Interest', 'Total', 'Period'];
+      headers.forEach((h, idx) => {
+        doc.text(h, positions[idx] + 2, yPos + 5.5);
+      });
+      yPos += 8;
+
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+
+      // Sort by date (oldest first)
+      transactionsWithBalances.sort((a, b) => a.date - b.date).forEach((txn, idx) => {
+        const rowHeight = 7;
+        if (yPos + rowHeight > 270) {
+          doc.addPage();
+          addWatermarkToCurrentPage(doc, 'statement');
+          yPos = 20;
+          doc.setFillColor(...COLORS.primaryBlue);
+          doc.setTextColor(...COLORS.white);
+          doc.setFont('helvetica', 'bold');
+          doc.rect(startX, yPos, 170, 8, 'F');
+          headers.forEach((h, hidx) => {
+            doc.text(h, positions[hidx] + 2, yPos + 5.5);
+          });
+          yPos += 8;
+          doc.setTextColor(...COLORS.textDark);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+        }
+
+        if (idx % 2 === 0) {
+          doc.setFillColor(...COLORS.border);
+          doc.rect(startX, yPos, 170, rowHeight, 'F');
+        }
+
+        const formatMoney = (amt) => `KES ${amt.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+        const dateStr = txn.date.toLocaleDateString('en-GB');
+        const typeStr = formatTransactionType(txn.type, txn.payment_type);
+        const methodStr = formatPaymentMethod(txn.method, txn.type);
+        const amountStr = formatMoney(txn.amount);
+        const principalStr = formatMoney(txn.principalBalance);
+        const interestStr = formatMoney(txn.interestBalance);
+        const totalStr = formatMoney(txn.totalBalance);
+        const periodStr = txn.period;
+
+        doc.text(dateStr, positions[0] + 2, yPos + 4.5);
+        doc.text(typeStr, positions[1] + 2, yPos + 4.5);
+        doc.text(methodStr, positions[2] + 2, yPos + 4.5);
+        doc.text(amountStr, positions[3] + 2, yPos + 4.5);
+        doc.text(principalStr, positions[4] + 2, yPos + 4.5);
+        doc.text(interestStr, positions[5] + 2, yPos + 4.5);
+        doc.text(totalStr, positions[6] + 2, yPos + 4.5);
+        doc.text(periodStr, positions[7] + 2, yPos + 4.5);
+
+        yPos += rowHeight;
+      });
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(...COLORS.textLight);
+      doc.text('No transactions recorded yet.', 25, yPos);
+      yPos += 10;
+    }
+
+    addFooter(doc, yPos);
+    addPageNumbers(doc, 'page %d');
+
+    const fileName = `Statement_${client.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+  } catch (error) {
+    console.error('Error generating client statement:', error);
+    throw error;
+  }
 };
 
 // Generate Transaction Receipt PDF
@@ -284,194 +751,6 @@ export const generateTransactionReceipt = async (transaction) => {
     doc.save(`Transaction_Receipt_${transaction.id || Date.now()}.pdf`);
   } catch (error) {
     console.error('Error generating transaction receipt:', error);
-    throw error;
-  }
-};
-
-// Generate Client Statement PDF
-export const generateClientStatement = async (client, allTransactions) => {
-  try {
-    const clientTransactions = allTransactions.filter(t =>
-      t.loan_id === client.loan_id ||
-      (client.loan_id && t.loan_id === client.loan_id.toString())
-    );
-  
-    const doc = new jsPDF();
-    
-    // ADD OPTIMIZED WATERMARK FIRST
-    addOptimizedWatermark(doc, 'statement');
-    
-    let yPos = await addHeader(doc);
-  
-    // Title
-    doc.setTextColor(...COLORS.primaryBlue);
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CLIENT PAYMENT STATEMENT', 105, yPos, { align: 'center' });
-    yPos += 8;
-  
-    yPos = addDivider(doc, yPos);
-  
-    // Client Information Section
-    doc.setTextColor(...COLORS.textDark);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CLIENT INFORMATION', 20, yPos);
-    yPos += 8;
-  
-    const clientDetails = [
-      { label: 'Full Name:', value: client.name || 'N/A' },
-      { label: 'Phone Number:', value: client.phone || 'N/A' },
-      { label: 'ID Number:', value: String(client.idNumber || 'N/A') },
-      { label: 'Loan ID:', value: String(client.loan_id || 'N/A') }
-    ];
-  
-    clientDetails.forEach(({ label, value }) => {
-      doc.setFont('helvetica', 'bold');
-      doc.text(label, 25, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(value), 60, yPos);
-      yPos += 6;
-    });
-  
-    yPos += 10;
-  
-    // Loan Summary Section
-    doc.setFont('helvetica', 'bold');
-    doc.text('LOAN SUMMARY', 20, yPos);
-    yPos += 8;
-  
-    // Determine interest rate from repayment plan
-    const repaymentPlan = client.repayment_plan || 'weekly';   // default to weekly
-    const INTEREST_RATE = repaymentPlan === 'daily' ? 4.5 : 30;
-    const expectedAmount = (client.borrowedAmount || 0) * (1 + INTEREST_RATE / 100);
-
-    // --- Compute accurate remaining balance (especially for daily loans) ---
-    let accurateBalance = client.balance;  // fallback to provided balance
-    if (repaymentPlan === 'daily' && client.borrowedDate) {
-        const borrowedDate = new Date(client.borrowedDate);
-        const today = new Date();
-        const daysSince = Math.max(0, Math.floor((today - borrowedDate) / (1000 * 60 * 60 * 24)));
-        const dailyRate = 0.045;                     // 4.5% per day
-        const accruedInterest = (client.borrowedAmount || 0) * dailyRate * daysSince;
-        const totalDue = (client.borrowedAmount || 0) + accruedInterest;
-        accurateBalance = totalDue - (client.amountPaid || 0);
-        accurateBalance = Math.max(0, accurateBalance);   // never negative
-    }
-
-    const loanDetails = [
-      { label: 'Principal Amount:', value: `KES ${Number(client.borrowedAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Interest Rate:', value: `${INTEREST_RATE}%` },
-      { label: 'Expected Total:', value: `KES ${expectedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Amount Paid:', value: `KES ${Number(client.amountPaid || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Remaining Balance:', value: `KES ${accurateBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Disbursement Date:', value: client.borrowedDate ? new Date(client.borrowedDate).toLocaleDateString('en-GB') : 'N/A' },
-      { label: 'Due Date:', value: client.expectedReturnDate ? new Date(client.expectedReturnDate).toLocaleDateString('en-GB') : 'N/A' }
-    ];
-  
-    loanDetails.forEach(({ label, value }) => {
-      doc.setFont('helvetica', 'bold');
-      doc.text(label, 25, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(value), 75, yPos);
-      yPos += 6;
-    });
-  
-    yPos += 15;
-  
-    // Transaction History Section
-    if (clientTransactions.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('TRANSACTION HISTORY', 20, yPos);
-      yPos += 10;
-    
-      const sortedTransactions = [...clientTransactions].sort((a, b) =>
-        new Date(b.date || b.createdAt || b.created_at) - new Date(a.date || a.createdAt || a.created_at)
-      );
-    
-      // Table headers with background (bold)
-      doc.setFillColor(...COLORS.primaryBlue);
-      doc.setTextColor(...COLORS.white);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.rect(20, yPos, 170, 8, 'F');
-      doc.text('Date', 25, yPos + 5.5);
-      doc.text('Type', 55, yPos + 5.5);
-      doc.text('Method', 85, yPos + 5.5);
-      doc.text('Amount', 115, yPos + 5.5);
-      doc.text('Reference', 145, yPos + 5.5);
-      yPos += 8;
-    
-      // Transaction rows
-      sortedTransactions.forEach((transaction, index) => {
-        if (yPos > 250) {
-          doc.addPage();
-          // Add watermark to new page FIRST, before any content
-          addWatermarkToCurrentPage(doc, 'statement');
-          // Reset font state after watermark
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(9);
-          yPos = 20;
-        }
-      
-        // Alternate row colors
-        if (index % 2 === 0) {
-          doc.setFillColor(...COLORS.border);
-          doc.rect(20, yPos, 170, 7, 'F');
-        }
-      
-        const date = new Date(transaction.date || transaction.createdAt || transaction.created_at).toLocaleDateString('en-GB');
-        // Get payment_type from transaction - check multiple possible field names
-        const paymentType = transaction.payment_type || transaction.paymentType || '';
-        const type = formatTransactionType(transaction.type, paymentType);
-        const method = formatPaymentMethod(transaction.method, transaction.type); // Pass transaction.type
-        const amount = `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-        const reference = getTransactionReference(transaction);
-      
-        const methodLower = (transaction.method || '').toLowerCase();
-        const isMpesa = methodLower === 'mpesa';
-        const isCash = methodLower === 'cash';
-        const isDisbursement = (transaction.type || '').toLowerCase() === 'disbursement';
-      
-        doc.setTextColor(...COLORS.textDark);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
-        doc.text(date, 25, yPos + 4.5);
-        doc.text(type, 55, yPos + 4.5);
-       
-        // Color for method
-        const methodColor = isMpesa ? COLORS.green :
-                   isDisbursement ? COLORS.primaryBlue : // Blue for BANK
-                   COLORS.textDark;
-        doc.setTextColor(...methodColor);
-        doc.text(method, 85, yPos + 4.5);
-       
-        // Reset for amount
-        doc.setTextColor(...COLORS.textDark);
-        doc.text(amount, 115, yPos + 4.5);
-       
-        // Color for reference
-        const refColor = isMpesa ? COLORS.green : isDisbursement ? COLORS.primaryBlue : COLORS.textDark;
-        doc.setTextColor(...refColor);
-        doc.text(reference, 145, yPos + 4.5);
-      
-        yPos += 7;
-      });
-    } else {
-      doc.setFont('helvetica', 'italic');
-      doc.setTextColor(...COLORS.textLight);
-      doc.text('No transactions recorded yet.', 25, yPos);
-      yPos += 10;
-    }
-  
-    // Footer
-    addFooter(doc, yPos);
-    addPageNumbers(doc, 'page %d');
-  
-    // Save PDF
-    doc.save(`Statement_${client.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`);
-  } catch (error) {
-    console.error('Error generating client statement:', error);
     throw error;
   }
 };
@@ -1628,155 +1907,6 @@ export const generateManualLoanAgreementPDF = async () => {
     throw error;
   }
 };
-
-// Helper function to write lines with mixed styles without overlapping
-const writeStyledLine = (doc, parts, x, y, fontSize = 10) => {
-  let currentX = x;
-  const originalFontSize = doc.internal.getFontSize();
-  const originalFont = doc.getFont();
-  
-  parts.forEach(part => {
-    doc.setFont('helvetica', part.style);
-    doc.setFontSize(fontSize);
-    const text = part.text;
-    doc.text(text, currentX, y);
-    currentX += doc.getTextWidth(text);
-  });
-  
-  // Restore original font
-  doc.setFont(originalFont.fontName, originalFont.fontStyle);
-  doc.setFontSize(originalFontSize);
-};
-
-// Helper Functions
-const formatTransactionType = (type, paymentType) => {
-  if (!type) return 'N/A';
-  const typeLower = type.toLowerCase();
-  const paymentTypeLower = paymentType ? paymentType.toLowerCase() : '';
-  // Handle payment types specifically
-  if (typeLower === 'payment') {
-    if (paymentTypeLower === 'principal') return 'Principal Payment';
-    if (paymentTypeLower === 'interest') return 'Interest Payment';
-    return 'Payment';
-  }
-  const typeMap = {
-    'topup': 'Top-up',
-    'adjustment': 'Adjustment',
-    'payment': 'Payment',
-    'disbursement': 'Disbursement',
-    'claim': 'Claim'
-  };
-  return typeMap[typeLower] || type.charAt(0).toUpperCase() + type.slice(1);
-};
-
-const formatPaymentMethod = (method, transactionType = '') => {
-  if (!method && !transactionType) return 'N/A';
- 
-  // If transaction type is disbursement, return BANK
-  if ((transactionType || '').toLowerCase() === 'disbursement') {
-    return 'BANK';
-  }
- 
-  const methodUpper = method ? method.toUpperCase() : '';
-  if (methodUpper === 'DISBURSEMENT') return 'BANK';
-  return methodUpper || 'N/A';
-};
-
-const formatStatus = (status) => {
-  if (!status) return 'N/A';
-  return status.charAt(0).toUpperCase() + status.slice(1);
-};
-
-const getTransactionReference = (transaction) => {
-  const method = (transaction.method || '').toUpperCase();
-  const paymentType = transaction.payment_type || transaction.paymentType || '';
-  const transactionType = (transaction.type || '').toLowerCase();
-  // If transaction type is disbursement, return BANK
-  if (transactionType === 'disbursement') {
-    return 'BANK';
-  }
-  if (method === 'MPESA' && transaction.mpesa_receipt) {
-    // Include payment type in M-Pesa reference
-    if (paymentType) {
-      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
-      return `${transaction.mpesa_receipt}`;
-    }
-    return transaction.mpesa_receipt;
-  } else if (method === 'CASH') {
-    // Include payment type in cash reference
-    if (paymentType) {
-      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
-      return `CASH`;
-    }
-    return 'CASH';
-  } else if (method === 'DISBURSEMENT') {
-    // Handle disbursement as Bank reference
-    return 'BANK';
-  } else {
-    // Include payment type in generic reference
-    if (paymentType) {
-      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
-      return `${paymentTypeFormatted} Payment - TXN-${transaction.id}`;
-    }
-    return `TXN-${transaction.id}`;
-  }
-};
-
-export const addFooter = (doc, yPos) => {
-  if (yPos > 270) return;
-  const footerY = Math.min(yPos + 20, 270);
-  doc.setTextColor(...COLORS.textLight);
-  doc.setFontSize(8);
-  doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`, 20, footerY);
-  doc.setTextColor(...COLORS.textDark);
-  doc.setFontSize(9);
-  doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 10, { align: 'center' });
-};
-
-// Helper function to get first return date (14 days from agreement date)
-function getFirstReturnDate(date) {
-  const firstReturnDate = new Date(date);
-  firstReturnDate.setDate(firstReturnDate.getDate() + 35);
-  
-  // Adjust to next weekday if it lands on a weekend
-  if (firstReturnDate.getDay() === 6) { // Saturday
-    firstReturnDate.setDate(firstReturnDate.getDate() + 2);
-  } else if (firstReturnDate.getDay() === 0) { // Sunday
-    firstReturnDate.setDate(firstReturnDate.getDate() + 1);
-  }
-  
-  return firstReturnDate;
-}
-
-// Helper function to get subsequent return dates (7 days from return)
-function getNextReturnDate(date) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + 28);
-  
-  // Adjust to next weekday if it lands on a weekend
-  if (nextDate.getDay() === 6) { // Saturday
-    nextDate.setDate(nextDate.getDate() + 2);
-  } else if (nextDate.getDay() === 0) { // Sunday
-    nextDate.setDate(nextDate.getDate() + 1);
-  }
-  
-  return nextDate;
-}
-
-// Helper function to get next weekday
-function getNextWeekday(date) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + 7);
-  
-  // If it's a weekend (Saturday = 6, Sunday = 0), move to Monday
-  if (nextDate.getDay() === 6) { // Saturday
-    nextDate.setDate(nextDate.getDate() + 2);
-  } else if (nextDate.getDay() === 0) { // Sunday
-    nextDate.setDate(nextDate.getDate() + 1);
-  }
-  
-  return nextDate;
-}
 
 // Generate Professional Investor Agreement PDF
 export const generateInvestorAgreementPDF = async (investor) => {
@@ -4484,110 +4614,6 @@ export const downloadLetterPDF = async (data) => {
   doc.save(fileName);
 };
 
-// ========== INVOICE PDF (supports preview and download) ==========
-export const generateInvoicePDF = async (data, preview = false) => {
-  const doc = new jsPDF();
-  addOptimizedWatermark(doc, 'receipt');
-  let yPos = await addHeader(doc, 15);
-
-  doc.setFontSize(18);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('INVOICE', 105, yPos, { align: 'center' });
-  yPos += 8;
-  yPos = addDivider(doc, yPos);
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...COLORS.textDark);
-  doc.text(`Invoice Number: ${data.invoiceNumber}`, 20, yPos);
-  doc.text(`Date: ${data.date}`, 150, yPos);
-  yPos += 8;
-  doc.text(`Client: ${data.clientName}`, 20, yPos);
-  if (data.clientEmail) {
-    yPos += 5;
-    doc.text(`Email: ${data.clientEmail}`, 20, yPos);
-  }
-  yPos += 12;
-
-  const startX = 20;
-  const colWidths = [70, 25, 35, 40];
-  doc.setFillColor(...COLORS.primaryBlue);
-  doc.setTextColor(...COLORS.white);
-  doc.setFont('helvetica', 'bold');
-  doc.rect(startX, yPos, 170, 8, 'F');
-  doc.text('Description', startX + 2, yPos + 5.5);
-  doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
-  doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
-  doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
-  yPos += 8;
-
-  doc.setTextColor(...COLORS.textDark);
-  doc.setFont('helvetica', 'normal');
-  data.items.forEach((item, idx) => {
-    if (yPos > 250) {
-      doc.addPage();
-      addWatermarkToCurrentPage(doc, 'receipt');
-      yPos = 20;
-      doc.setFillColor(...COLORS.primaryBlue);
-      doc.setTextColor(...COLORS.white);
-      doc.setFont('helvetica', 'bold');
-      doc.rect(startX, yPos, 170, 8, 'F');
-      doc.text('Description', startX + 2, yPos + 5.5);
-      doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
-      doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
-      doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
-      yPos += 8;
-      doc.setTextColor(...COLORS.textDark);
-      doc.setFont('helvetica', 'normal');
-    }
-    if (idx % 2 === 0) {
-      doc.setFillColor(...COLORS.border);
-      doc.rect(startX, yPos, 170, 7, 'F');
-    }
-    let desc = item.description;
-    if (doc.getTextWidth(desc) > colWidths[0] - 4) {
-      while (doc.getTextWidth(desc + '...') > colWidths[0] - 4 && desc.length > 0) {
-        desc = desc.slice(0, -1);
-      }
-      desc = desc + '...';
-    }
-    doc.text(desc, startX + 2, yPos + 4.5);
-    doc.text(item.quantity.toString(), startX + colWidths[0] + 2, yPos + 4.5);
-    doc.text(formatCurrency(item.unitPrice), startX + colWidths[0] + colWidths[1] + 2, yPos + 4.5);
-    doc.text(formatCurrency(item.total), startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 4.5);
-    yPos += 7;
-  });
-
-  yPos += 5;
-  doc.setFont('helvetica', 'bold');
-  doc.text(`Subtotal: ${formatCurrency(data.subtotal)}`, 140, yPos);
-  yPos += 6;
-  if (data.discountAmount > 0) {
-    doc.text(`Discount: -${formatCurrency(data.discountAmount)}`, 140, yPos);
-    yPos += 6;
-  }
-  if (data.taxRate > 0) {
-    doc.text(`Tax (${data.taxRate}%): ${formatCurrency(data.taxAmount)}`, 140, yPos);
-    yPos += 6;
-  }
-  doc.setFontSize(12);
-  doc.setTextColor(...COLORS.primaryBlue);
-  doc.text(`Total Due: ${formatCurrency(data.total)}`, 140, yPos);
-
-  addFooter(doc, yPos + 20);
-
-  if (preview) {
-    const pdfBlob = doc.output('blob');
-    const url = URL.createObjectURL(pdfBlob);
-    window.open(url, '_blank');
-    URL.revokeObjectURL(url);
-  } else {
-    const fileName = `Invoice_${data.invoiceNumber}.pdf`;
-    doc.save(fileName);
-  }
-};
-
 const getSignatureByUser = (user) => {
   if (!user) return { name: 'Shadrack Kesumet', title: 'Director' };
   const role = user.role;
@@ -4638,7 +4664,7 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   const periodFullyPaid = loan.period_interest_fully_paid === true;
   const isWeekly = loan.repayment_plan === 'weekly';
 
-  // Compute total outstanding interest exactly like TakeActionModal
+  // Total outstanding interest (same logic as before)
   let totalOutstandingInterest;
   if (isWeekly) {
     const owedInterest = periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid);
@@ -4648,14 +4674,13 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   }
 
   const totalBalance = currentPrincipal + totalOutstandingInterest;
+  const loanPeriod = getLoanPeriod(loan.disbursement_date, loan.repayment_plan);
 
   const formatMoney = (amount) => `KES ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : 'N/A';
 
-  const { default: jsPDF } = await import('jspdf');
   const doc = new jsPDF();
-
-  addOptimizedWatermark(doc, 'receipt');
+  addOptimizedWatermark(doc, 'invoice');
 
   let yPos = await addHeader(doc, 15);
 
@@ -4684,11 +4709,12 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   doc.text(`Loan Disbursement Date: ${formatDate(loan.disbursement_date)}`, 20, yPos);
   yPos += 6;
   doc.text(`Payment Plan: ${loan.repayment_plan === 'daily' ? 'Daily (4.5% per day)' : 'Weekly (30% per week)'}`, 20, yPos);
+  yPos += 6;
+  doc.text(`Loan Period: ${loanPeriod}`, 20, yPos);
   yPos += 12;
 
-  // ================= PAYMENT HISTORY (first) =================
-  const startX = 20;  // defined once for all tables
-
+  // ========== PAYMENT HISTORY ==========
+  const startX = 20;
   if (transactions && transactions.length > 0) {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
@@ -4713,7 +4739,7 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
     sortedTxns.forEach((txn, idx) => {
       if (yPos > 250) {
         doc.addPage();
-        addWatermarkToCurrentPage(doc, 'receipt');
+        addWatermarkToCurrentPage(doc, 'invoice');
         yPos = 20;
         doc.setFillColor(...COLORS.primaryBlue);
         doc.setTextColor(...COLORS.white);
@@ -4754,8 +4780,8 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
     yPos += 8;
   }
 
-  // ================= LOAN BREAKDOWN TABLE =================
-  yPos += 8;  // extra spacing before breakdown
+  // ========== LOAN BREAKDOWN ==========
+  yPos += 8;
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
   doc.text('LOAN BREAKDOWN', 20, yPos);
@@ -4783,7 +4809,7 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   breakdown.forEach((item, idx) => {
     if (yPos > 250) {
       doc.addPage();
-      addWatermarkToCurrentPage(doc, 'receipt');
+      addWatermarkToCurrentPage(doc, 'invoice');
       yPos = 20;
       doc.setFillColor(...COLORS.primaryBlue);
       doc.setTextColor(...COLORS.white);
@@ -4809,7 +4835,7 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
     yPos += 7;
   });
 
-  // ================= PAYMENT INSTRUCTIONS =================
+  // ========== PAYMENT INSTRUCTIONS ==========
   yPos += 8;
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
@@ -4824,7 +4850,6 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   doc.text('Account Name: NAGOLIE ENTERPRISES', 22, yPos);
 
   addFooter(doc, yPos + 15);
-
   addPageNumbers(doc, 'page %d');
 
   const fileName = `Loan_Invoice_${loan.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
@@ -5724,6 +5749,123 @@ export const generateManualLeaveRequestPDF = async () => {
   doc.save(fileName);
 };
 
+// ========== INVOICE PDF (supports preview and download) ==========
+export const generateInvoicePDF = async (data, preview = false) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'invoice');
+  let yPos = await addHeader(doc, 15);
+
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('INVOICE', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Invoice Number: ${data.invoiceNumber}`, 20, yPos);
+  doc.text(`Date: ${data.date}`, 150, yPos);
+  yPos += 8;
+  doc.text(`Client: ${data.clientName}`, 20, yPos);
+  if (data.clientEmail) {
+    yPos += 5;
+    doc.text(`Email: ${data.clientEmail}`, 20, yPos);
+  }
+  yPos += 12;
+
+  const startX = 20;
+  const colWidths = [70, 25, 35, 40];
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.rect(startX, yPos, 170, 8, 'F');
+  doc.text('Description', startX + 2, yPos + 5.5);
+  doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
+  doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
+  doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
+  yPos += 8;
+
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+  data.items.forEach((item, idx) => {
+    if (yPos > 250) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'invoice');
+      yPos = 20;
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.setTextColor(...COLORS.white);
+      doc.setFont('helvetica', 'bold');
+      doc.rect(startX, yPos, 170, 8, 'F');
+      doc.text('Description', startX + 2, yPos + 5.5);
+      doc.text('Qty', startX + colWidths[0] + 2, yPos + 5.5);
+      doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 2, yPos + 5.5);
+      doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 5.5);
+      yPos += 8;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    }
+    if (idx % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, yPos, 170, 7, 'F');
+    }
+    let desc = item.description;
+    if (doc.getTextWidth(desc) > colWidths[0] - 4) {
+      while (doc.getTextWidth(desc + '...') > colWidths[0] - 4 && desc.length > 0) {
+        desc = desc.slice(0, -1);
+      }
+      desc = desc + '...';
+    }
+    doc.text(desc, startX + 2, yPos + 4.5);
+    doc.text(item.quantity.toString(), startX + colWidths[0] + 2, yPos + 4.5);
+    doc.text(formatCurrency(item.unitPrice), startX + colWidths[0] + colWidths[1] + 2, yPos + 4.5);
+    doc.text(formatCurrency(item.total), startX + colWidths[0] + colWidths[1] + colWidths[2] + 2, yPos + 4.5);
+    yPos += 7;
+  });
+
+  yPos += 5;
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Subtotal: ${formatCurrency(data.subtotal)}`, 140, yPos);
+  yPos += 6;
+  if (data.discountAmount > 0) {
+    doc.text(`Discount: -${formatCurrency(data.discountAmount)}`, 140, yPos);
+    yPos += 6;
+  }
+  if (data.taxRate > 0) {
+    doc.text(`Tax (${data.taxRate}%): ${formatCurrency(data.taxAmount)}`, 140, yPos);
+    yPos += 6;
+  }
+  doc.setFontSize(12);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text(`Total Due: ${formatCurrency(data.total)}`, 140, yPos);
+
+  // ========== PAYMENT INSTRUCTIONS ==========
+  yPos += 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('PAYMENT METHOD', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('Paybill No: 247247', 20, yPos);
+  yPos += 5;
+  doc.text('Account No: 651259', 20, yPos);
+  yPos += 5;
+  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+
+  addFooter(doc, yPos + 20);
+
+  if (preview) {
+    const pdfBlob = doc.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    window.open(url, '_blank');
+    URL.revokeObjectURL(url);
+  } else {
+    const fileName = `Invoice_${data.invoiceNumber}.pdf`;
+    doc.save(fileName);
+  }
+};
 
 // ========== DELIVERY NOTE PDF ==========
 export const generateDeliveryNotePDF = async (data, preview = false) => {
@@ -5836,6 +5978,21 @@ export const generateDeliveryNotePDF = async (data, preview = false) => {
   doc.setTextColor(...COLORS.primaryBlue);
   doc.text(`Total: ${formatCurrency(data.total)}`, 140, yPos);
 
+  // ========== PAYMENT INSTRUCTIONS ==========
+  yPos += 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('PAYMENT METHOD', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('Paybill No: 247247', 20, yPos);
+  yPos += 5;
+  doc.text('Account No: 651259', 20, yPos);
+  yPos += 5;
+  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+  yPos = 10;
+
   // Signature section – ensure enough space
   yPos += 15;
   if (yPos > 260) {
@@ -5886,6 +6043,252 @@ export const generateDeliveryNotePDF = async (data, preview = false) => {
     const fileName = `DeliveryNote_${data.deliveryNumber}.pdf`;
     doc.save(fileName);
   }
+};
+
+// ========== MANUAL INVOICE PDF (blank, download only) ==========
+export const generateManualInvoicePDF = async () => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'invoice');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('INVOICE', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  // Invoice details (blank fields)
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('Invoice Number: ____________________', 20, yPos);
+  doc.text('Date: ________________', 150, yPos);
+  yPos += 8;
+  doc.text('Client: ____________________', 20, yPos);
+  yPos += 7;
+  doc.text('Email: ____________________', 20, yPos);
+  yPos += 10;
+
+  const startX = 20;
+  const colWidths = [85, 31, 31, 31]; // total 178? Wait: 85+31+31+31 = 178, too wide. Fix: 85+30+30+30=175, need 170. Adjust:
+  // Actually 80 + 30 + 30 + 30 = 170. I'll use 80,30,30,30 for perfect fit.
+  const fixedColWidths = [80, 30, 30, 30];
+  const tableWidth = 170;
+  const tableStartY = yPos;
+  const headerHeight = 8;
+  const rowHeight = 7;
+  const numRows = 12;
+  const tableHeight = headerHeight + (numRows * rowHeight);
+  const radius = 3;
+
+  // Draw outer rounded rectangle border (no fill)
+  doc.setDrawColor(...COLORS.primaryBlue);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(startX, tableStartY, tableWidth, tableHeight, radius, radius);
+
+  // Draw header background (rounded top corners only, but we use a full rounded rect with fill)
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.roundedRect(startX, tableStartY, tableWidth, headerHeight, radius, radius, 'F');
+
+  // Draw header text
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Description', startX + 4, tableStartY + 5.5);
+  doc.text('Qty', startX + fixedColWidths[0] + 4, tableStartY + 5.5);
+  doc.text('Unit Price', startX + fixedColWidths[0] + fixedColWidths[1] + 4, tableStartY + 5.5);
+  doc.text('Total', startX + fixedColWidths[0] + fixedColWidths[1] + fixedColWidths[2] + 4, tableStartY + 5.5);
+
+  // Draw rows
+  let currentY = tableStartY + headerHeight;
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+  for (let i = 0; i < numRows; i++) {
+    if (i % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, currentY, tableWidth, rowHeight, 'F');
+    }
+    // Vertical lines (cell borders)
+    let x = startX;
+    for (let w of fixedColWidths) {
+      doc.setDrawColor(...COLORS.primaryBlue);
+      doc.setLineWidth(0.2);
+      doc.line(x, currentY, x, currentY + rowHeight);
+      x += w;
+    }
+    currentY += rowHeight;
+  }
+
+  yPos = tableStartY + tableHeight + 10;
+
+  // Totals section
+  doc.setFont('helvetica', 'bold');
+  doc.text('Subtotal: ____________________', 140, yPos);
+  yPos += 7;
+  doc.text('Discount: ____________________', 140, yPos);
+  yPos += 7;
+  doc.text('Tax ( ___%): _________________', 140, yPos);
+  yPos += 7;
+  doc.setFontSize(12);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('Total Due: ________________', 140, yPos);
+
+  // Payment Instructions
+  yPos += 10;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('PAYMENT METHOD', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('Paybill No: 247247', 20, yPos);
+  yPos += 5;
+  doc.text('Account No: 651259', 20, yPos);
+  yPos += 5;
+  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+
+  addFooter(doc, yPos + 20);
+  const fileName = `Manual_Invoice_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
+};
+
+// ========== MANUAL DELIVERY NOTE PDF (blank, download only) ==========
+export const generateManualDeliveryNotePDF = async () => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'deliveryNote');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('DELIVERY NOTE', 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+
+  // Delivery Note details
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('Delivery Note No: ____________________', 20, yPos);
+  doc.text('Date: ________________', 150, yPos);
+  yPos += 8;
+  doc.text('Client: ____________________', 20, yPos);
+  yPos += 7;
+  doc.text('Email: ____________________', 20, yPos);
+  yPos += 8;
+
+  const startX = 20;
+  const colWidths = [80, 30, 30, 30]; // exactly 170 total
+  const tableWidth = 170;
+  const tableStartY = yPos;
+  const headerHeight = 8;
+  const rowHeight = 7;
+  const numRows = 12;
+  const tableHeight = headerHeight + (numRows * rowHeight);
+  const radius = 3;
+
+  // Outer rounded rectangle border
+  doc.setDrawColor(...COLORS.primaryBlue);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(startX, tableStartY, tableWidth, tableHeight, radius, radius);
+
+  // Header background (rounded)
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.roundedRect(startX, tableStartY, tableWidth, headerHeight, radius, radius, 'F');
+
+  // Header text
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Description', startX + 4, tableStartY + 5.5);
+  doc.text('Qty', startX + colWidths[0] + 4, tableStartY + 5.5);
+  doc.text('Unit Price', startX + colWidths[0] + colWidths[1] + 4, tableStartY + 5.5);
+  doc.text('Total', startX + colWidths[0] + colWidths[1] + colWidths[2] + 4, tableStartY + 5.5);
+
+  // Rows
+  let currentY = tableStartY + headerHeight;
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+  for (let i = 0; i < numRows; i++) {
+    if (i % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, currentY, tableWidth, rowHeight, 'F');
+    }
+    let x = startX;
+    for (let w of colWidths) {
+      doc.setDrawColor(...COLORS.primaryBlue);
+      doc.setLineWidth(0.2);
+      doc.line(x, currentY, x, currentY + rowHeight);
+      x += w;
+    }
+    currentY += rowHeight;
+  }
+
+  yPos = tableStartY + tableHeight + 10;
+
+  // Totals
+  doc.setFont('helvetica', 'bold');
+  doc.text('Subtotal:  __________________', 140, yPos);
+  yPos += 7;
+  doc.text('Discount:  __________________', 140, yPos);
+  yPos += 7;
+  doc.text('Tax ( ___%): ________________', 140, yPos);
+  yPos += 7;
+  doc.setFontSize(12);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('Total:  ____________________', 140, yPos);
+
+  // Payment Instructions
+  yPos += 10;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('PAYMENT METHOD', 20, yPos);
+  yPos += 6;
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('Paybill No: 247247', 20, yPos);
+  yPos += 5;
+  doc.text('Account No: 651259', 20, yPos);
+  yPos += 5;
+  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+
+  // Delivery confirmation section
+  yPos += 15;
+  if (yPos > 260) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'deliveryNote');
+    yPos = 20;
+  }
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('DELIVERY CONFIRMATION', 105, yPos, { align: 'center' });
+  yPos += 8;
+  doc.setFontSize(11);
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Client:', 30, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('____________________', 50, yPos);
+  doc.text('Signature: ____________________', 130, yPos);
+  yPos += 12;
+  doc.setFont('helvetica', 'bold');
+  doc.text('Director:', 30, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('SHADRACK KESUMET', 50, yPos);
+  doc.text('Signature: ____________________', 130, yPos);
+  yPos += 10;
+  doc.text('Date:         ____________________', 30, yPos);
+  doc.text('Date:         ____________________', 130, yPos);
+
+  addFooter(doc, yPos + 15);
+  addPageNumbers(doc, 'page %d');
+
+  const fileName = `Manual_DeliveryNote_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
 };
 
 export { COMPANY_INFO, COLORS };

@@ -10,7 +10,9 @@ import {
   downloadLetterPDF,
   generateInvoicePDF,
   generateLeaveRequestPDF,
-  generateManualLeaveRequestPDF
+  generateManualLeaveRequestPDF,
+  generateManualInvoicePDF,               
+  generateManualDeliveryNotePDF 
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
 import { useAuth } from '../../context/AuthContext';
@@ -130,6 +132,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
           <div className="tab-content">
             {activeTab === 'forms' && (
               <div className="row g-4">
+                {/* manual loan agreement form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-primary">
                     <div className="card-body text-center">
@@ -145,21 +148,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                <div className="col-md-6 col-lg-4">
-                  <div className="card h-100 border-warning">
-                    <div className="card-body text-center">
-                      <i className="fas fa-user-friends fa-3x text-warning mb-3"></i>
-                      <h5>Next of Kin Consent</h5>
-                      <p className="text-muted">Manual next of kin consent form for clients' next of kin</p>
-                      <button
-                        className="btn btn-warning"
-                        onClick={() => handleDownloadForm('nextOfKin')}
-                      >
-                        <i className="fas fa-download me-2"></i>Download PDF
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                {/* manual loan renewal agreement form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-success">
                     <div className="card-body text-center">
@@ -175,7 +164,23 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* NEW: Loan Waiver Agreement card */}
+                {/* manual next of kin consent form */}
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-warning">
+                    <div className="card-body text-center">
+                      <i className="fas fa-user-friends fa-3x text-warning mb-3"></i>
+                      <h5>Next of Kin Consent</h5>
+                      <p className="text-muted">Manual next of kin consent form for clients' next of kin</p>
+                      <button
+                        className="btn btn-warning"
+                        onClick={() => handleDownloadForm('nextOfKin')}
+                      >
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>   
+                {/* manual loan waiver agreement form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-info">
                     <div className="card-body text-center">
@@ -191,6 +196,53 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
+                {/* manual invoice */}
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-primary">
+                    <div className="card-body text-center">
+                      <i className="fas fa-file-invoice fa-3x text-primary mb-3"></i>
+                      <h5>Manual Invoice</h5>
+                      <p className="text-muted">Manual invoice form</p>
+                      <button
+                        className="btn btn-primary"
+                        onClick={async () => {
+                          try {
+                            await generateManualInvoicePDF();
+                            showToast.success('Manual invoice downloaded!');
+                          } catch (error) {
+                            showToast.error('Failed to generate manual invoice');
+                          }
+                        }}
+                      >
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {/* manual delivery note */}
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-info">
+                    <div className="card-body text-center">
+                      <i className="fas fa-truck fa-3x text-info mb-3"></i>
+                      <h5>Manual Delivery Note</h5>
+                      <p className="text-muted">Manual delivery note</p>
+                      <button
+                        className="btn btn-info text-white"
+                        onClick={async () => {
+                          try {
+                            await generateManualDeliveryNotePDF();
+                            showToast.success('Manual delivery note downloaded!');
+                          } catch (error) {
+                            showToast.error('Failed to generate manual delivery note');
+                          }
+                        }}
+                      >
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {/* manual leave form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-info">
                     <div className="card-body text-center">
