@@ -6128,8 +6128,6 @@ export const generateManualInvoicePDF = async () => {
   yPos += 7;
   doc.text('Discount: ____________________', 140, yPos);
   yPos += 7;
-  doc.text('Tax ( ___%): _________________', 140, yPos);
-  yPos += 7;
   doc.setFontSize(12);
   doc.setTextColor(...COLORS.primaryBlue);
   doc.text('Total Due: ________________', 140, yPos);
@@ -6233,8 +6231,6 @@ export const generateManualDeliveryNotePDF = async () => {
   doc.text('Subtotal:  __________________', 140, yPos);
   yPos += 7;
   doc.text('Discount:  __________________', 140, yPos);
-  yPos += 7;
-  doc.text('Tax ( ___%): ________________', 140, yPos);
   yPos += 7;
   doc.setFontSize(12);
   doc.setTextColor(...COLORS.primaryBlue);
