@@ -13,6 +13,7 @@ from app.utils.decorators import role_required
 import json
 import secrets
 import string
+from app.services.ledger import record_ledger_entry   # NEW
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -25,12 +26,11 @@ CORS(admin_bp, origins=allowed_origins, supports_credentials=True)
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers (unchanged)
 # ---------------------------------------------------------------------------
 
 def format_currency(amount):
     return f"KES {float(amount):,.2f}"
-
 
 def generate_livestock_description(livestock_type, count):
     if not livestock_type:
@@ -54,35 +54,24 @@ def generate_livestock_description(livestock_type, count):
         return f"{livestock_type.capitalize()}s available for purchase"
     return f"{livestock_type.capitalize()} available for purchase"
 
-
 def generate_credentials(investor_id):
     random_chars = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(4))
     return f"inv{investor_id}_{random_chars}", secrets.token_urlsafe(32)
 
-
 def _days_left_label(loan, today):
-    """
-    Return (days_left_int, label_string) for a loan.
-
-    Weekly: counts down from 7 within each week cycle; resets each week.
-    Daily : counts down from 14 (one-off).
-    Negative values mean the loan is past its due date (overdue).
-    """
     if not loan.due_date:
         return 0, 'N/A'
-
     due = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
     days_left = (due - today).days
     return days_left, days_left
 
 
 # ---------------------------------------------------------------------------
-# Test
+# Test (unchanged)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/test', methods=['GET'])
 @jwt_required()
-
 def test_endpoint():
     try:
         user = db.session.get(User, int(get_jwt_identity()))
@@ -93,7 +82,7 @@ def test_endpoint():
 
 
 # ---------------------------------------------------------------------------
-# Applications (pending loans)
+# Applications (pending loans) – unchanged
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/applications', methods=['GET'])
@@ -130,7 +119,7 @@ def get_applications():
 
 
 # ---------------------------------------------------------------------------
-# Approve application
+# Approve application (with ledger entry)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST'])
@@ -167,20 +156,15 @@ def approve_application(loan_id):
         loan.status            = 'active'
         loan.disbursement_date = now
 
-        # ── Interest settings by plan ──────────────────────────────────
         if loan.repayment_plan == 'daily':
             loan.interest_rate = Decimal('4.5')
             loan.interest_type = 'simple'
-            # Daily plan: due in 14 days (fixed, does NOT roll over)
             loan.due_date = now + timedelta(days=14)
         else:
             loan.interest_rate = Decimal('30.0')
             loan.interest_type = 'compound'
-            # Weekly plan: first due in 7 days; rolls forward each week (max 2 weeks)
             loan.due_date = now + timedelta(days=7)
 
-        # ── Initialise financial fields ────────────────────────────────
-        # No upfront interest – accrual happens lazily via recalculate_loan.
         loan.total_amount              = loan.principal_amount
         loan.balance                   = loan.principal_amount
         loan.current_principal         = loan.principal_amount
@@ -211,6 +195,18 @@ def approve_application(loan_id):
 
         db.session.commit()
 
+        # Record ledger entry for disbursement
+        record_ledger_entry(
+            loan=loan,
+            event_type='disbursement',
+            transaction=txn,
+            amount=loan.principal_amount,
+            notes=f'Loan disbursed. Plan: {loan.repayment_plan}',
+            reference='BANK',
+            user_id=get_jwt_identity()
+        )
+        db.session.commit()
+
         log_audit('loan_approved', 'loan', loan.id, {
             'client': loan.client.full_name if loan.client else '?',
             'amount': float(loan.principal_amount),
@@ -232,7 +228,7 @@ def approve_application(loan_id):
 
 
 # ---------------------------------------------------------------------------
-# Reject application
+# Reject application (unchanged)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/applications/<int:loan_id>/reject', methods=['POST'])
@@ -256,7 +252,7 @@ def reject_application(loan_id):
 
 
 # ---------------------------------------------------------------------------
-# Clients
+# Clients (unchanged)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/clients', methods=['GET'])
@@ -265,39 +261,29 @@ def reject_application(loan_id):
 def get_all_clients():
     try:
         today = datetime.now().date()
-
-        # ── KEY CHANGE: Get ALL active loans, not just one per client ──────
         active_loans = Loan.query.filter_by(status='active').all()
-
         clients_data = []
         for active_loan in active_loans:
             client = active_loan.client
             if not client:
                 continue
-
-            # Bring interest/balance up to date
             active_loan = recalculate_loan(active_loan)
             db.session.commit()
-
             current_principal = active_loan.current_principal or active_loan.principal_amount
             principal_paid    = active_loan.principal_paid    or Decimal('0')
             interest_paid     = active_loan.interest_paid     or Decimal('0')
             unpaid_interest   = max(Decimal('0'), active_loan.accrued_interest - interest_paid)
-
             if active_loan.due_date:
                 due  = active_loan.due_date.date() if hasattr(active_loan.due_date, 'date') else active_loan.due_date
                 days_left = (due - today).days
             else:
                 days_left = 0
-
             last_ip = active_loan.last_interest_payment_date
             weeks_overdue = 0
             if last_ip:
                 ld = last_ip.date() if hasattr(last_ip, 'date') else last_ip
                 if ld < today:
                     weeks_overdue = (today - ld).days // 7
-
-            # Pre-period interest info
             from app.routes.payments import _get_current_period_key, _get_current_period_interest
             current_period = _get_current_period_key(active_loan)
             period_interest = _get_current_period_interest(active_loan)
@@ -306,7 +292,6 @@ def get_all_clients():
             if active_loan.interest_prepaid_period == current_period:
                 period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
                 period_interest_paid = period_prepaid >= period_interest - Decimal('0.01')
-
             clients_data.append({
                 'id':               client.id,
                 'loan_id':          active_loan.id,
@@ -328,24 +313,20 @@ def get_all_clients():
                 'repayment_plan':   active_loan.repayment_plan,
                 'unpaidInterest':   float(unpaid_interest),
                 'accrued_interest': float(active_loan.accrued_interest),
-                # New pre-period tracking fields
                 'current_period_interest': float(period_interest),
                 'period_interest_prepaid': float(period_prepaid),
                 'period_interest_fully_paid': period_interest_paid,
                 'interest_rate':    float(active_loan.interest_rate), 
             })
-
-        # Sort by client name then loan date for clean display
         clients_data.sort(key=lambda x: (x['name'], x['borrowedDate'] or ''))
-
         return jsonify(clients_data), 200
-
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+
+
 # ---------------------------------------------------------------------------
-# Dashboard
+# Dashboard (unchanged)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/dashboard', methods=['GET'])
@@ -356,29 +337,22 @@ def get_dashboard_stats():
         total_clients = db.session.query(Client).join(Loan).filter(
             Loan.status.in_(['active', 'completed'])
         ).distinct().count()
-
         total_lent = float(db.session.query(func.sum(Loan.principal_amount)).filter(
             Loan.status.in_(['active', 'completed'])
         ).scalar() or 0)
         KNOWN_INFLATION = 30500
         total_lent_adj = max(0, total_lent - KNOWN_INFLATION)
-
         total_received = float(db.session.query(func.sum(Loan.amount_paid)).filter(
             Loan.status.in_(['active', 'completed'])
         ).scalar() or 0)
-
         total_principal_paid = float(db.session.query(func.sum(Loan.principal_paid)).filter(
             Loan.status.in_(['active', 'completed'])
         ).scalar() or 0)
-
         currently_lent = float(db.session.query(func.sum(Loan.current_principal)).filter(
             Loan.status == 'active'
         ).scalar() or 0)
-
         available_funds = max(0, total_principal_paid - currently_lent)
         today = datetime.now().date()
-
-        # Due today
         due_today_loans = Loan.query.filter(
             Loan.status == 'active',
             db.func.date(Loan.due_date) == today
@@ -394,8 +368,6 @@ def get_dashboard_stats():
                 'phone': loan.client.phone_number if loan.client else 'N/A',
                 'repayment_plan': loan.repayment_plan,
             })
-
-        # Overdue (unpaid interest > 0)
         overdue_loans = Loan.query.filter(
             Loan.status == 'active',
             Loan.accrued_interest > Loan.interest_paid
@@ -403,11 +375,9 @@ def get_dashboard_stats():
         overdue_data = []
         for loan in overdue_loans:
             loan = recalculate_loan(loan)
-            # Compute weeks overdue from due_date
             due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
             days_overdue = (today - due_date).days
             weeks_overdue = max(0, (days_overdue + 6) // 7) if days_overdue > 0 else 0
-
             overdue_data.append({
                 'id': loan.id, 'client_id': loan.client_id, 'loan_id': loan.id,
                 'client_name': loan.client.full_name if loan.client else 'Unknown',
@@ -418,7 +388,6 @@ def get_dashboard_stats():
                 'repayment_plan': loan.repayment_plan,
                 'expectedReturnDate': loan.due_date.isoformat() if loan.due_date else None
             })
-
         return jsonify({
             'total_clients': total_clients,
             'total_lent': total_lent_adj,
@@ -427,14 +396,13 @@ def get_dashboard_stats():
             'due_today': due_today_data,
             'overdue': overdue_data
         }), 200
-
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
 # ---------------------------------------------------------------------------
-# Payment stats
+# Payment stats (unchanged)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/payment-stats', methods=['GET'])
@@ -445,45 +413,37 @@ def get_payment_stats():
         loans = Loan.query.filter(
             Loan.status.in_(['active', 'completed'])
         ).order_by(Loan.disbursement_date.desc()).all()
-
         stats = []
         total_principal_paid = Decimal('0')
         total_revenue        = Decimal('0')
-
         for loan in loans:
             pp = loan.principal_paid or Decimal('0')
             ip = loan.interest_paid  or Decimal('0')
             acc_int = loan.accrued_interest or Decimal('0')
-
-            # Get client details safely
             client = loan.client
             client_name = client.full_name if client else 'Unknown'
             client_phone = client.phone_number if client else 'N/A'
             client_id_number = client.id_number if client else 'N/A'
-
             stats.append({
                 'id': loan.id,
                 'client_id': loan.client_id,
                 'name': client_name,
                 'phone': client_phone,
-                'id_number': client_id_number,                      # ✅ NEW
+                'id_number': client_id_number,
                 'borrowed_date': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
                 'borrowed_amount': float(loan.principal_amount),
                 'principal_paid': float(pp),
                 'current_principal': float(loan.current_principal or loan.principal_amount),
                 'interest_paid': float(ip),
-                'accrued_interest': float(acc_int),                 # ✅ NEW (if needed)
-                'expected_return_date': loan.due_date.isoformat() if loan.due_date else None,  # ✅ NEW
+                'accrued_interest': float(acc_int),
+                'expected_return_date': loan.due_date.isoformat() if loan.due_date else None,
                 'status': loan.status,
                 'repayment_plan': loan.repayment_plan 
             })
-
             total_principal_paid += pp
             total_revenue        += ip
-
         currently_lent = float(db.session.query(func.sum(Loan.current_principal)).filter(
             Loan.status == 'active').scalar() or 0)
-
         return jsonify({
             'payment_stats': stats,
             'total_principal_collected': float(total_principal_paid),
@@ -491,13 +451,13 @@ def get_payment_stats():
             'available_for_lending': float(total_principal_paid) - currently_lent,
             'revenue_collected': float(total_revenue)
         }), 200
-
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 # ---------------------------------------------------------------------------
-# Livestock
+# Livestock (unchanged)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/livestock', methods=['GET'])
@@ -512,14 +472,12 @@ def get_all_livestock():
             selectinload(Livestock.loan),
             selectinload(Livestock.investor)
         ).filter_by(status='active').paginate(page=page, per_page=per_page, error_out=False)
-
         today = datetime.now().date()
         items = []
         for item in pag.items:
             description    = item.description or 'Available for purchase'
             actual_location = item.location or 'Isinya, Kajiado'
             investor_name  = item.investor.name if item.investor else None
-
             if item.client_id is None:
                 available_info = 'Available now'; days_remaining = 0; is_admin_added = True
             else:
@@ -543,7 +501,6 @@ def get_all_livestock():
                         available_info = 'Available (overdue)'; days_remaining = 0
                 else:
                     available_info = 'Available after repayment'; days_remaining = 7
-
             items.append({
                 'id': item.id,
                 'title': f"{item.livestock_type.capitalize()} - {item.count} head",
@@ -556,12 +513,10 @@ def get_all_livestock():
                 'ownership_type': item.ownership_type or 'company',
                 'investor_name': investor_name
             })
-
         return jsonify({
             'items': items, 'total': pag.total,
             'pages': pag.pages, 'current_page': page, 'per_page': per_page
         }), 200
-
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -576,14 +531,12 @@ def get_public_livestock_gallery():
         all_lv   = Livestock.query.filter(Livestock.status == 'active').all()
         today    = datetime.now().date()
         result   = []
-
         for item in all_lv:
             desc = str(item.description or '').strip()
             if not desc or desc in ('NaN', 'None') or 'claimed' in desc.lower():
                 desc = 'Livestock for purchase'
             if '|' in desc:
                 desc = desc.split('|', 1)[0].strip()
-
             loc = str(item.location or '').strip()
             if not loc or loc in ('NaN', 'None'):
                 loc = 'Isinya, Kajiado'
@@ -593,10 +546,8 @@ def get_public_livestock_gallery():
                 loc = p2 if any(k in p2.lower() for k in kw) else (p1 if any(k in p1.lower() for k in kw) else 'Isinya, Kajiado')
             if 'available' in loc.lower() or 'claimed' in loc.lower():
                 loc = 'Isinya, Kajiado'
-
             available_info = 'Available now'; days_remaining = 0; include = False
             assoc = None
-
             if item.client_id is None:
                 include = True
             else:
@@ -608,12 +559,10 @@ def get_public_livestock_gallery():
                     due = assoc.due_date.date() if hasattr(assoc.due_date, 'date') else assoc.due_date
                     days_remaining = (due - today).days
                     available_info = 'Available now' if days_remaining <= 0 else f'Available in {days_remaining} days'
-
             if not include:
                 continue
             if assoc and 'Collateral for' in desc:
                 desc = 'Livestock for purchase'
-
             result.append({
                 'id': item.id,
                 'title': f"{item.livestock_type.capitalize()} - {item.count} head",
@@ -623,7 +572,6 @@ def get_public_livestock_gallery():
                 'availableInfo': available_info, 'daysRemaining': days_remaining,
                 'location': loc
             })
-
         result.sort(key=lambda x: (0 if 'now' in x['availableInfo'].lower() else 1, x['daysRemaining']))
         total = len(result)
         start = (page - 1) * per_page
@@ -632,7 +580,6 @@ def get_public_livestock_gallery():
             'pages': (total + per_page - 1) // per_page,
             'current_page': page, 'per_page': per_page
         }), 200
-
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': 'Failed to load gallery'}), 500
@@ -768,8 +715,21 @@ def claim_ownership():
         lv.description = 'Livestock for purchase'; lv.location = loc
         lv.status = 'active'; lv.client_id = None
         loan.status = 'claimed'; loan.balance = 0; loan.amount_paid = loan.total_amount
-        db.session.add(Transaction(loan_id=loan.id, transaction_type='claim', amount=0, payment_method='claim', notes='Claimed overdue'))
+        txn = Transaction(loan_id=loan.id, transaction_type='claim', amount=0, payment_method='claim', notes='Claimed overdue')
+        db.session.add(txn)
         db.session.commit()
+
+        # Record ledger entry for claim
+        record_ledger_entry(
+            loan=loan,
+            event_type='claimed',
+            transaction=txn,
+            amount=0,
+            notes='Loan claimed – livestock repossessed',
+            user_id=get_jwt_identity()
+        )
+        db.session.commit()
+
         return jsonify({'success': True, 'message': f'Claimed {lv.livestock_type}'}), 200
     except Exception as e:
         db.session.rollback()
@@ -808,10 +768,22 @@ def process_topup(loan_id):
             return jsonify({'error': 'Invalid amount'}), 400
         if data.get('notes'):
             txn_notes += f'. {data["notes"]}'
-        db.session.add(Transaction(loan_id=loan.id, transaction_type=txn_type, amount=txn_amt,
-                                   payment_method=data.get('disbursement_method', 'cash'),
-                                   mpesa_receipt=data.get('mpesa_reference', '').upper() or None,
-                                   notes=txn_notes, status='completed'))
+        txn = Transaction(loan_id=loan.id, transaction_type=txn_type, amount=txn_amt,
+                          payment_method=data.get('disbursement_method', 'cash'),
+                          mpesa_receipt=data.get('mpesa_reference', '').upper() or None,
+                          notes=txn_notes, status='completed')
+        db.session.add(txn)
+        db.session.commit()
+
+        record_ledger_entry(
+            loan=loan,
+            event_type='adjustment',
+            transaction=txn,
+            amount=txn_amt,
+            notes=txn_notes,
+            reference='ADMIN',
+            user_id=get_jwt_identity()
+        )
         db.session.commit()
         return jsonify({'success': True, 'loan': loan.to_dict()}), 200
     except Exception as e:
@@ -835,7 +807,6 @@ def get_approved_loans():
         ).outerjoin(Livestock, Loan.livestock_id == Livestock.id
         ).filter(Loan.status == 'active'
         ).order_by(Loan.disbursement_date.desc()).limit(100).all()
-
         return jsonify([{
             'id': l.id,
             'date': l.disbursement_date.isoformat() if l.disbursement_date else None,
@@ -854,7 +825,7 @@ def get_approved_loans():
 
 
 # ---------------------------------------------------------------------------
-# Investor routes (unchanged from working version – kept compact)
+# Investor routes (unchanged)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/investors', methods=['GET', 'POST'])
@@ -878,7 +849,6 @@ def manage_investors():
             return jsonify(result), 200
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-
     try:
         data = request.json
         for f in ['name', 'phone', 'id_number', 'investment_amount']:
@@ -1046,7 +1016,6 @@ def create_investor_user_account(investor_id):
         if inv.user: return jsonify({'error': 'Already has account'}), 400
         if inv.account_status != 'pending': return jsonify({'error': 'Not pending'}), 400
         notes = inv.notes or ''
-        # Check for valid existing credentials
         stored = {l.split(': ',1)[0].strip(): l.split(': ',1)[1] for l in notes.split('\n') if ': ' in l}
         if all(k in stored for k in ['Temporary Password','Registration Token','Account Creation Link','Token Generated']):
             gen_time = datetime.strptime(stored['Token Generated'], '%Y-%m-%d %H:%M:%S')
@@ -1191,15 +1160,14 @@ def get_investor_statement(investor_id):
         return jsonify({'error': str(e)}), 500
     
 
+# ---------------------------------------------------------------------------
+# Loan renewal (with ledger and parent/root linking)
+# ---------------------------------------------------------------------------
+
 @admin_bp.route('/loans/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director'])
 def renew_loan(loan_id):
-    """
-    Renew an active loan that has reached its maximum period (2 weeks).
-    Old loan is marked as 'renewed' and a new active loan is created
-    with principal = old outstanding balance.
-    """
     try:
         from app.routes.payments import recalculate_loan, _loan_summary
         from datetime import datetime, timedelta
@@ -1211,17 +1179,14 @@ def renew_loan(loan_id):
         if loan.status != 'active':
             return jsonify({'error': 'Loan is not active'}), 400
 
-        # Bring loan up to date
         loan = recalculate_loan(loan)
 
-        # Check that loan is eligible: at least 14 days since disbursement OR overdue
         now = datetime.utcnow()
         disburse = loan.disbursement_date or loan.created_at
         days_since = (now - disburse).days
         if days_since < 14 and loan.due_date > now:
             return jsonify({'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'}), 400
 
-        # Outstanding balance = current_principal + (accrued_interest - interest_paid)
         outstanding_balance = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
         if outstanding_balance <= Decimal('0.01'):
             return jsonify({'error': 'No outstanding balance to renew'}), 400
@@ -1255,10 +1220,11 @@ def renew_loan(loan_id):
             accrued_interest=Decimal('0'),
             last_interest_payment_date=now,
             interest_prepaid_period=None,
-            interest_prepaid_amount=Decimal('0')
+            interest_prepaid_amount=Decimal('0'),
+            parent_loan_id=loan.id,
+            root_loan_id=loan.root_loan_id or loan.id
         )
 
-        # Set due date based on plan
         if new_loan.repayment_plan == 'daily':
             new_loan.due_date = now + timedelta(days=14)
         else:
@@ -1267,7 +1233,6 @@ def renew_loan(loan_id):
         db.session.add(new_loan)
         db.session.flush()
 
-        # Create transaction for renewal
         txn = Transaction(
             loan_id=loan.id,
             transaction_type='renewal',
@@ -1282,6 +1247,27 @@ def renew_loan(loan_id):
         if new_loan.livestock:
             new_loan.livestock.description = f"Collateral for renewed loan #{new_loan.id}"
 
+        db.session.commit()
+
+        # Record ledger entries for renewal
+        record_ledger_entry(
+            loan=loan,
+            event_type='renewal_merged',
+            transaction=txn,
+            amount=outstanding_balance,
+            notes=f'Loan renewed into new loan ID {new_loan.id}',
+            reference=str(new_loan.id),
+            user_id=get_jwt_identity()
+        )
+        record_ledger_entry(
+            loan=new_loan,
+            event_type='renewal_created',
+            transaction=None,
+            amount=new_loan.principal_amount,
+            notes=f'Renewal of loan #{loan.id}',
+            reference=str(loan.id),
+            user_id=get_jwt_identity()
+        )
         db.session.commit()
 
         log_audit('loan_renewed', 'loan', loan.id, {
@@ -1304,17 +1290,16 @@ def renew_loan(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
-# app/routes/admin_bp.py – add this route (place after the renew_loan route)
+
+
+# ---------------------------------------------------------------------------
+# Loan waiver (with ledger entries and parent/root linking)
+# ---------------------------------------------------------------------------
 
 @admin_bp.route('/loans/<int:loan_id>/waive', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director'])
 def waive_loan(loan_id):
-    """
-    Waive a portion of an active loan and create a new zero‑interest loan
-    for the agreed amount and duration.
-    """
     try:
         from app.routes.payments import recalculate_loan, _loan_summary
         from decimal import Decimal
@@ -1339,17 +1324,16 @@ def waive_loan(loan_id):
 
         reduction = current_balance - new_principal
 
-        # --- Mark old loan as waived ---
+        # Mark old loan as waived
         loan.status = 'waived'
         loan.balance = Decimal('0')
         loan.amount_paid = loan.total_amount
         loan.notes = (loan.notes or '') + f"\nWaived on {datetime.utcnow().isoformat()} – reduced from {current_balance:.2f} to {new_principal:.2f}"
 
-        # Transaction on old loan (negative adjustment)
         waiver_txn = Transaction(
             loan_id=loan.id,
             transaction_type='adjustment',
-            amount=-reduction,  # negative amount represents write‑off
+            amount=-reduction,
             payment_method='waiver',
             notes=f'Loan waived – balance reduced by {reduction:.2f} to agreed amount {new_principal:.2f}',
             status='completed',
@@ -1357,18 +1341,17 @@ def waive_loan(loan_id):
         )
         db.session.add(waiver_txn)
 
-        # --- Create new zero‑interest loan ---
         now = datetime.utcnow()
         new_loan = Loan(
             client_id=loan.client_id,
             livestock_id=loan.livestock_id,
             principal_amount=new_principal,
             current_principal=new_principal,
-            total_amount=new_principal,          # no interest added
+            total_amount=new_principal,
             balance=new_principal,
             interest_rate=Decimal('0'),
-            interest_type='simple',               # irrelevant when rate=0
-            repayment_plan='daily',               # daily plan with zero interest, but duration is respected
+            interest_type='simple',
+            repayment_plan='daily',
             funding_source=loan.funding_source,
             investor_id=loan.investor_id,
             disbursement_date=now,
@@ -1382,16 +1365,38 @@ def waive_loan(loan_id):
             accrued_interest=Decimal('0'),
             last_interest_payment_date=now,
             interest_prepaid_period=None,
-            interest_prepaid_amount=Decimal('0')
+            interest_prepaid_amount=Decimal('0'),
+            parent_loan_id=loan.id,
+            root_loan_id=loan.root_loan_id or loan.id
         )
 
         db.session.add(new_loan)
         db.session.flush()
 
-        # Optional: link livestock to the new loan (collateral remains)
         if new_loan.livestock:
             new_loan.livestock.description = f"Collateral for waived loan #{new_loan.id}"
 
+        db.session.commit()
+
+        # Record ledger entries for waiver
+        record_ledger_entry(
+            loan=loan,
+            event_type='waiver',
+            transaction=waiver_txn,
+            amount=reduction,
+            notes=f'Loan waived – reduced from {current_balance:.2f} to {new_principal:.2f}',
+            reference=f'New loan ID: {new_loan.id}',
+            user_id=get_jwt_identity()
+        )
+        record_ledger_entry(
+            loan=new_loan,
+            event_type='waiver_created',
+            transaction=None,
+            amount=new_principal,
+            notes=f'Waived loan – 0% interest, {duration_days} days to repay',
+            reference=f'Original loan #{loan.id}',
+            user_id=get_jwt_identity()
+        )
         db.session.commit()
 
         log_audit('loan_waived', 'loan', loan.id, {
@@ -1415,24 +1420,24 @@ def waive_loan(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+
+
+# ---------------------------------------------------------------------------
+# Livestock single item (public)
+# ---------------------------------------------------------------------------
 
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['GET'])
 @cross_origin(origins="*")
 def get_single_livestock(livestock_id):
-    """Return a single livestock item (public) – used for deep linking."""
     try:
         item = db.session.get(Livestock, livestock_id)
         if not item or item.status != 'active':
             return jsonify({'error': 'Livestock not found'}), 404
-
-        # --- Apply same sanitization as in get_public_livestock_gallery ---
         desc = str(item.description or '').strip()
         if not desc or desc in ('NaN', 'None') or 'claimed' in desc.lower():
             desc = 'Livestock for purchase'
         if '|' in desc:
             desc = desc.split('|', 1)[0].strip()
-
         loc = str(item.location or '').strip()
         if not loc or loc in ('NaN', 'None'):
             loc = 'Isinya, Kajiado'
@@ -1442,13 +1447,9 @@ def get_single_livestock(livestock_id):
             loc = p2 if any(k in p2.lower() for k in kw) else (p1 if any(k in p1.lower() for k in kw) else 'Isinya, Kajiado')
         if 'available' in loc.lower() or 'claimed' in loc.lower():
             loc = 'Isinya, Kajiado'
-
-        # If the livestock is collateral for a loan, change description
         assoc = Loan.query.filter_by(livestock_id=item.id).order_by(Loan.created_at.desc()).first()
         if assoc and 'Collateral for' in desc:
             desc = 'Livestock for purchase'
-
-        # Determine availability info (simple version)
         available_info = 'Available now'
         days_remaining = 0
         if assoc and assoc.status == 'active' and assoc.due_date:
@@ -1459,7 +1460,6 @@ def get_single_livestock(livestock_id):
                 available_info = f'Available in {days_remaining} days'
             else:
                 available_info = 'Available now'
-
         return jsonify({
             'item': {
                 'id': item.id,
@@ -1476,3 +1476,85 @@ def get_single_livestock(livestock_id):
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Loan statement endpoints (new)
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/loan/<int:loan_id>/ledger', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director', 'secretary'])
+def get_loan_ledger(loan_id):
+    from app.models import LoanLedger
+    loan = db.session.get(Loan, loan_id)
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
+    entries = LoanLedger.query.filter_by(loan_id=loan_id).order_by(LoanLedger.event_date).all()
+    return jsonify([{
+        'date': e.event_date.isoformat(),
+        'type': e.event_type,
+        'amount': float(e.amount),
+        'principalBalance': float(e.principal_balance),
+        'interestBalance': float(e.interest_balance),
+        'totalOutstanding': float(e.total_outstanding),
+        'notes': e.notes,
+        'reference': e.reference,
+    } for e in entries]), 200
+
+# In admin.py, update the get_consolidated_statement function
+@admin_bp.route('/loan/<int:loan_id>/consolidated-statement', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director', 'secretary', 'head_of_it'])
+def get_consolidated_statement(loan_id):
+    from app.models import LoanLedger, Transaction
+    loan = db.session.get(Loan, loan_id)
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
+
+    # Find root loan
+    root_loan = loan
+    while root_loan.parent_loan_id:
+        root_loan = db.session.get(Loan, root_loan.parent_loan_id)
+
+    # Collect all loans in chain
+    chain_loan_ids = []
+    def collect_ids(l):
+        chain_loan_ids.append(l.id)
+        for child in Loan.query.filter_by(parent_loan_id=l.id):
+            collect_ids(child)
+    collect_ids(root_loan)
+
+    # Load loans to get their disbursement dates
+    loans_map = {l.id: l for l in Loan.query.filter(Loan.id.in_(chain_loan_ids))}
+
+    entries = LoanLedger.query.filter(
+        LoanLedger.loan_id.in_(chain_loan_ids)
+    ).order_by(LoanLedger.event_date).all()
+
+    txn_ids = [e.transaction_id for e in entries if e.transaction_id]
+    transactions = {t.id: t for t in Transaction.query.filter(Transaction.id.in_(txn_ids))}
+
+    result = []
+    for e in entries:
+        loan_obj = loans_map.get(e.loan_id)
+        txn = transactions.get(e.transaction_id) if e.transaction_id else None
+        result.append({
+            'loan_id': e.loan_id,
+            'date': e.event_date.isoformat(),
+            'type': e.event_type,
+            'amount': float(e.amount),
+            'principalBalance': float(e.principal_balance),
+            'interestBalance': float(e.interest_balance),
+            'totalOutstanding': float(e.total_outstanding),
+            'notes': e.notes,
+            'reference': e.reference,
+            'loan_disbursement_date': loan_obj.disbursement_date.isoformat() if loan_obj and loan_obj.disbursement_date else None,
+            'transaction': {
+                'payment_type': txn.payment_type if txn else None,
+                'payment_method': txn.payment_method if txn else None,
+                'mpesa_receipt': txn.mpesa_receipt if txn else None,
+                'transaction_type': txn.transaction_type if txn else None,
+            } if txn else None
+        })
+    return jsonify(result), 200

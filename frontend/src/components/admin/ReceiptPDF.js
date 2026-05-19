@@ -1,6 +1,8 @@
 import jsPDF from 'jspdf';
 import path from 'path';
 import fs from 'fs';
+import { adminAPI } from '../../services/api';
+import { showToast } from '../../components/common/Toast';
 
 // Company constants (branded info)
 const COMPANY_INFO = {
@@ -479,17 +481,18 @@ const computeRunningBalances = (loan, transactions) => {
   };
 };
 
-export const generateClientStatement = async (client, allTransactions) => {
+// ReceiptPDF.js - corrected generateClientStatement
+export const generateClientStatement = async (client, ledgerEntries = null) => {
   try {
-    // Filter transactions for this loan
-    const clientTransactions = allTransactions.filter(t =>
-      t.loan_id === client.loan_id ||
-      (client.loan_id && t.loan_id === client.loan_id.toString())
-    );
-
-    // Compute running balances using the corrected function
-    const balances = computeRunningBalances(client, clientTransactions);
-    const transactionsWithBalances = balances.transactions;
+    let entries = ledgerEntries;
+    if (!entries && client.loan_id) {
+      const response = await adminAPI.getConsolidatedStatement(client.loan_id);
+      entries = response.data;
+    }
+    if (!entries || entries.length === 0) {
+      showToast.warning('No ledger entries found for this loan.');
+      return;
+    }
 
     const doc = new jsPDF();
     addOptimizedWatermark(doc, 'statement');
@@ -503,20 +506,18 @@ export const generateClientStatement = async (client, allTransactions) => {
     yPos += 8;
     yPos = addDivider(doc, yPos);
 
-    // Client Information
+    // Client Information (same as before)
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
     doc.text('CLIENT INFORMATION', 20, yPos);
     yPos += 8;
-
     const clientDetails = [
       { label: 'Full Name:', value: client.name || 'N/A' },
       { label: 'Phone Number:', value: client.phone || 'N/A' },
       { label: 'ID Number:', value: String(client.idNumber || 'N/A') },
       { label: 'Loan ID:', value: String(client.loan_id || 'N/A') }
     ];
-
     clientDetails.forEach(({ label, value }) => {
       doc.setFont('helvetica', 'bold');
       doc.text(label, 25, yPos);
@@ -526,42 +527,26 @@ export const generateClientStatement = async (client, allTransactions) => {
     });
     yPos += 10;
 
-    // Loan Summary (using computed final balances)
-    doc.setFont('helvetica', 'bold');
-    doc.text('LOAN SUMMARY', 20, yPos);
-    yPos += 8;
-
+    // Loan Summary – use the last entry for current balances
+    const lastEntry = entries[entries.length - 1];
     const principalAmount = client.borrowedAmount || 0;
     const repaymentPlan = client.repayment_plan || 'weekly';
     const interestRate = repaymentPlan === 'daily' ? 4.5 : 30;
-    const interestAmountKes = principalAmount * (interestRate / 100);
-    const expectedTotal = principalAmount + interestAmountKes;
-    const amountPaid = client.amountPaid || 0;
-    const finalPrincipal = balances.currentPrincipal;
-    const finalInterest = balances.currentInterest;
+    const amountPaid = (client.principal_paid || 0) + (client.interest_paid || 0);
 
-    // ✅ For weekly plans, show total outstanding as principal + current week's interest
-    // (matches Client Management UI). For daily, show principal + unpaid accrued interest.
-    let totalOutstanding;
-    if (repaymentPlan === 'weekly') {
-      const currentWeekInterest = finalPrincipal * (interestRate / 100);
-      totalOutstanding = finalPrincipal + currentWeekInterest;
-    } else {
-      totalOutstanding = balances.totalBalance; // already principal + accrued interest
-    }
-
+    doc.setFont('helvetica', 'bold');
+    doc.text('LOAN SUMMARY', 20, yPos);
+    yPos += 8;
     const loanDetails = [
       { label: 'Principal Amount:', value: `KES ${principalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Interest Rate:', value: `${interestRate}% per ${repaymentPlan === 'daily' ? 'day' : 'week'} (KES ${interestAmountKes.toLocaleString('en-US', { minimumFractionDigits: 2 })})` },
-      { label: 'Expected Total:', value: `KES ${expectedTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Amount Paid:', value: `KES ${amountPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Outstanding Principal:', value: `KES ${finalPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Outstanding Interest:', value: `KES ${finalInterest.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Total Outstanding Balance:', value: `KES ${totalOutstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Interest Rate:', value: `${interestRate}% per ${repaymentPlan === 'daily' ? 'day' : 'week'}` },
+      { label: 'Amount Paid:', value: `KES ${amountPaid.toLocaleString()}` },
+      { label: 'Outstanding Principal:', value: `KES ${Number(lastEntry.principalBalance).toLocaleString()}` },
+      { label: 'Outstanding Interest:', value: `KES ${Number(lastEntry.interestBalance).toLocaleString()}` },
+      { label: 'Total Outstanding Balance:', value: `KES ${Number(lastEntry.totalOutstanding).toLocaleString()}` },
       { label: 'Disbursement Date:', value: client.borrowedDate ? new Date(client.borrowedDate).toLocaleDateString('en-GB') : 'N/A' },
       { label: 'Due Date:', value: client.expectedReturnDate ? new Date(client.expectedReturnDate).toLocaleDateString('en-GB') : 'N/A' }
     ];
-
     loanDetails.forEach(({ label, value }) => {
       doc.setFont('helvetica', 'bold');
       doc.text(label, 25, yPos);
@@ -571,17 +556,13 @@ export const generateClientStatement = async (client, allTransactions) => {
     });
     yPos += 15;
 
-    // Transaction History table (unchanged, works correctly)
-    if (transactionsWithBalances.length > 0) {
+    // Transaction History – sort by date
+    if (entries.length > 0) {
       doc.setFont('helvetica', 'bold');
       doc.text('TRANSACTION HISTORY', 20, yPos);
       yPos += 10;
 
-      // Your exact column widths
-      const colWidths = {
-        date: 18, type: 25, method: 16, amount: 23,
-        principal: 23, interest: 23, total: 23, period: 20
-      };
+      const colWidths = { date: 18, type: 28, method: 16, amount: 23, principal: 23, interest: 23, total: 23, period: 20 };
       const startX = 20;
       const positions = [
         startX,
@@ -599,19 +580,19 @@ export const generateClientStatement = async (client, allTransactions) => {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.rect(startX, yPos, 170, 8, 'F');
-
       const headers = ['Date', 'Type', 'Method', 'Amount', 'Principal', 'Interest', 'Total', 'Period'];
-      headers.forEach((h, idx) => {
-        doc.text(h, positions[idx] + 2, yPos + 5.5);
-      });
+      headers.forEach((h, idx) => { doc.text(h, positions[idx] + 2, yPos + 5.5); });
       yPos += 8;
 
       doc.setTextColor(...COLORS.textDark);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
 
-      // Sort by date (oldest first)
-      transactionsWithBalances.sort((a, b) => a.date - b.date).forEach((txn, idx) => {
+      // Sort entries by date
+      const sortedEntries = [...entries].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      for (let idx = 0; idx < sortedEntries.length; idx++) {
+        const entry = sortedEntries[idx];
         const rowHeight = 7;
         if (yPos + rowHeight > 270) {
           doc.addPage();
@@ -621,9 +602,7 @@ export const generateClientStatement = async (client, allTransactions) => {
           doc.setTextColor(...COLORS.white);
           doc.setFont('helvetica', 'bold');
           doc.rect(startX, yPos, 170, 8, 'F');
-          headers.forEach((h, hidx) => {
-            doc.text(h, positions[hidx] + 2, yPos + 5.5);
-          });
+          headers.forEach((h, hidx) => { doc.text(h, positions[hidx] + 2, yPos + 5.5); });
           yPos += 8;
           doc.setTextColor(...COLORS.textDark);
           doc.setFont('helvetica', 'normal');
@@ -635,27 +614,69 @@ export const generateClientStatement = async (client, allTransactions) => {
           doc.rect(startX, yPos, 170, rowHeight, 'F');
         }
 
-        const formatMoney = (amt) => `KES ${amt.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-        const dateStr = txn.date.toLocaleDateString('en-GB');
-        const typeStr = formatTransactionType(txn.type, txn.payment_type);
-        const methodStr = formatPaymentMethod(txn.method, txn.type);
-        const amountStr = formatMoney(txn.amount);
-        const principalStr = formatMoney(txn.principalBalance);
-        const interestStr = formatMoney(txn.interestBalance);
-        const totalStr = formatMoney(txn.totalBalance);
-        const periodStr = txn.period;
+        const formatMoney = (amt) => `KES ${Number(amt).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+        const eventDate = new Date(entry.date);
+        doc.text(eventDate.toLocaleDateString('en-GB'), positions[0] + 2, yPos + 4.5);
 
-        doc.text(dateStr, positions[0] + 2, yPos + 4.5);
-        doc.text(typeStr, positions[1] + 2, yPos + 4.5);
-        doc.text(methodStr, positions[2] + 2, yPos + 4.5);
-        doc.text(amountStr, positions[3] + 2, yPos + 4.5);
-        doc.text(principalStr, positions[4] + 2, yPos + 4.5);
-        doc.text(interestStr, positions[5] + 2, yPos + 4.5);
-        doc.text(totalStr, positions[6] + 2, yPos + 4.5);
-        doc.text(periodStr, positions[7] + 2, yPos + 4.5);
+        // Determine display type
+        let displayType = '';
+        const eventType = entry.type;
+        const txn = entry.transaction;
+        if (eventType === 'disbursement') displayType = 'Loan Disbursement';
+        else if (eventType === 'payment') {
+          if (txn && txn.payment_type === 'principal') displayType = 'Principal Payment';
+          else if (txn && txn.payment_type === 'interest') displayType = 'Interest Payment';
+          else displayType = 'Payment';
+        } else if (eventType === 'waiver') displayType = 'Waiver';
+        else if (eventType === 'claimed') displayType = 'Claim';
+        else if (eventType === 'renewal_merged') displayType = 'Renewal (Old Loan)';
+        else if (eventType === 'renewal_created') displayType = 'Renewal (New Loan)';
+        else if (eventType === 'adjustment') displayType = 'Adjustment';
+        else if (eventType === 'accrual') displayType = 'Interest Accrual';
+        else displayType = eventType.charAt(0).toUpperCase() + eventType.slice(1);
+        doc.text(displayType, positions[1] + 2, yPos + 4.5);
+
+        // Payment method and reference
+        let method = '';
+        let reference = '';
+        if (txn) {
+          method = txn.payment_method ? txn.payment_method.toUpperCase() : '';
+          if (method === 'MPESA' && txn.mpesa_receipt) reference = txn.mpesa_receipt;
+          else if (method === 'CASH') reference = 'CASH';
+          else if (eventType === 'disbursement') reference = 'BANK';
+        }
+        if (!method) method = entry.reference || 'BANK';
+        if (!reference && entry.reference) reference = entry.reference;
+
+        // Color for method
+        const methodLower = method.toLowerCase();
+        const methodColor = methodLower === 'mpesa' ? COLORS.green : COLORS.textDark;
+        doc.setTextColor(...methodColor);
+        doc.text(method, positions[2] + 2, yPos + 4.5);
+        doc.setTextColor(...COLORS.textDark);
+        doc.text(formatMoney(entry.amount), positions[3] + 2, yPos + 4.5);
+        doc.text(formatMoney(entry.principalBalance), positions[4] + 2, yPos + 4.5);
+        doc.text(formatMoney(entry.interestBalance), positions[5] + 2, yPos + 4.5);
+        doc.text(formatMoney(entry.totalOutstanding), positions[6] + 2, yPos + 4.5);
+
+        // Period: use the loan's own disbursement date from the entry
+        let periodText = '';
+        if (entry.loan_disbursement_date) {
+          const loanDisbursement = new Date(entry.loan_disbursement_date);
+          const daysSince = Math.floor((eventDate - loanDisbursement) / (1000 * 60 * 60 * 24));
+          if (repaymentPlan === 'daily') {
+            periodText = `Day ${daysSince + 1}`;
+          } else {
+            const weekNum = Math.floor(daysSince / 7) + 1;
+            periodText = `Week ${weekNum}`;
+          }
+        } else {
+          periodText = '';
+        }
+        doc.text(periodText, positions[7] + 2, yPos + 4.5);
 
         yPos += rowHeight;
-      });
+      }
     } else {
       doc.setFont('helvetica', 'italic');
       doc.setTextColor(...COLORS.textLight);
@@ -670,7 +691,7 @@ export const generateClientStatement = async (client, allTransactions) => {
     doc.save(fileName);
   } catch (error) {
     console.error('Error generating client statement:', error);
-    throw error;
+    showToast.error('Failed to generate statement');
   }
 };
 

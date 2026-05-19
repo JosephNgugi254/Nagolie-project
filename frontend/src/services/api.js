@@ -151,6 +151,10 @@ export const adminAPI = {
       { headers: { Authorization: `Bearer ${token}` } }
     );
   },
+
+  //getting loan ledger and consolidated statement
+  getLoanLedger: (loanId) => api.get(`/admin/loan/${loanId}/ledger`),
+  getConsolidatedStatement: (loanId) => api.get(`/admin/loan/${loanId}/consolidated-statement`),
 };
 
 export const paymentAPI = {

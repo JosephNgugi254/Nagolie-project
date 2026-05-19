@@ -3,7 +3,7 @@ import eventlet
 eventlet.monkey_patch()   # MUST be the first line
 
 from app import create_app
-from app.extensions import socketio   # your socketio instance from extensions.py
+from app.utils.extensions import socketio   # your socketio instance from extensions.py
 
 app = create_app()
 

@@ -1858,6 +1858,7 @@ useEffect(() => {
     // Fetch payment stats when navigating to that section
     if (section === "payment-stats") {
       fetchPaymentStats();
+      fetchTransactions();
     }
 
     // Navigation logic
@@ -2925,7 +2926,7 @@ Thank you for choosing us.`;
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     try {
-                                      await generateClientStatement(row, transactions);
+                                      await generateClientStatement(row);
                                       showToast.success("Client statement downloaded!");
                                     } catch (error) {
                                       console.error("Error generating client statement:", error);
@@ -3600,7 +3601,7 @@ Thank you for choosing us.`;
                                         };
                                         // Filter transactions for this specific loan
                                         const loanTransactions = transactions.filter(t => t.loan_id === row.id);
-                                        await generateClientStatement(clientForStatement, loanTransactions);
+                                        await generateClientStatement(clientForStatement);
                                         showToast.success(`Statement for ${row.name} downloaded!`);
                                       } catch (error) {
                                         console.error("Error generating client statement:", error);

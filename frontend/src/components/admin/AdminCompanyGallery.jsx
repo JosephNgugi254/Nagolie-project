@@ -623,7 +623,7 @@ const AdminCompanyGallery = () => {
         </Modal>
       )}
 
-      {/* Delete Confirmation (single) */}
+      {/* Delete Confirmation multiple images */}
       <ConfirmationDialog
           isOpen={showBulkDeleteConfirm}
           onClose={() => setShowBulkDeleteConfirm(false)}
@@ -634,6 +634,21 @@ const AdminCompanyGallery = () => {
           cancelText="Cancel"
           confirmColor="danger"
         />
+
+       {/*Single Delete Confirmation -*/}
+      <ConfirmationDialog
+        isOpen={showDeleteConfirm}
+        onClose={() => {
+          setShowDeleteConfirm(false);
+          setImageToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete Image"
+        message="Are you sure you want to delete this image? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        confirmColor="danger"
+      />
     </div>
   );
 };

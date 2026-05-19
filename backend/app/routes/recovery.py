@@ -1,8 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage,
-                         Defaulter, Transaction, UserLoanCommentRead)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead)
 from app.utils.decorators import role_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary, _get_current_period_interest, _get_current_period_key
 from app.utils.cloudinary_upload import upload_base64_image
@@ -13,6 +12,7 @@ from sqlalchemy.orm import joinedload
 import io
 from flask import send_file
 from app.models import MessageAttachment
+from app.services.ledger import record_ledger_entry
 
 recovery_bp = Blueprint('recovery', __name__)
 
@@ -78,6 +78,7 @@ def get_recovery_data():
             'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
             'name':             client.full_name if client else 'Unknown',
             'collateral':       collateral,
+            'location':         client.location if client else '',
             'id_number':        client.id_number if client else '',
             'contacts':         client.phone_number if client else '',
             'principal_amount': float(loan.principal_amount),
@@ -151,6 +152,17 @@ def process_recovery_payment(loan_id):
             notes=result, status='completed'
         )
         db.session.add(txn)
+        db.session.commit()
+
+        record_ledger_entry(
+            loan=loan,
+            event_type='payment',
+            transaction=txn,
+            amount=payment_amount,
+            notes=result,
+            reference=method_label,
+            user_id=get_jwt_identity()
+        )
         db.session.commit()
 
         return jsonify({
@@ -442,6 +454,17 @@ def claim_ownership(loan_id):
             payment_method='claim', notes='Claimed overdue'
         ))
         db.session.commit()
+        txn = Transaction(...)   # existing
+        db.session.commit()
+        record_ledger_entry(
+            loan=loan,
+            event_type='claimed',
+            transaction=txn,
+            amount=0,
+            notes='Claimed overdue',
+            user_id=get_jwt_identity()
+        )
+        db.session.commit()
 
         return jsonify({'success': True, 'message': f'Claimed {lv.livestock_type}'}), 200
     except Exception as e:
@@ -453,9 +476,6 @@ def claim_ownership(loan_id):
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director'])
 def renew_loan_recovery(loan_id):
-    """
-    Renew an active loan from the recovery module.
-    """
     try:
         from app.routes.payments import recalculate_loan
         from datetime import datetime, timedelta
@@ -508,7 +528,9 @@ def renew_loan_recovery(loan_id):
             accrued_interest=Decimal('0'),
             last_interest_payment_date=now,
             interest_prepaid_period=None,
-            interest_prepaid_amount=Decimal('0')
+            interest_prepaid_amount=Decimal('0'),
+            parent_loan_id=loan.id,
+            root_loan_id=loan.root_loan_id or loan.id
         )
 
         if new_loan.repayment_plan == 'daily':
@@ -533,6 +555,27 @@ def renew_loan_recovery(loan_id):
         if new_loan.livestock:
             new_loan.livestock.description = f"Collateral for renewed loan #{new_loan.id}"
 
+        db.session.commit()
+
+        # Record ledger entries
+        record_ledger_entry(
+            loan=loan,
+            event_type='renewal_merged',
+            transaction=txn,
+            amount=outstanding_balance,
+            notes=f'Loan renewed into new loan ID {new_loan.id}',
+            reference=str(new_loan.id),
+            user_id=get_jwt_identity()
+        )
+        record_ledger_entry(
+            loan=new_loan,
+            event_type='renewal_created',
+            transaction=None,
+            amount=new_loan.principal_amount,
+            notes=f'Renewal of loan #{loan.id}',
+            reference=str(loan.id),
+            user_id=get_jwt_identity()
+        )
         db.session.commit()
 
         return jsonify({

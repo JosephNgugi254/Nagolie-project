@@ -53,6 +53,19 @@ function RecoveryModule() {
   const navigate = useNavigate();
   useSessionTimeout(logout, isAuthenticated, userRole);
 
+
+  const [branchFilter, setBranchFilter] = useState('all'); // 'all', 'isinya', 'emarti'
+  const filterByBranch = (loans) => {
+    if (branchFilter === 'all') return loans;
+    return loans.filter(loan => {
+      const loc = (loan.location || '').toLowerCase();
+      if (branchFilter === 'emarti') {
+        return loc.includes('emarti');
+      }
+      return !loc.includes('emarti');
+    });
+  };
+
   // socket states
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
@@ -1216,6 +1229,7 @@ function RecoveryModule() {
     try { return new Date(s).toLocaleDateString('en-KE',{year:'numeric',month:'short',day:'numeric'}); }
     catch { return 'N/A'; }
   };
+
   const getDaysBadge = (loan) => {
     const d = loan.days_left;
     if (d === null || d === undefined) return null;
@@ -1238,6 +1252,7 @@ function RecoveryModule() {
       filtered = filtered.filter(loan =>
         loan.name.toLowerCase().includes(term) ||
         (loan.collateral && loan.collateral.toLowerCase().includes(term)) ||
+        (loan.location && loan.location.toLowerCase().includes(term)) ||
         (loan.id_number && loan.id_number.toLowerCase().includes(term)) ||
         (loan.contacts && loan.contacts.toLowerCase().includes(term))
       );
@@ -1269,15 +1284,27 @@ function RecoveryModule() {
   };
 
   const getFilteredData = () => {
+    // 1. Apply day filter & existing filters (search, plan, date, sort)
+    let dayData = {};
     if (dayFilter === 'all') {
-      const newData = {};
       for (const day of DAYS_ORDER) {
-        if (data[day]?.length) newData[day] = filterAndSortLoans(data[day]);
+        if (data[day]?.length) {
+          dayData[day] = filterAndSortLoans(data[day]);
+        }
       }
-      return newData;
     } else {
-      return { [dayFilter]: filterAndSortLoans(data[dayFilter] || []) };
+      dayData = { [dayFilter]: filterAndSortLoans(data[dayFilter] || []) };
     }
+
+    // 2. Apply branch filter on each day's loans and remove empty days
+    const filtered = {};
+    for (const [day, loans] of Object.entries(dayData)) {
+      const branchFiltered = filterByBranch(loans);
+      if (branchFiltered.length) {
+        filtered[day] = branchFiltered;
+      }
+    }
+    return filtered;
   };
 
   const dayTotals = (loans) => loans.reduce((acc, l) => ({
@@ -1287,15 +1314,15 @@ function RecoveryModule() {
     accrued: acc.accrued + (l.accrued_interest || 0),
   }), { principal:0, curPrincipal:0, interest:0, accrued:0 });
 
-  const overall = () => {
-    let total = { principal:0, curPrincipal:0, interest:0, accrued:0 };
-    Object.values(data).forEach(loans => {
-      const d = dayTotals(loans);
+  const overallTotals = () => {
+    let total = { principal: 0, curPrincipal: 0, interest: 0, accrued: 0 };
+    for (const dayLoans of Object.values(filteredData)) {
+      const d = dayTotals(dayLoans);
       total.principal += d.principal;
       total.curPrincipal += d.curPrincipal;
       total.interest += d.interest;
       total.accrued += d.accrued;
-    });
+    }
     return total;
   };
 
@@ -1348,6 +1375,9 @@ function RecoveryModule() {
     fetchData();
     fetchUnreadCount();
     fetchCommentUnreads();
+    if (userRole === 'director') {
+      fetchDirectorTransactions();  
+    }
     const i1 = setInterval(fetchUnreadCount, 5000);
     const i2 = setInterval(fetchCommentUnreads, 5000);
     return () => { clearInterval(i1); clearInterval(i2); };
@@ -1384,6 +1414,7 @@ function RecoveryModule() {
       fetchDirectorTransactions();
     } else if (directorSection === 'payment-stats') {
       fetchDirectorPaymentStats();
+      fetchDirectorTransactions();
     } else if (directorSection === 'gallery') {
       fetchDirectorLivestock();
     } else if (directorSection === 'investors' && isInvestorSectionAuthenticated) {
@@ -1535,22 +1566,8 @@ function RecoveryModule() {
 
             <div className="col-md-9 col-lg-10 main-content">
               {userRole === 'director' ? (
-                // ---------- DIRECTOR PANEL (identical to AdminPanel) ----------
+                // ---------- DIRECTOR PANEL RECOVERY MODULE DISPLAY ----------
                 <>
-                  <div className="d-none d-md-flex justify-content-center mb-3">
-                    <div className="digital-clock">
-                      <div className="clock-date"><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</div>
-                      <div className="clock-time"><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</div>
-                    </div>
-                  </div>
-                  <div className="d-md-none text-center pb-2">
-                    <div className="mobile-clock">
-                      <span><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</span>
-                      <span className="mx-1"></span>
-                      <span><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</span>
-                    </div>
-                  </div>
-
                   {/* OVERVIEW SECTION */}
                   {directorSection === 'overview' && (
                     <div id="overview-section" className="content-section">
@@ -1593,9 +1610,43 @@ function RecoveryModule() {
                     </div>
                   )}
 
-                  {/* ORIGINAL RECOVERY MODULE */}
+                  {/* ORIGINAL RECOVERY MODULE (for director)*/}
                   {directorSection === 'recovery' && (
                     <>
+                      <div className="d-none d-md-flex justify-content-center mb-3">
+                        <div className="digital-clock">
+                          <div className="clock-date"><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</div>
+                          <div className="clock-time"><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</div>
+                        </div>
+                      </div>
+                      <div className="d-md-none text-center pb-2">
+                        <div className="mobile-clock">
+                          <span><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</span>
+                          <span className="mx-1"></span>
+                          <span><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</span>
+                        </div>
+                      </div>
+                      {/* Branch filter tabs */}
+                      <div className="d-flex flex-wrap gap-3 mb-3">
+                        <button
+                          className={`btn ${branchFilter === 'all' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                          onClick={() => setBranchFilter('all')}
+                        >
+                          <i className="fas fa-globe me-1"></i> All
+                        </button>
+                        <button
+                          className={`btn ${branchFilter === 'isinya' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                          onClick={() => setBranchFilter('isinya')}
+                        >
+                          <i className="fas fa-building me-1"></i> Isinya (Kap North Ward)
+                        </button>
+                        <button
+                          className={`btn ${branchFilter === 'emarti' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                          onClick={() => setBranchFilter('emarti')}
+                        >
+                          <i className="fas fa-store me-1"></i> Emarti Branch (Imaroro Ward)
+                        </button>
+                      </div>
                       <div className="card mb-4 shadow-sm">
                         <div className="card-body">
                           <div className="row g-3 align-items-end">
@@ -1617,7 +1668,8 @@ function RecoveryModule() {
                           <div className="card-body p-0">
                             <div className="table-responsive">
                               <table className="table table-hover mb-0">
-                                <thead className="table-light"><tr><th>Name</th><th>Collateral</th><th>ID Number</th><th>Contact</th><th>Borrowed Date</th><th>Initial Principal</th><th>Current Principal</th><th>Interest / Period</th><th>Accrued (Unpaid)</th><th>Week</th><th>Actions</th></tr></thead>
+                                <thead className="table-light">
+                                  <tr><th>Name</th><th>Collateral</th><th>Location</th><th>ID Number</th><th>Contact</th><th>Borrowed Date</th><th>Initial Principal</th><th>Current Principal</th><th>Interest / Period</th><th>Accrued (Unpaid)</th><th>Week</th><th>Actions</th></tr></thead>
                                 <tbody>
                                   {filteredData[day].map(loan => {
                                     const badge = getDaysBadge(loan);
@@ -1625,6 +1677,7 @@ function RecoveryModule() {
                                       <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
                                         <td><div>{loan.name}</div><span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>{loan.interest_rate === 0 ? 'Waived' : (loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}</span>{badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}</td>
                                         <td>{loan.collateral}</td>
+                                        <td>{loan.location}</td>
                                         <td>{loan.id_number}</td>
                                         <td>{loan.contacts}</td>
                                         <td>{fmtDate(loan.disbursement_date)}</td>
@@ -1657,13 +1710,13 @@ function RecoveryModule() {
                                     );
                                   })}
                                 </tbody>
-                                <tfoot className="table-secondary fw-bold">{(() => { const t = dayTotals(filteredData[day]); return (<tr><td colSpan="5">Day Totals</td><td>{fmt(t.principal)}</td><td>{fmt(t.curPrincipal)}</td><td>{fmt(t.interest)}</td><td className="text-danger">{fmt(t.accrued)}</td><td colSpan="2"></td></tr>); })()}</tfoot>
+                                <tfoot className="table-secondary fw-bold">{(() => { const t = dayTotals(filteredData[day]); return (<tr><td colSpan="6">Day Totals</td><td>{fmt(t.principal)}</td><td>{fmt(t.curPrincipal)}</td><td>{fmt(t.interest)}</td><td className="text-danger">{fmt(t.accrued)}</td><td colSpan="2"></td></tr>); })()}</tfoot>
                               </table>
                             </div>
                           </div>
                         </div>
                       ))}
-                      {Object.keys(filteredData).length > 0 && (() => { const t = overall(); return (<div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
+                      {Object.keys(filteredData).length > 0 && (() => { const t = overallTotals(); return (<div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
                     </>
                   )}
 
@@ -1920,7 +1973,7 @@ function RecoveryModule() {
                                       balance: (row.current_principal || 0) + ((row.accrued_interest || 0) - (row.interest_paid || 0))
                                     };
                                     const loanTransactions = transactions.filter(t => t.loan_id === row.id);
-                                    await generateClientStatement(clientForStatement, loanTransactions);
+                                    await generateClientStatement(clientForStatement);
                                     showToast.success(`Statement for ${row.name} downloaded!`);
                                   }}><i className="fas fa-download"></i></button>
                                 ) }
@@ -2753,9 +2806,45 @@ function RecoveryModule() {
                   )}
                 </>
               ) : (
-                // ---------- ORIGINAL RECOVERY UI FOR OTHER ROLES (unchanged) ----------
+                // ---------- ORIGINAL RECOVERY MODULE UI FOR OTHER ROLES ----------
                 !showUtilities ? (
                   <>
+                    {/* digital clock */}
+                    <div className="d-none d-md-flex justify-content-center mb-3">
+                      <div className="digital-clock">
+                        <div className="clock-date"><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</div>
+                        <div className="clock-time"><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</div>
+                      </div>
+                    </div>
+                    <div className="d-md-none text-center pb-2">
+                      <div className="mobile-clock">
+                        <span><i className="fas fa-calendar-alt me-2"></i>{formatClockDate(currentDateTime)}</span>
+                        <span className="mx-1"></span>
+                        <span><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</span>
+                      </div>
+                    </div>
+                    {/* Branch filter tabs */}
+                    <div className="d-flex flex-wrap gap-3 mb-3">
+                      <button
+                        className={`btn ${branchFilter === 'all' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                        onClick={() => setBranchFilter('all')}
+                      >
+                        <i className="fas fa-globe me-1"></i> All
+                      </button>
+                      <button
+                        className={`btn ${branchFilter === 'isinya' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                        onClick={() => setBranchFilter('isinya')}
+                      >
+                        <i className="fas fa-building me-1"></i> Isinya (Kap North Ward)
+                      </button>
+                      <button
+                        className={`btn ${branchFilter === 'emarti' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                        onClick={() => setBranchFilter('emarti')}
+                      >
+                        <i className="fas fa-store me-1"></i> Emarti Branch (Imaroro Ward)
+                      </button>
+                    </div>
+                    {/* recovery module table cards */}
                     <div className="card mb-4 shadow-sm">
                       <div className="card-body">
                         <div className="row g-3 align-items-end">
@@ -2782,6 +2871,7 @@ function RecoveryModule() {
                                   <tr>
                                     <th>Name</th>
                                     <th>Collateral</th>
+                                    <th>Location</th> 
                                     <th>ID Number</th>
                                     <th>Contact</th>
                                     <th>Borrowed Date</th>
@@ -2806,6 +2896,7 @@ function RecoveryModule() {
                                           {badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}
                                         </td>
                                         <td>{loan.collateral}</td>
+                                        <td>{loan.location}</td>
                                         <td>{loan.id_number}</td>
                                         <td>{loan.contacts}</td>
                                         <td>{fmtDate(loan.disbursement_date)}</td>
@@ -2866,7 +2957,7 @@ function RecoveryModule() {
                                     const t = dayTotals(filteredData[day]);
                                     return (
                                       <tr>
-                                        <td colSpan="5">Day Totals</td>
+                                        <td colSpan="6">Day Totals</td>
                                         <td>{fmt(t.principal)}</td>
                                         <td>{fmt(t.curPrincipal)}</td>
                                         <td>{fmt(t.interest)}</td>
@@ -2882,7 +2973,7 @@ function RecoveryModule() {
                         </div>
                       )
                     )}
-                    {Object.keys(filteredData).length > 0 && (() => { const t = overall(); return (<div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
+                    {Object.keys(filteredData).length > 0 && (() => { const t = overallTotals(); return (<div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
                   </>
                 ) : (
                   <UtilitiesPanel userRole={userRole} restrictedMode={true} />

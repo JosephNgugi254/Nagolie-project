@@ -174,6 +174,13 @@ class Loan(db.Model):
     interest_prepaid_period = db.Column(db.String(20), nullable=True)
     interest_prepaid_amount = db.Column(db.Numeric(10, 2), default=Decimal('0'))
 
+    # NEW: loan hierarchy (for renewals and waivers)
+    parent_loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=True)
+    root_loan_id   = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=True, index=True)
+
+    # NEW: last date when an accrual was recorded (to avoid duplicate ledger entries)
+    last_accrual_recorded = db.Column(db.DateTime, nullable=True)
+
     # relationships
     investor = db.relationship('Investor', backref='loans', lazy=True)   
     livestock = db.relationship('Livestock', backref='loan', lazy='joined')
@@ -181,35 +188,57 @@ class Loan(db.Model):
     comments = db.relationship('Comment', back_populates='loan', lazy='dynamic', cascade='all, delete-orphan')
     
     def to_dict(self):
-            return {
-                'id': self.id,
-                'client_id': self.client_id,
-                'client_name': self.client.full_name if self.client else None,
-                'livestock_id': self.livestock_id,
-                'principal_amount': float(self.principal_amount),
-                'interest_rate': float(self.interest_rate),
-                'total_amount': float(self.total_amount),
-                'amount_paid': float(self.amount_paid),
-                'balance': float(self.balance),
-                'accrued_interest': float(self.accrued_interest),
-                'funding_source': self.funding_source,
-                'investor_id': self.investor_id,
-                'investor_name': self.investor.name if self.investor else None,
-                'principal_paid': float(self.principal_paid),
-                'interest_paid': float(self.interest_paid),
-                'current_principal': float(self.current_principal),
-                'disbursement_date': self.disbursement_date.isoformat() if self.disbursement_date else None,
-                'due_date': self.due_date.isoformat() if self.due_date else None,
-                'last_interest_payment_date': self.last_interest_payment_date.isoformat() if self.last_interest_payment_date else None,
-                'status': self.status,
-                'notes': self.notes,
-                'created_at': self.created_at.isoformat(),
-                'interest_type': self.interest_type,
-                'collateral_text': self.collateral_text,
-                'repayment_plan': self.repayment_plan,   
-                'interest_prepaid_period': self.interest_prepaid_period,# Added
-                'interest_prepaid_amount': float(self.interest_prepaid_amount or 0)# Added
-            }
+        return {
+            'id': self.id,
+            'client_id': self.client_id,
+            'client_name': self.client.full_name if self.client else None,
+            'livestock_id': self.livestock_id,
+            'principal_amount': float(self.principal_amount),
+            'interest_rate': float(self.interest_rate),
+            'total_amount': float(self.total_amount),
+            'amount_paid': float(self.amount_paid),
+            'balance': float(self.balance),
+            'accrued_interest': float(self.accrued_interest),
+            'funding_source': self.funding_source,
+            'investor_id': self.investor_id,
+            'investor_name': self.investor.name if self.investor else None,
+            'principal_paid': float(self.principal_paid),
+            'interest_paid': float(self.interest_paid),
+            'current_principal': float(self.current_principal),
+            'disbursement_date': self.disbursement_date.isoformat() if self.disbursement_date else None,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'last_interest_payment_date': self.last_interest_payment_date.isoformat() if self.last_interest_payment_date else None,
+            'status': self.status,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat(),
+            'interest_type': self.interest_type,
+            'collateral_text': self.collateral_text,
+            'repayment_plan': self.repayment_plan,   
+            'interest_prepaid_period': self.interest_prepaid_period,# Added
+            'interest_prepaid_amount': float(self.interest_prepaid_amount or 0),# Added
+            'parent_loan_id': self.parent_loan_id,
+            'root_loan_id': self.root_loan_id,
+        }
+
+class LoanLedger(db.Model):
+    __tablename__ = 'loan_ledger'
+    id = db.Column(db.Integer, primary_key=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False, index=True)
+    transaction_id = db.Column(db.Integer, db.ForeignKey('transactions.id'), nullable=True)   # ✅ 'transactions.id'
+    event_type = db.Column(db.String(50), nullable=False)
+    event_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    principal_balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
+    interest_balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
+    penalty_balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
+    total_outstanding = db.Column(db.Numeric(12,2), nullable=False, default=0)
+    amount = db.Column(db.Numeric(12,2), nullable=False, default=0)
+    notes = db.Column(db.Text, nullable=True)
+    reference = db.Column(db.String(100), nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)   # ✅ 'users.id'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    loan = db.relationship('Loan', backref=db.backref('ledger_entries', lazy='dynamic'))
+    transaction = db.relationship('Transaction', backref='ledger_entry')
 
 class Transaction(db.Model):
     __tablename__ = 'transactions'
