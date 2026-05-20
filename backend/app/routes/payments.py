@@ -7,7 +7,7 @@ from app.models import Payment, Loan, Transaction
 from app.utils.daraja import DarajaAPI
 from app.utils.security import log_audit, role_required
 from app.utils.decorators import role_required
-from app.services.ledger import record_ledger_entry   # NEW
+from app.services.ledger import record_ledger_entry
 
 payments_bp = Blueprint('payments', __name__)
 
@@ -17,10 +17,7 @@ payments_bp = Blueprint('payments', __name__)
 # ---------------------------------------------------------------------------
 
 def recalculate_loan(loan):
-    """
-    Bring a loan's financial fields fully up-to-date.
-    ... (existing documentation) ...
-    """
+    """Bring a loan's financial fields fully up-to-date."""
     if loan.status != 'active':
         return loan
     
@@ -49,7 +46,12 @@ def recalculate_loan(loan):
 
 
 def _record_accrual(loan, amount, notes, event_date):
-    """Helper to record an accrual ledger entry, avoiding duplicates."""
+    """Helper to record an accrual ledger entry, avoiding duplicates.
+    
+    For weekly compound loans, `amount` should be the net amount actually
+    capitalised (week_interest - prepaid). This ensures the ledger shows
+    the true change in principal.
+    """
     if not loan.last_accrual_recorded or event_date > loan.last_accrual_recorded:
         record_ledger_entry(
             loan=loan,
@@ -73,7 +75,6 @@ def _accrue_daily(loan, today, last_date):
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
             loan.accrued_interest += day_interest
-            # Record ledger entry for this day's accrual
             accrual_date = last_date + timedelta(days=i+1)
             _record_accrual(
                 loan=loan,
@@ -116,23 +117,25 @@ def _accrue_weekly(loan, today, last_date):
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
             
+            # Determine net amount to add to principal (after prepaid interest)
             if loan.interest_prepaid_period == period_key:
                 prepaid = loan.interest_prepaid_amount or Decimal('0')
-                remaining_to_compound = max(Decimal('0'), week_interest - prepaid)
-                loan.current_principal += remaining_to_compound
+                net_added = max(Decimal('0'), week_interest - prepaid)
+                loan.current_principal += net_added
                 loan.accrued_interest += week_interest
                 loan.interest_prepaid_period = None
                 loan.interest_prepaid_amount = Decimal('0')
             else:
-                loan.current_principal += week_interest
-                loan.accrued_interest += week_interest
+                net_added = week_interest
+                loan.current_principal += net_added
+                loan.accrued_interest += net_added
 
-            # Record accrual entry for this week
+            # Record ledger entry with the net amount actually capitalised
             accrual_date = last_date + timedelta(days=(w+1)*7)
             _record_accrual(
                 loan=loan,
-                amount=week_interest,
-                notes=f'Weekly interest accrued at 30% (compound)',
+                amount=net_added,
+                notes=f'Weekly interest accrued at 30% (compound) – net after prepaid' if net_added != week_interest else f'Weekly interest accrued at 30% (compound)',
                 event_date=datetime.combine(accrual_date, datetime.min.time())
             )
 
@@ -156,7 +159,7 @@ def _accrue_weekly(loan, today, last_date):
 
 
 # ---------------------------------------------------------------------------
-# Payment helper (unchanged, but we keep it)
+# Period helpers
 # ---------------------------------------------------------------------------
 
 def _get_current_period_key(loan):
@@ -177,16 +180,24 @@ def _get_current_period_interest(loan):
         weekly_rate = Decimal('0.30')
         return (loan.current_principal * weekly_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
+
+# ---------------------------------------------------------------------------
+# Apply payment – corrected for compound interest
+# ---------------------------------------------------------------------------
+
 def _apply_payment(loan, payment_type, payment_amount, notes, method='Cash'):
     """
     Mutate loan fields for a payment.
-    ... (existing implementation, unchanged) ...
+    For weekly compound loans, interest payments are only allowed
+    as pre‑period payments (before the week ends) and are capped at
+    the current week's interest.
     """
     if payment_type == 'interest':
         current_period = _get_current_period_key(loan)
         current_period_interest = _get_current_period_interest(loan)
-        
-        if loan.repayment_plan == 'weekly':
+
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            # Compound weekly – interest payment only allowed BEFORE the week ends
             if loan.interest_prepaid_period == current_period:
                 already_paid = loan.interest_prepaid_amount or Decimal('0')
                 remaining_period_interest = max(Decimal('0'), current_period_interest - already_paid)
@@ -194,49 +205,32 @@ def _apply_payment(loan, payment_type, payment_amount, notes, method='Cash'):
                     return (
                         f'Interest for this week has already been paid '
                         f'(KSh {float(already_paid):,.2f} on {loan.interest_prepaid_period}). '
-                        f'Next payment available after the principal is reduced or the new week begins.',
-                        400,
+                        f'Next interest payment available after the week ends (if principal not fully paid).',
+                        400
                     )
                 max_payable = remaining_period_interest
             else:
-                max_payable = loan.current_principal
+                max_payable = current_period_interest
 
             if payment_amount > max_payable + Decimal('0.01'):
                 return (
-                    f'Interest payment cannot exceed {float(max_payable):,.2f} '
-                    f'for this period.',
-                    400,
+                    f'Interest payment cannot exceed KSh {float(max_payable):,.2f} for this week.',
+                    400
                 )
 
-            disb = loan.disbursement_date.date() if hasattr(loan.disbursement_date, 'date') else loan.disbursement_date
-            last_ip = loan.last_interest_payment_date
-            last_date = last_ip.date() if hasattr(last_ip, 'date') else last_ip if last_ip else disb
-            days_since_last = (datetime.now().date() - last_date).days
-            is_pre_period = days_since_last < 7
-
-            if is_pre_period:
-                loan.interest_prepaid_period = current_period
-                loan.interest_prepaid_amount = (loan.interest_prepaid_amount or Decimal('0')) + payment_amount
-                loan.interest_paid += payment_amount
-                loan.amount_paid += payment_amount
-                notes_text = (
-                    notes or 
-                    f'{method} PRE-PERIOD interest payment of KSh {float(payment_amount):,.2f}. '
-                    f'Interest for current week locked in — principal unchanged until week ends.'
-                )
-            else:
-                loan.current_principal -= payment_amount
-                if loan.current_principal < Decimal('0'):
-                    loan.current_principal = Decimal('0')
-                loan.interest_paid += payment_amount
-                loan.principal_paid += payment_amount
-                loan.amount_paid += payment_amount
-                loan.interest_prepaid_period = None
-                loan.interest_prepaid_amount = Decimal('0')
-                notes_text = notes or f'{method} interest payment of KSh {float(payment_amount):,.2f}'
+            # Payment is always a pre‑period payment (interest not yet capitalised)
+            loan.interest_prepaid_period = current_period
+            loan.interest_prepaid_amount = (loan.interest_prepaid_amount or Decimal('0')) + payment_amount
+            loan.interest_paid += payment_amount
+            loan.amount_paid += payment_amount
+            notes_text = (
+                notes or 
+                f'{method} PRE-PERIOD interest payment of KSh {float(payment_amount):,.2f}. '
+                f'Interest for current week locked – principal unchanged until week ends.'
+            )
 
         else:
-            # Daily plan (unchanged)
+            # Daily plan – unchanged
             if loan.interest_prepaid_period == current_period:
                 already_paid_today = loan.interest_prepaid_amount or Decimal('0')
                 today_interest = current_period_interest
@@ -299,29 +293,48 @@ def _apply_payment(loan, payment_type, payment_amount, notes, method='Cash'):
     return notes_text
 
 
+# ---------------------------------------------------------------------------
+# Loan summary – correct unpaid_interest for weekly loans
+# ---------------------------------------------------------------------------
+
 def _loan_summary(loan):
-    """Frontend-ready dict after a payment (unchanged)."""
-    unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
-    current_period = _get_current_period_key(loan)
-    period_interest = _get_current_period_interest(loan)
+    unpaid = Decimal('0')
+    period_interest = Decimal('0')
     period_prepaid = Decimal('0')
     period_already_paid = False
-    if loan.interest_prepaid_period == current_period:
-        period_prepaid = loan.interest_prepaid_amount or Decimal('0')
-        period_already_paid = period_prepaid >= period_interest - Decimal('0.01')
+    current_period = _get_current_period_key(loan)
+
+    if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+        # Compound weekly – only current period interest can be "unpaid"
+        period_interest = _get_current_period_interest(loan)
+        if loan.interest_prepaid_period == current_period:
+            period_prepaid = loan.interest_prepaid_amount or Decimal('0')
+            period_already_paid = period_prepaid >= period_interest - Decimal('0.01')
+            unpaid = max(Decimal('0'), period_interest - period_prepaid)
+        else:
+            period_already_paid = False
+            unpaid = period_interest
+    else:
+        # Daily or zero‑interest – use accumulated interest
+        period_interest = _get_current_period_interest(loan)
+        if loan.interest_prepaid_period == current_period:
+            period_prepaid = loan.interest_prepaid_amount or Decimal('0')
+            period_already_paid = period_prepaid >= period_interest - Decimal('0.01')
+        unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+
     return {
-        'id':               loan.id,
-        'amount_paid':      float(loan.amount_paid),
-        'principal_paid':   float(loan.principal_paid),
-        'interest_paid':    float(loan.interest_paid),
+        'id': loan.id,
+        'amount_paid': float(loan.amount_paid),
+        'principal_paid': float(loan.principal_paid),
+        'interest_paid': float(loan.interest_paid),
         'current_principal': float(loan.current_principal),
         'accrued_interest': float(loan.accrued_interest),
-        'unpaid_interest':  float(unpaid),
-        'balance':          float(loan.balance),
-        'due_date':         loan.due_date.isoformat() if loan.due_date else None,
-        'status':           loan.status,
-        'repayment_plan':   loan.repayment_plan,
-        'interest_type':    loan.interest_type,
+        'unpaid_interest': float(unpaid),          # ← fixed for weekly compound
+        'balance': float(loan.balance),
+        'due_date': loan.due_date.isoformat() if loan.due_date else None,
+        'status': loan.status,
+        'repayment_plan': loan.repayment_plan,
+        'interest_type': loan.interest_type,
         'current_period_interest': float(period_interest),
         'period_interest_prepaid': float(period_prepaid),
         'period_interest_fully_paid': period_already_paid,
@@ -330,7 +343,7 @@ def _loan_summary(loan):
 
 
 # ---------------------------------------------------------------------------
-# Cash payment
+# Cash payment endpoint
 # ---------------------------------------------------------------------------
 
 @payments_bp.route('/cash', methods=['POST'])
@@ -338,11 +351,11 @@ def _loan_summary(loan):
 @role_required(['admin', 'director', 'secretary'])
 def process_cash_payment():
     try:
-        data         = request.json
-        loan_id      = data.get('loan_id')
-        amount       = data.get('amount')
+        data = request.json
+        loan_id = data.get('loan_id')
+        amount = data.get('amount')
         payment_type = data.get('payment_type', 'principal')
-        notes        = data.get('notes', '')
+        notes = data.get('notes', '')
 
         if not all([loan_id, amount, payment_type]):
             return jsonify({'error': 'Missing required fields'}), 400
@@ -371,7 +384,6 @@ def process_cash_payment():
         db.session.add(txn)
         db.session.commit()
 
-        # Record ledger entry for this payment
         record_ledger_entry(
             loan=loan,
             event_type='payment',
@@ -402,7 +414,7 @@ def process_cash_payment():
 
 
 # ---------------------------------------------------------------------------
-# Manual M-Pesa payment
+# Manual M-Pesa payment endpoint
 # ---------------------------------------------------------------------------
 
 @payments_bp.route('/mpesa/manual', methods=['POST'])
@@ -410,12 +422,12 @@ def process_cash_payment():
 @role_required(['admin', 'director', 'secretary'])
 def process_mpesa_manual():
     try:
-        data            = request.json
-        loan_id         = data.get('loan_id')
-        amount          = data.get('amount')
+        data = request.json
+        loan_id = data.get('loan_id')
+        amount = data.get('amount')
         mpesa_reference = data.get('mpesa_reference')
-        payment_type    = data.get('payment_type', 'principal')
-        notes           = data.get('notes', '')
+        payment_type = data.get('payment_type', 'principal')
+        notes = data.get('notes', '')
 
         if not all([loan_id, amount, mpesa_reference, payment_type]):
             return jsonify({'error': 'Missing required fields'}), 400
@@ -446,7 +458,6 @@ def process_mpesa_manual():
         db.session.add(txn)
         db.session.commit()
 
-        # Record ledger entry for this payment
         record_ledger_entry(
             loan=loan,
             event_type='payment',
@@ -477,7 +488,7 @@ def process_mpesa_manual():
 
 
 # ---------------------------------------------------------------------------
-# STK Push (unchanged, but after callback we already record)
+# STK Push endpoint (unchanged logic)
 # ---------------------------------------------------------------------------
 
 @payments_bp.route('/mpesa/stk-push', methods=['POST'])
@@ -486,9 +497,9 @@ def process_mpesa_manual():
 @limiter.limit("10 per minute")
 def stk_push():
     try:
-        data         = request.get_json()
-        loan_id      = data.get('loan_id')
-        amount       = data.get('amount')
+        data = request.get_json()
+        loan_id = data.get('loan_id')
+        amount = data.get('amount')
         phone_number = data.get('phone_number')
         payment_type = data.get('payment_type', 'principal')
 
@@ -514,8 +525,8 @@ def stk_push():
             if payment_amount > loan.current_principal + Decimal('0.01'):
                 return jsonify({'success': False, 'error': f'Cannot exceed current principal {float(loan.current_principal):.2f}'}), 400
 
-        daraja  = DarajaAPI()
-        result  = daraja.stk_push(
+        daraja = DarajaAPI()
+        result = daraja.stk_push(
             phone_number=phone_number, amount=str(amount),
             account_reference=f"NAGOLIE{loan.id}",
             callback_url=current_app.config['DARAJA_CALLBACK_URL']
@@ -548,17 +559,17 @@ def stk_push():
 
 
 # ---------------------------------------------------------------------------
-# Callback (record ledger entry after successful payment)
+# M-Pesa callback (unchanged)
 # ---------------------------------------------------------------------------
 
 @payments_bp.route('/callback', methods=['POST'])
 @limiter.limit("100 per minute")
 def mpesa_callback():
     try:
-        data  = request.get_json()
-        body  = data.get('Body', {}).get('stkCallback', {})
-        code  = body.get('ResultCode')
-        cid   = body.get('CheckoutRequestID')
+        data = request.get_json()
+        body = data.get('Body', {}).get('stkCallback', {})
+        code = body.get('ResultCode')
+        cid = body.get('CheckoutRequestID')
 
         if not cid:
             return jsonify({'ResultCode': 1, 'ResultDesc': 'Missing CID'}), 400
@@ -568,15 +579,15 @@ def mpesa_callback():
             return jsonify({'ResultCode': 1, 'ResultDesc': 'Not found'}), 404
 
         if code == 0:
-            items   = body.get('CallbackMetadata', {}).get('Item', [])
-            rd      = {i['Name']: i.get('Value') for i in items}
-            cb_amt  = Decimal(str(rd.get('Amount', 0))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            items = body.get('CallbackMetadata', {}).get('Item', [])
+            rd = {i['Name']: i.get('Value') for i in items}
+            cb_amt = Decimal(str(rd.get('Amount', 0))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             receipt = rd.get('MpesaReceiptNumber')
-            phone   = rd.get('PhoneNumber')
-            loan    = payment.loan
-            ptype   = payment.payment_type or 'principal'
+            phone = rd.get('PhoneNumber')
+            loan = payment.loan
+            ptype = payment.payment_type or 'principal'
 
-            loan   = recalculate_loan(loan)
+            loan = recalculate_loan(loan)
             result = _apply_payment(loan, ptype, cb_amt, '', method=f'M-Pesa {receipt}')
             if isinstance(result, tuple):
                 payment.status = 'failed'; payment.result_code = '1'
@@ -598,7 +609,6 @@ def mpesa_callback():
             db.session.add(txn)
             db.session.commit()
 
-            # Record ledger entry for this payment
             record_ledger_entry(
                 loan=loan,
                 event_type='payment',
@@ -622,6 +632,10 @@ def mpesa_callback():
         db.session.rollback()
         return jsonify({'ResultCode': 1, 'ResultDesc': 'Failed'}), 500
 
+
+# ---------------------------------------------------------------------------
+# Status endpoints
+# ---------------------------------------------------------------------------
 
 @payments_bp.route('/<int:payment_id>/status', methods=['GET'])
 @jwt_required()

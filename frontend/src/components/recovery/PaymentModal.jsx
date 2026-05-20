@@ -27,20 +27,20 @@ function PaymentModal({ loan, onClose, onSuccess }) {
 
   const maxPrincipal = currentPrincipal;
 
-  // ✅ FIXED: correct maxInterest for weekly plans, plus zero‑interest guard
   let maxInterest;
   if (isZeroInterest) {
-    maxInterest = 0;
+      maxInterest = 0;
   } else if (periodFullyPaid) {
-    maxInterest = 0;
+      maxInterest = 0;
   } else if (periodPrepaid > 0) {
-    maxInterest = Math.max(0, currentPeriodInterest - periodPrepaid);
-  } else if (unpaidInterest > 0.01) {
-    // For weekly: allow unpaid + current period interest
-    // For daily: only unpaid interest
-    maxInterest = isWeekly ? unpaidInterest + currentPeriodInterest : unpaidInterest;
+      // Already some prepayment – remaining is what's left of this period's interest
+      maxInterest = Math.max(0, currentPeriodInterest - periodPrepaid);
+  } else if (isWeekly) {
+      // Weekly compound: unpaidInterest is already the current week's unpaid (backend fix)
+      maxInterest = unpaidInterest;
   } else {
-    maxInterest = currentPeriodInterest;
+      // Daily simple: unpaidInterest is the total accrued unpaid
+      maxInterest = unpaidInterest;
   }
 
   let totalBalance;

@@ -64,7 +64,19 @@ def get_recovery_data():
 
         week_number     = get_week_number(loan.disbursement_date)
         is_defaulter    = Defaulter.query.filter_by(loan_id=loan.id, resolved=False).first() is not None
-        unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+        # Correct unpaid_interest for weekly compound vs daily simple
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            # Weekly compound: only current week's unpaid interest (pre‑paid deducted)
+            current_period = _get_current_period_key(loan)
+            period_interest = _get_current_period_interest(loan)
+            if loan.interest_prepaid_period == current_period:
+                prepaid = loan.interest_prepaid_amount or Decimal('0')
+                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+            else:
+                unpaid_interest = float(period_interest)
+        else:
+            # Daily or zero‑interest: accumulated unpaid interest
+            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
         # Days left toward current due_date
         if loan.due_date:

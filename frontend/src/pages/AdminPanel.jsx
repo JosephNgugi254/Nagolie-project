@@ -4711,33 +4711,40 @@ Thank you for choosing us.`;
               const currentPeriodInterest = Number(selectedClient?.current_period_interest || selectedClient?.interest || 0);
               const periodPrepaid = Number(selectedClient?.period_interest_prepaid || 0);
               const periodFullyPaid = selectedClient?.period_interest_fully_paid === true;
-              const unpaidAccrued = Number(selectedClient?.unpaidInterest || 0);
-
+              // After backend fix, unpaidInterest is already correct for both weekly and daily:
+              // - For weekly: = remaining of current period interest (prepaid deducted)
+              // - For daily: = total accrued unpaid interest
+              const unpaidInterest = Number(selectedClient?.unpaidInterest || 0);
+                        
               let maxInt = 0;
               if (periodFullyPaid) {
                 maxInt = 0;
               } else if (periodPrepaid > 0) {
                 maxInt = Math.max(0, currentPeriodInterest - periodPrepaid);
-              } else if (unpaidAccrued > 0.01) {
-                // For weekly plans, the only "unpaid" interest is the current period's interest.
-                // For daily plans, unpaidAccrued is the total accrued interest.
-                maxInt = isWeekly ? currentPeriodInterest : unpaidAccrued;
               } else {
-                maxInt = currentPeriodInterest;
+                // Use the backend-provided unpaidInterest directly – no extra addition
+                maxInt = unpaidInterest;
               }
-            
+              
+              // Determine label text
+              let labelText = '';
+              let helperText = '';
+              if (isWeekly) {
+                labelText = `This Week’s Interest (max ${formatCurrency(maxInt)})`;
+                helperText = periodPrepaid > 0
+                  ? `Remaining after pre‑payment.`
+                  : `Interest that will be capitalised at week end. Pay early to lock it.`;
+              } else {
+                labelText = 'Unpaid Interest (Accrued)';
+                helperText = 'Total interest that has accumulated but not yet paid.';
+              }
+              
               return (
                 <div className="mb-3">
-                  <label className="form-label">
-                    {(selectedClient?.unpaidInterest || 0) > 0.01 && !isWeekly ? 'Unpaid Interest' : "This Period's Interest"}
-                  </label>
+                  <label className="form-label fw-bold">{labelText}</label>
                   <input type="text" className="form-control" 
                          value={formatCurrency(maxInt)} readOnly />
-                  <small className="text-muted">
-                    {(selectedClient?.unpaidInterest || 0) > 0.01 && !isWeekly
-                      ? 'Accrued interest balance'
-                      : `Interest for current ${isWeekly ? 'week' : 'period'}. ${periodPrepaid > 0 ? 'Remaining after pre‑payment.' : ''}`}
-                  </small>
+                  <small className="text-muted">{helperText}</small>
                 </div>
               );
             })()}
