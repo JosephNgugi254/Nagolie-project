@@ -9,10 +9,11 @@ db = SQLAlchemy()
 socketio = SocketIO(
     cors_allowed_origins="*",
     async_mode='eventlet',
-    ping_interval=25,   # send a ping every 25 seconds
-    ping_timeout=60     # wait 60 seconds before considering connection dead
+    ping_interval=10,   # send a ping every 10 seconds
+    ping_timeout=20     # wait 20 seconds before considering connection dead
 )
-online_users = set()
+
+user_connections = {} 
 
 def get_chat_room(user1_id, user2_id):
     return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
@@ -47,17 +48,21 @@ def get_user_from_token():
 def handle_connect():
     user = get_user_from_token()
     if user:
-        online_users.add(user.id)
-        join_room(f'user_{user.id}')
-        emit('user_online', {'user_id': user.id}, broadcast=True)
+        # Increment connection count
+        user_connections[user.id] = user_connections.get(user.id, 0) + 1
+        if user_connections[user.id] == 1:   # first connection
+            join_room(f'user_{user.id}')
+            emit('user_online', {'user_id': user.id}, broadcast=True)
 
 @socketio.on('disconnect')
 def handle_disconnect():
     user = get_user_from_token()
-    if user:
-        online_users.discard(user.id)
-        leave_room(f'user_{user.id}')
-        emit('user_offline', {'user_id': user.id}, broadcast=True)
+    if user and user.id in user_connections:
+        user_connections[user.id] -= 1
+        if user_connections[user.id] == 0:
+            del user_connections[user.id]
+            leave_room(f'user_{user.id}')
+            emit('user_offline', {'user_id': user.id}, broadcast=True)
 
 @socketio.on('join_chat')
 def handle_join_chat(data):
