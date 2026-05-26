@@ -44,23 +44,19 @@ def get_user_from_token():
 def handle_connect():
     user = get_user_from_token()
     if not user:
-        return False   # reject connection
-    
-    # Store mapping for disconnect
+        return False
+
     sid = request.sid
     sid_to_user[sid] = user.id
-
-    # Increment connection count
     user_connections[user.id] = user_connections.get(user.id, 0) + 1
 
     if user_connections[user.id] == 1:
         join_room(f'user_{user.id}')
-        # Broadcast to everyone that this user is online
         emit('user_online', {'user_id': user.id}, broadcast=True)
-        
-        # Send the new client a list of already online users (excluding self)
-        online_ids = [uid for uid in user_connections.keys() if uid != user.id]
-        emit('online_users_list', {'user_ids': online_ids}, room=sid)
+
+    # ✅ Send already-online users to this new client
+    online_ids = [uid for uid in user_connections.keys() if uid != user.id]
+    emit('online_users_list', {'user_ids': online_ids}, room=sid)
 
 @socketio.on('disconnect')
 def handle_disconnect():
