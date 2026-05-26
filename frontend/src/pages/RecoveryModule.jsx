@@ -1473,6 +1473,11 @@ function RecoveryModule() {
       // Join the user's personal room (already handled on server)
     });
 
+    newSocket.on('online_users_list', (data) => {
+      console.log('[Global Socket] Initial online users:', data.user_ids);
+      setOnlineUsers(new Set(data.user_ids));
+    });
+
     newSocket.on('user_online', (data) => {
       console.log('[Global Socket] User online:', data.user_id);
       if (disconnectTimeouts.current[data.user_id]) {

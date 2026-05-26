@@ -13,14 +13,10 @@ socketio = SocketIO(
     ping_timeout=20     # wait 20 seconds before considering connection dead
 )
 
-user_connections = {} 
-
-def get_chat_room(user1_id, user2_id):
-    return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
+user_connections = {}   # user_id -> connection count
+sid_to_user = {}        # socket_id -> user_id
 
 def get_user_from_token():
-    from app.models import User   
-
     auth_header = request.headers.get('Authorization')
     if auth_header:
         try:
@@ -28,41 +24,59 @@ def get_user_from_token():
             payload = decode_token(token)
             user_id = payload.get('sub')
             if user_id:
+                from app.models import User
                 return User.query.get(int(user_id))
         except:
             pass
-
     token = request.args.get('token')
     if token:
         try:
             payload = decode_token(token)
             user_id = payload.get('sub')
             if user_id:
+                from app.models import User
                 return User.query.get(int(user_id))
         except:
             pass
-
     return None
 
 @socketio.on('connect')
 def handle_connect():
     user = get_user_from_token()
-    if user:
-        # Increment connection count
-        user_connections[user.id] = user_connections.get(user.id, 0) + 1
-        if user_connections[user.id] == 1:   # first connection
-            join_room(f'user_{user.id}')
-            emit('user_online', {'user_id': user.id}, broadcast=True)
+    if not user:
+        return False   # reject connection
+    
+    # Store mapping for disconnect
+    sid = request.sid
+    sid_to_user[sid] = user.id
+
+    # Increment connection count
+    user_connections[user.id] = user_connections.get(user.id, 0) + 1
+
+    if user_connections[user.id] == 1:
+        join_room(f'user_{user.id}')
+        # Broadcast to everyone that this user is online
+        emit('user_online', {'user_id': user.id}, broadcast=True)
+        
+        # Send the new client a list of already online users (excluding self)
+        online_ids = [uid for uid in user_connections.keys() if uid != user.id]
+        emit('online_users_list', {'user_ids': online_ids}, room=sid)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    user = get_user_from_token()
-    if user and user.id in user_connections:
-        user_connections[user.id] -= 1
-        if user_connections[user.id] == 0:
-            del user_connections[user.id]
-            leave_room(f'user_{user.id}')
-            emit('user_offline', {'user_id': user.id}, broadcast=True)
+    sid = request.sid
+    user_id = sid_to_user.pop(sid, None)
+    if not user_id or user_id not in user_connections:
+        return
+
+    user_connections[user_id] -= 1
+    if user_connections[user_id] == 0:
+        del user_connections[user_id]
+        leave_room(f'user_{user_id}')
+        emit('user_offline', {'user_id': user_id}, broadcast=True)
+
+def get_chat_room(user1_id, user2_id):
+    return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
 
 @socketio.on('join_chat')
 def handle_join_chat(data):
