@@ -3,7 +3,7 @@ import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import EmojiPicker from 'emoji-picker-react';
 
-function ChatWindow({ user, onClose, onNewMessage, style, globalSocket }) {
+function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -397,20 +397,16 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket }) {
         <span>
           <i className="fas fa-grip-lines me-2" style={{ opacity: 0.6 }}></i>
           {user.username}
-          {socketConnected && (
-            <span
-              style={{
-                display: 'inline-block',
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: '#4caf50',
-                marginLeft: 6,
-                verticalAlign: 'middle',
-              }}
-              title="Connected"
-            />
-          )}
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: '0.75rem',
+              fontWeight: 'normal',
+              color: onlineUsers.has(user.id) ? '#4caf50' : '#9e9e9e',
+            }}
+          >
+            ({onlineUsers.has(user.id) ? 'online' : 'offline'})
+          </span>
         </span>
         <div className="chat-window-header-actions">
           <button className="btn-close btn-close-white" onClick={onClose}></button>
