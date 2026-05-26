@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from app import db, limiter
 from app.models import Payment, Loan, Transaction
 from app.utils.daraja import DarajaAPI
@@ -10,6 +10,40 @@ from app.utils.decorators import role_required
 from app.services.ledger import record_ledger_entry
 
 payments_bp = Blueprint('payments', __name__)
+
+
+def compute_overdue(loan, today=None):
+    """
+    Returns (overdue_days, overdue_weeks) for an active loan.
+    - Daily loans: overdue starts on day 15 (grace period 14 days)
+    - Weekly loans: grace period = first 2 weeks, overdue starts at week 3
+      (week 3 = 1 week overdue, week 4 = 2 weeks overdue, ...)
+    """
+    if today is None:
+        today = date.today()
+
+    if loan.status != 'active':
+        return 0, 0
+
+    if not loan.disbursement_date:
+        return 0, 0
+
+    # Convert disbursement_date to date object
+    disb = loan.disbursement_date.date() if hasattr(loan.disbursement_date, 'date') else loan.disbursement_date
+    days_since = (today - disb).days
+
+    if loan.repayment_plan == 'daily':
+        # Overdue starts after 14 days
+        overdue_days = max(0, days_since - 14)
+        return overdue_days, 0
+    else:  # weekly (including waived loans with interest_rate 0)
+        # Week numbering: week 1 = days 0-6, week 2 = days 7-13, week 3 = days 14-20, ...
+        week_number = days_since // 7 + 1
+        # Weeks overdue = max(0, week_number - 2)
+        overdue_weeks = max(0, week_number - 2)
+        return 0, overdue_weeks
+
+
 
 
 # ---------------------------------------------------------------------------

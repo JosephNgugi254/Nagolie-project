@@ -13,6 +13,8 @@ import io
 from flask import send_file
 from app.models import MessageAttachment
 from app.services.ledger import record_ledger_entry
+from app.routes.payments import compute_overdue   # add import
+
 
 recovery_bp = Blueprint('recovery', __name__)
 
@@ -43,6 +45,8 @@ def get_recovery_data():
 
     for loan in loans:
         loan = recalculate_loan(loan)
+        today = datetime.utcnow().date()
+        overdue_days, overdue_weeks = compute_overdue(loan, today)
 
         due_day = loan.disbursement_date.strftime('%A') if loan.disbursement_date else 'Monday'
         client  = loan.client
@@ -109,6 +113,8 @@ def get_recovery_data():
             'interest_prepaid_period': loan.interest_prepaid_period,
             'interest_prepaid_amount': float(loan.interest_prepaid_amount or 0),
             'interest_rate':    float(loan.interest_rate), 
+            'overdue_days': overdue_days,
+            'overdue_weeks': overdue_weeks,
         })
 
     for day in result:

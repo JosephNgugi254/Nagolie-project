@@ -1,3 +1,4 @@
+// components/recovery/TakeActionModal.jsx
 import { useState } from 'react';
 
 function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {

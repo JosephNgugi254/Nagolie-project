@@ -14,6 +14,7 @@ import json
 import secrets
 import string
 from app.services.ledger import record_ledger_entry   # NEW
+from app.routes.payments import compute_overdue
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -268,6 +269,7 @@ def get_all_clients():
             if not client:
                 continue
             active_loan = recalculate_loan(active_loan)
+            overdue_days, overdue_weeks = compute_overdue(active_loan, today)
             db.session.commit()
             current_principal = active_loan.current_principal or active_loan.principal_amount
             principal_paid    = active_loan.principal_paid    or Decimal('0')
@@ -317,6 +319,8 @@ def get_all_clients():
                 'period_interest_prepaid': float(period_prepaid),
                 'period_interest_fully_paid': period_interest_paid,
                 'interest_rate':    float(active_loan.interest_rate), 
+                'overdue_days': overdue_days,
+                'overdue_weeks': overdue_weeks,
             })
         clients_data.sort(key=lambda x: (x['name'], x['borrowedDate'] or ''))
         return jsonify(clients_data), 200
@@ -368,26 +372,29 @@ def get_dashboard_stats():
                 'phone': loan.client.phone_number if loan.client else 'N/A',
                 'repayment_plan': loan.repayment_plan,
             })
+        today = datetime.now().date()
         overdue_loans = Loan.query.filter(
             Loan.status == 'active',
-            Loan.accrued_interest > Loan.interest_paid
+            db.func.date(Loan.due_date) < today
         ).all()
         overdue_data = []
         for loan in overdue_loans:
             loan = recalculate_loan(loan)
-            due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
-            days_overdue = (today - due_date).days
-            weeks_overdue = max(0, (days_overdue + 6) // 7) if days_overdue > 0 else 0
+            overdue_days, overdue_weeks = compute_overdue(loan, today)
             overdue_data.append({
-                'id': loan.id, 'client_id': loan.client_id, 'loan_id': loan.id,
+                'id': loan.id,
+                'client_id': loan.client_id,
+                'loan_id': loan.id,
                 'client_name': loan.client.full_name if loan.client else 'Unknown',
                 'balance': float(loan.balance),
                 'current_principal': float(loan.current_principal),
-                'weeks_overdue': weeks_overdue,
-                'phone': loan.client.phone_number if loan.client else 'N/A',
+                'weeks_overdue': overdue_weeks,
+                'days_overdue': overdue_days,
                 'repayment_plan': loan.repayment_plan,
+                'phone': loan.client.phone_number if loan.client else 'N/A',
                 'expectedReturnDate': loan.due_date.isoformat() if loan.due_date else None
             })
+            
         return jsonify({
             'total_clients': total_clients,
             'total_lent': total_lent_adj,
@@ -411,7 +418,7 @@ def get_dashboard_stats():
 def get_payment_stats():
     try:
         loans = Loan.query.filter(
-            Loan.status.in_(['active', 'completed'])
+            Loan.status.in_(['active', 'completed', 'claimed'])
         ).order_by(Loan.disbursement_date.desc()).all()
         stats = []
         total_principal_paid = Decimal('0')
@@ -698,28 +705,43 @@ def send_reminder():
 
 @admin_bp.route('/claim-ownership', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'head_of_it'])
 def claim_ownership():
     try:
-        data      = request.get_json()
-        loan      = Loan.query.filter_by(id=data.get('loan_id'), client_id=data.get('client_id'), status='active').first()
+        data = request.get_json()
+        loan = Loan.query.filter_by(id=data.get('loan_id'), status='active').first()
         if not loan:
             return jsonify({'error': 'Loan not found'}), 404
-        due = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
-        if due >= datetime.now().date():
-            return jsonify({'error': 'Loan not overdue'}), 400
+
+        # Fetch livestock associated with the loan
         lv = Livestock.query.filter_by(id=loan.livestock_id).first()
         if not lv:
-            return jsonify({'error': 'Livestock not found'}), 404
+            return jsonify({'error': 'Livestock not found for this loan'}), 404
+
+        # Update livestock – remove client association, make it available
         loc = (lv.client.location if lv.client and lv.client.location else None) or 'Isinya, Kajiado'
-        lv.description = 'Livestock for purchase'; lv.location = loc
-        lv.status = 'active'; lv.client_id = None
-        loan.status = 'claimed'; loan.balance = 0; loan.amount_paid = loan.total_amount
-        txn = Transaction(loan_id=loan.id, transaction_type='claim', amount=0, payment_method='claim', notes='Claimed overdue')
+        lv.description = 'Livestock for purchase'
+        lv.location = loc
+        lv.status = 'active'
+        lv.client_id = None
+
+        # Mark loan as claimed
+        loan.status = 'claimed'
+        loan.balance = 0
+        loan.amount_paid = loan.total_amount
+
+        # Create transaction record
+        txn = Transaction(
+            loan_id=loan.id,
+            transaction_type='claim',
+            amount=0,
+            payment_method='claim',
+            notes='Claimed overdue'
+        )
         db.session.add(txn)
         db.session.commit()
 
-        # Record ledger entry for claim
+        # Record ledger entry
         record_ledger_entry(
             loan=loan,
             event_type='claimed',
@@ -731,11 +753,11 @@ def claim_ownership():
         db.session.commit()
 
         return jsonify({'success': True, 'message': f'Claimed {lv.livestock_type}'}), 200
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-
-
+        
 @admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director','secretary','head_of_it'])

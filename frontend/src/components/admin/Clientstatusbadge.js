@@ -20,52 +20,32 @@
  * @param {object} row   – client/loan object from the API
  * @returns {{ text: string, className: string }}
  */
-export function getStatusBadge(row) {
-  const principal = Number(row.currentPrincipal ?? row.current_principal ?? row.borrowedAmount ?? 0);
-  const balance   = Number(row.balance ?? 0);
-  const days      = row.daysLeft ?? row.days_left ?? 0;
-  const plan      = row.repayment_plan ?? 'weekly';
+export const getStatusBadge = (client) => {
+  const isDaily = client.repayment_plan === 'daily';
+  const daysOverdue = client.overdue_days || 0;
+  const weeksOverdue = client.overdue_weeks || 0;
+  const daysLeft = client.daysLeft ?? client.days_left ?? 0;
 
-  // Fully paid
-  if (principal <= 0.01 && balance <= 0.01) {
-    return { text: 'Completed', className: 'badge bg-secondary' };
+  // Overdue (after grace period)
+  if ((isDaily && daysOverdue > 0) || (!isDaily && weeksOverdue > 0)) {
+    if (isDaily) {
+      return { text: `${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} overdue`, className: 'badge bg-danger' };
+    } else {
+      return { text: `${weeksOverdue} week${weeksOverdue !== 1 ? 's' : ''} overdue`, className: 'badge bg-danger' };
+    }
   }
 
   // Due today
-  if (days === 0) {
+  if (daysLeft === 0) {
     return { text: 'Due Today', className: 'badge bg-warning text-dark' };
   }
 
-  // Overdue (past due date)
-  if (days < 0) {
-    const weeksOver = Math.ceil(Math.abs(days) / 7);
-    return {
-      text: `Overdue ${weeksOver}w`,
-      className: 'badge bg-danger'
-    };
+  // Still within repayment window (active, not overdue)
+  if (daysLeft > 0) {
+    const colorClass = daysLeft <= 2 ? 'bg-warning text-dark' : 'bg-success';
+    return { text: `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`, className: `badge ${colorClass}` };
   }
 
-  // Still within repayment window
-  const colorClass = days <= 2 ? 'bg-warning text-dark' : 'bg-success';
-  const label = plan === 'daily'
-    ? `${days} day${days !== 1 ? 's' : ''} left`   // daily: shows 1-14
-    : `${days} day${days !== 1 ? 's' : ''} left`;   // weekly: shows 1-7
-
-  return { text: label, className: `badge ${colorClass}` };
-}
-
-/**
- * getDaysLeftBadge  (React JSX version for RecoveryModule)
- * Returns a <span> element or null.
- */
-export function getDaysLeftBadge(loan) {
-  const days = loan.days_left ?? null;
-  if (days === null || days === undefined) return null;
-
-  if (days <= 0) {
-    const overText = days < 0 ? `Overdue ${Math.ceil(Math.abs(days) / 7)}w` : 'Due Today';
-    return { text: overText, cls: days < 0 ? 'bg-danger' : 'bg-warning text-dark' };
-  }
-  if (days <= 2) return { text: `${days}d left`, cls: 'bg-warning text-dark' };
-  return { text: `${days}d left`, cls: 'bg-success' };
-}
+  // Completed or fully paid
+  return { text: 'Completed', className: 'badge bg-secondary' };
+};

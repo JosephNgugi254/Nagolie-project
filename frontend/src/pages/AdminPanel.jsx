@@ -2289,8 +2289,9 @@ Thank you for choosing us.`;
         await Promise.all([
           fetchDashboardData(),
           fetchClients(),
-          fetchLivestock(), // This will update the gallery with the claimed livestock
-          fetchTransactions()
+          fetchLivestock(), 
+          fetchTransactions(),
+          fetchPaymentStats()
         ]);
       } else {
         throw new Error(response.data.error || 'Failed to claim ownership');
@@ -2735,40 +2736,32 @@ Thank you for choosing us.`;
                             </h6>
                           </div>
                           <div className="card-body">
-                            {dashboardData.overdue.length === 0 ? (
-                              <p className="text-muted">No overdue loans</p>
-                            ) : (
-                              dashboardData.overdue.map((client) => {
-                                // Use weeks_overdue from backend, fallback to days_overdue/7
-                                const weeksOverdue = client.weeks_overdue || Math.floor((client.days_overdue || 0) / 7);
-                                return (
-                                  <div key={client.id} className="overdue-client-card alert alert-danger">
-                                    <div className="client-info">
-                                      <h6 className="fw-bold mb-1">{client.client_name}</h6>
-                                      <p className="mb-1">
-                                        <strong>KES {client.balance?.toLocaleString()}</strong> remaining
-                                      </p>
-                                      <small className="text-muted">
-                                        <i className="fas fa-phone me-1"></i>
-                                        {client.phone}
-                                        <span className="ms-2 badge bg-dark">
-                                          {weeksOverdue} week{weeksOverdue !== 1 ? 's' : ''} overdue
-                                        </span>
-                                      </small>
-                                    </div>
-                                    <div className="client-actions">
-                                      <button
-                                        className="btn btn-primary btn-sm btn-action"
-                                        onClick={() => handleTakeAction(client)}
-                                      >
-                                        <i className="fas fa-bolt"></i>
-                                        Take Action
-                                      </button>
-                                    </div>
+                            {dashboardData.overdue.map((client) => {
+                              const isDaily = client.repayment_plan === 'daily';
+                              const overdueUnit = isDaily ? 'day' : 'week';
+                              const overdueValue = isDaily ? client.days_overdue : client.weeks_overdue;
+                              return (
+                                <div key={client.id} className="overdue-client-card alert alert-danger">
+                                  <div className="client-info">
+                                    <h6 className="fw-bold mb-1">{client.client_name}</h6>
+                                    <p className="mb-1">
+                                      <strong>KES {client.balance?.toLocaleString()}</strong> remaining
+                                    </p>
+                                    <small className="text-muted">
+                                      <i className="fas fa-phone me-1"></i>{client.phone}
+                                      <span className="ms-2 badge bg-dark">
+                                        {overdueValue} {overdueUnit}{overdueValue !== 1 ? 's' : ''} overdue
+                                      </span>
+                                    </small>
                                   </div>
-                                );
-                              })
-                            )}
+                                  <div className="client-actions">
+                                    <button className="btn btn-primary btn-sm" onClick={() => handleTakeAction(client)}>
+                                      <i className="fas fa-bolt"></i> Take Action
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                          })}
                           </div>
                         </div>
                       </div>
@@ -3474,6 +3467,7 @@ Thank you for choosing us.`;
                       <option value="all">All</option>
                       <option value="active">Active</option>
                       <option value="completed">Completed</option>
+                      <option value="claimed">Claimed</option>
                     </select>
                   </div>
                 </div>
@@ -3536,9 +3530,10 @@ Thank you for choosing us.`;
                                 return false
                               }
                             }
-                            if (paymentStatsStatus !== 'all') {
-                              if (paymentStatsStatus === 'active' && stat.status !== 'active') return false
-                              if (paymentStatsStatus === 'completed' && stat.status !== 'completed') return false
+                            if (paymentStatsStatus !== 'all') { 
+                                  if (paymentStatsStatus === 'active' && stat.status !== 'active') return false; 
+                                  if (paymentStatsStatus === 'completed' && stat.status !== 'completed') return false; 
+                                  if (paymentStatsStatus === 'claimed' && stat.status !== 'claimed') return false; 
                             }
                             return true
                           }).length === 0 ? (
@@ -3573,7 +3568,11 @@ Thank you for choosing us.`;
                                 header: "Status", 
                                 field: "status",
                                 render: (row) => (
-                                  <span className={`badge ${row.status === 'active' ? 'bg-success' : 'bg-secondary'}`}>
+                                  <span className={`badge ${
+                                    row.status === 'active' ? 'bg-success' :
+                                    row.status === 'completed' ? 'bg-secondary' :
+                                    row.status === 'claimed' ? 'bg-danger' : 'bg-warning'
+                                  }`}>
                                     {row.status.toUpperCase()}
                                   </span>
                                 )
@@ -3626,6 +3625,7 @@ Thank you for choosing us.`;
                               if (paymentStatsStatus !== 'all') {
                                 if (paymentStatsStatus === 'active' && stat.status !== 'active') return false
                                 if (paymentStatsStatus === 'completed' && stat.status !== 'completed') return false
+                                if (paymentStatsStatus === 'claimed' && stat.status !== 'claimed') return false
                               }
                               return true
                             })}

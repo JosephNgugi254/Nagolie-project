@@ -904,8 +904,17 @@ function RecoveryModule() {
       });
       if (response.data.success) {
         showToast.success(response.data.message);
-        handleCloseModal();
-        await Promise.all([fetchDirectorDashboard(), fetchDirectorClients(), fetchDirectorLivestock(), fetchDirectorTransactions()]);
+        // Close BOTH action modals and clear their states
+        setShowActionModal(false);
+        setShowTakeActionModal(false);
+        setSelectedClient(null);
+        setSelectedLoanForAction(null);
+        // Refresh all relevant data
+        fetchDirectorDashboard();
+        fetchDirectorClients();
+        fetchDirectorLivestock();
+        fetchDirectorTransactions();
+        fetchData();
       }
     } catch (error) {
       showToast.error(error.response?.data?.error || 'Claim failed');
@@ -1231,12 +1240,25 @@ function RecoveryModule() {
   };
 
   const getDaysBadge = (loan) => {
-    const d = loan.days_left;
-    if (d === null || d === undefined) return null;
-    if (d < 0) return { text: `Overdue ${Math.ceil(Math.abs(d)/7)}w`, cls: 'bg-danger' };
-    if (d === 0) return { text: 'Due Today', cls: 'bg-warning text-dark' };
-    if (d <= 2) return { text: `${d}d left`, cls: 'bg-warning text-dark' };
-    return { text: `${d}d left`, cls: 'bg-success' };
+    const isDaily = loan.repayment_plan === 'daily';
+    const daysOverdue = loan.overdue_days || 0;
+    const weeksOverdue = loan.overdue_weeks || 0;
+
+    if (isDaily && daysOverdue > 0) {
+      return { text: `${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} overdue`, cls: 'bg-danger' };
+    }
+    if (!isDaily && weeksOverdue > 0) {
+      return { text: `${weeksOverdue} week${weeksOverdue !== 1 ? 's' : ''} overdue`, cls: 'bg-danger' };
+    }
+    // Still within grace period – show days left (based on due_date)
+    const daysLeft = loan.days_left;
+    if (daysLeft === 0) {
+      return { text: 'Due Today', cls: 'bg-warning text-dark' };
+    }
+    if (daysLeft > 0) {
+      return { text: `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`, cls: 'bg-success' };
+    }
+    return null;
   };
 
   const formatDate = (date) => {
@@ -1581,13 +1603,31 @@ function RecoveryModule() {
                         <div className="col-12">
                           <div className="card shadow"><div className="card-header bg-warning text-white"><h6>Due Today ({dashboardData.due_today.length})</h6></div>
                             <div className="card-body">
-                              {dashboardData.due_today.length === 0 ? <p className="text-muted">No loans due today</p> :
-                                dashboardData.due_today.map(client => (
-                                  <div key={client.id} className="alert alert-warning d-flex justify-content-between align-items-center">
-                                    <div><h6 className="mb-0">{client.client_name}</h6><small>KES {client.balance?.toLocaleString()} remaining</small></div>
-                                    <button className="btn btn-sm btn-primary" onClick={() => handleTakeAction(client)}>Take Action</button>
-                                  </div>
-                                ))}
+                              {dashboardData.overdue.length === 0 ? (
+                                <p className="text-muted">No overdue loans</p>
+                              ) : (
+                                dashboardData.overdue.map(client => {
+                                  const isDaily = client.repayment_plan === 'daily';
+                                  const overdueUnit = isDaily ? 'day' : 'week';
+                                  const overdueValue = isDaily ? client.days_overdue : client.weeks_overdue;
+                                  return (
+                                    <div key={client.id} className="alert alert-danger d-flex justify-content-between align-items-center">
+                                      <div>
+                                        <h6 className="mb-0">{client.client_name}</h6>
+                                        <small>KES {client.balance?.toLocaleString()} remaining</small>
+                                        <br />
+                                        <small className="text-muted">
+                                          <i className="fas fa-clock me-1"></i>
+                                          {overdueValue} {overdueUnit}{overdueValue !== 1 ? 's' : ''} overdue
+                                        </small>
+                                      </div>
+                                      <button className="btn btn-sm btn-primary" onClick={() => handleTakeAction(client)}>
+                                        Take Action
+                                      </button>
+                                    </div>
+                                  );
+                                })
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1902,12 +1942,22 @@ function RecoveryModule() {
                       <div className="d-flex justify-content-between align-items-center mb-4">
                         <h2>Payment Statistics</h2>
                         <div className="d-flex gap-2">
-                          <input type="text" className="form-control" placeholder="Search by name or phone..." 
-                                 value={paymentStatsSearch} onChange={e => setPaymentStatsSearch(e.target.value)} />
-                          <select className="form-select" value={paymentStatsStatus} onChange={e => setPaymentStatsStatus(e.target.value)}>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="Search by name or phone..." 
+                            value={paymentStatsSearch}
+                            onChange={e => setPaymentStatsSearch(e.target.value)} 
+                          />
+                          <select 
+                            className="form-select" 
+                            value={paymentStatsStatus} 
+                            onChange={e => setPaymentStatsStatus(e.target.value)}
+                          >
                             <option value="all">All</option>
                             <option value="active">Active</option>
                             <option value="completed">Completed</option>
+                            <option value="claimed">Claimed</option>
                           </select>
                         </div>
                       </div>
@@ -1928,8 +1978,9 @@ function RecoveryModule() {
                                 if (!stat.name?.toLowerCase().includes(term) && !stat.phone?.toLowerCase().includes(term)) return false; 
                               }
                               if (paymentStatsStatus !== 'all') { 
-                                if (paymentStatsStatus === 'active' && stat.status !== 'active') return false; 
-                                if (paymentStatsStatus === 'completed' && stat.status !== 'completed') return false; 
+                                  if (paymentStatsStatus === 'active' && stat.status !== 'active') return false; 
+                                  if (paymentStatsStatus === 'completed' && stat.status !== 'completed') return false; 
+                                  if (paymentStatsStatus === 'claimed' && stat.status !== 'claimed') return false; 
                               }
                               return true;
                             });
@@ -1954,11 +2005,11 @@ function RecoveryModule() {
                                 {
                                   header: "Status",
                                   render: (row) => (
-                                    <span
-                                      className={`badge ${
-                                        row.status === "active" ? "bg-success" : "bg-secondary"
-                                      }`}
-                                    >
+                                    <span className={`badge ${
+                                      row.status === 'active' ? 'bg-success' :
+                                      row.status === 'completed' ? 'bg-secondary' :
+                                      row.status === 'claimed' ? 'bg-danger' : 'bg-warning'
+                                    }`}>
                                       {row.status.toUpperCase()}
                                     </span>
                                   ),

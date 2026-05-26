@@ -1,4 +1,4 @@
-//admin/TakeActionModal.jsx
+//components/admin/TakeActionModal.jsx
 import { useState } from 'react';
 
 function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) {
@@ -6,8 +6,12 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
   const [isLoading, setIsLoading] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
 
-  // Determine if client is overdue (for showing claim option)
-  const isOverdue = client?.weeks_overdue > 0 || client?.daysLeft < 0;
+  // Determine if client is overdue (using backend-provided overdue fields)
+  const isOverdue =
+  (client?.days_overdue > 0) ||      // ← fixed: 'days_overdue'
+  (client?.weeks_overdue > 0) ||
+  (client?.days_left < 0) ||
+  (client?.daysLeft < 0);
 
   // Default reminder message
   const defaultReminderMessage = `Hello ${client?.client_name || client?.name}, this is a reminder from Nagolie Enterprises that your loan of KES ${client?.balance?.toLocaleString()} is due. Please make your payment to avoid additional charges. Thank you.`;
@@ -33,15 +37,18 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
     }
   };
 
-  // Helper to format weeks overdue text
+  // Helper to format overdue text (prefer backend values)
   const getOverdueText = () => {
-    const weeks = client?.weeks_overdue;
-    if (weeks && weeks > 0) {
-      return `${weeks} week${weeks !== 1 ? 's' : ''} overdue`;
+    if (client?.days_overdue > 0) {    // ← fixed: 'days_overdue'
+      return `${client.days_overdue} day${client.days_overdue !== 1 ? 's' : ''} overdue`;
     }
-    // Fallback to days if weeks not available (shouldn't happen with updated backend)
-    const days = Math.abs(client?.daysLeft || 0);
-    if (days > 0) return `${days} day${days !== 1 ? 's' : ''} overdue`;
+    if (client?.weeks_overdue > 0) {
+      return `${client.weeks_overdue} week${client.weeks_overdue !== 1 ? 's' : ''} overdue`;
+    }
+    if (client?.daysLeft < 0) {
+      const days = Math.abs(client.daysLeft);
+      return `${days} day${days !== 1 ? 's' : ''} overdue`;
+    }
     return 'Overdue';
   };
 
@@ -51,7 +58,7 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
         <div className="modal-content">
           <div className="modal-header bg-primary text-white">
             <i className="fas fa-bolt text-danger me-2"></i>
-            <h5 className="modal-title text-white">Take Action - {client?.client_name || client?.name}</h5>
+            <h5 className="modal-title text-white">Take Action – {client?.client_name || client?.name}</h5>
             <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
           </div>
           
@@ -101,7 +108,7 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
                 </label>
               </div>
 
-              {/* Only show claim option for overdue clients */}
+              {/* Only show claim option for overdue clients (including waived) */}
               {isOverdue && (
                 <div className="form-check">
                   <input
