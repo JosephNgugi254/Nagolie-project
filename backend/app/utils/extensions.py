@@ -95,7 +95,7 @@ def handle_send_message(data):
     if not recipient:
         return
 
-    recipient_online = recipient.id in online_users
+    recipient_online = recipient.id in user_connections
 
     msg = PrivateMessage(
         sender_id=user.id,
