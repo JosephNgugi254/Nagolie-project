@@ -480,6 +480,10 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   const menuRef = useRef(null);
   const longPressTimer = useRef(null);
 
+  // Delete confirmation modal state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingMessage, setDeletingMessage] = useState(null);
+
   // Scroll control states
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
@@ -837,15 +841,24 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     } catch (err) { showToast.error('Failed to edit message'); }
   };
 
-  const handleDeleteMessage = async (msg) => {
-    if (window.confirm('Delete this message?')) {
-      try {
-        await recoveryAPI.deleteMessage(msg.id);
-        setMessages(prev => prev.filter(m => m.id !== msg.id));
-        showToast.success('Message deleted');
-      } catch (err) { showToast.error('Failed to delete message'); }
-    }
+  const handleDeleteMessage = (msg) => {
+    setDeletingMessage(msg);
+    setShowDeleteConfirm(true);
     setOpenMenuId(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingMessage) return;
+    try {
+      await recoveryAPI.deleteMessage(deletingMessage.id);
+      setMessages(prev => prev.filter(m => m.id !== deletingMessage.id));
+      showToast.success('Message deleted');
+    } catch (err) {
+      showToast.error('Failed to delete message');
+    } finally {
+      setShowDeleteConfirm(false);
+      setDeletingMessage(null);
+    }
   };
 
   const handleCopyMessage = (msg) => {
@@ -1116,6 +1129,27 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
       )}
 
       <ForwardModal isOpen={showForwardModal} onClose={() => setShowForwardModal(false)} message={forwardMessage} onForward={forwardToUsers} />
+
+      {/* Delete confirmation modal */}
+      {showDeleteConfirm && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Delete message</h5>
+                <button type="button" className="btn-close" onClick={() => setShowDeleteConfirm(false)}></button>
+              </div>
+              <div className="modal-body">
+                <p>Are you sure you want to delete this message?</p>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+                <button className="btn btn-danger" onClick={confirmDelete}>Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
