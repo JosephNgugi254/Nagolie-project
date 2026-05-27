@@ -633,3 +633,33 @@ def get_loan_transactions(loan_id):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+
+# Edit private message (only sender can edit, and only if not read? optional)
+@recovery_bp.route('/messages/<int:message_id>', methods=['PUT'])
+@jwt_required()
+def edit_private_message(message_id):
+    user_id = int(get_jwt_identity())
+    msg = PrivateMessage.query.get_or_404(message_id)
+    if msg.sender_id != user_id:
+        return jsonify({'error': 'You can only edit your own messages'}), 403
+    data = request.json
+    if 'content' not in data:
+        return jsonify({'error': 'Content required'}), 400
+    msg.content = data['content']
+    msg.edited = True   # you may want to add an 'edited' column to PrivateMessage
+    msg.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True, 'message': msg.to_dict()}), 200
+
+# Delete private message (only sender)
+@recovery_bp.route('/messages/<int:message_id>', methods=['DELETE'])
+@jwt_required()
+def delete_private_message(message_id):
+    user_id = int(get_jwt_identity())
+    msg = PrivateMessage.query.get_or_404(message_id)
+    if msg.sender_id != user_id:
+        return jsonify({'error': 'You can only delete your own messages'}), 403
+    db.session.delete(msg)
+    db.session.commit()
+    return jsonify({'success': True}), 200

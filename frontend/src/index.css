@@ -3505,3 +3505,83 @@ section {
     max-width: 95% !important;
   }
 }
+
+/* Message actions dropdown */
+/* Message actions dropdown – three dots icon */
+.message-actions-dropdown {
+  position: relative;
+  display: inline-block;
+  float: right;
+  margin-left: 8px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+/* Show icon on hover over the whole message bubble (desktop) */
+.chat-message:hover .message-actions-dropdown {
+  opacity: 1;
+}
+/* On touch devices (mobile), always keep the icon visible */
+@media (hover: none) and (pointer: coarse) {
+  .message-actions-dropdown {
+    opacity: 1;
+  }
+}
+.message-actions-dropdown > i {
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+/* The menu – no CSS hover, only JS-controlled */
+.message-actions-menu {
+  position: absolute;
+  right: 0;
+  top: 24px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 1000;
+  min-width: 120px;
+  /* Removed display: none; we control visibility via inline style */
+}
+.message-actions-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.message-actions-menu button:hover {
+  background: #f0f0f0;
+}
+.message-actions-menu button i {
+  width: 20px;
+  margin-right: 8px;
+}
+/* New message button (unchanged) */
+.new-message-button {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  background-color: #34b7f1;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fallback-audio-player audio {
+  width: 200px;
+  height: 36px;
+  border-radius: 18px;
+}

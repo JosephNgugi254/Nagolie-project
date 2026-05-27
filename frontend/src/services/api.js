@@ -206,6 +206,10 @@ export const recoveryAPI = {
     api.post('/recovery/messages/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getConversation: (otherUserId) => api.get(`/recovery/messages/conversation/${otherUserId}`),
   markMessageRead: (msgId) => api.put(`/recovery/messages/${msgId}/read`),
+  editMessage: (messageId, newContent) =>
+    api.put(`/recovery/messages/${messageId}`, { content: newContent }),
+  deleteMessage: (messageId) =>
+    api.delete(`/recovery/messages/${messageId}`),
 
   // Defaulters
   markDefaulter: (loanId) => api.post(`/recovery/loan/${loanId}/defaulter`),
