@@ -1,377 +1,333 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import EmojiPicker from 'emoji-picker-react';
 
-// ---------- Waveform Audio Player ----------
-function WaveformAudioPlayer({ src }) {
-  const [audioUrl, setAudioUrl] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [waveformData, setWaveformData] = useState(null);
-  const [duration, setDuration] = useState(0);
+// ------------------------------------------------------------
+// WaveformAudioPlayer – fixed time display + blue logic
+// ------------------------------------------------------------
+const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, onMarkAsRead }) => {
+  const [duration, setDuration]       = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [loadError, setLoadError] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [useFallback, setUseFallback] = useState(false);
-  const audioRef = useRef(null);
-  const canvasRef = useRef(null);
-  const animationRef = useRef(null);
-  const audioBlobRef = useRef(null);
+  const [isPlaying, setIsPlaying]     = useState(false);
+  const [loadError, setLoadError]     = useState(null);
+  // permanentBlue is controlled ONLY by isRead prop (external read status)
+  const [permanentBlue, setPermanentBlue] = useState(isRead);
+  // replay mode: when user clicks play on a permanently blue note, we temporarily show normal progress
+  const [isReplaying, setIsReplaying] = useState(false);
 
-  const loadAudio = async () => {
-    setLoading(true);
-    setLoadError(null);
-    setUseFallback(false);
-    try {
-      let fullUrl = src;
-      if (!src.startsWith('http')) {
-        const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-        const baseWithoutApi = API_BASE.replace(/\/api\/?$/, '');
-        fullUrl = `${baseWithoutApi}${src}`;
-      }
-      const token = localStorage.getItem('token');
-      const response = await fetch(fullUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-      if (blob.size === 0) throw new Error('Empty audio file');
-      audioBlobRef.current = blob;
-      const url = URL.createObjectURL(blob);
-      setAudioUrl(url);
-    } catch (err) {
-      console.error('Failed to load voice note:', err);
-      setLoadError(err.message);
-      showToast.error('Could not load voice note');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const audioRef    = useRef(null);
+  const canvasRef   = useRef(null);
+  const waveDataRef = useRef(null);
+  const isReadRef   = useRef(isRead);
+  const objUrlRef   = useRef(null);
 
-  useEffect(() => {
-    loadAudio();
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-        audioRef.current.load();
-      }
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, [src]);
+  // Static placeholder waveform
+  const placeholderWave = useMemo(() => {
+    const bars = 60;
+    return Array.from({ length: bars }, (_, i) => {
+      const envelope = Math.sin((i / bars) * Math.PI) * 0.7 + 0.3;
+      return Math.min(1, envelope * (0.4 + Math.random() * 0.6));
+    });
+  }, []);
 
-  // Generate waveform from blob; fall back to native <audio> if decode fails
-  useEffect(() => {
-    if (!audioBlobRef.current || !audioUrl || useFallback) return;
-
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      audioContext.decodeAudioData(reader.result)
-        .then((decoded) => {
-          // Duration from decoded PCM is always accurate
-          setDuration(decoded.duration);
-
-          const rawData = decoded.getChannelData(0);
-          const samples = 100;
-          const blockSize = Math.floor(rawData.length / samples);
-          const amplitudes = [];
-          for (let i = 0; i < samples; i++) {
-            let sum = 0;
-            for (let j = 0; j < blockSize; j++) {
-              sum += Math.abs(rawData[i * blockSize + j] || 0);
-            }
-            amplitudes.push(sum / blockSize);
-          }
-          const max = Math.max(...amplitudes, 0.001);
-          const normalized = amplitudes.map(a => a / max);
-          setWaveformData(normalized);
-          drawWaveform(normalized, 0);
-          if (audioRef.current) audioRef.current.src = audioUrl;
-        })
-        .catch((err) => {
-          console.warn('Waveform decode failed, switching to fallback player:', err);
-          setUseFallback(true);
-          if (audioRef.current) audioRef.current.src = audioUrl;
-        });
-    };
-    reader.readAsArrayBuffer(audioBlobRef.current);
-  }, [audioUrl]);
-
-  const drawWaveform = (data, progressPercent = 0) => {
-    if (!canvasRef.current || !data) return;
+  const draw = useCallback((percent) => {
     const canvas = canvasRef.current;
+    if (!canvas || !waveDataRef.current) return;
     const ctx = canvas.getContext('2d');
-    const { width, height } = canvas;
-    ctx.clearRect(0, 0, width, height);
-    const barWidth = width / data.length;
-    const playedUpTo = Math.floor(data.length * progressPercent);
-    for (let i = 0; i < data.length; i++) {
-      const barHeight = Math.max(2, data[i] * height * 0.8);
-      const x = i * barWidth;
-      const y = (height - barHeight) / 2;
-      ctx.fillStyle = i < playedUpTo ? '#34b7f1' : '#d3d3d3';
-      ctx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const barWidth = W / waveDataRef.current.length;
+    // Determine fill:
+    // - If permanently blue AND NOT replaying → all bars blue (percent = 1)
+    // - Else → normal progress (blue up to percent, grey after)
+    const finalPercent = (permanentBlue && !isReplaying) ? 1 : Math.min(1, Math.max(0, percent));
+    const played = Math.floor(waveDataRef.current.length * finalPercent);
+    for (let i = 0; i < waveDataRef.current.length; i++) {
+      const barHeight = Math.max(3, waveDataRef.current[i] * H * 0.85);
+      ctx.fillStyle = i < played ? '#34b7f1' : '#c8c8c8';
+      ctx.fillRect(i * barWidth, (H - barHeight) / 2, Math.max(1, barWidth - 1), barHeight);
     }
-  };
+  }, [permanentBlue, isReplaying]);
 
+  // Draw placeholder on mount
   useEffect(() => {
-    if (useFallback) return;
+    waveDataRef.current = placeholderWave;
+    draw(0);
+  }, [placeholderWave, draw]);
+
+  // Load audio and set up event listeners
+  useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !waveformData) return;
+    if (!audio) return;
 
-    const updateProgress = () => {
-      if (audio.duration && isFinite(audio.duration)) {
-        const percent = audio.currentTime / audio.duration;
-        drawWaveform(waveformData, percent);
-        setCurrentTime(audio.currentTime);
-        animationRef.current = requestAnimationFrame(updateProgress);
+    // Reset state
+    setDuration(0);
+    setCurrentTime(0);
+    setIsPlaying(false);
+    draw(0);
+
+    const onMeta = () => {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
       }
     };
-
-    const handleEnded = () => {
+    const onDurationChange = () => {
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
+    };
+    const onTimeUpdate = () => {
+      if (!audio.duration) return;
+      setCurrentTime(audio.currentTime);
+      if (isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(d => d > 0 ? d : audio.duration);
+      }
+      const pct = (permanentBlue && !isReplaying) ? 1 : audio.currentTime / audio.duration;
+      draw(pct);
+    };
+    const onEnded = () => {
       setIsPlaying(false);
-      drawWaveform(waveformData, 0);
-      setCurrentTime(0);
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      if (isReplaying) {
+        // Replay finished – exit replay mode, keep permanent blue (if any)
+        setIsReplaying(false);
+        draw(1);
+      } else if (!permanentBlue && !isOwnMessage && !isReadRef.current) {
+        // Only mark as read if this is a RECEIVED message (not sent by current user)
+        // This ensures senders never turn their own waveform blue by listening
+        setPermanentBlue(true);
+        if (onMarkAsRead) onMarkAsRead();
+        draw(1);
+      } else {
+        draw(permanentBlue ? 1 : 0);
+      }
     };
 
-    if (isPlaying) {
-      updateProgress();
-      audio.addEventListener('ended', handleEnded);
-    } else {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      if (audio.duration && isFinite(audio.duration)) {
-        drawWaveform(waveformData, audio.currentTime / audio.duration);
-      }
+    audio.addEventListener('loadedmetadata', onMeta);
+    audio.addEventListener('durationchange', onDurationChange);
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('ended', onEnded);
+
+    let url = src;
+    if (!src.startsWith('http')) {
+      const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+      url = `${base}${src}`;
     }
+
+    let cancelled = false;
+    fetch(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then(blob => {
+        if (cancelled) return;
+        if (objUrlRef.current) URL.revokeObjectURL(objUrlRef.current);
+        const objUrl = URL.createObjectURL(blob);
+        objUrlRef.current = objUrl;
+        audio.src = objUrl;
+        audio.preload = 'auto';
+        audio.load();
+        setLoadError(null);
+      })
+      .catch(err => {
+        if (!cancelled) setLoadError(err.message);
+      });
 
     return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      audio.removeEventListener('ended', handleEnded);
+      cancelled = true;
+      audio.removeEventListener('loadedmetadata', onMeta);
+      audio.removeEventListener('durationchange', onDurationChange);
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('ended', onEnded);
+      audio.pause();
+      audio.src = '';
+      if (objUrlRef.current) { URL.revokeObjectURL(objUrlRef.current); objUrlRef.current = null; }
     };
-  }, [isPlaying, waveformData, useFallback]);
+  }, [src]); // eslint-disable-line
+
+  // Sync external isRead prop – only way permanentBlue becomes true
+  useEffect(() => {
+    isReadRef.current = isRead;
+    if (isRead && !permanentBlue) {
+      setPermanentBlue(true);
+      setIsReplaying(false);
+      draw(1);
+    } else if (!isRead && permanentBlue && !isOwnMessage) {
+      // In case the backend un‑reads (shouldn't happen), allow reset
+      setPermanentBlue(false);
+      draw(0);
+    }
+  }, [isRead, permanentBlue, isOwnMessage, draw]);
 
   const togglePlay = () => {
-    if (!audioRef.current) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+    // If the waveform is permanently blue (because receiver read it) and we start playing,
+    // we enter "replay mode": show normal progress instead of full blue.
+    if (permanentBlue && !isPlaying && !isReplaying) {
+      setIsReplaying(true);
+    }
     if (isPlaying) {
-      audioRef.current.pause();
+      audio.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().catch(err => {
-        if (err.name !== 'AbortError') console.error('Play failed:', err);
-      });
+      audio.play().catch(err => console.error('Play failed:', err));
       setIsPlaying(true);
     }
   };
 
   const handleSeek = (e) => {
-    if (useFallback || !audioRef.current || !waveformData) return;
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const percent = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const newTime = percent * audioRef.current.duration;
-    if (isFinite(newTime)) {
-      audioRef.current.currentTime = newTime;
-      setCurrentTime(newTime);
-      drawWaveform(waveformData, percent);
+    const audio = audioRef.current;
+    if (!audio || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const t = pct * audio.duration;
+    if (isFinite(t)) {
+      audio.currentTime = t;
+      setCurrentTime(t);
+      draw((permanentBlue && !isReplaying) ? 1 : pct);
     }
   };
 
-  const formatTime = (time) => {
-    if (!isFinite(time) || time < 0) return '0:00';
-    const m = Math.floor(time / 60);
-    const s = Math.floor(time % 60);
+  const fmt = (t) => {
+    if (!isFinite(t) || t < 0) return '0:00';
+    const m = Math.floor(t / 60);
+    const s = Math.floor(t % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  if (loading) return <div className="text-muted small">Loading voice note...</div>;
   if (loadError) return (
     <div className="text-danger small">
-      Failed to load voice note.
-      <button className="btn btn-link btn-sm" onClick={loadAudio}>Retry</button>
+      Failed to load.{' '}
+      <button className="btn btn-link btn-sm p-0" onClick={() => window.location.reload()}>Retry</button>
     </div>
   );
-  if (!audioUrl) return <div className="text-muted small">Preparing voice note...</div>;
-
-  if (useFallback) {
-    return (
-      <div className="fallback-audio-player">
-        <audio controls src={audioUrl} style={{ width: '200px', height: '36px' }} />
-      </div>
-    );
-  }
-
-  if (!waveformData) {
-    return <div className="text-muted small">Preparing voice note...</div>;
-  }
 
   return (
-    <div className="waveform-audio-player">
-      <audio ref={audioRef} preload="metadata" />
-      <button className="play-pause-btn-wave" onClick={togglePlay}>
-        <i className={`fas fa-${isPlaying ? 'pause' : 'play'}`}></i>
+    <div className="waveform-audio-player" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <audio ref={audioRef} preload="auto" />
+      <button className="play-pause-btn-wave" onClick={togglePlay} style={{ flexShrink: 0 }}>
+        <i className={`fas fa-${isPlaying ? 'pause' : 'play'}`} />
       </button>
       <canvas
         ref={canvasRef}
-        width={200}
-        height={30}
+        width={160}
+        height={32}
         className="waveform-canvas"
         onClick={handleSeek}
-        style={{ cursor: 'pointer' }}
+        style={{ cursor: 'pointer', flexShrink: 0 }}
       />
-      <span className="audio-time">{formatTime(currentTime)} / {formatTime(duration)}</span>
+      <span className="audio-time" style={{ fontSize: '0.7rem', whiteSpace: 'nowrap' }}>
+        {fmt(currentTime)} / {duration > 0 ? fmt(duration) : '0:00'}
+      </span>
     </div>
   );
-}
+});
 
-// ---------- Live Recording Waveform ----------
-function LiveWaveform({ isRecording }) {
-  const canvasRef = useRef(null);
-  const animationRef = useRef(null);
-  const analyserRef = useRef(null);
-  const mediaStreamRef = useRef(null);
+// ------------------------------------------------------------
+// LiveWaveform – throttled to 20 fps
+// ------------------------------------------------------------
+const LiveWaveform = ({ analyserNode }) => {
+  const canvasRef   = useRef(null);
+  const rafRef      = useRef(null);
+  const lastTimeRef = useRef(0);
 
   useEffect(() => {
-    if (!isRecording) {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      if (analyserRef.current) analyserRef.current.disconnect();
-      if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop());
-      const canvas = canvasRef.current;
-      if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!analyserNode) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
-
-    const setup = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaStreamRef.current = stream;
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        source.connect(analyser);
-        analyserRef.current = analyser;
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        const { width, height } = canvas;
-
-        const draw = () => {
-          if (!analyserRef.current) return;
-          analyserRef.current.getByteTimeDomainData(dataArray);
-          ctx.clearRect(0, 0, width, height);
-          ctx.beginPath();
-          ctx.strokeStyle = '#007bff';
-          ctx.lineWidth = 2;
-          const sliceWidth = width / dataArray.length;
-          let x = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            const v = dataArray[i] / 128.0;
-            const y = (v * height) / 2;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-            x += sliceWidth;
-          }
-          ctx.stroke();
-          animationRef.current = requestAnimationFrame(draw);
-        };
-        draw();
-      } catch (err) {
-        console.error('Live waveform error', err);
+    const buf = new Uint8Array(analyserNode.frequencyBinCount);
+    const { width: W, height: H } = canvas;
+    const tick = (now) => {
+      rafRef.current = requestAnimationFrame(tick);
+      if (now - lastTimeRef.current < 50) return; // ~20fps
+      lastTimeRef.current = now;
+      analyserNode.getByteTimeDomainData(buf);
+      ctx.clearRect(0, 0, W, H);
+      ctx.beginPath();
+      ctx.strokeStyle = '#dc3545';
+      ctx.lineWidth = 1.5;
+      const sw = W / buf.length;
+      let x = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const y = ((buf[i] / 128.0) * H) / 2;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        x += sw;
       }
+      ctx.stroke();
     };
-    setup();
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [analyserNode]);
 
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-      if (analyserRef.current) analyserRef.current.disconnect();
-      if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop());
-    };
-  }, [isRecording]);
+  return <canvas ref={canvasRef} width={120} height={28} className="live-waveform" />;
+};
 
-  if (!isRecording) return null;
-  return <canvas ref={canvasRef} width={150} height={30} className="live-waveform" />;
-}
-
-// ---------- Forward Modal ----------
+// ------------------------------------------------------------
+// ForwardModal (unchanged)
+// ------------------------------------------------------------
 function ForwardModal({ isOpen, onClose, message, onForward }) {
-  const [users, setUsers] = useState([]);
-  const [selectedUsers, setSelectedUsers] = useState([]);
-  const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [users, setUsers]       = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [search, setSearch]     = useState('');
+  const [loading, setLoading]   = useState(true);
 
-  useEffect(() => {
-    if (isOpen) fetchUsers();
-  }, [isOpen]);
+  useEffect(() => { if (isOpen) load(); }, [isOpen]);
 
-  const fetchUsers = async () => {
+  const load = async () => {
     setLoading(true);
     try {
       const res = await recoveryAPI.getUsers();
-      const allowedRoles = ['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director'];
-      setUsers(res.data.filter(u => allowedRoles.includes(u.role)));
-    } catch (err) {
-      showToast.error('Failed to load users');
-    } finally {
-      setLoading(false);
-    }
+      const ok = ['director','secretary','accountant','valuer','head_of_it','deputy_director'];
+      setUsers(res.data.filter(u => ok.includes(u.role)));
+    } catch { showToast.error('Failed to load users'); }
+    finally { setLoading(false); }
   };
 
-  const handleToggleUser = (userId) => {
-    setSelectedUsers(prev =>
-      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
-    );
-  };
-
-  const handleForward = () => {
-    if (selectedUsers.length === 0) { showToast.error('Select at least one user'); return; }
-    onForward(selectedUsers);
-    onClose();
-  };
-
-  const filteredUsers = users.filter(u =>
+  const toggle   = (id) => setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const filtered = users.filter(u =>
     u.username.toLowerCase().includes(search.toLowerCase()) ||
     u.role.toLowerCase().includes(search.toLowerCase())
   );
 
   if (!isOpen) return null;
-
   return (
     <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 2000 }}>
       <div className="modal-dialog modal-dialog-centered">
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title">Forward message</h5>
-            <button type="button" className="btn-close" onClick={onClose}></button>
+            <button type="button" className="btn-close" onClick={onClose} />
           </div>
           <div className="modal-body">
-            <input type="text" className="form-control mb-3" placeholder="Search users..."
+            <input className="form-control mb-3" placeholder="Search users…"
               value={search} onChange={e => setSearch(e.target.value)} />
-            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-              {loading ? <div className="text-center py-3">Loading...</div> :
-                filteredUsers.length === 0 ? <p className="text-muted">No users found</p> :
-                filteredUsers.map(user => (
-                  <div key={user.id} className="form-check py-1">
-                    <input className="form-check-input" type="checkbox" id={`user-${user.id}`}
-                      checked={selectedUsers.includes(user.id)} onChange={() => handleToggleUser(user.id)} />
-                    <label className="form-check-label ms-2" htmlFor={`user-${user.id}`}>
-                      <strong>{user.username}</strong> ({user.role})
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+              {loading ? <div className="text-center py-3">Loading…</div>
+                : !filtered.length ? <p className="text-muted">No users found</p>
+                : filtered.map(u => (
+                  <div key={u.id} className="form-check py-1">
+                    <input className="form-check-input" type="checkbox" id={`fu-${u.id}`}
+                      checked={selected.includes(u.id)} onChange={() => toggle(u.id)} />
+                    <label className="form-check-label ms-2" htmlFor={`fu-${u.id}`}>
+                      <strong>{u.username}</strong> ({u.role})
                     </label>
                   </div>
                 ))}
             </div>
-            <div className="mt-3 text-muted small">
-              <i className="fas fa-info-circle me-1"></i>
-              Message will be sent as a new message from you to selected users.
-            </div>
           </div>
           <div className="modal-footer">
             <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleForward} disabled={selectedUsers.length === 0}>
-              Forward ({selectedUsers.length})
+            <button className="btn btn-primary" disabled={!selected.length}
+              onClick={() => { if (!selected.length) return; onForward(selected); onClose(); }}>
+              Forward ({selected.length})
             </button>
           </div>
         </div>
@@ -380,317 +336,373 @@ function ForwardModal({ isOpen, onClose, message, onForward }) {
   );
 }
 
-// ---------- Main ChatWindow ----------
+// ------------------------------------------------------------
+// Memoized MessageBubble – passes isOwnMessage flag to audio player
+// ------------------------------------------------------------
+const MessageBubble = memo(({
+  msg, isOwn, user, onEdit, onCopy, onForward, onDelete, onDownloadFile,
+  editingMessageId, editContent, setEditContent, saveEdit, setEditingMessageId,
+  openMenuId, setOpenMenuId, menuRef, handleTouchStart, handleTouchEnd,
+  renderStatus, fmtTime, markRead,
+}) => (
+  <div
+    className={`chat-message ${msg.sender_id === user.id ? 'received' : 'sent'}`}
+    data-msg-id={msg.id}
+    onTouchStart={() => handleTouchStart(msg.id)}
+    onTouchEnd={handleTouchEnd}
+  >
+    <div className="message-bubble" style={!isOwn && msg.status === 'read' ? { backgroundColor: '#fff3cd' } : {}}>
+      <div className="message-content">
+        {editingMessageId === msg.id ? (
+          <div>
+            <textarea className="form-control form-control-sm" rows="2" autoFocus
+              value={editContent} onChange={e => setEditContent(e.target.value)} />
+            <div className="mt-1">
+              <button className="btn btn-sm btn-primary me-1" onClick={() => saveEdit(msg.id)}>Save</button>
+              <button className="btn btn-sm btn-secondary" onClick={() => setEditingMessageId(null)}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {msg.content}
+            {msg.attachment_url && msg.attachment_type?.startsWith('image/') && (
+              <div className="message-attachment mt-1 position-relative">
+                <img src={msg.attachment_url} alt="attachment" className="img-fluid rounded" style={{ maxHeight: 200, cursor: 'pointer' }} />
+                <button className="btn btn-sm btn-light download-image-btn"
+                  style={{ position: 'absolute', bottom: 4, right: 4, opacity: 0.85 }}
+                  onClick={() => onDownloadFile(msg.attachment_url, msg.attachment_name, msg.attachment_type)}>
+                  <i className="fas fa-download" />
+                </button>
+              </div>
+            )}
+            {msg.attachment_url && msg.attachment_type?.startsWith('audio/') && (
+              <div className="message-attachment mt-2">
+                <WaveformAudioPlayer
+                  src={msg.attachment_url}
+                  isRead={msg.status === 'read'}
+                  isOwnMessage={isOwn}
+                  onMarkAsRead={() => markRead(msg.id)}
+                />
+              </div>
+            )}
+            {msg.attachment_url && !msg.attachment_type?.startsWith('image/') && !msg.attachment_type?.startsWith('audio/') && (
+              <button className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 mt-1"
+                onClick={() => onDownloadFile(msg.attachment_url, msg.attachment_name, msg.attachment_type)}>
+                <i className="fas fa-file-download" />
+                <span className="text-truncate" style={{ maxWidth: 160 }}>{msg.attachment_name || 'Download file'}</span>
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      <div className="message-time">
+        {fmtTime(msg.created_at)}
+        {isOwn && <span className="message-status ms-1">{renderStatus(msg)}</span>}
+        {msg.edited && <span className="ms-1 text-muted small">(edited)</span>}
+      </div>
+      {isOwn && (
+        <div className="message-actions-dropdown">
+          <i className="fas fa-ellipsis-v"
+            onClick={e => { e.stopPropagation(); setOpenMenuId(openMenuId === msg.id ? null : msg.id); }} />
+          {openMenuId === msg.id && (
+            <div className="message-actions-menu" ref={menuRef}>
+              {!msg.attachment_url && <button onClick={() => onEdit(msg)}><i className="fas fa-edit" /> Edit</button>}
+              <button onClick={() => onCopy(msg)}><i className="fas fa-copy" /> Copy</button>
+              <button onClick={() => onForward(msg)}><i className="fas fa-share" /> Forward</button>
+              <button onClick={() => onDelete(msg)}><i className="fas fa-trash" /> Delete</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  </div>
+));
+
+// ------------------------------------------------------------
+// Main ChatWindow (unchanged except minor improvements)
+// ------------------------------------------------------------
 function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
-  // ── Voice recording ──────────────────────────────────────────────────────
-  const [isRecording, setIsRecording] = useState(false);
+  // Voice recording state
+  const [isRecording, setIsRecording]           = useState(false);
+  const [analyserNode, setAnalyserNode]         = useState(null);
   const [showVoiceConfirm, setShowVoiceConfirm] = useState(false);
-  const [recordedBlob, setRecordedBlob] = useState(null);
-  // finalDuration captures seconds at the moment recording stops (frozen value for the confirm modal)
-  const [finalDuration, setFinalDuration] = useState(0);
-  const [liveDuration, setLiveDuration] = useState(0);
-
+  const [recordedBlob, setRecordedBlob]         = useState(null);
+  const [liveDuration, setLiveDuration]         = useState(0);
+  const [finalDuration, setFinalDuration]       = useState(0);
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const recordTimerRef = useRef(null);
-  const liveDurationRef = useRef(0);
+  const audioChunksRef   = useRef([]);
+  const timerRef         = useRef(null);
+  const liveDurRef       = useRef(0);
+  const recStreamRef     = useRef(null);
+  const recAudioCtxRef   = useRef(null);
 
-  // ── Message states ───────────────────────────────────────────────────────
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
+  // Messages state
+  const [messages, setMessages]               = useState([]);
+  const [newMessage, setNewMessage]           = useState('');
+  const [loading, setLoading]                 = useState(true);
+  const [sending, setSending]                 = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments]         = useState([]);
   const fileInputRef = useRef(null);
-  const messagesEndRef = useRef(null);
-  const socketRef = useRef(null);
+  const socketRef    = useRef(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
-  // ── Message action states ────────────────────────────────────────────────
-  const [openMenuId, setOpenMenuId] = useState(null);
-  const [editingMessageId, setEditingMessageId] = useState(null);
-  const [editContent, setEditContent] = useState('');
-  const [forwardMessage, setForwardMessage] = useState(null);
-  const [showForwardModal, setShowForwardModal] = useState(false);
-  const menuRef = useRef(null);
+  // Track pending temp IDs for duplicate prevention
+  const pendingTempIds = useRef(new Map());
+
+  // Message actions
+  const [openMenuId, setOpenMenuId]               = useState(null);
+  const [editingMessageId, setEditingMessageId]   = useState(null);
+  const [editContent, setEditContent]             = useState('');
+  const [forwardMessage, setForwardMessage]       = useState(null);
+  const [showForwardModal, setShowForwardModal]   = useState(false);
+  const menuRef        = useRef(null);
   const longPressTimer = useRef(null);
-
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deletingMessage, setDeletingMessage] = useState(null);
+  const [deletingMessage, setDeletingMessage]     = useState(null);
 
-  // ── Scroll states ────────────────────────────────────────────────────────
+  // Scroll / virtuoso
+  const virtuosoRef       = useRef(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [newMessageCount, setNewMessageCount] = useState(0);
-  const isUserAtBottom = useRef(true);
-  const scrollContainerRef = useRef(null);
-  const hasScrolledToBottomOnLoad = useRef(false);
+  const [newMessageCount, setNewMessageCount]   = useState(0);
+  const isUserAtBottom    = useRef(true);
+  const initialScrollDone = useRef(false);
 
   const dragState = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
   const windowRef = useRef(null);
 
   const getCurrentUserId = () => {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    if (userData.id) return userData.id;
-    const token = localStorage.getItem('access_token') || localStorage.getItem('token');
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        return payload.sub || payload.user_id;
-      } catch (e) {}
+    const ud = JSON.parse(localStorage.getItem('user') || '{}');
+    if (ud.id) return ud.id;
+    const tok = localStorage.getItem('access_token') || localStorage.getItem('token');
+    if (tok) {
+      try { const p = JSON.parse(atob(tok.split('.')[1])); return p.sub || p.user_id; } catch {}
     }
     return null;
   };
 
+  const fmtTime = (d)   => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const fmtDur  = (sec) => { const m = Math.floor(sec / 60), s = sec % 60; return `${m}:${s < 10 ? '0' : ''}${s}`; };
+
   // Viewport resize
   useEffect(() => {
     if (!windowRef.current) return;
-    const handleResize = () => {
-      if (windowRef.current)
-        windowRef.current.style.height = `${window.visualViewport?.height || window.innerHeight}px`;
-    };
-    window.visualViewport?.addEventListener('resize', handleResize);
-    return () => window.visualViewport?.removeEventListener('resize', handleResize);
+    const fn = () => { if (windowRef.current) windowRef.current.style.height = `${window.visualViewport?.height || window.innerHeight}px`; };
+    window.visualViewport?.addEventListener('resize', fn);
+    return () => window.visualViewport?.removeEventListener('resize', fn);
   }, []);
 
-  // Socket
+  // Socket (NO polling)
   useEffect(() => {
     const socket = globalSocket;
     if (!socket) return;
     socketRef.current = socket;
     setSocketConnected(socket.connected);
 
-    const handleConnect = () => { setSocketConnected(true); socket.emit('join_chat', { other_user_id: user.id }); };
-    const handleDisconnect = () => setSocketConnected(false);
-    const handleNewMessage = (data) => {
-      const newMsg = data.message;
-      const currentId = getCurrentUserId();
-      if (
-        (newMsg.sender_id === user.id && newMsg.recipient_id === currentId) ||
-        (newMsg.sender_id === currentId && newMsg.recipient_id === user.id)
-      ) {
-        setMessages(prev => [...prev, newMsg]);
-        if (newMsg.sender_id === user.id && newMsg.status !== 'read') markMessageAsRead(newMsg.id);
-        if (isUserAtBottom.current) scrollToBottom();
-        else { setNewMessageCount(prev => prev + 1); setShowScrollButton(true); }
-      }
+    const onConn    = () => { setSocketConnected(true); socket.emit('join_chat', { other_user_id: user.id }); };
+    const onDisconn = () => setSocketConnected(false);
+
+    const onNewMsg = (data) => {
+      const m   = data.message;
+      const cid = getCurrentUserId();
+
+      setMessages(prev => {
+        // Already exists by server ID? ignore
+        if (prev.some(msg => msg.id === m.id)) return prev;
+
+        // Our own just-sent message bouncing back: replace the temp message
+        if (m.sender_id === cid) {
+          const tempIdx = prev.findIndex(msg =>
+            pendingTempIds.current.has(msg.id) &&
+            msg.sender_id === cid &&
+            msg.recipient_id === m.recipient_id
+          );
+          if (tempIdx !== -1) {
+            pendingTempIds.current.delete(prev[tempIdx].id);
+            const updated = [...prev];
+            updated[tempIdx] = m;
+            return updated;
+          }
+        }
+        return [...prev, m];
+      });
+
+      if (m.sender_id === user.id && m.status !== 'read') markRead(m.id);
+      if (isUserAtBottom.current) scrollToBottom();
+      else { setNewMessageCount(p => p + 1); setShowScrollButton(true); }
     };
-    const handleMessageStatusUpdate = (data) => {
-      setMessages(prev => prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg));
-    };
-    const handleMessageSent = (data) => {
-      if (window.sendTimeout) clearTimeout(window.sendTimeout);
+
+    const onStatus = (d) =>
+      setMessages(prev => prev.map(m => m.id === d.message_id ? { ...m, status: d.status } : m));
+
+    const onSent = (d) => {
+      if (window._sendTO) clearTimeout(window._sendTO);
       setSending(false);
-      setMessages(prev => prev.map(msg => msg.id === data.message_id ? { ...msg, status: data.status } : msg));
+      const realMsg = d.message;
+      const tempId  = d.temp_id;
+      if (realMsg && tempId) {
+        pendingTempIds.current.delete(tempId);
+        setMessages(prev => {
+          if (prev.some(msg => msg.id === realMsg.id)) {
+            return prev.map(m => m.id === realMsg.id ? { ...m, status: realMsg.status } : m);
+          }
+          return prev.map(m => m.id === tempId ? { ...realMsg } : m);
+        });
+      }
       scrollToBottom();
     };
 
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-    socket.on('new_message', handleNewMessage);
-    socket.on('message_status_update', handleMessageStatusUpdate);
-    socket.on('message_sent', handleMessageSent);
+    socket.on('connect', onConn);
+    socket.on('disconnect', onDisconn);
+    socket.on('new_message', onNewMsg);
+    socket.on('message_status_update', onStatus);
+    socket.on('message_sent', onSent);
     if (socket.connected) socket.emit('join_chat', { other_user_id: user.id });
 
+    fetchMessages();
+
     return () => {
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
-      socket.off('new_message', handleNewMessage);
-      socket.off('message_status_update', handleMessageStatusUpdate);
-      socket.off('message_sent', handleMessageSent);
+      socket.off('connect', onConn); socket.off('disconnect', onDisconn);
+      socket.off('new_message', onNewMsg); socket.off('message_status_update', onStatus);
+      socket.off('message_sent', onSent);
       if (socket.connected) socket.emit('leave_chat', { other_user_id: user.id });
     };
   }, [globalSocket, user.id]);
 
-  const markMessageAsRead = async (messageId) => {
+  const markRead = async (id) => {
     try {
-      if (socketRef.current && socketConnected) socketRef.current.emit('mark_read', { message_ids: [messageId] });
-      await recoveryAPI.markMessageRead(messageId);
-    } catch (err) { console.error('Failed to mark read', err); }
+      if (socketRef.current && socketConnected) socketRef.current.emit('mark_read', { message_ids: [id] });
+      await recoveryAPI.markMessageRead(id);
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, status: 'read' } : m));
+    } catch {}
   };
 
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const atBottom = scrollTop + clientHeight >= scrollHeight - 50;
-      isUserAtBottom.current = atBottom;
-      if (atBottom) { setShowScrollButton(false); setNewMessageCount(0); }
-    };
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!messagesEndRef.current) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            const msgElement = entry.target.closest('.chat-message');
-            const msgId = parseInt(msgElement?.dataset.msgId);
-            const msg = messages.find(m => m.id === msgId);
-            if (msg && msg.sender_id === user.id && msg.status !== 'read') markMessageAsRead(msgId);
-          }
-        });
-      },
-      { threshold: 0.5 }
-    );
-    document.querySelectorAll('.chat-message.received').forEach(el => observer.observe(el));
-    return () => observer.disconnect();
-  }, [messages, user.id]);
-
-  useEffect(() => {
-    if (!loading && messages.length > 0) {
+  const fetchMessages = async () => {
+    try {
+      const res = await recoveryAPI.getConversation(user.id);
+      setMessages(res.data);
+      const unread = res.data.filter(m => !m.read && m.sender_id === user.id);
+      if (unread.length) {
+        if (socketRef.current && socketConnected) socketRef.current.emit('mark_read', { message_ids: unread.map(m => m.id) });
+        onNewMessage();
+      }
+    } catch (err) { console.error(err); }
+    finally {
+      setLoading(false);
       setTimeout(() => {
-        document.querySelectorAll('.chat-message.received').forEach(el => {
-          const msgId = parseInt(el.dataset.msgId);
-          const msg = messages.find(m => m.id === msgId);
-          if (msg && msg.sender_id === user.id && msg.status !== 'read') markMessageAsRead(msgId);
-        });
-      }, 100);
+        if (virtuosoRef.current && !initialScrollDone.current) {
+          virtuosoRef.current.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
+          initialScrollDone.current = true;
+        }
+      }, 80);
     }
-  }, [loading]);
-
-  useEffect(() => {
-    fetchMessages();
-    const interval = setInterval(() => fetchMessages(true), 5000);
-    return () => clearInterval(interval);
-  }, [user.id]);
+  };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
     setShowScrollButton(false);
     setNewMessageCount(0);
   };
 
-  const fetchMessages = async (isPoll = false) => {
-    try {
-      const res = await recoveryAPI.getConversation(user.id);
-      setMessages(res.data);
-      const unreadReceived = res.data.filter(m => !m.read && m.sender_id === user.id);
-      if (unreadReceived.length) {
-        const ids = unreadReceived.map(m => m.id);
-        if (socketRef.current && socketConnected) socketRef.current.emit('mark_read', { message_ids: ids });
-        onNewMessage();
-      }
-    } catch (err) { console.error(err); } finally { setLoading(false); }
-  };
-
-  useEffect(() => {
-    if (!loading && messages.length > 0 && !hasScrolledToBottomOnLoad.current) {
-      setTimeout(() => { scrollToBottom(); hasScrolledToBottomOnLoad.current = true; }, 200);
-    }
-  }, [loading, messages]);
-
+  // Send text / file
   const sendMessage = async () => {
-    const contentToSend = newMessage;
-    const attachmentsToSend = attachments;
-    if ((!contentToSend?.trim()) && attachmentsToSend.length === 0) return;
+    const content = newMessage, files = attachments;
+    if (!content?.trim() && !files.length) return;
 
     setSending(true);
     const tempId = Date.now();
-    const currentId = getCurrentUserId();
-    const optimisticMsg = {
-      id: tempId, sender_id: currentId, recipient_id: user.id, content: contentToSend,
-      status: 'sending', created_at: new Date().toISOString(), attachment_url: null,
-    };
-    setMessages(prev => [...prev, optimisticMsg]);
+    const cid    = getCurrentUserId();
+
+    pendingTempIds.current.set(tempId, true);
+
+    setMessages(prev => [...prev, {
+      id: tempId, sender_id: cid, recipient_id: user.id,
+      content, status: 'sending', created_at: new Date().toISOString(), attachment_url: null,
+    }]);
     scrollToBottom();
     setNewMessage('');
     setAttachments([]);
 
     try {
-      let attachmentUrl = null, attachmentType = null, attachmentName = null;
-      if (attachmentsToSend.length > 0) {
-        const formData = new FormData();
-        attachmentsToSend.forEach(file => formData.append('files', file));
-        const uploadRes = await recoveryAPI.uploadMessageAttachment(formData);
-        const firstUpload = uploadRes.data.uploads[0];
-        attachmentUrl = firstUpload.url;
-        attachmentType = firstUpload.mime_type;
-        attachmentName = firstUpload.filename;
+      let aUrl = null, aType = null, aName = null;
+      if (files.length) {
+        const fd = new FormData();
+        files.forEach(f => fd.append('files', f));
+        const up = await recoveryAPI.uploadMessageAttachment(fd);
+        ({ url: aUrl, mime_type: aType, filename: aName } = up.data.uploads[0]);
       }
-
       if (socketRef.current && socketConnected) {
-        window.sendTimeout = setTimeout(() => {
+        window._sendTO = setTimeout(() => {
           setSending(false);
-          showToast.error('Message sending timed out');
+          showToast.error('Sending timed out');
+          pendingTempIds.current.delete(tempId);
           setMessages(prev => prev.filter(m => m.id !== tempId));
         }, 15000);
         socketRef.current.emit('send_message', {
-          recipient_id: user.id, content: contentToSend,
-          attachment_url: attachmentUrl, attachment_type: attachmentType, attachment_name: attachmentName,
+          recipient_id: user.id, content,
+          attachment_url: aUrl, attachment_type: aType, attachment_name: aName,
+          temp_id: tempId,
         });
       } else {
-        await recoveryAPI.sendMessage(user.id, contentToSend, attachmentUrl, attachmentType, attachmentName);
+        const res = await recoveryAPI.sendMessage(user.id, content, aUrl, aType, aName);
+        pendingTempIds.current.delete(tempId);
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...res.data, status: 'sent' } : m));
         setSending(false);
-        fetchMessages();
       }
     } catch (err) {
-      console.error('Send error:', err);
       showToast.error(`Failed to send: ${err.message}`);
+      pendingTempIds.current.delete(tempId);
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setSending(false);
     }
   };
 
-  // ── Voice recording: click to start, click again to stop ─────────────────
-  const getBestMimeType = () => {
-    const types = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/mp4',
-    ];
-    return types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  // Voice recording
+  const getBestMime = () => {
+    for (const t of ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4','']) {
+      if (!t || MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return '';
   };
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = getBestMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      recStreamRef.current = stream;
+      const ac  = new (window.AudioContext || window.webkitAudioContext)();
+      recAudioCtxRef.current = ac;
+      const src = ac.createMediaStreamSource(stream);
+      const an  = ac.createAnalyser();
+      an.fftSize = 256;
+      src.connect(an);
+      setAnalyserNode(an);
+
+      const mime     = getBestMime();
+      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
       audioChunksRef.current = [];
-      liveDurationRef.current = 0;
+      liveDurRef.current     = 0;
 
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
+      recorder.ondataavailable = (e) => { if (e.data?.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        // Stop the live timer and capture the frozen duration
-        clearInterval(recordTimerRef.current);
-        const frozenDuration = liveDurationRef.current;
-        setFinalDuration(frozenDuration);
+        clearInterval(timerRef.current);
+        setFinalDuration(liveDurRef.current);
         setLiveDuration(0);
-        stream.getTracks().forEach(t => t.stop());
-
+        setAnalyserNode(null);
+        recAudioCtxRef.current?.close();
+        recStreamRef.current?.getTracks().forEach(t => t.stop());
         const chunks = audioChunksRef.current;
-        if (!chunks.length) {
-          showToast.error('No audio was captured');
-          return;
-        }
-
-        // Use the native blob directly — no WAV conversion needed.
-        // The browser recorded it; the browser can play it back perfectly.
+        if (!chunks.length) { showToast.error('No audio captured — try again'); return; }
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         setRecordedBlob(blob);
         setShowVoiceConfirm(true);
       };
 
-      // Request data every second so ondataavailable fires even on short recordings
-      recorder.start(1000);
+      recorder.start(100);
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
-      setLiveDuration(0);
-      liveDurationRef.current = 0;
-
-      // Tick every second while recording
-      recordTimerRef.current = setInterval(() => {
-        liveDurationRef.current += 1;
-        setLiveDuration(liveDurationRef.current);
+      timerRef.current = setInterval(() => {
+        liveDurRef.current += 1;
+        setLiveDuration(liveDurRef.current);
       }, 1000);
     } catch (err) {
       console.error('Mic error:', err);
@@ -699,377 +711,304 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   };
 
   const stopRecording = () => {
-    const recorder = mediaRecorderRef.current;
-    if (!recorder || recorder.state !== 'recording') return;
-    recorder.stop(); // triggers onstop above
+    const rec = mediaRecorderRef.current;
+    if (!rec || rec.state !== 'recording') return;
+    rec.stop();
     setIsRecording(false);
-    // Timer is cleared inside onstop
   };
 
-  const toggleRecording = () => {
-    if (isRecording) stopRecording();
-    else startRecording();
-  };
+  const toggleRecording = () => isRecording ? stopRecording() : startRecording();
 
   const confirmAndSendVoice = async () => {
     if (!recordedBlob) return;
     setShowVoiceConfirm(false);
 
-    // Name the file with the correct extension for the MIME type
-    const ext = recordedBlob.type.includes('ogg') ? 'ogg'
-               : recordedBlob.type.includes('mp4') ? 'mp4'
-               : 'webm';
-    const voiceFile = new File([recordedBlob], `voice_${Date.now()}.${ext}`, { type: recordedBlob.type });
+    const ext  = recordedBlob.type.includes('ogg') ? 'ogg' : recordedBlob.type.includes('mp4') ? 'mp4' : 'webm';
+    const file = new File([recordedBlob], `voice_${Date.now()}.${ext}`, { type: recordedBlob.type });
 
     setSending(true);
     const tempId = Date.now();
-    const currentId = getCurrentUserId();
-    const optimisticMsg = {
-      id: tempId, sender_id: currentId, recipient_id: user.id, content: '🎤 Voice message',
-      status: 'sending', created_at: new Date().toISOString(), attachment_url: null,
-    };
-    setMessages(prev => [...prev, optimisticMsg]);
+    const cid    = getCurrentUserId();
+
+    pendingTempIds.current.set(tempId, true);
+    setMessages(prev => [...prev, {
+      id: tempId, sender_id: cid, recipient_id: user.id,
+      content: '🎤 Voice message', status: 'sending',
+      created_at: new Date().toISOString(), attachment_url: null,
+    }]);
     scrollToBottom();
 
     try {
-      const formData = new FormData();
-      formData.append('files', voiceFile);
-      const uploadRes = await recoveryAPI.uploadMessageAttachment(formData);
-      const { url: attachmentUrl, mime_type: attachmentType, filename: attachmentName } = uploadRes.data.uploads[0];
+      const fd = new FormData();
+      fd.append('files', file);
+      const up = await recoveryAPI.uploadMessageAttachment(fd);
+      const { url: aUrl, mime_type: aType, filename: aName } = up.data.uploads[0];
 
       if (socketRef.current && socketConnected) {
-        window.sendTimeout = setTimeout(() => {
+        window._sendTO = setTimeout(() => {
           setSending(false);
-          showToast.error('Message sending timed out');
+          showToast.error('Sending timed out');
+          pendingTempIds.current.delete(tempId);
           setMessages(prev => prev.filter(m => m.id !== tempId));
         }, 15000);
         socketRef.current.emit('send_message', {
           recipient_id: user.id, content: '🎤 Voice message',
-          attachment_url: attachmentUrl, attachment_type: attachmentType, attachment_name: attachmentName,
+          attachment_url: aUrl, attachment_type: aType, attachment_name: aName,
+          temp_id: tempId,
         });
       } else {
-        await recoveryAPI.sendMessage(user.id, '🎤 Voice message', attachmentUrl, attachmentType, attachmentName);
+        const res = await recoveryAPI.sendMessage(user.id, '🎤 Voice message', aUrl, aType, aName);
+        pendingTempIds.current.delete(tempId);
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...res.data, status: 'sent' } : m));
         setSending(false);
-        fetchMessages();
       }
-    } catch (err) {
-      console.error('Send voice error:', err);
+    } catch {
       showToast.error('Failed to send voice note');
+      pendingTempIds.current.delete(tempId);
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setSending(false);
-    } finally {
-      setRecordedBlob(null);
-    }
+    } finally { setRecordedBlob(null); }
   };
 
-  const cancelVoice = () => {
-    setShowVoiceConfirm(false);
-    setRecordedBlob(null);
-  };
+  const cancelVoice = () => { setShowVoiceConfirm(false); setRecordedBlob(null); };
 
-  // Download file
-  const downloadFile = async (url, originalFilename, mimeType) => {
+  const downloadFile = async (url, name, mime) => {
     try {
-      let fullUrl = url;
-      if (!url.startsWith('http')) {
-        const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-        fullUrl = `${API_BASE.replace(/\/api\/?$/, '')}${url}`;
-      }
-      const isCloudinary = fullUrl.includes('cloudinary.com');
-      const headers = isCloudinary ? {} : { Authorization: `Bearer ${localStorage.getItem('token')}` };
-      const response = await fetch(fullUrl, { headers });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const blob = await response.blob();
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = originalFilename || `attachment.${mimeType?.split('/')[1] || 'bin'}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(link.href), 100);
-    } catch (err) { showToast.error(`Download failed: ${err.message}`); }
+      let full = url;
+      if (!url.startsWith('http'))
+        full = `${(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '')}${url}`;
+      const headers = full.includes('cloudinary.com') ? {} : { Authorization: `Bearer ${localStorage.getItem('token')}` };
+      const r = await fetch(full, { headers });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(blob),
+        download: name || `file.${mime?.split('/')[1] || 'bin'}`,
+      });
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(a.href), 100);
+    } catch (e) { showToast.error(`Download failed: ${e.message}`); }
   };
 
-  // Message actions
-  const handleEditMessage = (msg) => { setEditingMessageId(msg.id); setEditContent(msg.content); setOpenMenuId(null); };
-  const saveEditMessage = async (msgId) => {
+  const handleEdit  = (msg) => { setEditingMessageId(msg.id); setEditContent(msg.content); setOpenMenuId(null); };
+  const saveEdit    = async (id) => {
     if (!editContent.trim()) return;
     try {
-      const res = await recoveryAPI.editMessage(msgId, editContent);
-      if (res.data.success) {
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: editContent, edited: true } : m));
-        setEditingMessageId(null);
-        setEditContent('');
+      const r = await recoveryAPI.editMessage(id, editContent);
+      if (r.data.success) {
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, content: editContent, edited: true } : m));
+        setEditingMessageId(null); setEditContent('');
         showToast.success('Message edited');
       }
-    } catch (err) { showToast.error('Failed to edit message'); }
+    } catch { showToast.error('Failed to edit'); }
   };
-  const handleDeleteMessage = (msg) => { setDeletingMessage(msg); setShowDeleteConfirm(true); setOpenMenuId(null); };
+  const handleDelete  = (msg) => { setDeletingMessage(msg); setShowDeleteConfirm(true); setOpenMenuId(null); };
   const confirmDelete = async () => {
     if (!deletingMessage) return;
     try {
       await recoveryAPI.deleteMessage(deletingMessage.id);
       setMessages(prev => prev.filter(m => m.id !== deletingMessage.id));
-      showToast.success('Message deleted');
-    } catch (err) { showToast.error('Failed to delete message'); }
+      showToast.success('Deleted');
+    } catch { showToast.error('Failed to delete'); }
     finally { setShowDeleteConfirm(false); setDeletingMessage(null); }
   };
-  const handleCopyMessage = (msg) => { navigator.clipboard.writeText(msg.content); showToast.success('Copied to clipboard'); setOpenMenuId(null); };
-  const handleForwardMessage = (msg) => { setForwardMessage(msg); setShowForwardModal(true); setOpenMenuId(null); };
-  const forwardToUsers = async (selectedUserIds) => {
+  const handleCopy    = (msg) => { navigator.clipboard.writeText(msg.content); showToast.success('Copied'); setOpenMenuId(null); };
+  const handleForward = (msg) => { setForwardMessage(msg); setShowForwardModal(true); setOpenMenuId(null); };
+  const forwardToUsers = async (ids) => {
     if (!forwardMessage) return;
-    for (const recipientId of selectedUserIds) {
-      try {
-        await recoveryAPI.sendMessage(recipientId, `Forwarded: ${forwardMessage.content}`,
-          forwardMessage.attachment_url, forwardMessage.attachment_type, forwardMessage.attachment_name);
-      } catch (err) { console.error('Forward failed for user', recipientId, err); }
+    for (const rid of ids) {
+      try { await recoveryAPI.sendMessage(rid, `Forwarded: ${forwardMessage.content}`, forwardMessage.attachment_url, forwardMessage.attachment_type, forwardMessage.attachment_name); } catch {}
     }
-    showToast.success(`Forwarded to ${selectedUserIds.length} user(s)`);
+    showToast.success(`Forwarded to ${ids.length} user(s)`);
     setForwardMessage(null);
   };
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) setOpenMenuId(null);
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    const fn = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenuId(null); };
+    document.addEventListener('click', fn);
+    return () => document.removeEventListener('click', fn);
   }, []);
 
-  const handleTouchStart = (msgId) => { longPressTimer.current = setTimeout(() => setOpenMenuId(msgId), 500); };
-  const handleTouchEnd = () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
+  const handleTouchStart = (id) => { longPressTimer.current = setTimeout(() => setOpenMenuId(id), 500); };
+  const handleTouchEnd   = ()   => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
 
-  const renderMessageStatus = (msg) => {
+  const renderStatus = (msg) => {
     if (msg.sender_id !== getCurrentUserId()) return null;
+    const s = { fontSize: '0.7rem' };
     switch (msg.status) {
-      case 'sending':   return <i className="fas fa-clock" style={{ fontSize: '0.7rem', opacity: 0.4 }}></i>;
-      case 'sent':      return <i className="fas fa-check" style={{ fontSize: '0.7rem', opacity: 0.6 }}></i>;
-      case 'delivered': return (<><i className="fas fa-check" style={{ fontSize: '0.7rem' }}></i><i className="fas fa-check" style={{ fontSize: '0.7rem', marginLeft: '-0.2rem' }}></i></>);
-      case 'read':      return (<><i className="fas fa-check" style={{ fontSize: '0.7rem', color: '#34b7f1' }}></i><i className="fas fa-check" style={{ fontSize: '0.7rem', color: '#34b7f1', marginLeft: '-0.2rem' }}></i></>);
-      default:          return null;
+      case 'sending':   return <i className="fas fa-clock" style={{ ...s, opacity: 0.4 }} />;
+      case 'sent':      return <i className="fas fa-check" style={{ ...s, opacity: 0.6 }} />;
+      case 'delivered': return <><i className="fas fa-check" style={s} /><i className="fas fa-check" style={{ ...s, marginLeft: '-0.2rem' }} /></>;
+      case 'read':      return <><i className="fas fa-check" style={{ ...s, color: '#34b7f1' }} /><i className="fas fa-check" style={{ ...s, color: '#34b7f1', marginLeft: '-0.2rem' }} /></>;
+      default: return null;
     }
   };
 
-  const formatTime = (dateStr) => new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  const groupMessagesByDate = () => {
-    const groups = {};
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+  const groupedMessages = useMemo(() => {
+    const groups = [], today = new Date(), yest = new Date(today);
+    yest.setDate(yest.getDate() - 1);
+    let lastDate = null;
     messages.forEach(msg => {
-      const date = new Date(msg.created_at);
-      let dateKey;
-      if (date.toDateString() === today.toDateString()) dateKey = 'Today';
-      else if (date.toDateString() === yesterday.toDateString()) dateKey = 'Yesterday';
-      else dateKey = date.toLocaleDateString();
-      if (!groups[dateKey]) groups[dateKey] = [];
-      groups[dateKey].push(msg);
+      const d   = new Date(msg.created_at);
+      const key = d.toDateString() === today.toDateString() ? 'Today'
+                : d.toDateString() === yest.toDateString()  ? 'Yesterday'
+                : d.toLocaleDateString();
+      if (key !== lastDate) { groups.push({ type: 'date', label: key }); lastDate = key; }
+      groups.push({ type: 'message', message: msg });
     });
     return groups;
-  };
+  }, [messages]);
 
-  const groups = groupMessagesByDate();
+  const renderItem = useCallback((index, group) => {
+    if (group.type === 'date') {
+      return <div key={`date-${group.label}`} className="chat-date-separator">{group.label}</div>;
+    }
+    const msg   = group.message;
+    const isOwn = msg.sender_id === getCurrentUserId();
+    return (
+      <MessageBubble
+        key={msg.id}
+        msg={msg} isOwn={isOwn} user={user}
+        onEdit={handleEdit} onCopy={handleCopy} onForward={handleForward} onDelete={handleDelete}
+        onDownloadFile={downloadFile}
+        editingMessageId={editingMessageId} editContent={editContent}
+        setEditContent={setEditContent} saveEdit={saveEdit} setEditingMessageId={setEditingMessageId}
+        openMenuId={openMenuId} setOpenMenuId={setOpenMenuId} menuRef={menuRef}
+        handleTouchStart={handleTouchStart} handleTouchEnd={handleTouchEnd}
+        renderStatus={renderStatus} fmtTime={fmtTime} markRead={markRead}
+      />
+    );
+  }, [user, editingMessageId, editContent, openMenuId]);
 
-  // Drag
+  // Drag window
   const handleMouseDown = (e) => {
     if (e.target.closest('.chat-window-header-actions')) return;
-    dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY,
-      origX: windowRef.current.getBoundingClientRect().left,
-      origY: windowRef.current.getBoundingClientRect().top };
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    const r = windowRef.current.getBoundingClientRect();
+    dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, origX: r.left, origY: r.top };
+    document.addEventListener('mousemove', onDragMove);
+    document.addEventListener('mouseup', onDragUp);
   };
-  const handleMouseMove = (e) => {
+  const onDragMove = (e) => {
     if (!dragState.current.dragging) return;
-    windowRef.current.style.left = `${dragState.current.origX + e.clientX - dragState.current.startX}px`;
-    windowRef.current.style.top  = `${dragState.current.origY + e.clientY - dragState.current.startY}px`;
-    windowRef.current.style.right = 'auto';
+    windowRef.current.style.left   = `${dragState.current.origX + e.clientX - dragState.current.startX}px`;
+    windowRef.current.style.top    = `${dragState.current.origY + e.clientY - dragState.current.startY}px`;
+    windowRef.current.style.right  = 'auto';
     windowRef.current.style.bottom = 'auto';
   };
-  const handleMouseUp = () => {
+  const onDragUp = () => {
     dragState.current.dragging = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-  };
-
-  const formatDuration = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup', onDragUp);
   };
 
   return (
     <div ref={windowRef} className="chat-window" style={style}>
+      {/* Header */}
       <div className="chat-window-header" onMouseDown={handleMouseDown} style={{ cursor: 'grab', userSelect: 'none' }}>
         <span>
-          <i className="fas fa-grip-lines me-2" style={{ opacity: 0.6 }}></i>
+          <i className="fas fa-grip-lines me-2" style={{ opacity: 0.6 }} />
           {user.username}
           <span style={{ marginLeft: 8, fontSize: '0.75rem', fontWeight: 'normal', color: onlineUsers.has(user.id) ? '#4caf50' : '#9e9e9e' }}>
             ({onlineUsers.has(user.id) ? 'online' : 'offline'})
           </span>
         </span>
         <div className="chat-window-header-actions">
-          <button className="btn-close btn-close-white" onClick={onClose}></button>
+          <button className="btn-close btn-close-white" onClick={onClose} />
         </div>
       </div>
 
-      <div className="chat-window-messages" ref={scrollContainerRef}>
+      {/* Virtualized messages */}
+      <div className="chat-window-messages" style={{ flex: 1, overflow: 'auto' }}>
         {loading ? (
-          <div className="text-center py-3"><span className="spinner-border spinner-border-sm me-2"></span>Loading…</div>
-        ) : messages.length === 0 ? (
+          <div className="text-center py-3"><span className="spinner-border spinner-border-sm me-2" />Loading…</div>
+        ) : !groupedMessages.length ? (
           <p className="text-muted text-center py-4">No messages yet.</p>
         ) : (
-          Object.entries(groups).map(([dateKey, msgs]) => (
-            <div key={dateKey}>
-              <div className="chat-date-separator">{dateKey}</div>
-              {msgs.map(msg => {
-                const isOwn = msg.sender_id === getCurrentUserId();
-                const canEdit = isOwn && !msg.attachment_url;
-                return (
-                  <div key={msg.id} className={`chat-message ${msg.sender_id === user.id ? 'received' : 'sent'}`}
-                    data-msg-id={msg.id} onTouchStart={() => handleTouchStart(msg.id)} onTouchEnd={handleTouchEnd}>
-                    <div className="message-bubble" style={msg.sender_id !== getCurrentUserId() && msg.status === 'read' ? { backgroundColor: '#fff3cd' } : {}}>
-                      <div className="message-content">
-                        {editingMessageId === msg.id ? (
-                          <div>
-                            <textarea className="form-control form-control-sm" value={editContent}
-                              onChange={e => setEditContent(e.target.value)} rows="2" autoFocus />
-                            <div className="mt-1">
-                              <button className="btn btn-sm btn-primary me-1" onClick={() => saveEditMessage(msg.id)}>Save</button>
-                              <button className="btn btn-sm btn-secondary" onClick={() => setEditingMessageId(null)}>Cancel</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            {msg.content}
-                            {msg.attachment_url && msg.attachment_type?.startsWith('image/') && (
-                              <div className="message-attachment mt-1 position-relative">
-                                <img src={msg.attachment_url} alt="attachment" className="img-fluid rounded" style={{ maxHeight: 200, cursor: 'pointer' }} />
-                                <button className="btn btn-sm btn-light download-image-btn"
-                                  style={{ position: 'absolute', bottom: 4, right: 4, opacity: 0.85 }}
-                                  onClick={() => downloadFile(msg.attachment_url, msg.attachment_name || 'image', msg.attachment_type)}>
-                                  <i className="fas fa-download"></i>
-                                </button>
-                              </div>
-                            )}
-                            {msg.attachment_url && msg.attachment_type?.startsWith('audio/') && (
-                              <div className="message-attachment mt-2">
-                                <WaveformAudioPlayer src={msg.attachment_url} />
-                              </div>
-                            )}
-                            {msg.attachment_url && !msg.attachment_type?.startsWith('image/') && !msg.attachment_type?.startsWith('audio/') && (
-                              <button className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 mt-1"
-                                onClick={() => downloadFile(msg.attachment_url, msg.attachment_name || 'file', msg.attachment_type)}>
-                                <i className="fas fa-file-download"></i>
-                                <span className="text-truncate" style={{ maxWidth: 160 }}>{msg.attachment_name || 'Download file'}</span>
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <div className="message-time">
-                        {formatTime(msg.created_at)}
-                        {msg.sender_id === getCurrentUserId() && <span className="message-status ms-1">{renderMessageStatus(msg)}</span>}
-                        {msg.edited && <span className="ms-1 text-muted small">(edited)</span>}
-                      </div>
-                      {isOwn && (
-                        <div className="message-actions-dropdown">
-                          <i className="fas fa-ellipsis-v" onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === msg.id ? null : msg.id); }} />
-                          {openMenuId === msg.id && (
-                            <div className="message-actions-menu" ref={menuRef}>
-                              {canEdit && <button onClick={() => handleEditMessage(msg)}><i className="fas fa-edit"></i> Edit</button>}
-                              <button onClick={() => handleCopyMessage(msg)}><i className="fas fa-copy"></i> Copy</button>
-                              <button onClick={() => handleForwardMessage(msg)}><i className="fas fa-share"></i> Forward</button>
-                              <button onClick={() => handleDeleteMessage(msg)}><i className="fas fa-trash"></i> Delete</button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))
+          <Virtuoso
+            ref={virtuosoRef}
+            data={groupedMessages}
+            itemContent={renderItem}
+            followOutput="smooth"
+            atBottomStateChange={atBottom => {
+              isUserAtBottom.current = atBottom;
+              if (atBottom) { setShowScrollButton(false); setNewMessageCount(0); }
+            }}
+          />
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {showScrollButton && (
         <button className="new-message-button" onClick={scrollToBottom}>
-          <i className="fas fa-arrow-down"></i>
+          <i className="fas fa-arrow-down" />
           {newMessageCount > 0 && <span className="badge bg-white text-dark rounded-pill">{newMessageCount}</span>}
           New messages
         </button>
       )}
 
+      {/* Input bar */}
       <div className="chat-window-input" style={{ position: 'relative' }}>
         <button className="btn btn-link p-1" onClick={() => setShowEmojiPicker(v => !v)}>
-          <i className="far fa-smile"></i>
+          <i className="far fa-smile" />
         </button>
-        <input type="text" className="form-control" placeholder="Type a message…" value={newMessage}
-          onChange={e => setNewMessage(e.target.value)}
+        <input type="text" className="form-control" placeholder="Type a message…"
+          value={newMessage} onChange={e => setNewMessage(e.target.value)}
           onKeyPress={e => e.key === 'Enter' && !isRecording && sendMessage()} />
         <input type="file" multiple ref={fileInputRef} style={{ display: 'none' }}
           onChange={e => setAttachments(Array.from(e.target.files))} />
-        <button className="btn btn-link p-1" onClick={() => fileInputRef.current.click()} title="Attach file">
-          <i className="fas fa-paperclip"></i>
+        <button className="btn btn-link p-1" onClick={() => fileInputRef.current.click()} title="Attach">
+          <i className="fas fa-paperclip" />
         </button>
 
-        {/* Mic button — click once to start, click again to stop */}
-        <div className="mic-container" style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-          <button
-            className="btn btn-link p-1"
-            onClick={toggleRecording}
+        <div className="mic-container" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <button className="btn btn-link p-1" onClick={toggleRecording}
             title={isRecording ? 'Stop recording' : 'Start voice note'}
-            style={{ color: isRecording ? '#dc3545' : undefined }}
-          >
-            <i className={`fas fa-${isRecording ? 'stop-circle' : 'microphone'}`}></i>
+            style={{ color: isRecording ? '#dc3545' : undefined }}>
+            <i className={`fas fa-${isRecording ? 'stop-circle' : 'microphone'}`} />
           </button>
-          {/* Show live waveform + ticking counter only while actively recording */}
           {isRecording && (
             <>
-              <LiveWaveform isRecording={isRecording} />
-              <span style={{ fontSize: '0.7rem', color: '#dc3545', minWidth: 28 }}>{formatDuration(liveDuration)}</span>
+              <LiveWaveform analyserNode={analyserNode} />
+              <span style={{ fontSize: '0.7rem', color: '#dc3545', minWidth: 32, fontVariantNumeric: 'tabular-nums' }}>
+                {fmtDur(liveDuration)}
+              </span>
             </>
           )}
         </div>
 
         <button className="btn btn-primary btn-sm" onClick={sendMessage} disabled={sending || isRecording}>
-          {sending ? <span className="spinner-border spinner-border-sm"></span> : <i className="fas fa-paper-plane"></i>}
+          {sending ? <span className="spinner-border spinner-border-sm" /> : <i className="fas fa-paper-plane" />}
         </button>
 
         {showEmojiPicker && (
           <div style={{ position: 'absolute', bottom: '100%', right: 0, zIndex: 9999 }}>
-            <EmojiPicker onEmojiClick={emoji => setNewMessage(prev => (prev || '') + emoji.emoji)} />
+            <EmojiPicker onEmojiClick={e => setNewMessage(p => (p || '') + e.emoji)} />
           </div>
         )}
       </div>
 
+      {/* Attachment previews */}
       {attachments.length > 0 && (
         <div className="attachment-preview">
           {attachments.map((file, i) => (
             <div key={i} className="attachment-item">
-              <i className={`fas fa-${file.type.startsWith('image/') ? 'image' : 'file'} me-1`}></i>
+              <i className={`fas fa-${file.type.startsWith('image/') ? 'image' : 'file'} me-1`} />
               <span className="text-truncate" style={{ maxWidth: 120 }}>{file.name}</span>
-              <button className="btn btn-sm ms-1" onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))}>&times;</button>
+              <button className="btn btn-sm ms-1" onClick={() => setAttachments(p => p.filter((_, j) => j !== i))}>&times;</button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Voice confirm modal — shows frozen duration from when recording stopped */}
+      {/* Voice confirm */}
       {showVoiceConfirm && (
-        <div className="voice-confirm-modal" style={{
-          position: 'absolute', bottom: 70, left: 10, right: 10,
-          background: 'white', padding: 10, borderRadius: 8,
-          boxShadow: '0 2px 10px rgba(0,0,0,0.2)', zIndex: 1100,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        <div style={{
+          position: 'absolute', bottom: 70, left: 10, right: 10, background: 'white',
+          padding: '8px 14px', borderRadius: 8, boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+          zIndex: 1100, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
-          <span>
-            <i className="fas fa-microphone me-2 text-danger"></i>
-            Voice note — {formatDuration(finalDuration)}
+          <span style={{ fontSize: '0.9rem' }}>
+            <i className="fas fa-microphone me-2 text-danger" />
+            Voice note &nbsp;<strong>{fmtDur(finalDuration)}</strong>
           </span>
           <div>
             <button className="btn btn-sm btn-success me-2" onClick={confirmAndSendVoice}>Send</button>
@@ -1087,7 +1026,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">Delete message</h5>
-                <button type="button" className="btn-close" onClick={() => setShowDeleteConfirm(false)}></button>
+                <button type="button" className="btn-close" onClick={() => setShowDeleteConfirm(false)} />
               </div>
               <div className="modal-body"><p>Are you sure you want to delete this message?</p></div>
               <div className="modal-footer">

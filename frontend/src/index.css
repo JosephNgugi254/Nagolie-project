@@ -3441,10 +3441,10 @@ section {
 .waveform-audio-player {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 3px;
   background: #e9ecef;
-  border-radius: 20px;
-  padding: 4px 8px;
+  border-radius: 15px;
+  padding: 4px 1px ;
   width: auto;
   min-width: 220px;            /* wider than before */
   max-width: 100%;
