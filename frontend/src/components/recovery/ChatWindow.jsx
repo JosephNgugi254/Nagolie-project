@@ -12,9 +12,7 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying]     = useState(false);
   const [loadError, setLoadError]     = useState(null);
-  // permanentBlue is controlled ONLY by isRead prop (external read status)
   const [permanentBlue, setPermanentBlue] = useState(isRead);
-  // replay mode: when user clicks play on a permanently blue note, we temporarily show normal progress
   const [isReplaying, setIsReplaying] = useState(false);
 
   const audioRef    = useRef(null);
@@ -23,7 +21,6 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
   const isReadRef   = useRef(isRead);
   const objUrlRef   = useRef(null);
 
-  // Static placeholder waveform
   const placeholderWave = useMemo(() => {
     const bars = 60;
     return Array.from({ length: bars }, (_, i) => {
@@ -39,9 +36,6 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
     const barWidth = W / waveDataRef.current.length;
-    // Determine fill:
-    // - If permanently blue AND NOT replaying → all bars blue (percent = 1)
-    // - Else → normal progress (blue up to percent, grey after)
     const finalPercent = (permanentBlue && !isReplaying) ? 1 : Math.min(1, Math.max(0, percent));
     const played = Math.floor(waveDataRef.current.length * finalPercent);
     for (let i = 0; i < waveDataRef.current.length; i++) {
@@ -51,32 +45,25 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
     }
   }, [permanentBlue, isReplaying]);
 
-  // Draw placeholder on mount
   useEffect(() => {
     waveDataRef.current = placeholderWave;
     draw(0);
   }, [placeholderWave, draw]);
 
-  // Load audio and set up event listeners
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    // Reset state
     setDuration(0);
     setCurrentTime(0);
     setIsPlaying(false);
     draw(0);
 
     const onMeta = () => {
-      if (isFinite(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration);
-      }
+      if (isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
     };
     const onDurationChange = () => {
-      if (isFinite(audio.duration) && audio.duration > 0) {
-        setDuration(audio.duration);
-      }
+      if (isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
     };
     const onTimeUpdate = () => {
       if (!audio.duration) return;
@@ -90,12 +77,9 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
     const onEnded = () => {
       setIsPlaying(false);
       if (isReplaying) {
-        // Replay finished – exit replay mode, keep permanent blue (if any)
         setIsReplaying(false);
         draw(1);
       } else if (!permanentBlue && !isOwnMessage && !isReadRef.current) {
-        // Only mark as read if this is a RECEIVED message (not sent by current user)
-        // This ensures senders never turn their own waveform blue by listening
         setPermanentBlue(true);
         if (onMarkAsRead) onMarkAsRead();
         draw(1);
@@ -147,7 +131,6 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
     };
   }, [src]); // eslint-disable-line
 
-  // Sync external isRead prop – only way permanentBlue becomes true
   useEffect(() => {
     isReadRef.current = isRead;
     if (isRead && !permanentBlue) {
@@ -155,7 +138,6 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
       setIsReplaying(false);
       draw(1);
     } else if (!isRead && permanentBlue && !isOwnMessage) {
-      // In case the backend un‑reads (shouldn't happen), allow reset
       setPermanentBlue(false);
       draw(0);
     }
@@ -164,11 +146,7 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
   const togglePlay = () => {
     const audio = audioRef.current;
     if (!audio) return;
-    // If the waveform is permanently blue (because receiver read it) and we start playing,
-    // we enter "replay mode": show normal progress instead of full blue.
-    if (permanentBlue && !isPlaying && !isReplaying) {
-      setIsReplaying(true);
-    }
+    if (permanentBlue && !isPlaying && !isReplaying) setIsReplaying(true);
     if (isPlaying) {
       audio.pause();
       setIsPlaying(false);
@@ -247,7 +225,7 @@ const LiveWaveform = ({ analyserNode }) => {
     const { width: W, height: H } = canvas;
     const tick = (now) => {
       rafRef.current = requestAnimationFrame(tick);
-      if (now - lastTimeRef.current < 50) return; // ~20fps
+      if (now - lastTimeRef.current < 50) return;
       lastTimeRef.current = now;
       analyserNode.getByteTimeDomainData(buf);
       ctx.clearRect(0, 0, W, H);
@@ -337,89 +315,115 @@ function ForwardModal({ isOpen, onClose, message, onForward }) {
 }
 
 // ------------------------------------------------------------
-// Memoized MessageBubble – passes isOwnMessage flag to audio player
+// Memoized MessageBubble – marks read on image click & file download
 // ------------------------------------------------------------
 const MessageBubble = memo(({
   msg, isOwn, user, onEdit, onCopy, onForward, onDelete, onDownloadFile,
   editingMessageId, editContent, setEditContent, saveEdit, setEditingMessageId,
   openMenuId, setOpenMenuId, menuRef, handleTouchStart, handleTouchEnd,
   renderStatus, fmtTime, markRead,
-}) => (
-  <div
-    className={`chat-message ${msg.sender_id === user.id ? 'received' : 'sent'}`}
-    data-msg-id={msg.id}
-    onTouchStart={() => handleTouchStart(msg.id)}
-    onTouchEnd={handleTouchEnd}
-  >
-    <div className="message-bubble" style={!isOwn && msg.status === 'read' ? { backgroundColor: '#fff3cd' } : {}}>
-      <div className="message-content">
-        {editingMessageId === msg.id ? (
-          <div>
-            <textarea className="form-control form-control-sm" rows="2" autoFocus
-              value={editContent} onChange={e => setEditContent(e.target.value)} />
-            <div className="mt-1">
-              <button className="btn btn-sm btn-primary me-1" onClick={() => saveEdit(msg.id)}>Save</button>
-              <button className="btn btn-sm btn-secondary" onClick={() => setEditingMessageId(null)}>Cancel</button>
+}) => {
+  const handleImageClick = () => {
+    // Mark as read when the image is clicked (opened)
+    if (!isOwn && msg.status !== 'read') {
+      markRead(msg.id);
+    }
+  };
+
+  const handleFileDownload = (e) => {
+    // Mark as read when the user downloads the file
+    if (!isOwn && msg.status !== 'read') {
+      markRead(msg.id);
+    }
+    // Then actually download the file
+    onDownloadFile(msg.attachment_url, msg.attachment_name, msg.attachment_type);
+  };
+
+  return (
+    <div
+      className={`chat-message ${msg.sender_id === user.id ? 'received' : 'sent'}`}
+      data-msg-id={msg.id}
+      onTouchStart={() => handleTouchStart(msg.id)}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div className="message-bubble" style={!isOwn && msg.status === 'read' ? { backgroundColor: '#fff3cd' } : {}}>
+        <div className="message-content">
+          {editingMessageId === msg.id ? (
+            <div>
+              <textarea className="form-control form-control-sm" rows="2" autoFocus
+                value={editContent} onChange={e => setEditContent(e.target.value)} />
+              <div className="mt-1">
+                <button className="btn btn-sm btn-primary me-1" onClick={() => saveEdit(msg.id)}>Save</button>
+                <button className="btn btn-sm btn-secondary" onClick={() => setEditingMessageId(null)}>Cancel</button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <>
-            {msg.content}
-            {msg.attachment_url && msg.attachment_type?.startsWith('image/') && (
-              <div className="message-attachment mt-1 position-relative">
-                <img src={msg.attachment_url} alt="attachment" className="img-fluid rounded" style={{ maxHeight: 200, cursor: 'pointer' }} />
-                <button className="btn btn-sm btn-light download-image-btn"
-                  style={{ position: 'absolute', bottom: 4, right: 4, opacity: 0.85 }}
-                  onClick={() => onDownloadFile(msg.attachment_url, msg.attachment_name, msg.attachment_type)}>
-                  <i className="fas fa-download" />
+          ) : (
+            <>
+              {msg.content}
+              {msg.attachment_url && msg.attachment_type?.startsWith('image/') && (
+                <div className="message-attachment mt-1 position-relative">
+                  <img
+                    src={msg.attachment_url}
+                    alt="attachment"
+                    className="img-fluid rounded"
+                    style={{ maxHeight: 200, cursor: 'pointer' }}
+                    onClick={handleImageClick}
+                  />
+                  <button className="btn btn-sm btn-light download-image-btn"
+                    style={{ position: 'absolute', bottom: 4, right: 4, opacity: 0.85 }}
+                    onClick={handleFileDownload}>
+                    <i className="fas fa-download" />
+                  </button>
+                </div>
+              )}
+              {msg.attachment_url && msg.attachment_type?.startsWith('audio/') && (
+                <div className="message-attachment mt-2">
+                  <WaveformAudioPlayer
+                    src={msg.attachment_url}
+                    isRead={msg.status === 'read'}
+                    isOwnMessage={isOwn}
+                    onMarkAsRead={() => markRead(msg.id)}
+                  />
+                </div>
+              )}
+              {msg.attachment_url && !msg.attachment_type?.startsWith('image/') && !msg.attachment_type?.startsWith('audio/') && (
+                <button
+                  className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 mt-1"
+                  onClick={handleFileDownload}
+                >
+                  <i className="fas fa-file-download" />
+                  <span className="text-truncate" style={{ maxWidth: 160 }}>{msg.attachment_name || 'Download file'}</span>
                 </button>
-              </div>
-            )}
-            {msg.attachment_url && msg.attachment_type?.startsWith('audio/') && (
-              <div className="message-attachment mt-2">
-                <WaveformAudioPlayer
-                  src={msg.attachment_url}
-                  isRead={msg.status === 'read'}
-                  isOwnMessage={isOwn}
-                  onMarkAsRead={() => markRead(msg.id)}
-                />
-              </div>
-            )}
-            {msg.attachment_url && !msg.attachment_type?.startsWith('image/') && !msg.attachment_type?.startsWith('audio/') && (
-              <button className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 mt-1"
-                onClick={() => onDownloadFile(msg.attachment_url, msg.attachment_name, msg.attachment_type)}>
-                <i className="fas fa-file-download" />
-                <span className="text-truncate" style={{ maxWidth: 160 }}>{msg.attachment_name || 'Download file'}</span>
-              </button>
-            )}
-          </>
-        )}
-      </div>
-      <div className="message-time">
-        {fmtTime(msg.created_at)}
-        {isOwn && <span className="message-status ms-1">{renderStatus(msg)}</span>}
-        {msg.edited && <span className="ms-1 text-muted small">(edited)</span>}
-      </div>
-      {isOwn && (
-        <div className="message-actions-dropdown">
-          <i className="fas fa-ellipsis-v"
-            onClick={e => { e.stopPropagation(); setOpenMenuId(openMenuId === msg.id ? null : msg.id); }} />
-          {openMenuId === msg.id && (
-            <div className="message-actions-menu" ref={menuRef}>
-              {!msg.attachment_url && <button onClick={() => onEdit(msg)}><i className="fas fa-edit" /> Edit</button>}
-              <button onClick={() => onCopy(msg)}><i className="fas fa-copy" /> Copy</button>
-              <button onClick={() => onForward(msg)}><i className="fas fa-share" /> Forward</button>
-              <button onClick={() => onDelete(msg)}><i className="fas fa-trash" /> Delete</button>
-            </div>
+              )}
+            </>
           )}
         </div>
-      )}
+        <div className="message-time">
+          {fmtTime(msg.created_at)}
+          {isOwn && <span className="message-status ms-1">{renderStatus(msg)}</span>}
+          {msg.edited && <span className="ms-1 text-muted small">(edited)</span>}
+        </div>
+        {isOwn && (
+          <div className="message-actions-dropdown">
+            <i className="fas fa-ellipsis-v"
+              onClick={e => { e.stopPropagation(); setOpenMenuId(openMenuId === msg.id ? null : msg.id); }} />
+            {openMenuId === msg.id && (
+              <div className="message-actions-menu" ref={menuRef}>
+                {!msg.attachment_url && <button onClick={() => onEdit(msg)}><i className="fas fa-edit" /> Edit</button>}
+                <button onClick={() => onCopy(msg)}><i className="fas fa-copy" /> Copy</button>
+                <button onClick={() => onForward(msg)}><i className="fas fa-share" /> Forward</button>
+                <button onClick={() => onDelete(msg)}><i className="fas fa-trash" /> Delete</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-));
+  );
+});
 
 // ------------------------------------------------------------
-// Main ChatWindow (unchanged except minor improvements)
+// Main ChatWindow
 // ------------------------------------------------------------
 function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
   // Voice recording state
@@ -507,10 +511,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
       const cid = getCurrentUserId();
 
       setMessages(prev => {
-        // Already exists by server ID? ignore
         if (prev.some(msg => msg.id === m.id)) return prev;
-
-        // Our own just-sent message bouncing back: replace the temp message
         if (m.sender_id === cid) {
           const tempIdx = prev.findIndex(msg =>
             pendingTempIds.current.has(msg.id) &&
@@ -843,6 +844,19 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
       default: return null;
     }
   };
+
+  // Improved read receipts: also runs when messages change
+  useEffect(() => {
+    if (loading || !messages.length) return;
+    const timer = setTimeout(() => {
+      document.querySelectorAll('.chat-message.received').forEach(el => {
+        const mid = parseInt(el.dataset.msgId);
+        const msg = messages.find(m => m.id === mid);
+        if (msg && msg.sender_id === user.id && msg.status !== 'read') markRead(mid);
+      });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [loading, messages.length, user.id]);
 
   const groupedMessages = useMemo(() => {
     const groups = [], today = new Date(), yest = new Date(today);
