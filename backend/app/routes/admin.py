@@ -88,7 +88,7 @@ def test_endpoint():
 
 @admin_bp.route('/applications', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director','secretary', 'client_relations_officer'])
 def get_applications():
     try:
         apps = Loan.query.filter_by(status='pending').order_by(Loan.created_at.desc()).all()
@@ -125,7 +125,7 @@ def get_applications():
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director','secretary', 'client_relations_officer'])
 def approve_application(loan_id):
     try:
         data           = request.get_json()
@@ -234,7 +234,7 @@ def approve_application(loan_id):
 
 @admin_bp.route('/applications/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director','secretary', 'client_relations_officer'])
 def reject_application(loan_id):
     try:
         loan = db.session.get(Loan, loan_id)
@@ -258,7 +258,7 @@ def reject_application(loan_id):
 
 @admin_bp.route('/clients', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def get_all_clients():
     try:
         today = datetime.now().date()
@@ -335,7 +335,7 @@ def get_all_clients():
 
 @admin_bp.route('/dashboard', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def get_dashboard_stats():
     try:
         total_clients = db.session.query(Client).join(Loan).filter(
@@ -414,7 +414,7 @@ def get_dashboard_stats():
 
 @admin_bp.route('/payment-stats', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def get_payment_stats():
     try:
         loans = Loan.query.filter(
@@ -594,7 +594,7 @@ def get_public_livestock_gallery():
 
 @admin_bp.route('/transactions', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def get_all_transactions():
     try:
         txns = Transaction.query.order_by(Transaction.created_at.desc()).all()
@@ -695,7 +695,7 @@ def delete_livestock(livestock_id):
 
 @admin_bp.route('/send-reminder', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def send_reminder():
     data = request.json
     if not data.get('phone') or not data.get('message'):
@@ -760,7 +760,7 @@ def claim_ownership():
         
 @admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director','secretary','head_of_it'])
+@role_required(['admin', 'director','secretary','head_of_it', 'client_relations_officer'])
 def process_topup(loan_id):
     try:
         data             = request.json
@@ -815,7 +815,7 @@ def process_topup(loan_id):
 
 @admin_bp.route('/approved-loans', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def get_approved_loans():
     try:
         loans = db.session.query(
@@ -1188,7 +1188,7 @@ def get_investor_statement(investor_id):
 
 @admin_bp.route('/loans/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer'])
 def renew_loan(loan_id):
     try:
         from app.routes.payments import recalculate_loan, _loan_summary
@@ -1320,7 +1320,7 @@ def renew_loan(loan_id):
 
 @admin_bp.route('/loans/<int:loan_id>/waive', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director', 'client_relations_officer'])
 def waive_loan(loan_id):
     try:
         from app.routes.payments import recalculate_loan, _loan_summary
@@ -1506,7 +1506,7 @@ def get_single_livestock(livestock_id):
 
 @admin_bp.route('/loan/<int:loan_id>/ledger', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def get_loan_ledger(loan_id):
     from app.models import LoanLedger
     loan = db.session.get(Loan, loan_id)
@@ -1527,7 +1527,7 @@ def get_loan_ledger(loan_id):
 # In admin.py, update the get_consolidated_statement function
 @admin_bp.route('/loan/<int:loan_id>/consolidated-statement', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'client_relations_officer'])
 def get_consolidated_statement(loan_id):
     from app.models import LoanLedger, Transaction
     loan = db.session.get(Loan, loan_id)

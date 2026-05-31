@@ -382,7 +382,7 @@ def _loan_summary(loan):
 
 @payments_bp.route('/cash', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def process_cash_payment():
     try:
         data = request.json
@@ -453,7 +453,7 @@ def process_cash_payment():
 
 @payments_bp.route('/mpesa/manual', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 def process_mpesa_manual():
     try:
         data = request.json
@@ -527,7 +527,7 @@ def process_mpesa_manual():
 
 @payments_bp.route('/mpesa/stk-push', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
 @limiter.limit("10 per minute")
 def stk_push():
     try:

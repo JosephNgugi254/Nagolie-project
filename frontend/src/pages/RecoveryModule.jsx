@@ -1012,7 +1012,7 @@ function RecoveryModule() {
   };
 
   const canRenewLoan = (loan) => {
-    const allowed = ['director', 'admin', 'secretary', 'head_of_it', 'deputy_director'];
+    const allowed = ['director', 'admin', 'secretary', 'client_relations_officer', 'head_of_it', 'deputy_director'];
     if (!allowed.includes(userRole)) return false;
     if (loan.daysLeft <= 0) return true;
     if (loan.weeks_overdue > 0) return true;
@@ -1041,8 +1041,9 @@ function RecoveryModule() {
     setShowSettingsModal(true);
     if (isMobile) setSidebarOpen(false);
   };
+  
   const handleOpenUtilities = () => {
-    if (userRole === 'director') {
+    if (['director', 'secretary', 'client_relations_officer'].includes(userRole)) {
       setDirectorSection('utilities');
     } else {
       setShowUtilities(true);
@@ -1391,7 +1392,7 @@ function RecoveryModule() {
     if (authLoading) return;
     if (!isAuthenticated()) { navigate('/login'); return; }
     if (userRole === 'admin') { navigate('/admin'); return; }
-    const allowed = ['director', 'secretary', 'accountant', 'valuer', 'head_of_it'];
+    const allowed = ['director', 'secretary', 'client_relations_officer', 'accountant', 'valuer', 'head_of_it'];
     if (userRole && !allowed.includes(userRole)) { logout(); navigate('/login'); return; }
     if (!userRole) return;
     fetchData();
@@ -1412,7 +1413,7 @@ function RecoveryModule() {
   }, [userRole]);
   
   useEffect(() => {
-    if (userRole !== 'director') return;
+    if (!['director', 'secretary', 'client_relations_officer'].includes(userRole)) return;
 
     // Poll for new applications every 30 seconds (regardless of active section)
     const fetchApps = () => {
@@ -1592,7 +1593,7 @@ function RecoveryModule() {
             </div>
 
             <div className="col-md-9 col-lg-10 main-content">
-              {userRole === 'director' ? (
+              {['director', 'secretary', 'client_relations_officer'].includes(userRole) ? (
                 // ---------- DIRECTOR PANEL RECOVERY MODULE DISPLAY ----------
                 <>
                   {/* OVERVIEW SECTION */}
@@ -1732,22 +1733,22 @@ function RecoveryModule() {
                                         <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
                                         <td>Week {loan.week}</td>
                                         <td><div className="btn-group btn-group-sm">
-                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
                                             <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}><i className="fas fa-money-bill-wave"></i></button>
                                           )}
                                           <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`}><i className="fas fa-phone"></i></button>
                                           <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}><i className="fas fa-comment"></i>{commentUnreads[loan.id] > 0 && <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>{commentUnreads[loan.id]}</span>}</button>
                                           {loan.days_left <= 1 && <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}><i className="fas fa-bolt"></i></button>}
                                           <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}><i className="fas fa-file-invoice"></i></button>
-                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                             <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}><i className="fas fa-sync-alt"></i></button>
                                           )}
-                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
                                             <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)}>
                                               <i className="fas fa-edit"></i>
                                             </button>
                                           )}
-                                          {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
                                             <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}><i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i></button>
                                           )}
                                         </div></td>
@@ -2963,7 +2964,7 @@ function RecoveryModule() {
                                         <td>Week {loan.week}</td>
                                         <td>
                                           <div className="btn-group btn-group-sm">
-                                            {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
                                               <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}>
                                                 <i className="fas fa-money-bill-wave"></i>
                                               </button>
@@ -2987,17 +2988,17 @@ function RecoveryModule() {
                                             <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}>
                                               <i className="fas fa-file-invoice"></i>
                                             </button>
-                                            {['director','secretary','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
+                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                               <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}>
                                                 <i className="fas fa-sync-alt"></i>
                                               </button>
                                             )}
-                                            {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
                                               <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)}>
                                                 <i className="fas fa-edit"></i>
                                               </button>
                                             )}
-                                            {['director','secretary','head_of_it','deputy_director'].includes(userRole) && (
+                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
                                               <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}>
                                                 <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
                                               </button>

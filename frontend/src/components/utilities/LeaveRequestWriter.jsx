@@ -37,6 +37,12 @@ const getFullName = (user) => {
     if (username === 'george') return 'George Marite';
     return 'George Marite';
   }
+  // Client Relations Officer
+  if (role === 'client_relations_officer') {
+    if (username === 'lucie') return 'Lucy Nyambura';
+    if (username === 'annie') return 'Ann Wanjiru';
+    return 'Client Relations Officer';
+  }
   // Fallback
   return user.username || user.fullName || 'Unknown';
 };
@@ -49,6 +55,8 @@ const formatRole = (role) => {
       return 'Head of I.T';
     case 'secretary':
       return 'Secretary';
+    case 'client_relations_officer':
+      return 'Client Relations Officer';
     case 'valuer':
       return 'Valuer';
     case 'accountant':

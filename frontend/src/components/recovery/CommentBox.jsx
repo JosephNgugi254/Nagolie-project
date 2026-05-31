@@ -99,14 +99,18 @@ function CommentBox({ loanId, onClose }) {
     }
   };
 
-  const getRoleColor = (role) => {
+  const getRoleColor = (role, username) => {
+    // Special colors for Annie and Lucie
+    if (username === 'Annie') return '#ff007f';   // bright pink
+    if (username === 'Lucie') return '#c154c1';  // fuchsia
     switch (role) {
       case 'director': return '#fff4e6';
       case 'secretary': return '#ffe6f0';
       case 'head_of_it':return '#8ffdf6';
       case 'accountant': return '#e6f0ff';
       case 'valuer': return '#e6ffe6';
-      case 'deputy_director': return '#ea99f8ff';
+      case 'deputy_director': return '#ea99f8';
+      case 'client_relations_officer': return '#d9b4ff'; // default for this role
       default: return '#f8f9fa';
     }
   };
@@ -145,7 +149,7 @@ function CommentBox({ loanId, onClose }) {
       >
         <div
           className="p-2 rounded position-relative"
-          style={{ backgroundColor: getRoleColor(comment.role), borderLeft: `4px solid ${getRoleColor(comment.role)}` }}
+          style={{ backgroundColor: getRoleColor(comment.role, comment.username), borderLeft: `4px solid ${getRoleColor(comment.role)}` }}
         >
           <div className="d-flex justify-content-between align-items-start">
             <strong>{comment.user}</strong>

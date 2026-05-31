@@ -12,7 +12,8 @@ import {
   generateLeaveRequestPDF,
   generateManualLeaveRequestPDF,
   generateManualInvoicePDF,               
-  generateManualDeliveryNotePDF 
+  generateManualDeliveryNotePDF,
+  generateClientRelationsOfficerContractPDF
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
 import { useAuth } from '../../context/AuthContext';
@@ -28,7 +29,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
   const [activeTab, setActiveTab] = useState('forms');
 
   // Allow accountant and valuer as well (for Recovery Module)
-  const canAccessFull = ['admin', 'secretary', 'director', 'head_of_it', 'accountant', 'valuer'].includes(userRole);
+  const canAccessFull = ['admin', 'secretary', 'client_relations_officer', 'director', 'head_of_it', 'accountant', 'valuer'].includes(userRole);
   const canAccessManualForms = true; // always
   const canAccessLetter = canAccessFull;
   const canAccessInvoice = canAccessFull;
@@ -278,7 +279,33 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                 >
                   <i className="fas fa-file-contract me-2"></i>
                   Secretary Employment Contract
-                </button> */}                
+                </button> */}  
+
+                {/* Client Relations & Portfolio Officer Employment Contract */}
+                {/* <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-secondary">
+                    <div className="card-body text-center">
+                      <i className="fas fa-file-contract fa-3x text-secondary mb-3"></i>
+                      <h5>Client Relations Officer Contract</h5>
+                      <p className="text-muted">Employment agreement for Client Relations & Portfolio Officer</p>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={async () => {
+                          try {
+                            await generateClientRelationsOfficerContractPDF();
+                            showToast.success('Employment contract downloaded!');
+                          } catch (error) {
+                            console.error(error);
+                            showToast.error('Failed to generate contract');
+                          }
+                        }}
+                      >
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>   */}
+
               </div>
             )}
 

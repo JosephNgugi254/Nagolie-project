@@ -579,6 +579,7 @@ class Comment(db.Model):
             'id': self.id,
             'user_id': self.user_id,           # <-- expose user_id for edit check
             'user': self.user.username,
+            'username': self.user.username,
             'role': self.user.role,
             'content': self.content,
             'created_at': self.created_at.isoformat() + 'Z',        # <-- Z suffix = UTC

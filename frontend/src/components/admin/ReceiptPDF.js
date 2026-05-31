@@ -6308,4 +6308,260 @@ export const generateManualDeliveryNotePDF = async () => {
   doc.save(fileName);
 };
 
+// ========== CLIENT RELATIONS & PORTFOLIO OFFICER EMPLOYMENT CONTRACT ==========
+export const generateClientRelationsOfficerContractPDF = async () => {
+  try {
+    const doc = new jsPDF();
+    addOptimizedWatermark(doc, 'agreement');
+
+    let yPos = await addHeader(doc, 10);
+
+    // Main Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('EMPLOYMENT AGREEMENT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    doc.setFontSize(13);
+    doc.text('CLIENT RELATIONS & PORTFOLIO OFFICER', 105, yPos, { align: 'center' });
+    yPos += 5;
+    yPos = addDivider(doc, yPos);
+
+    // Parties
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('This Employment Agreement is made between:', 20, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'normal');
+    doc.text('NAGOLIE ENTERPRISES (hereinafter referred to as "the Employer")', 25, yPos);
+    yPos += 6;
+    doc.text('and', 25, yPos);
+    yPos += 5;
+    doc.text('_________________________ (hereinafter referred to as "the Employee")', 25, yPos);
+    yPos += 8;
+
+    // 1. POSITION
+    doc.setFont('helvetica', 'bold');
+    doc.text('1. POSITION', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee is hereby employed as a Client Relations & Portfolio Officer and shall perform', 20, yPos);
+    yPos += 4.5;
+    doc.text('duties assigned by the Employer in support of the Company\'s lending and recovery operations.', 20, yPos);
+    yPos += 8;
+
+    // 2. COMMENCEMENT DATE
+    doc.setFont('helvetica', 'bold');
+    doc.text('2. COMMENCEMENT DATE', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('Employment shall commence on the _____ day of ___________ 20____.', 20, yPos);
+    yPos += 8;
+
+    // 3. DUTIES AND RESPONSIBILITIES (list a-j)
+    doc.setFont('helvetica', 'bold');
+    doc.text('3. DUTIES AND RESPONSIBILITIES', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    const duties = [
+      'a) Guide and assist new clients through the loan application process on assigned operational days.',
+      'b) Manage and update the Company\'s portfolio and recovery systems for assigned client accounts.',
+      'c) Make follow-up calls and communicate with clients regarding loan repayments, reminders,',
+      '   application progress, and any other loan-related matters.',
+      'd) Maintain accurate records of client communications, interactions, and follow-up activities.',
+      'e) Prepare and submit periodic reports summarizing client portfolios, payment status,',
+      '   recovery progress, and other relevant operational information.',
+      'f) Work closely with the Valuer, Technical Operations Manager, and Management Team in matters',
+      '   involving loan defaults and recovery actions.',
+      'g) Ensure proper handling of client information and maintain confidentiality at all times.',
+      'h) Maintain a professional, organized, and generally neat working environment within the assigned office.',
+      'i) Support the Company\'s mission, vision, and growth objectives through professional conduct',
+      '   and efficient service delivery.',
+      'j) Perform any other reasonable duties assigned by the Employer that are related to the',
+      '   Company\'s operations.'
+    ];
+    duties.forEach(duty => {
+      if (yPos > 270) {
+        doc.addPage();
+        addWatermarkToCurrentPage(doc, 'agreement');
+        doc.setFont('helvetica', 'normal');
+        yPos = 20;
+      }
+      doc.text(duty, 25, yPos);
+      yPos += 4.5;
+    });
+    yPos += 4;
+
+    // 4. WORKING HOURS
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('4. WORKING HOURS', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee shall work from 8:00 AM to 5:00 PM, Monday to Saturday.', 20, yPos);
+    yPos += 5;
+    doc.text('Due to the Company\'s operational requirements, the Employee may occasionally be required to', 20, yPos);
+    yPos += 4.5;
+    doc.text('provide support outside normal working hours or on designated weekends as directed by Management.', 20, yPos);
+    yPos += 5;
+    doc.text('Any changes to working hours shall be communicated by the Employer.', 20, yPos);
+    yPos += 8;
+
+    // 5. REMUNERATION
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('5. REMUNERATION', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee shall receive a gross monthly salary of KES 12,000 (Kenya Shillings Twelve Thousand Only).', 20, yPos);
+    yPos += 5;
+    doc.text('Salary shall be payable monthly through a method determined by the Employer.', 20, yPos);
+    yPos += 8;
+
+    // 6. PERFORMANCE EXPECTATIONS
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('6. PERFORMANCE EXPECTATIONS', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    const expectations = [
+      'a) Work with minimal supervision.',
+      'b) Demonstrate professionalism, integrity, and accountability.',
+      'c) Maintain positive relationships with clients and colleagues.',
+      'd) Protect the reputation and interests of Nagolie Enterprises.',
+      'e) Contribute positively towards achieving the Company\'s objectives and continued growth.'
+    ];
+    expectations.forEach(exp => {
+      if (yPos > 270) {
+        doc.addPage();
+        addWatermarkToCurrentPage(doc, 'agreement');
+        yPos = 20;
+      }
+      doc.text(exp, 25, yPos);
+      yPos += 4.5;
+    });
+    yPos += 4;
+
+    // 7. CONFIDENTIALITY
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('7. CONFIDENTIALITY', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee shall not disclose, share, or misuse any confidential information relating to the Company,', 20, yPos);
+    yPos += 4.5;
+    doc.text('its clients, operations, records, finances, or business processes during or after employment.', 20, yPos);
+    yPos += 8;
+
+    // 8. COMPANY PROPERTY
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('8. COMPANY PROPERTY', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('The Employee shall exercise due care in handling any Company property, records, equipment, systems,', 20, yPos);
+    yPos += 4.5;
+    doc.text('or documents entrusted to them and shall return all Company property upon termination of employment.', 20, yPos);
+    yPos += 8;
+
+    // 9. TERMINATION
+    if (yPos > 270) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text('9. TERMINATION', 20, yPos);
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.text('Either party may terminate this Agreement by providing fourteen (14) days written notice or', 20, yPos);
+    yPos += 4.5;
+    doc.text('payment in lieu of notice.', 20, yPos);
+    yPos += 5;
+    doc.text('The Employer reserves the right to terminate employment immediately in cases of gross misconduct,', 20, yPos);
+    yPos += 4.5;
+    doc.text('dishonesty, breach of confidentiality, negligence, or any conduct deemed detrimental to the Company.', 20, yPos);
+    yPos += 8;
+
+    // 10. ACCEPTANCE (Signature block)
+    if (yPos > 230) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'agreement');
+      yPos = 20;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('10. ACCEPTANCE', 105, yPos, { align: 'center' });
+    yPos += 8;
+
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('By signing below, both parties acknowledge that they have read, understood, and agreed to the', 20, yPos);
+    yPos += 5;
+    doc.text('terms and conditions of this Employment Agreement.', 20, yPos);
+    yPos += 12;
+
+    // Employer signature block
+    doc.setFont('helvetica', 'bold');
+    doc.text('EMPLOYER', 20, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: Shadrack Kesumet', 25, yPos);
+    yPos += 5;
+    doc.text('Position: Director', 25, yPos);
+    yPos += 5;
+    doc.text('Signature: _________________________', 25, yPos);
+    yPos += 5;
+    doc.text('Date: _________________________', 25, yPos);
+    yPos += 12;
+
+    // Employee signature block
+    doc.setFont('helvetica', 'bold');
+    doc.text('EMPLOYEE', 20, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: _________________________', 25, yPos);
+    yPos += 5;
+    doc.text('ID Number: _________________________', 25, yPos);
+    yPos += 5;
+    doc.text('Signature: _________________________', 25, yPos);
+    yPos += 5;
+    doc.text('Date: _________________________', 25, yPos);
+
+    // Footer
+    addFooter(doc, yPos + 15);
+    addPageNumbers(doc, 'page %d');
+
+    const fileName = `Client_Relations_Officer_Contract_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+  } catch (error) {
+    console.error('Error generating client relations officer contract:', error);
+    throw error;
+  }
+};
+
 export { COMPANY_INFO, COLORS };

@@ -1,4 +1,3 @@
-// components/recovery/RecoverySidebar.jsx
 "use client";
 
 function RecoverySidebar({
@@ -13,7 +12,6 @@ function RecoverySidebar({
   userRole,
   pendingApplications = 0 
 }) {
-  // Define menu items based on role
   let menuItems = [];
 
   if (userRole === 'director') {
@@ -29,8 +27,20 @@ function RecoverySidebar({
       { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/recovery/utilities" },
       { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
     ];
+  } else if (userRole === 'secretary' || userRole === 'client_relations_officer') {
+    // Same as director – you can remove gallery/investors later if desired
+    menuItems = [
+      { id: "overview", icon: "fa-tachometer-alt", label: "Overview", path: "/recovery" },
+      { id: "recovery", icon: "fa-chart-line", label: "Recovery Module", path: "/recovery" },
+      { id: "inbox", icon: "fa-envelope", label: "Inbox", path: "/recovery/inbox" },
+      { id: "applications", icon: "fa-file-alt", label: "Applications", path: "/recovery/applications", badge: pendingApplications },
+      { id: "payment-stats", icon: "fa-chart-bar", label: "Payment Stats", path: "/recovery/payment-stats" },
+      { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/recovery/transactions" },
+      { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/recovery/utilities" },
+      { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
+    ];
   } else {
-    // Original menu (secretary, accountant, valuer, head_of_it)
+    // Other roles (accountant, valuer, head_of_it)
     menuItems = [
       { id: "recovery", icon: "fa-chart-line", label: "Recovery Module", path: "/recovery" },
       { id: "inbox", icon: "fa-envelope", label: "Inbox", path: "/recovery/inbox" },
@@ -62,9 +72,7 @@ function RecoverySidebar({
               <i className={`fas ${item.icon} me-2`} />
               <span>{item.label}</span>
               {item.id === "inbox" && unreadCount > 0 && (
-                <span className="badge bg-danger rounded-pill ms-auto" style={{ minWidth: '20px', textAlign: 'center' }}>
-                  {unreadCount}
-                </span>
+                <span className="badge bg-danger rounded-pill ms-auto">{unreadCount}</span>
               )}
               {item.badge > 0 && (
                 <span className="badge bg-danger ms-2">{item.badge}</span>
@@ -73,8 +81,9 @@ function RecoverySidebar({
           </li>
         ))}
 
-        {/* Utilities for other roles (if needed) */}
-        {userRole !== 'director' && (userRole === 'head_of_it' || userRole === 'valuer' || userRole === 'accountant' || userRole === 'secretary') && (
+        {/* For other roles that are not director/secretary/client_relations_officer, add Utilities if needed */}
+        {!['director', 'secretary', 'client_relations_officer'].includes(userRole) && 
+         ['head_of_it', 'valuer', 'accountant'].includes(userRole) && (
           <li className="nav-item">
             <a href="#" className="nav-link d-flex align-items-center" onClick={(e) => { e.preventDefault(); onOpenUtilities?.(); }}>
               <i className="fas fa-tools me-2" /><span>Utilities</span>
