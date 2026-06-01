@@ -1628,7 +1628,7 @@ function RecoveryModule() {
                                           {overdueValue} {overdueUnit}{overdueValue !== 1 ? 's' : ''} overdue
                                         </small>
                                       </div>
-                                      <button className="btn btn-sm btn-primary" onClick={() => handleTakeAction(client)}>
+                                      <button className="btn btn-sm btn-primary" onClick={() => handleTakeAction(client)} title="Send reminder or claim collateral">
                                         Take Action
                                       </button>
                                     </div>
@@ -1647,7 +1647,7 @@ function RecoveryModule() {
                                 dashboardData.overdue.map(client => (
                                   <div key={client.id} className="alert alert-danger d-flex justify-content-between align-items-center">
                                     <div><h6 className="mb-0">{client.client_name}</h6><small>KES {client.balance?.toLocaleString()} remaining</small></div>
-                                    <button className="btn btn-sm btn-primary" onClick={() => handleTakeAction(client)}>Take Action</button>
+                                    <button className="btn btn-sm btn-primary" onClick={() => handleTakeAction(client)} title="Send reminder or claim collateral">Take Action</button>
                                   </div>
                                 ))}
                             </div>
@@ -1910,10 +1910,15 @@ function RecoveryModule() {
                                       }}>
                                       <i className="fas fa-eye"></i>
                                     </button>
-                                    <button className="btn btn-outline-success" onClick={async () => {
+                                    <button 
+                                      className="btn btn-outline-success" 
+                                      onClick={async () => {
                                       await generateLoanAgreementPDF({ ...row, repaymentPlan: row.repayment_plan });
                                       showToast.success("Agreement downloaded");
-                                      }}>
+                                      }}
+                                      title="Download loan agreement"
+                                      >
+                                      
                                       <i className="fas fa-download"></i>
                                     </button>
                                     <button 
@@ -2420,6 +2425,7 @@ function RecoveryModule() {
                                             await generateInvestorTransactionReceipt(row);
                                             showToast.success(`Transaction receipt for ${row.investor_name} downloaded!`);
                                           }}
+                                          title="Download Receipt"
                                         >
                                           <i className="fas fa-download"></i>
                                         </button>
@@ -2966,14 +2972,14 @@ function RecoveryModule() {
                                         <td>
                                           <div className="btn-group btn-group-sm">
                                             {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
-                                              <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}>
+                                              <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }} title="process payment">
                                                 <i className="fas fa-money-bill-wave"></i>
                                               </button>
                                             )}
-                                            <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`}>
+                                            <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`} title="Send prompt">
                                               <i className="fas fa-phone"></i>
                                             </button>
-                                            <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}>
+                                            <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }} title="leave a comment">
                                               <i className="fas fa-comment"></i>
                                               {commentUnreads[loan.id] > 0 && (
                                                 <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>
@@ -2981,24 +2987,24 @@ function RecoveryModule() {
                                                 </span>
                                               )}
                                             </button>                                           
-                                            <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}>
+                                            <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)} title="send reminder or claim ownership">
                                               <i className="fas fa-bolt"></i>
                                             </button>
-                                            <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}>
+                                            <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)} title="Download Invoice">
                                               <i className="fas fa-file-invoice"></i>
                                             </button>
                                             {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
-                                              <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}>
+                                              <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)} title="Renew or waive loan">
                                                 <i className="fas fa-sync-alt"></i>
                                               </button>
                                             )}
                                             {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
-                                              <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)}>
+                                              <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)} title="Process top-up or adjust loan">
                                                 <i className="fas fa-edit"></i>
                                               </button>
                                             )}
                                             {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
-                                              <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}>
+                                              <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)} title="Mark defaulter">
                                                 <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
                                               </button>
                                             )}

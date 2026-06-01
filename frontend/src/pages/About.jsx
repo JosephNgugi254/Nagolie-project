@@ -116,7 +116,7 @@ function About() {
       name: "Lucy Nyambura",
       role: "Client Relations Officer",
       bio: "Oversees client engagement and portfolio monitoring, providing timely support, payment follow-ups, and accurate reporting to enhance operational efficiency and client satisfaction.",
-      image: "/lucy-nyambura.jpg",
+      image: "/lucy-nyambura.png",
       whatsapp: "https://wa.me/0706411713",
       email: "lucienyambura19@gmail.com"
     },
