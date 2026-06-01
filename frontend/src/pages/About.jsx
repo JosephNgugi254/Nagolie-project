@@ -74,7 +74,7 @@ function About() {
   const teamMembers = [
     {
       name: "Shadrack Kesumet",
-      role: "Chief Executive Officer and Founder",
+      role: "Director and Founder",
       bio: "He has a deep understanding of rural financial needs and brings an ambitious, problem-solving mentality to every challenge.",
       image: "/mrdirector.png",
       whatsapp: "https://wa.me/254721451707",
@@ -103,6 +103,22 @@ function About() {
       image: "/Glado.png",
       whatsapp: "https://wa.me/0727635515",
       email: ""
+    },
+    {
+      name: "Ann Ndura",
+      role: "Client Relations Officer",
+      bio: "Facilitates client onboarding, portfolio management, and loan follow-ups while ensuring strong customer relationships and effective communication throughout the lending process.",
+      image: "/ann-ndura.png",
+      whatsapp: "https://wa.me/0727320067",
+      email: "ndurah67@gmail.com"
+    },
+    {
+      name: "Lucy Nyambura",
+      role: "Client Relations Officer",
+      bio: "Oversees client engagement and portfolio monitoring, providing timely support, payment follow-ups, and accurate reporting to enhance operational efficiency and client satisfaction.",
+      image: "/lucy-nyambura.jpg",
+      whatsapp: "https://wa.me/0706411713",
+      email: "lucienyambura19@gmail.com"
     },
     {
       name: "Joseph Ngugi",
@@ -304,7 +320,7 @@ function About() {
       >
         <div className="container">
           <div className="text-center mb-5">
-            <h2 className="display-4 fw-bold mb-3">Meet Our Leadership Team</h2>
+            <h2 className="display-4 fw-bold mb-3">Meet Our Team</h2>
             <p className="lead text-muted">The passionate individuals driving Nagolie's mission forward</p>
           </div>
 

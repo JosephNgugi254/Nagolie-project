@@ -100,9 +100,6 @@ function CommentBox({ loanId, onClose }) {
   };
 
   const getRoleColor = (role, username) => {
-    // Special colors for Annie and Lucie
-    if (username === 'Annie') return '#ff007f';   // bright pink
-    if (username === 'Lucie') return '#c154c1';  // fuchsia
     switch (role) {
       case 'director': return '#fff4e6';
       case 'secretary': return '#ffe6f0';
@@ -110,7 +107,7 @@ function CommentBox({ loanId, onClose }) {
       case 'accountant': return '#e6f0ff';
       case 'valuer': return '#e6ffe6';
       case 'deputy_director': return '#ea99f8';
-      case 'client_relations_officer': return '#d9b4ff'; // default for this role
+      case 'client_relations_officer': return '#d9b4ffff'; 
       default: return '#f8f9fa';
     }
   };
