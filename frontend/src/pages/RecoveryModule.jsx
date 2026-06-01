@@ -1041,7 +1041,7 @@ function RecoveryModule() {
     setShowSettingsModal(true);
     if (isMobile) setSidebarOpen(false);
   };
-  
+
   const handleOpenUtilities = () => {
     if (['director', 'secretary', 'client_relations_officer'].includes(userRole)) {
       setDirectorSection('utilities');
@@ -1234,6 +1234,7 @@ function RecoveryModule() {
   
     const fmt = (v) => new Intl.NumberFormat('en-KE', { style:'currency', currency:'KES' }).format(Number(v)||0);
   
+
   const fmtDate = (s) => {
     if (!s) return 'N/A';
     try { return new Date(s).toLocaleDateString('en-KE',{year:'numeric',month:'short',day:'numeric'}); }
@@ -1738,7 +1739,7 @@ function RecoveryModule() {
                                           )}
                                           <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`}><i className="fas fa-phone"></i></button>
                                           <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}><i className="fas fa-comment"></i>{commentUnreads[loan.id] > 0 && <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>{commentUnreads[loan.id]}</span>}</button>
-                                          {loan.days_left <= 1 && <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}><i className="fas fa-bolt"></i></button>}
+                                          <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}><i className="fas fa-bolt"></i></button>
                                           <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}><i className="fas fa-file-invoice"></i></button>
                                           {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
                                             <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}><i className="fas fa-sync-alt"></i></button>
@@ -2979,12 +2980,10 @@ function RecoveryModule() {
                                                   {commentUnreads[loan.id]}
                                                 </span>
                                               )}
+                                            </button>                                           
+                                            <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}>
+                                              <i className="fas fa-bolt"></i>
                                             </button>
-                                            {loan.days_left <= 1 && (
-                                              <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}>
-                                                <i className="fas fa-bolt"></i>
-                                              </button>
-                                            )}
                                             <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}>
                                               <i className="fas fa-file-invoice"></i>
                                             </button>
