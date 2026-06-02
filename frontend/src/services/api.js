@@ -226,14 +226,17 @@ export const recoveryAPI = {
 
   // Renew Loan & waive loan
   renewLoan: (loanId) => api.post(`/recovery/loan/${loanId}/renew`),
-
   waiveLoan: (loanId, newPrincipal, durationDays) => {
     const token = localStorage.getItem('token');
     return axios.post(`${API_URL}/admin/loans/${loanId}/waive`,
       { new_principal: newPrincipal, duration_days: durationDays },
       { headers: { Authorization: `Bearer ${token}` } }
-    );
+    );  
   },
+
+  // Reports
+  getReportAssignments: (date) => api.get(`/recovery/reports/assignments?date=${date}`),
+  saveReportComment: (loanId, comment) => api.post('/recovery/reports/comment', { loan_id: loanId, comment }),
 
   getLoanTransactions: (loanId) => api.get(`/recovery/loan/${loanId}/transactions`),
 };

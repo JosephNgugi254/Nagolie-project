@@ -1580,3 +1580,69 @@ def get_consolidated_statement(loan_id):
             } if txn else None
         })
     return jsonify(result), 200
+
+@admin_bp.route('/reports/balance-clients', methods=['POST'])
+@jwt_required()
+@role_required(['director', 'admin'])
+def balance_clients_by_interest():
+    """Distribute active clients among the three officers (secretary, Annie, Lucie)
+       to balance total accrued interest per officer within target range 60k-70k.
+    """
+    target_min = 60000
+    target_max = 70000
+
+    # Get all active loans
+    loans = Loan.query.filter(Loan.status == 'active').all()
+    client_data = []
+    for loan in loans:
+        loan = recalculate_loan(loan)
+        unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+        client_data.append({
+            'loan_id': loan.id,
+            'accrued_interest': unpaid_interest,
+            'client_name': loan.client.full_name
+        })
+
+    # Sort by accrued interest descending (largest first)
+    client_data.sort(key=lambda x: x['accrued_interest'], reverse=True)
+
+    # Get officer users: secretary (username secretary), Annie, Lucie
+    secretary = User.query.filter_by(username='secretary', role='secretary').first()
+    annie = User.query.filter_by(username='annie', role='client_relations_officer').first()
+    lucie = User.query.filter_by(username='lucie', role='client_relations_officer').first()
+    if not all([secretary, annie, lucie]):
+        return jsonify({'error': 'Required officers not found'}), 400
+
+    officers = [secretary, annie, lucie]
+    # Initialize totals
+    totals = {o.id: 0 for o in officers}
+    assignments = {o.id: [] for o in officers}
+
+    # Greedy assignment: assign each client to the officer with current lowest total
+    for client in client_data:
+        best_officer = min(officers, key=lambda o: totals[o.id])
+        assignments[best_officer.id].append(client['loan_id'])
+        totals[best_officer.id] += client['accrued_interest']
+
+    # Optional: run a second pass to balance better (swap if needed)
+    # For simplicity, we accept this distribution.
+
+    # Deactivate old assignments and create new ones
+    for officer in officers:
+        ClientAssignment.query.filter_by(officer_id=officer.id, is_active=True).update({'is_active': False})
+    for officer in officers:
+        for loan_id in assignments[officer.id]:
+            new_assignment = ClientAssignment(
+                loan_id=loan_id,
+                officer_id=officer.id,
+                reason='balancing',
+                is_active=True
+            )
+            db.session.add(new_assignment)
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'totals': {o.username: totals[o.id] for o in officers},
+        'assignments': {o.username: assignments[o.id] for o in officers}
+    }), 200

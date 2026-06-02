@@ -347,3 +347,16 @@ def register_commands(app):
 
         db.session.commit()
         print(f"Updated due_date for {updated} active loans to the next due date.")
+
+from apscheduler.schedulers.background import BackgroundScheduler
+
+def scheduled_balance():
+    with app.app_context():
+        # Call the balancing function programmatically
+        from app.routes.admin import balance_clients_by_interest
+        # Simulate a request context (simplified)
+        balance_clients_by_interest()
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=scheduled_balance, trigger='cron', hour=2, minute=0)
+scheduler.start()

@@ -33,6 +33,7 @@ import TakeActionModal from '../components/recovery/TakeActionModal';
 import AdminTakeActionModal from "../components/admin/TakeActionModal";
 import UtilitiesPanel from '../components/utilities/UtilitiesPanel';
 import { startRegistration } from '@simplewebauthn/browser';
+import ReportsPanel from '../components/recovery/ReportsPanel';
 
 import AdminCard from "../components/admin/AdminCard";
 import AdminTable from "../components/admin/AdminTable";
@@ -2445,6 +2446,9 @@ function RecoveryModule() {
                   {/* UTILITIES */}
                   {directorSection === 'utilities' && <UtilitiesPanel userRole={userRole} restrictedMode={true} />}
 
+                  {/* REPORTS */}
+                  {directorSection === 'reports' && <ReportsPanel />}
+
                   {/* MODALS (identical to AdminPanel)*/}
                   {showApplicationModal && selectedApplication && (
                     <Modal isOpen={showApplicationModal} onClose={() => setShowApplicationModal(false)} title="Application Details" size="lg">
@@ -3003,7 +3007,7 @@ function RecoveryModule() {
                                                 <i className="fas fa-edit"></i>
                                               </button>
                                             )}
-                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
+                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director', 'valuer'].includes(userRole) && (
                                               <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)} title="Mark defaulter">
                                                 <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
                                               </button>

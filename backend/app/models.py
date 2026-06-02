@@ -10,7 +10,7 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), default='admin') # admin, investor, staff
+    role = db.Column(db.String(30), default='admin') # admin, investor, staff
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     # NEW - to enable fingerprint biometric
     fingerprint_enabled = db.Column(db.Boolean, default=False)
@@ -659,3 +659,28 @@ class Defaulter(db.Model):
 
     loan = db.relationship('Loan')
     marker = db.relationship('User')
+
+class ClientAssignment(db.Model):
+    __tablename__ = 'client_assignments'
+    id = db.Column(db.Integer, primary_key=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
+    officer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    assigned_date = db.Column(db.DateTime, default=datetime.utcnow)
+    reason = db.Column(db.String(100), default='day_based')
+    is_active = db.Column(db.Boolean, default=True)
+
+    loan = db.relationship('Loan', backref='assignments')
+    officer = db.relationship('User', backref='client_assignments')
+
+class ReportComment(db.Model):
+    __tablename__ = 'report_comments'
+    id = db.Column(db.Integer, primary_key=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
+    officer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    report_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
+    comment = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    loan = db.relationship('Loan', backref='report_comments')
+    officer = db.relationship('User', backref='report_comments')

@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment)
 from app.utils.decorators import role_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary, _get_current_period_interest, _get_current_period_key
 from app.utils.cloudinary_upload import upload_base64_image
@@ -661,5 +661,70 @@ def delete_private_message(message_id):
     if msg.sender_id != user_id:
         return jsonify({'error': 'You can only delete your own messages'}), 403
     db.session.delete(msg)
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+@recovery_bp.route('/reports/assignments', methods=['GET'])
+@jwt_required()
+@role_required(['secretary', 'client_relations_officer'])
+def get_my_assigned_clients():
+    officer_id = int(get_jwt_identity())
+    report_date = request.args.get('date')
+    if report_date:
+        try:
+            report_date = datetime.strptime(report_date, '%Y-%m-%d').date()
+        except:
+            return jsonify({'error': 'Invalid date format'}), 400
+    else:
+        report_date = datetime.utcnow().date()
+
+    # Get active assignments for this officer
+    assignments = ClientAssignment.query.filter_by(officer_id=officer_id, is_active=True).all()
+    loan_ids = [a.loan_id for a in assignments]
+    loans = Loan.query.filter(Loan.id.in_(loan_ids), Loan.status == 'active').all()
+
+    # For each loan, fetch comments for this report_date
+    result = []
+    for loan in loans:
+        loan = recalculate_loan(loan)
+        unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+        comment_obj = ReportComment.query.filter_by(
+            loan_id=loan.id, officer_id=officer_id, report_date=report_date
+        ).first()
+        result.append({
+            'id': loan.id,
+            'client_name': loan.client.full_name,
+            'phone': loan.client.phone_number,
+            'current_principal': float(loan.current_principal),
+            'unpaid_interest': unpaid_interest,
+            'comment': comment_obj.comment if comment_obj else ''
+        })
+    return jsonify(result), 200
+
+@recovery_bp.route('/reports/comment', methods=['POST'])
+@jwt_required()
+@role_required(['secretary', 'client_relations_officer'])
+def save_report_comment():
+    officer_id = int(get_jwt_identity())
+    data = request.json
+    loan_id = data.get('loan_id')
+    comment_text = data.get('comment', '')
+    report_date = datetime.utcnow().date()
+
+    if not loan_id:
+        return jsonify({'error': 'loan_id required'}), 400
+
+    comment = ReportComment.query.filter_by(
+        loan_id=loan_id, officer_id=officer_id, report_date=report_date
+    ).first()
+    if comment:
+        comment.comment = comment_text
+        comment.updated_at = datetime.utcnow()
+    else:
+        comment = ReportComment(
+            loan_id=loan_id, officer_id=officer_id,
+            report_date=report_date, comment=comment_text
+        )
+        db.session.add(comment)
     db.session.commit()
     return jsonify({'success': True}), 200

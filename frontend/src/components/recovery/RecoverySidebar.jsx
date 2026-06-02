@@ -36,6 +36,7 @@ function RecoverySidebar({
       { id: "applications", icon: "fa-file-alt", label: "Applications", path: "/recovery/applications", badge: pendingApplications },
       { id: "payment-stats", icon: "fa-chart-bar", label: "Payment Stats", path: "/recovery/payment-stats" },
       { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/recovery/transactions" },
+      { id: "reports", icon: "fa-chart-pie", label: "Reports", path: "/recovery/reports" },
       { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/recovery/utilities" },
       { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
     ];
