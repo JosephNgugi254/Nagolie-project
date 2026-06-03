@@ -6707,4 +6707,145 @@ export const generateBlankReportPDF = async () => {
   doc.save(fileName);
 };
 
+// ========== VALUER REPORT FORM (MANUAL FILL) – WITH DATE COLUMN & ADJUSTED WIDTHS ==========
+export const generateValuerReportPDF = async () => {
+  const doc = new jsPDF({
+    unit: 'mm',
+    format: 'a4'
+  });
+  addOptimizedWatermark(doc, 'document');
+
+  // Reduced margins to increase table width slightly (from 8mm to 7mm)
+  const margin = { left: 7, right: 7, top: 10 };
+  const pageWidth = doc.internal.pageSize.width; // 210mm
+  const tableWidth = pageWidth - margin.left - margin.right; // 210 - 14 = 196mm
+
+  // Column widths as percentages of tableWidth (6 columns now)
+  // #: 5%, Name: 20%, Date: 10%, Principal: 15%, Interest: 15%, Comments: 35% = 100%
+  const colPercent = [5, 20, 10, 15, 15, 35];
+  let colWidths = colPercent.map(p => (tableWidth * p) / 100);
+  
+  // Ensure minimum widths for specific columns
+  if (colWidths[0] < 8) colWidths[0] = 8;      // # column min 8mm
+  if (colWidths[1] < 38) colWidths[1] = 38;    // Name column min 38mm
+  if (colWidths[2] < 12) colWidths[2] = 12;    // Date column min 12mm (enough for DD/MM/YYYY)
+  
+  // Adjust comments column to take any leftover space
+  const usedWidth = colWidths.reduce((a, b) => a + b, 0);
+  if (usedWidth < tableWidth) {
+    colWidths[5] += (tableWidth - usedWidth);
+  }
+
+  let yPos = await addHeader(doc, margin.top);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('RECOVERY REPORT', pageWidth / 2, yPos, { align: 'center' });
+  yPos += 10;
+
+  // Officer and Date row – aligned with new margins
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  const dateX = pageWidth - margin.right - 65;
+
+  // Table headers (6 columns)
+  const headers = ['#', 'Client Name', 'Date', 'Principal (KES)', 'Interest (KES)', 'Comments'];
+  let startX = margin.left;
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.rect(startX, yPos, tableWidth, 8, 'F');
+  let x = startX;
+  headers.forEach((h, i) => {
+    doc.text(h, x + 4, yPos + 5.5);
+    x += colWidths[i];
+  });
+  yPos += 8;
+
+  // Draw table rows (empty cells for manual fill)
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+  const rowHeight = 25; // enough for multi-line comments
+  const numRows = 15;
+
+  for (let i = 0; i < numRows; i++) {
+    if (yPos + rowHeight > 280) { // leave room for footer
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'document');
+      yPos = margin.top;
+      // Re-draw header on new page
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.setTextColor(...COLORS.white);
+      doc.setFont('helvetica', 'bold');
+      doc.rect(startX, yPos, tableWidth, 8, 'F');
+      x = startX;
+      headers.forEach((h, idx) => {
+        doc.text(h, x + 2, yPos + 5.5);
+        x += colWidths[idx];
+      });
+      yPos += 8;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    }
+
+    // Alternate row background
+    if (i % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
+    }
+
+    // Draw cell borders for all 6 columns
+    let cellX = startX;
+    for (let j = 0; j < colWidths.length; j++) {
+      doc.rect(cellX, yPos, colWidths[j], rowHeight);
+      cellX += colWidths[j];
+    }
+
+    // Row number
+    doc.text((i + 1).toString(), startX + 3, yPos + 15);
+
+    // No text in other cells – leave blank for manual writing (including Date column)
+
+    yPos += rowHeight;
+  }
+
+  // Signature & stamp section
+  yPos += 10;
+  if (yPos > 270) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'document');
+    yPos = margin.top;
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('Prepared by valuer: ______________________________', margin.left, yPos);
+  doc.text('Signature: ___________________', margin.left + 120, yPos);
+  yPos += 12;
+  doc.text('Approved by Director:  Shadrack Kesumet', margin.left, yPos);
+  doc.text('Signature: ___________________', margin.left + 80, yPos);
+  doc.text('Date: ___________________', margin.left + 140, yPos);
+  yPos += 10;
+
+  // Stamp box
+  const stampBoxWidth = 50;
+  const stampBoxHeight = 30;
+  const stampBoxX = (pageWidth - stampBoxWidth) / 2;
+  const stampBoxY = yPos;
+  doc.setDrawColor(200, 200, 200);
+  doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+  doc.setTextColor(150, 150, 150);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'italic');
+  doc.text('COMPANY STAMP', stampBoxX + stampBoxWidth / 2, stampBoxY + stampBoxHeight / 2, { align: 'center' });
+
+  addFooter(doc, stampBoxY + stampBoxHeight + 10);
+  addPageNumbers(doc, 'page %d');
+
+  const fileName = `Valuer_Recovery_Form_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
+};
+
 export { COMPANY_INFO, COLORS };

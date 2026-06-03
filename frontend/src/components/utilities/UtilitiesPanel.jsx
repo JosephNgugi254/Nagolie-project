@@ -14,6 +14,7 @@ import {
   generateManualInvoicePDF,               
   generateManualDeliveryNotePDF,
   generateBlankReportPDF,
+  generateValuerReportPDF,
   generateClientRelationsOfficerContractPDF
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
@@ -275,6 +276,20 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                       <h5>Loan Report Form</h5>
                       <p className="text-muted">Report for for Loan follow up records</p>
                       <button className="btn btn-secondary" onClick={generateBlankReportPDF}>
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+          
+                {/* Valuer report form */}
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-success">
+                    <div className="card-body text-center">
+                      <i className="fas fa-file-alt fa-3x text-success mb-3"></i>
+                      <h5>Valuer Report Form</h5>
+                      <p className="text-muted">Valuer Report for for Loan recoveries</p>
+                      <button className="btn btn-success" onClick={generateValuerReportPDF}>
                         <i className="fas fa-download me-2"></i>Download PDF
                       </button>
                     </div>
