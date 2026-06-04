@@ -19,12 +19,13 @@ import { generateTransactionReceipt, generateClientStatement,generateLoanAgreeme
  generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,
  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF,
  generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF,
- generateLoanWaiverAgreementAutoPDF } from "../components/admin/ReceiptPDF";
+ generateLoanWaiverAgreementAutoPDF, generateOfficerReportPDF } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"
 import imageCompression from 'browser-image-compression'
 import { getStatusBadge } from '../components/admin/Clientstatusbadge';
 import UtilitiesPanel from "../components/utilities/UtilitiesPanel"
+import ReportManagement from "../components/admin/ReportManagement";
 
 function AdminPanel() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth()
@@ -1385,6 +1386,8 @@ const handleInvestorPasswordSubmit = (e) => {
       section = "applications";
     } else if (path.includes("/admin/payment-stats")) {
       section = "payment-stats";
+    } else if (path.includes("/admin/report-management")) {
+      section = "report-management";  
     } else if (path.includes("/admin/utilities")) {  
       section = "utilities";
     } else if (path.includes("/admin/investors")) {
@@ -1834,6 +1837,12 @@ useEffect(() => {
   const handleSectionChange = (section) => {
     // Close sidebar on mobile when any section is clicked
     setSidebarOpen(false);
+
+    if (section === "report-management") {
+      setActiveSection("report-management");
+      navigate("/admin/report-management");
+      return;
+    }
 
     if (section === "utilities") {
       setActiveSection("utilities");
@@ -3154,6 +3163,11 @@ Thank you for choosing us.`;
             {activeSection === "company-gallery" && (
               <AdminCompanyGallery />
             )}
+
+            {/* Report Management Section */}
+            {activeSection === "report-management" &&  
+              <ReportManagement />
+            }
 
             {/* Utilities Section */}
             {activeSection === "utilities" && (

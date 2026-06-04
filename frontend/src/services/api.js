@@ -155,6 +155,15 @@ export const adminAPI = {
   //getting loan ledger and consolidated statement
   getLoanLedger: (loanId) => api.get(`/admin/loan/${loanId}/ledger`),
   getConsolidatedStatement: (loanId) => api.get(`/admin/loan/${loanId}/consolidated-statement`),
+
+  //report management apis
+  getDayAssignments: () => api.get('/admin/day-assignments'),
+  updateDayAssignment: (userId, days) => api.post('/admin/day-assignments', { user_id: userId, days }),
+  getClientAssignments: () => api.get('/admin/client-assignments'),
+  reassignClient: (loanId, newOfficerId, reason) => api.post('/admin/reassign-client', { loan_id: loanId, new_officer_id: newOfficerId, reason }),
+  getBalanceSuggestions: () => api.post('/admin/balance-suggest'),
+  applySuggestions: (suggestions) => api.post('/admin/apply-suggestion', { suggestions }),
+  resetDayAssignments: () => api.post('/admin/reset-day-assignments'),
 };
 
 export const paymentAPI = {

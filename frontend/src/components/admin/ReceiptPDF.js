@@ -192,7 +192,7 @@ export const addDivider = (doc, yPos, color = COLORS.primaryBlue) => {
   doc.setLineWidth(0.5);
   doc.setDrawColor(...color);
   doc.line(20, yPos, 190, yPos);
-  return yPos + 8;
+  return yPos + 5;
 };
 
 // Helper to calculate current week/day number for a loan
@@ -6564,6 +6564,199 @@ export const generateClientRelationsOfficerContractPDF = async () => {
   }
 };
 
+// ========== OFFICER REPORT PDF (fixed layout, correct figures, proper pagination) ==========
+export const generateOfficerReportPDF = async (clients, officer, reportDate, assignedDaysString, download = false) => {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  addOptimizedWatermark(doc, 'report');
+  let yPos = await addHeader(doc, 10);
+
+  // Title
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('LOAN REPORT', 105, yPos, { align: 'center' });
+  yPos += 5;
+  yPos = addDivider(doc, yPos);
+  yPos += 5;
+
+  // Officer, Assigned Days, Report Date
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Officer: ${officer.username} (${officer.role})`, 20, yPos);
+  doc.text(`Assigned Days: ${assignedDaysString || 'None'}`, 20, yPos + 5);
+  doc.text(`Report Date: ${new Date(reportDate).toLocaleDateString('en-GB')}`, 150, yPos);
+  yPos += 12;
+
+  // Table configuration
+  const margin = { left: 8, right: 8 };
+  const pageWidth = doc.internal.pageSize.width;
+  const tableWidth = pageWidth - margin.left - margin.right;
+  const colPercents = [5, 21, 18, 17, 39];
+  let colWidths = colPercents.map(p => tableWidth * p / 100);
+  if (colWidths[0] < 8) colWidths[0] = 8;
+  if (colWidths[1] < 38) colWidths[1] = 38;
+  colWidths[4] = tableWidth - colWidths.slice(0,4).reduce((a,b)=>a+b,0);
+
+  const headers = ['#', 'Client Name', 'Principal (KES)', 'Interest (KES)', 'Comments'];
+  let startX = margin.left;
+  const headerHeight = 8;
+
+  // Helper: draw header (blue fill, white text, thin border)
+  const drawHeader = (y) => {
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    doc.setFillColor(...COLORS.primaryBlue);
+    doc.rect(startX, y, tableWidth, headerHeight, 'FD');
+    doc.setTextColor(...COLORS.white);
+    doc.setFont('helvetica', 'bold');
+    let x = startX;
+    headers.forEach((h, i) => {
+      doc.text(h, x + 2, y + 5.5);
+      x += colWidths[i];
+    });
+    doc.setTextColor(...COLORS.textDark);
+  };
+
+  drawHeader(yPos);
+  yPos += headerHeight;
+
+  // Rows – each row height is calculated based on comment lines, but minimum 20mm
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  clients.forEach((client, idx) => {
+    const commentLines = doc.splitTextToSize(client.comment || '', colWidths[4] - 4);
+    // Minimum row height = 20mm (enough for 2 lines: name+plan, principal+interest+total)
+    const rowHeight = Math.max(20, 5 + commentLines.length * 4.5);
+
+    // Check page break
+    if (yPos + rowHeight > 280) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'report');
+      yPos = 20;
+      drawHeader(yPos);
+      yPos += headerHeight;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.textDark);
+    }
+
+    // Background (alternating)
+    if (idx % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
+    } else {
+      doc.setFillColor(255, 255, 255);
+      doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
+    }
+
+    // Draw thin black borders for each cell
+    doc.setLineWidth(0.2);
+    let cx = startX;
+    for (let i = 0; i < colWidths.length; i++) {
+      doc.rect(cx, yPos, colWidths[i], rowHeight);
+      cx += colWidths[i];
+    }
+
+    // ---------- Row content ----------
+    // Column 0: Index
+    doc.text((idx + 1).toString(), startX + 3, yPos + 8);
+
+    // Column 1: Client name + Plan badge (Daily/Weekly) in blue, unless waived
+    const nameX = startX + colWidths[0] + 2;
+    doc.text(client.client_name, nameX, yPos + 8);
+    if (client.interest_rate !== 0) {
+      const planText = client.repayment_plan === 'daily' ? 'Daily' : 'Weekly';
+      doc.setTextColor(...COLORS.primaryBlue);
+      doc.setFontSize(8);
+      doc.text(planText, nameX, yPos + 14);
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFontSize(10);
+    }
+
+    // Column 2: Principal
+    const principalX = startX + colWidths[0] + colWidths[1] + 2;
+    doc.text(formatCurrency(client.current_principal), principalX, yPos + 10);
+
+    // Column 3: Interest + Total below (blue)
+    const interestX = startX + colWidths[0] + colWidths[1] + colWidths[2] + 2;
+    if (client.interest_rate === 0) {
+      doc.text('waived', interestX, yPos + 10);
+    } else {
+      doc.text(formatCurrency(client.unpaid_interest), interestX, yPos + 10);
+      // Total = principal + unpaid_interest
+      const total = client.current_principal + client.unpaid_interest;
+      doc.setTextColor(...COLORS.primaryBlue);
+      doc.setFontSize(8);
+      doc.text(`Total: ${formatCurrency(total)}`, interestX, yPos + 16);
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFontSize(10);
+    }
+
+    // Column 4: Comments (multi-line, top‑aligned)
+    let commentY = yPos + 4.5;
+    commentLines.forEach(line => {
+      doc.text(line, startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, commentY);
+      commentY += 4.5;
+    });
+
+    yPos += rowHeight;
+  });
+
+  // ---------- Signatures & Stamp ----------
+  yPos += 15;
+  if (yPos > 270) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'report');
+    yPos = 20;
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('Prepared by:', 20, yPos);
+  doc.text(`${officer.username} (${officer.role})`, 50, yPos);
+  doc.text('Signature: ___________________', 120, yPos);
+  yPos += 15;
+
+  if (yPos > 270) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'report');
+    yPos = 20;
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.text('Approved by Director:', 20, yPos);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Shadrack Kesumet', 70, yPos);
+  doc.text('Signature: ___________________', 120, yPos);
+  yPos += 15;
+
+  // ---- Stamp box with page break protection ----
+  const stampWidth = 50, stampHeight = 30;
+  if (yPos + stampHeight + 15 > 290) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'report');
+    yPos = 20;
+  }
+
+  const stampX = (pageWidth - stampWidth) / 2;
+  doc.setDrawColor(200, 200, 200);
+  doc.roundedRect(stampX, yPos, stampWidth, stampHeight, 2, 2);
+  doc.setTextColor(150, 150, 150);
+  doc.setFont('helvetica', 'italic');
+  doc.text('COMPANY STAMP', stampX + stampWidth / 2, yPos + stampHeight / 2, { align: 'center' });
+
+  addFooter(doc, yPos + stampHeight + 10);
+  addPageNumbers(doc, 'page %d');
+
+  if (download) {
+    doc.save(`Report_${officer.username}_${reportDate}.pdf`);
+  } else {
+    const blob = doc.output('blob');
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    URL.revokeObjectURL(url);
+  }
+};
+
 // ========== BLANK LOAN REPORT FORM (MANUAL FILL) – ENHANCED LAYOUT ==========
 export const generateBlankReportPDF = async () => {
   const doc = new jsPDF({
@@ -6604,10 +6797,11 @@ export const generateBlankReportPDF = async () => {
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.textDark);
-  doc.text('Assigned Days: _____________________________', margin.left, yPos);
+  doc.text('Officer: ___________________________', margin.left, yPos);
+  doc.text('Assigned Days: _____________________', margin.left + 70, yPos);
   // Position report date near the right margin
-  const dateX = pageWidth - margin.right - 65; // leave 55mm width for the underline
-  doc.text('Report Date: _____________________', dateX, yPos);
+  const dateX = pageWidth - margin.right - 55; 
+  doc.text('Report Date: __________________', dateX, yPos);
   yPos += 8;
 
   // Table headers
@@ -6848,4 +7042,4 @@ export const generateValuerReportPDF = async () => {
   doc.save(fileName);
 };
 
-export { COMPANY_INFO, COLORS };
+export { COMPANY_INFO, COLORS };// ========== OFFICER REPORT PDF ==========

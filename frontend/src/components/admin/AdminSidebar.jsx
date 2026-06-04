@@ -20,6 +20,7 @@ function AdminSidebar({
     { id: "gallery", icon: "fa-images", label: "Livestock Gallery", path: "/admin/gallery" },
     { id: "company-gallery", icon: "fa-images", label: "Company Gallery", path: "/admin/company-gallery" },
     { id: "applications", icon: "fa-file-alt", label: "Applications", path: "/admin/applications", badge: pendingApplications },
+    { id: "report-management", icon: "fa-chart-line", label: "Report Management", path: "/admin/report-management" },
     { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/admin/utilities" },
     { id: "investors", icon: "fa-users", label: "Investors", path: "/admin/investors", badge: pendingInvestorsCount },
     { id: "settings", icon: "fa-cog", label: "Settings", path: "/admin/settings" }, 
