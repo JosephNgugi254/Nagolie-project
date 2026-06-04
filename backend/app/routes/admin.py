@@ -4,9 +4,9 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from decimal import Decimal
 from app import db
-from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn
+from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment
 from app.utils.security import admin_required, log_audit
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy import func
 from app.routes.payments import recalculate_loan, _loan_summary
 from app.utils.decorators import role_required
@@ -15,6 +15,7 @@ import secrets
 import string
 from app.services.ledger import record_ledger_entry   # NEW
 from app.routes.payments import compute_overdue
+from flask_cors import cross_origin
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -66,6 +67,81 @@ def _days_left_label(loan, today):
     days_left = (due - today).days
     return days_left, days_left
 
+# Helper to refresh all day‑based assignments
+def refresh_day_assignments():
+    """Clear outdated day_based assignments and create new ones based on current day assignments."""
+    # Deactivate all existing day_based assignments
+    ClientAssignment.query.filter_by(assignment_type='day_based', is_active=True).update({'is_active': False})
+    db.session.flush()
+
+    # For each active loan, get its disbursement weekday
+    loans = Loan.query.filter_by(status='active').all()
+    for loan in loans:
+        if not loan.disbursement_date:
+            continue
+        weekday = loan.disbursement_date.weekday()  # Monday=0 ... Sunday=6
+        # Find officer assigned to that weekday
+        day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
+        if not day_ass:
+            continue   # no officer assigned – skip (or assign to default)
+        # Check if a manual assignment already exists for this loan (manual overrides)
+        manual = ClientAssignment.query.filter_by(loan_id=loan.id, assignment_type='manual', is_active=True).first()
+        if manual:
+            continue   # manual assignment exists, do not create day_based
+        # Create new day_based assignment
+        new_ass = ClientAssignment(
+            loan_id=loan.id,
+            officer_id=day_ass.user_id,
+            assignment_type='day_based',
+            assigned_by=None,
+            is_active=True
+        )
+        db.session.add(new_ass)
+    db.session.commit()
+
+
+def get_assigned_clients_for_user(user_id):
+    """Return list of active loans assigned to given officer (day_based + manual)."""
+    from app.routes.payments import _get_current_period_key, _get_current_period_interest
+
+    assignments = ClientAssignment.query.filter_by(
+        officer_id=user_id,
+        is_active=True
+    ).options(joinedload(ClientAssignment.loan).joinedload(Loan.client)).all()
+    result = []
+    for ass in assignments:
+        loan = ass.loan
+        client = loan.client
+        if not client or loan.status != 'active':
+            continue
+        # recalc loan to get fresh figures
+        loan = recalculate_loan(loan)
+
+        # --- Correct unpaid interest (same as recovery module) ---
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            current_period = _get_current_period_key(loan)
+            period_interest = _get_current_period_interest(loan)
+            if loan.interest_prepaid_period == current_period:
+                prepaid = loan.interest_prepaid_amount or Decimal('0')
+                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+            else:
+                unpaid_interest = float(period_interest)
+        else:
+            # daily or zero‑interest
+            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
+        result.append({
+            'loan_id': loan.id,
+            'client_name': client.full_name,
+            'phone': client.phone_number,
+            'current_principal': float(loan.current_principal),
+            'unpaid_interest': unpaid_interest,
+            'total_balance': float(loan.current_principal + Decimal(str(unpaid_interest))),
+            'interest_rate': float(loan.interest_rate),
+            'repayment_plan': loan.repayment_plan,
+            'comment': ''
+        })
+    return result
 
 # ---------------------------------------------------------------------------
 # Test (unchanged)
@@ -1581,68 +1657,215 @@ def get_consolidated_statement(loan_id):
         })
     return jsonify(result), 200
 
-@admin_bp.route('/reports/balance-clients', methods=['POST'])
+
+# ------------------- Report Management -------------------
+
+@admin_bp.route('/day-assignments', methods=['GET'])
+@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
-@role_required(['director', 'admin'])
-def balance_clients_by_interest():
-    """Distribute active clients among the three officers (secretary, Annie, Lucie)
-       to balance total accrued interest per officer within target range 60k-70k.
-    """
+@role_required(['admin', 'director'])
+def get_day_assignments():
+    """Return all officers/secretary with their assigned days."""
+    # Get all users with role secretary or client_relations_officer
+    users = User.query.filter(User.role.in_(['secretary', 'client_relations_officer'])).all()
+    result = []
+    for u in users:
+        assigned_days = [da.day_of_week for da in u.day_assignments]
+        result.append({
+            'id': u.id,
+            'username': u.username,
+            'role': u.role,
+            'days': assigned_days
+        })
+    return jsonify(result), 200
+
+
+@admin_bp.route('/day-assignments', methods=['POST'])
+@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
+@jwt_required()
+@role_required(['admin', 'director'])
+def update_day_assignments():
+    """Update day assignments for a user. Expects { user_id, days } where days is list of ints (0-6)."""
+    data = request.json
+    user_id = data.get('user_id')
+    days = data.get('days', [])
+    if not isinstance(days, list):
+        return jsonify({'error': 'days must be a list'}), 400
+
+    user = db.session.get(User, user_id)
+    if not user or user.role not in ['secretary', 'client_relations_officer']:
+        return jsonify({'error': 'Invalid user'}), 400
+
+    # Remove all existing day assignments for this user
+    DayAssignment.query.filter_by(user_id=user_id).delete()
+    # Add new ones
+    for d in days:
+        da = DayAssignment(user_id=user_id, day_of_week=d)
+        db.session.add(da)
+    db.session.commit()
+
+    # Rebuild all day-based client assignments
+    refresh_day_assignments()
+    return jsonify({'success': True}), 200
+
+
+@admin_bp.route('/client-assignments', methods=['GET'])
+@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
+@jwt_required()
+@role_required(['admin', 'director'])
+def get_all_client_assignments():
+    """Return all active loans with their assigned officer and totals per officer."""
+    loans = Loan.query.filter_by(status='active').options(joinedload(Loan.client)).all()
+    assignments = {}
+    # Build officer totals
+    officers = User.query.filter(User.role.in_(['secretary', 'client_relations_officer'])).all()
+    for off in officers:
+        assignments[off.id] = {
+            'id': off.id,
+            'username': off.username,
+            'role': off.role,
+            'clients': [],
+            'total_principal': 0,
+            'total_interest': 0,
+            'total_balance': 0
+        }
+
+    for loan in loans:
+        loan = recalculate_loan(loan)
+        # Find active assignment for this loan
+        ass = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
+        if not ass:
+            continue
+        off_id = ass.officer_id
+        if off_id not in assignments:
+            continue
+        client_data = {
+            'loan_id': loan.id,
+            'client_name': loan.client.full_name,
+            'phone': loan.client.phone_number,
+            'current_principal': float(loan.current_principal),
+            'unpaid_interest': float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid)),
+            'total_balance': float(loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+        }
+        assignments[off_id]['clients'].append(client_data)
+        assignments[off_id]['total_principal'] += client_data['current_principal']
+        assignments[off_id]['total_interest'] += client_data['unpaid_interest']
+        assignments[off_id]['total_balance'] += client_data['total_balance']
+
+    return jsonify(list(assignments.values())), 200
+
+
+@admin_bp.route('/reassign-client', methods=['POST'])
+@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
+@jwt_required()
+@role_required(['admin', 'director'])
+def reassign_client():
+    """Manually reassign a client from one officer to another."""
+    data = request.json
+    loan_id = data.get('loan_id')
+    new_officer_id = data.get('new_officer_id')
+    reason = data.get('reason', 'Manual reassignment')
+
+    if not loan_id or not new_officer_id:
+        return jsonify({'error': 'loan_id and new_officer_id required'}), 400
+
+    # Deactivate any current active assignment for this loan
+    ClientAssignment.query.filter_by(loan_id=loan_id, is_active=True).update({'is_active': False})
+    # Create new manual assignment
+    new_ass = ClientAssignment(
+        loan_id=loan_id,
+        officer_id=new_officer_id,
+        assignment_type='manual',
+        assigned_by=get_jwt_identity(),
+        override_reason=reason,
+        is_active=True
+    )
+    db.session.add(new_ass)
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+
+@admin_bp.route('/balance-suggest', methods=['POST'])
+@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
+@jwt_required()
+@role_required(['admin', 'director'])
+def suggest_balanced_distribution():
+    """Return a suggested redistribution of clients to balance total unpaid interest."""
     target_min = 60000
     target_max = 70000
 
-    # Get all active loans
-    loans = Loan.query.filter(Loan.status == 'active').all()
-    client_data = []
-    for loan in loans:
+    # Get all active clients assigned to any officer (secretary + officers)
+    officers = User.query.filter(User.role.in_(['secretary', 'client_relations_officer'])).all()
+    all_clients = []
+    for loan in Loan.query.filter_by(status='active').all():
         loan = recalculate_loan(loan)
-        unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
-        client_data.append({
+        unpaid = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+        all_clients.append({
             'loan_id': loan.id,
-            'accrued_interest': unpaid_interest,
-            'client_name': loan.client.full_name
+            'unpaid_interest': unpaid,
+            'client_name': loan.client.full_name,
+            'current_principal': float(loan.current_principal)
         })
 
-    # Sort by accrued interest descending (largest first)
-    client_data.sort(key=lambda x: x['accrued_interest'], reverse=True)
-
-    # Get officer users: secretary (username secretary), Annie, Lucie
-    secretary = User.query.filter_by(username='secretary', role='secretary').first()
-    annie = User.query.filter_by(username='annie', role='client_relations_officer').first()
-    lucie = User.query.filter_by(username='lucie', role='client_relations_officer').first()
-    if not all([secretary, annie, lucie]):
-        return jsonify({'error': 'Required officers not found'}), 400
-
-    officers = [secretary, annie, lucie]
-    # Initialize totals
-    totals = {o.id: 0 for o in officers}
-    assignments = {o.id: [] for o in officers}
+    # Sort by unpaid interest descending
+    all_clients.sort(key=lambda x: x['unpaid_interest'], reverse=True)
 
     # Greedy assignment: assign each client to the officer with current lowest total
-    for client in client_data:
-        best_officer = min(officers, key=lambda o: totals[o.id])
-        assignments[best_officer.id].append(client['loan_id'])
-        totals[best_officer.id] += client['accrued_interest']
+    totals = {o.id: 0 for o in officers}
+    suggestions = {o.id: [] for o in officers}
 
-    # Optional: run a second pass to balance better (swap if needed)
-    # For simplicity, we accept this distribution.
+    for client in all_clients:
+        # Find officer with smallest total
+        best = min(officers, key=lambda o: totals[o.id])
+        suggestions[best.id].append(client['loan_id'])
+        totals[best.id] += client['unpaid_interest']
 
-    # Deactivate old assignments and create new ones
-    for officer in officers:
-        ClientAssignment.query.filter_by(officer_id=officer.id, is_active=True).update({'is_active': False})
-    for officer in officers:
-        for loan_id in assignments[officer.id]:
-            new_assignment = ClientAssignment(
+    # Format result
+    result = []
+    for o in officers:
+        result.append({
+            'officer_id': o.id,
+            'officer_name': o.username,
+            'suggested_loans': suggestions[o.id],
+            'suggested_total_interest': totals[o.id]
+        })
+    return jsonify({'suggestions': result}), 200
+
+@admin_bp.route('/reset-day-assignments', methods=['POST'])
+@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
+@jwt_required()
+@role_required(['admin', 'director'])
+def reset_day_assignments():
+    """Deactivate all manual assignments and re-run day-based assignment refresh."""
+    # Deactivate all manual assignments
+    ClientAssignment.query.filter_by(assignment_type='manual', is_active=True).update({'is_active': False})
+    db.session.commit()
+    # Rebuild all day-based assignments from scratch
+    refresh_day_assignments()
+    return jsonify({'success': True}), 200
+
+@admin_bp.route('/apply-suggestion', methods=['POST'])
+@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
+@jwt_required()
+@role_required(['admin', 'director'])
+def apply_suggestion():
+    """Apply the suggested distribution (calls reassign_client for each)."""
+    data = request.json
+    suggestions = data.get('suggestions', [])  # list of {officer_id, suggested_loans}
+    for item in suggestions:
+        officer_id = item['officer_id']
+        for loan_id in item['suggested_loans']:
+            # Deactivate existing assignment
+            ClientAssignment.query.filter_by(loan_id=loan_id, is_active=True).update({'is_active': False})
+            # Create new manual assignment
+            new_ass = ClientAssignment(
                 loan_id=loan_id,
-                officer_id=officer.id,
-                reason='balancing',
+                officer_id=officer_id,
+                assignment_type='manual',
+                assigned_by=get_jwt_identity(),
+                override_reason='Auto-balanced by system',
                 is_active=True
             )
-            db.session.add(new_assignment)
+            db.session.add(new_ass)
     db.session.commit()
-
-    return jsonify({
-        'success': True,
-        'totals': {o.username: totals[o.id] for o in officers},
-        'assignments': {o.username: assignments[o.id] for o in officers}
-    }), 200
+    return jsonify({'success': True}), 200

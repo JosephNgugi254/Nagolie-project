@@ -13,7 +13,9 @@ import io
 from flask import send_file
 from app.models import MessageAttachment
 from app.services.ledger import record_ledger_entry
-from app.routes.payments import compute_overdue   # add import
+from app.routes.payments import compute_overdue
+from flask_cors import cross_origin
+
 
 
 recovery_bp = Blueprint('recovery', __name__)
@@ -678,28 +680,30 @@ def get_my_assigned_clients():
     else:
         report_date = datetime.utcnow().date()
 
-    # Get active assignments for this officer
-    assignments = ClientAssignment.query.filter_by(officer_id=officer_id, is_active=True).all()
-    loan_ids = [a.loan_id for a in assignments]
-    loans = Loan.query.filter(Loan.id.in_(loan_ids), Loan.status == 'active').all()
+    # Get assigned clients (this helper already includes interest_rate & repayment_plan)
+    from app.routes.admin import get_assigned_clients_for_user
+    assigned = get_assigned_clients_for_user(officer_id)
 
-    # For each loan, fetch comments for this report_date
-    result = []
-    for loan in loans:
-        loan = recalculate_loan(loan)
-        unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+    # Attach comments for this report date
+    for client in assigned:
         comment_obj = ReportComment.query.filter_by(
-            loan_id=loan.id, officer_id=officer_id, report_date=report_date
+            loan_id=client['loan_id'], officer_id=officer_id, report_date=report_date
         ).first()
-        result.append({
-            'id': loan.id,
-            'client_name': loan.client.full_name,
-            'phone': loan.client.phone_number,
-            'current_principal': float(loan.current_principal),
-            'unpaid_interest': unpaid_interest,
-            'comment': comment_obj.comment if comment_obj else ''
-        })
-    return jsonify(result), 200
+        client['comment'] = comment_obj.comment if comment_obj else ''
+
+    # Get officer's assigned weekdays
+    from app.models import DayAssignment
+    day_assignments = DayAssignment.query.filter_by(user_id=officer_id).all()
+    assigned_days = [da.day_of_week for da in day_assignments]
+
+    # Build response with explicit CORS headers
+    response = jsonify({
+        'clients': assigned,
+        'assigned_days': assigned_days
+    })
+    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response, 200
 
 @recovery_bp.route('/reports/comment', methods=['POST'])
 @jwt_required()
@@ -728,3 +732,4 @@ def save_report_comment():
         db.session.add(comment)
     db.session.commit()
     return jsonify({'success': True}), 200
+

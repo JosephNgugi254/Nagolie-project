@@ -2,7 +2,7 @@
 import os
 import click
 import logging
-from flask_migrate import Migrate, upgrade, stamp
+from flask_migrate import upgrade, stamp
 from app import create_app
 from app.utils.extensions import db
 from app.models import User, Investor, Loan, Client, PasswordResetToken, Livestock
@@ -10,7 +10,6 @@ from app.utils.cloudinary_upload import upload_base64_image
 from app.utils.extensions import socketio
 
 app = create_app()
-migrate = Migrate(app, db)
 
 @app.cli.command()
 def deploy():

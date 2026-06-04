@@ -660,17 +660,32 @@ class Defaulter(db.Model):
     loan = db.relationship('Loan')
     marker = db.relationship('User')
 
+class DayAssignment(db.Model):
+    __tablename__ = 'day_assignments'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    day_of_week = db.Column(db.Integer, nullable=False)  # 0=Monday ... 6=Sunday
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref='day_assignments')
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'day_of_week', name='uq_user_day'),)
+
 class ClientAssignment(db.Model):
     __tablename__ = 'client_assignments'
     id = db.Column(db.Integer, primary_key=True)
     loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
     officer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     assigned_date = db.Column(db.DateTime, default=datetime.utcnow)
-    reason = db.Column(db.String(100), default='day_based')
+    assignment_type = db.Column(db.String(20), default='day_based')  # 'day_based', 'manual'
+    assigned_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    override_reason = db.Column(db.String(255), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
 
     loan = db.relationship('Loan', backref='assignments')
-    officer = db.relationship('User', backref='client_assignments')
+    officer = db.relationship('User', foreign_keys=[officer_id])
+    assigner = db.relationship('User', foreign_keys=[assigned_by])
 
 class ReportComment(db.Model):
     __tablename__ = 'report_comments'
