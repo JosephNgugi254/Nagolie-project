@@ -269,8 +269,7 @@ const ReportManagement = () => {
                         <div>
                           <strong>{client.client_name}</strong><br />
                           <small>Principal: {formatCurrency(client.current_principal)}</small><br />
-                          <small>Interest: {formatCurrency(client.unpaid_interest)}</small><br />
-                          <small>Balance: {formatCurrency(client.total_balance)}</small>
+                          <small>  Interest: {client.interest_rate === 0 ? 'waived' : formatCurrency(client.unpaid_interest)}</small><br />                          <small>Balance: {formatCurrency(client.total_balance)}</small>
                         </div>
                         <button
                           className="btn btn-sm btn-outline-primary"

@@ -16,6 +16,7 @@ import string
 from app.services.ledger import record_ledger_entry   # NEW
 from app.routes.payments import compute_overdue
 from flask_cors import cross_origin
+from app.routes.payments import recalculate_loan, _loan_summary, _get_current_period_key, _get_current_period_interest
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -1661,7 +1662,6 @@ def get_consolidated_statement(loan_id):
 # ------------------- Report Management -------------------
 
 @admin_bp.route('/day-assignments', methods=['GET'])
-@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
 @role_required(['admin', 'director'])
 def get_day_assignments():
@@ -1681,7 +1681,6 @@ def get_day_assignments():
 
 
 @admin_bp.route('/day-assignments', methods=['POST'])
-@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
 @role_required(['admin', 'director'])
 def update_day_assignments():
@@ -1710,11 +1709,13 @@ def update_day_assignments():
 
 
 @admin_bp.route('/client-assignments', methods=['GET'])
-@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
 @role_required(['admin', 'director'])
 def get_all_client_assignments():
     """Return all active loans with their assigned officer and totals per officer."""
+    # Import necessary helpers from payments module
+    from app.routes.payments import _get_current_period_key, _get_current_period_interest
+
     loans = Loan.query.filter_by(status='active').options(joinedload(Loan.client)).all()
     assignments = {}
     # Build officer totals
@@ -1739,14 +1740,31 @@ def get_all_client_assignments():
         off_id = ass.officer_id
         if off_id not in assignments:
             continue
+
+        # --- Correct unpaid interest calculation (matching recovery module) ---
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            current_period = _get_current_period_key(loan)
+            period_interest = _get_current_period_interest(loan)
+            if loan.interest_prepaid_period == current_period:
+                prepaid = loan.interest_prepaid_amount or Decimal('0')
+                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+            else:
+                unpaid_interest = float(period_interest)
+        else:
+            # daily or zero‑interest
+            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
         client_data = {
             'loan_id': loan.id,
             'client_name': loan.client.full_name,
             'phone': loan.client.phone_number,
             'current_principal': float(loan.current_principal),
-            'unpaid_interest': float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid)),
-            'total_balance': float(loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+            'unpaid_interest': unpaid_interest,
+            'total_balance': float(loan.current_principal + Decimal(str(unpaid_interest))),
+            'interest_rate': float(loan.interest_rate),      # <-- added for frontend
+            'repayment_plan': loan.repayment_plan           # <-- added for completeness
         }
+
         assignments[off_id]['clients'].append(client_data)
         assignments[off_id]['total_principal'] += client_data['current_principal']
         assignments[off_id]['total_interest'] += client_data['unpaid_interest']
@@ -1756,7 +1774,6 @@ def get_all_client_assignments():
 
 
 @admin_bp.route('/reassign-client', methods=['POST'])
-@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
 @role_required(['admin', 'director'])
 def reassign_client():
@@ -1786,7 +1803,6 @@ def reassign_client():
 
 
 @admin_bp.route('/balance-suggest', methods=['POST'])
-@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
 @role_required(['admin', 'director'])
 def suggest_balanced_distribution():
@@ -1832,7 +1848,6 @@ def suggest_balanced_distribution():
     return jsonify({'suggestions': result}), 200
 
 @admin_bp.route('/reset-day-assignments', methods=['POST'])
-@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
 @role_required(['admin', 'director'])
 def reset_day_assignments():
@@ -1845,7 +1860,6 @@ def reset_day_assignments():
     return jsonify({'success': True}), 200
 
 @admin_bp.route('/apply-suggestion', methods=['POST'])
-@cross_origin(origins=["http://localhost:5173", "https://nagolie-frontend.onrender.com"])
 @jwt_required()
 @role_required(['admin', 'director'])
 def apply_suggestion():
