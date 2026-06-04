@@ -698,11 +698,15 @@ def get_my_assigned_clients():
 
     # Build response with explicit CORS headers
     response = jsonify({
-        'clients': assigned,
-        'assigned_days': assigned_days
+    'clients': assigned,
+    'assigned_days': assigned_days
     })
-    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:5173')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    # Dynamically allow the requesting origin if it's in our allowed list
+    origin = request.headers.get('Origin')
+    allowed_origins = ['http://localhost:5173', 'https://www.nagolie.com', 'https://nagolie.com']
+    if origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
     return response, 200
 
 @recovery_bp.route('/reports/comment', methods=['POST'])
