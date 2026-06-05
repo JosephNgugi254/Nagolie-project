@@ -7043,3 +7043,354 @@ export const generateValuerReportPDF = async () => {
 };
 
 export { COMPANY_INFO, COLORS };// ========== OFFICER REPORT PDF ==========
+
+// ========== NUMBER TO WORDS (KENYAN SHILLINGS) ==========
+const numberToWords = (num) => {
+  if (num === undefined || num === null || isNaN(num)) return 'Zero';
+  
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+                'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+                'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  
+  const convertHundreds = (n) => {
+    let word = '';
+    const hundred = Math.floor(n / 100);
+    const remainder = n % 100;
+    if (hundred > 0) {
+      word += ones[hundred] + ' Hundred';
+      if (remainder > 0) word += ' and ';
+    }
+    if (remainder > 0) {
+      if (remainder < 20) word += ones[remainder];
+      else {
+        const ten = Math.floor(remainder / 10);
+        const unit = remainder % 10;
+        word += tens[ten];
+        if (unit > 0) word += ' ' + ones[unit];
+      }
+    }
+    return word;
+  };
+  
+  const convert = (n) => {
+    if (n === 0) return 'Zero';
+    let word = '';
+    const millions = Math.floor(n / 1000000);
+    const thousands = Math.floor((n % 1000000) / 1000);
+    const remainder = n % 1000;
+    
+    if (millions > 0) {
+      word += convertHundreds(millions) + ' Million';
+      if (thousands > 0 || remainder > 0) word += ' ';
+    }
+    if (thousands > 0) {
+      word += convertHundreds(thousands) + ' Thousand';
+      if (remainder > 0) {
+        // Add ' and ' if remainder is less than 100 (no hundreds)
+        if (remainder < 100) {
+          word += ' and ';
+        } else {
+          word += ' ';
+        }
+      }
+    } else if (remainder > 0 && (millions > 0 || thousands === 0)) {
+      // For numbers less than 1000, add 'and' if remainder < 100
+      if (remainder < 100) {
+        word += 'and ';
+      }
+    }
+    if (remainder > 0) {
+      word += convertHundreds(remainder);
+    }
+    return word.trim().replace(/\s+/g, ' '); // clean up extra spaces
+  };
+  
+  const amount = Math.floor(Math.abs(num));
+  const cents = Math.round((Math.abs(num) - amount) * 100);
+  let words = convert(amount);
+  if (cents > 0) {
+    words += ` and ${cents}/100`;
+  }
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+// ========== PROMISSORY NOTE PDF (with Preview and Bold) ==========
+export const generatePromissoryNote = async (data, preview = false) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'agreement');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('PROMISSORY NOTE', 105, yPos, { align: 'center' });
+  yPos += 10;
+  yPos = addDivider(doc, yPos);
+  yPos += 6;
+
+  // Loan Summary Section
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('LOAN SUMMARY', 20, yPos);
+  yPos += 8;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  const summary = [
+    { label: 'Client Name:', value: data.clientName || '___________________' },
+    { label: 'ID Number:', value: data.idNumber || '___________________' },
+    { label: 'Date Borrowed:', value: data.dateBorrowed ? new Date(data.dateBorrowed).toLocaleDateString('en-GB') : '___________________' },
+    { label: 'Amount Borrowed :', value: data.amountBorrowed ? formatCurrency(data.amountBorrowed) : '___________________' },
+    { label: 'Current Principal :', value: data.currentPrincipal ? formatCurrency(data.currentPrincipal) : '___________________' },
+    { label: 'Interest Owed :', value: data.interestOwed ? formatCurrency(data.interestOwed) : '___________________' },
+    { label: 'Total Outstanding Balance :', value: data.totalBalance ? formatCurrency(data.totalBalance) : '___________________' },
+  ];
+  summary.forEach(item => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(item.label, 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(item.value, 80, yPos);
+    yPos += 7;
+  });
+
+  yPos += 10;
+
+  // Promise Statement with bold dynamic values
+  const amountToPay = parseFloat(data.amountToPay) || 0;
+  const amountInWords = numberToWords(amountToPay);
+  const dueDateFormatted = data.dueDate ? new Date(data.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '___________________';
+  const clientName = data.clientName || '___________________';
+  const idNumber = data.idNumber || '__________';
+
+  // Build statement parts with styles
+  const statementParts = [
+    { text: 'I, ', style: 'normal' },
+    { text: clientName, style: 'bold' },
+    { text: ', ID Number ', style: 'normal' },
+    { text: idNumber, style: 'bold' },
+    { text: ', hereby acknowledge that I am indebted to Nagolie Enterprises in the sum of Kenya Shillings ', style: 'normal' },
+    { text: amountInWords, style: 'bold' },
+    { text: '  (KES ', style: 'normal' },
+    { text: amountToPay.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
+    { text: '), being a loan advanced to me. I agree and promise to pay KES ', style: 'normal' },
+    { text: amountToPay.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
+    { text: ' on or before ', style: 'normal' },
+    { text: dueDateFormatted, style: 'bold' },
+    { text: ' as payment of the said loan.', style: 'normal' },
+  ];
+
+  // Render the statement with wrapping
+  let currentX = 20;
+  let currentY = yPos;
+  let currentLineParts = [];
+  let currentLineWidth = 0;
+
+  const renderLine = () => {
+    let lineX = 20;
+    currentLineParts.forEach(part => {
+      doc.setFont('helvetica', part.style);
+      doc.text(part.text, lineX, currentY);
+      lineX += doc.getTextWidth(part.text);
+    });
+    currentY += 6;
+    currentLineParts = [];
+    currentLineWidth = 0;
+  };
+
+  for (const part of statementParts) {
+    doc.setFont('helvetica', part.style);
+    const partWidth = doc.getTextWidth(part.text);
+    if (currentLineWidth + partWidth > 170) {
+      renderLine();
+    }
+    currentLineParts.push(part);
+    currentLineWidth += partWidth;
+  }
+  if (currentLineParts.length) renderLine();
+
+  yPos = currentY + 10;
+
+  // Signature lines
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Client Signature:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('_________________________', 50, yPos);
+  yPos += 8;
+  doc.text('Date:', 20, yPos);
+  doc.text('_________________________', 50, yPos);
+  yPos += 15;
+
+  // Company representative signature
+  doc.setFont('helvetica', 'bold');
+  doc.text('For Nagolie Enterprises:', 20, yPos);
+  yPos += 8;
+  doc.setFont('helvetica', 'normal');
+  doc.text('Signature: _________________________', 20, yPos);
+  yPos += 8;
+  doc.text('Date: _________________________', 20, yPos);
+
+  // Footer
+  addFooter(doc, yPos + 15);
+  addPageNumbers(doc, 'page %d');
+
+  if (preview) {
+    // Return blob for preview
+    return doc.output('blob');
+  } else {
+    const fileName = `Promissory_Note_${data.clientName?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+  }
+};
+
+// ========== MANUAL PROMISSORY NOTE PDF (BLANK – FILL BY HAND) ==========
+export const generateManualPromissoryNotePDF = async () => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'document');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('PROMISSORY NOTE', 105, yPos, { align: 'center' });
+  yPos += 10;
+  yPos = addDivider(doc, yPos);
+  yPos += 6;
+
+  // Loan Summary Section
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('LOAN SUMMARY', 20, yPos);
+  yPos += 8;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  const summary = [
+    { label: 'Client Name:', value: '___________________________' },
+    { label: 'ID Number:', value: '___________________________' },
+    { label: 'Date Borrowed:', value: '___________________________' },
+    { label: 'Amount Borrowed (KES):', value: '___________________________' },
+    { label: 'Current Principal (KES):', value: '___________________________' },
+    { label: 'Interest Owed (KES):', value: '___________________________' },
+    { label: 'Total Outstanding Balance (KES):', value: '___________________________' },
+  ];
+  summary.forEach(item => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(item.label, 25, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(item.value, 82, yPos);
+    yPos += 7;
+  });
+
+  yPos += 10;
+
+  // Promise Statement (with blank spaces)
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  const statement = `I, __________________________, ID Number __________________________, hereby acknowledge that I am indebted to Nagolie Enterprises in the sum of Kenya Shillings ___________________________________________________ (KES ________________), being a loan advanced to me. I agree and promise to pay KES ____________________ on or before ____________________ as payment of the said loan.`;
+  const wrapped = doc.splitTextToSize(statement, 170);
+  wrapped.forEach(line => {
+    doc.text(line, 20, yPos);
+    yPos += 6;
+  });
+
+  yPos += 15;
+
+  // Signature lines
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Client Signature:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  doc.text('_________________________', 70, yPos);
+  yPos += 8;
+  doc.text('Date:', 20, yPos);
+  doc.text('_________________________', 70, yPos);
+  yPos += 15;
+
+  // Company representative signature
+  doc.setFont('helvetica', 'bold');
+  doc.text('For Nagolie Enterprises:', 20, yPos);
+  yPos += 8;
+  doc.setFont('helvetica', 'normal');
+  doc.text('Signature: _________________________', 20, yPos);
+  yPos += 8;
+  doc.text('Date:         _________________________', 20, yPos);
+  yPos += 15;
+
+  // ---- Helper functions for thumbprint and stamp ----
+  const drawThumbprintBox = (x, y, width = 40, height = 35) => {
+    doc.setDrawColor(230, 235, 245);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, y, width, height, 2, 2);
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'normal');
+  };
+
+  const drawRtLtCheckboxes = (x, y) => {
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
+    doc.rect(x, y, 4, 4);
+    doc.text('R.T', x + 5, y + 3.5);
+    doc.rect(x + 22, y, 4, 4);
+    doc.text('L.T', x + 27, y + 3.5);
+  };
+
+  // ---- Stamp Box (left) and Thumbprint Box (right) ----
+  const boxWidth = 60;
+  const boxHeight = 35;
+  const leftBoxX = 20;                 // stamp on left
+  const rightBoxX = 210 - 20 - boxWidth; // thumbprint on right
+  const boxesY = yPos;
+
+  // Attempt to load manual stamp image; if not available, draw a box
+  let stampBase64 = null;
+  try {
+    stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');
+  } catch (error) {
+    console.warn('Failed to load stamp image:', error);
+  }
+
+  if (stampBase64) {
+    doc.addImage(stampBase64, 'PNG', leftBoxX, boxesY, boxWidth, boxHeight);
+  } else {
+    doc.setDrawColor(230, 235, 245);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(leftBoxX, boxesY, boxWidth, boxHeight, 2, 2);
+    const stampCenterX = leftBoxX + boxWidth / 2;
+    const stampCenterY = boxesY + boxHeight / 2;
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
+    doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
+  }
+
+  // Thumbprint box (right)
+  drawThumbprintBox(rightBoxX, boxesY, boxWidth-20, boxHeight);
+  // Place checkboxes centered below the thumbprint box
+  const checkY = boxesY + boxHeight + 4;
+  const groupWidth = 50 + 5 + 20; // approximate width of both checkboxes + labels
+  const checkX = rightBoxX + (boxWidth / 2) - (groupWidth / 2);
+  drawRtLtCheckboxes(checkX, checkY);
+
+  // Advance yPos past the boxes (plus checkboxes)
+  yPos = checkY + 12;
+
+  // Footer
+  addFooter(doc, yPos + 15);
+
+  const fileName = `Manual_Promissory_Note_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
+};
