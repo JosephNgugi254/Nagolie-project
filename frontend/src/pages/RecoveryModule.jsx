@@ -43,6 +43,7 @@ import LoanApprovalModal from "../components/admin/LoanApprovalModal";
 import ShareLinkModal from "../components/admin/ShareLinkModal";
 import imageCompression from 'browser-image-compression';
 import { getStatusBadge } from '../components/admin/Clientstatusbadge';
+import ReportManagement from '../components/admin/ReportManagement';
 
 const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -2188,6 +2189,11 @@ function RecoveryModule() {
                   {/* COMPANY GALLERY SECTION */}
                   {directorSection === 'company-gallery' && (
                     <AdminCompanyGallery />
+                  )}
+
+                  {/* REPORT MANAGEMENT SECTION */}
+                  {directorSection === 'report-management' && (
+                    <ReportManagement />
                   )}
 
                   {/* INVESTORS SECTION */}

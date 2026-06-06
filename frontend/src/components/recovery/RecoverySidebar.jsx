@@ -24,6 +24,7 @@ function RecoverySidebar({
       { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/recovery/transactions" },
       { id: "gallery", icon: "fa-images", label: "Livestock Gallery", path: "/recovery/gallery" },
       { id: "investors", icon: "fa-users", label: "Investors", path: "/recovery/investors" },
+      { id: "report-management", icon: "fa-chart-pie", label: "Report Management", path: "/recovery/report-management" },
       { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/recovery/utilities" },
       { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
     ];
