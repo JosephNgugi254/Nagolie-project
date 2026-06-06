@@ -4216,7 +4216,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     }
 
     // Thumbprint box (right)
-    drawThumbprintBox(rightBoxX, boxesY, boxWidth, boxHeight);
+    drawThumbprintBox(rightBoxX, boxesY, boxWidth-20, boxHeight);
     // Place checkboxes centered below the thumbprint box
     const checkY = boxesY + boxHeight + 4;
     const groupWidth = 50 + 5 + 20;
@@ -5296,7 +5296,7 @@ export const generateManualLoanWaiverAgreementPDF = async () => {
     }
 
     // Thumbprint box (right)
-    drawThumbprintBox(rightBoxX, boxesY, boxWidth, boxHeight);
+    drawThumbprintBox(rightBoxX, boxesY, boxWidth-20, boxHeight);
     // Place checkboxes centered below the thumbprint box
     const checkY = boxesY + boxHeight + 4;
     const groupWidth = 50 + 5 + 20;

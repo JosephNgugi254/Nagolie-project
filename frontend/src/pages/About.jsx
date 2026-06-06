@@ -130,6 +130,14 @@ function About() {
       linkedin: "www.linkedin.com/in/joseph-ngugi-2a78991b7"
     },
     {
+      name: "Terry Kintei",
+      role: "Human Resource Manager",
+      bio: "Responsible for overseeing recruitment, staff welfare, and organizational development to ensure efficient and motivated workforce operations at Nagolie Enterprises.",
+      image: "./Terry.png",
+      whatsapp: "https://wa.me/",
+      email: ""
+    },
+    {
       name: "Tait Lesiamon",
       role: "Legal Consultant",
       bio: "Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises and its clients in every transaction.",
