@@ -273,6 +273,12 @@ def approve_application(loan_id):
 
         db.session.commit()
 
+        # ========== CRITICAL: Recalculate immediately to apply first-day interest for daily loans ==========
+        from app.routes.payments import recalculate_loan
+        loan = recalculate_loan(loan)   # updates accrued_interest etc.
+        db.session.commit()
+        # ================================================================================================
+
         # Record ledger entry for disbursement
         record_ledger_entry(
             loan=loan,
@@ -303,7 +309,6 @@ def approve_application(loan_id):
         db.session.rollback()
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
 
 # ---------------------------------------------------------------------------
 # Reject application (unchanged)

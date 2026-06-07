@@ -99,24 +99,45 @@ def _record_accrual(loan, amount, notes, event_date):
 
 
 def _accrue_daily(loan, today, last_date):
-    """4.5% of current_principal per day (simple, not compound)."""
-    days_since = (today - last_date).days
+    """Accrue daily simple interest – charge on day 0 (same day) and every 24h thereafter."""
+    # If this is the first accrual ever (last_date equals disbursement date and no interest accrued)
+    disb_date = loan.disbursement_date.date()
+    if last_date == disb_date and loan.accrued_interest == 0:
+        # Charge first day’s interest immediately
+        first_day_interest = (loan.current_principal * Decimal('0.045')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        loan.accrued_interest += first_day_interest
+        _record_accrual(
+            loan=loan,
+            amount=first_day_interest,
+            notes='Daily interest (same day) at 4.5%',
+            event_date=datetime.combine(disb_date, datetime.min.time())
+        )
+        # Advance last_interest_payment_date to today so we don't double count
+        loan.last_interest_payment_date = datetime.combine(disb_date, datetime.min.time())
 
-    if days_since > 0:
+    # Now handle full days passed (each 24h block)
+    # Convert to datetime for precise day counting
+    last_dt = loan.last_interest_payment_date
+    now_dt = datetime.combine(today, datetime.min.time())
+    delta_days = (now_dt - last_dt).days
+
+    if delta_days > 0:
         daily_rate = Decimal('0.045')
-        for i in range(days_since):
+        for i in range(delta_days):
             day_interest = (loan.current_principal * daily_rate).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
             loan.accrued_interest += day_interest
-            accrual_date = last_date + timedelta(days=i+1)
+            accrual_date = last_dt + timedelta(days=i+1)
             _record_accrual(
                 loan=loan,
                 amount=day_interest,
                 notes=f'Daily interest accrued at {daily_rate*100}%',
                 event_date=datetime.combine(accrual_date, datetime.min.time())
             )
-        loan.last_interest_payment_date += timedelta(days=days_since)
+        loan.last_interest_payment_date += timedelta(days=delta_days)
 
     unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
     loan.balance = loan.current_principal + unpaid
@@ -129,46 +150,21 @@ def _accrue_daily(loan, today, last_date):
     return loan
 
 def _get_second_sunday(disbursement_date):
-    """
-    Returns the second Sunday strictly after the disbursement date.
-    The disbursement day itself never counts as the first Sunday,
-    even if it falls on a Sunday.
-
-    First Sunday  = first Sunday strictly after disbursement
-    Second Sunday = first Sunday + 7 days
-    Compound triggers when today > second Sunday (i.e. Monday after it)
-    """
-    dow = disbursement_date.weekday()  # 0=Mon ... 6=Sun
-
-    # Days until the NEXT Sunday strictly after disbursement
-    # If today is Sunday (6): days_to_first_sunday = 7 (skip to next week)
-    # Otherwise: (6 - dow) % 7
+    """Return the second Sunday strictly after disbursement_date."""
+    dow = disbursement_date.weekday()          # 0=Mon … 6=Sun
     if dow == 6:
         days_to_first_sunday = 7
     else:
         days_to_first_sunday = (6 - dow) % 7
-
     first_sunday = disbursement_date + timedelta(days=days_to_first_sunday)
     second_sunday = first_sunday + timedelta(days=7)
     return second_sunday
 
-
 def _accrue_weekly(loan, today, last_date):
-    """
-    30% compound per 7-day period, but only after the second Sunday.
-    - No interest accrues until the Monday after the second Sunday strictly after disbursement.
-    - After that, weekly compound interest is applied as before.
-    - The due_date (14 days after disbursement) is not extended; the loan becomes overdue.
-    """
-    disb = (
-        loan.disbursement_date.date()
-        if hasattr(loan.disbursement_date, 'date')
-        else loan.disbursement_date
-    )
-
-    # Determine the second Sunday after disbursement (strict)
+    """Accrue weekly compound interest only after the second Sunday."""
+    disb = loan.disbursement_date.date()
     second_sunday = _get_second_sunday(disb)
-    # Compounding is allowed only once today is PAST that Sunday (i.e., Monday or later)
+    # Compounding is allowed only on or after the Monday following second Sunday
     compounding_allowed = today > second_sunday
 
     days_since = (today - last_date).days
@@ -179,15 +175,13 @@ def _accrue_weekly(loan, today, last_date):
             disb + timedelta(days=14),
             loan.due_date.time() if loan.due_date else datetime.min.time()
         )
-
         for w in range(weeks_passed):
             week_num = ((last_date - disb).days // 7) + w
             period_key = f"{disb.isoformat()}-W{week_num}"
-
             week_interest = (loan.current_principal * Decimal('0.30')).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
-
+            # Apply pre‑paid amount if it exists for this period
             if loan.interest_prepaid_period == period_key:
                 prepaid = loan.interest_prepaid_amount or Decimal('0')
                 net_added = max(Decimal('0'), week_interest - prepaid)
@@ -200,6 +194,7 @@ def _accrue_weekly(loan, today, last_date):
                 loan.current_principal += net_added
                 loan.accrued_interest += net_added
 
+            # Record ledger entry for the compounding event
             accrual_date = last_date + timedelta(days=(w + 1) * 7)
             _record_accrual(
                 loan=loan,
@@ -211,14 +206,13 @@ def _accrue_weekly(loan, today, last_date):
                 ),
                 event_date=datetime.combine(accrual_date, datetime.min.time())
             )
-
+            # Update due date (max 14 days after disbursement)
             candidate = loan.due_date + timedelta(days=7)
             loan.due_date = candidate if candidate <= max_due else max_due
 
         loan.last_interest_payment_date += timedelta(days=weeks_passed * 7)
 
     loan.balance = loan.current_principal
-
     if loan.current_principal <= Decimal('0.01'):
         unpaid_interest = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
         if unpaid_interest <= Decimal('0.01'):
@@ -227,7 +221,6 @@ def _accrue_weekly(loan, today, last_date):
             loan.balance = Decimal('0')
         else:
             loan.balance = unpaid_interest
-
     return loan
 
 # ---------------------------------------------------------------------------
@@ -245,12 +238,20 @@ def _get_current_period_key(loan):
         return f"{disb.isoformat()}-W{week_num}"
 
 def _get_current_period_interest(loan):
+    """Return the net remaining interest for the current period (weekly or daily)."""
     if loan.repayment_plan == 'daily':
         daily_rate = Decimal('0.045')
-        return (loan.current_principal * daily_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-    else:
-        weekly_rate = Decimal('0.30')
-        return (loan.current_principal * weekly_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        raw_interest = (loan.current_principal * daily_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    else:   # weekly
+        raw_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    # Subtract any pre‑paid amount for the current period
+    current_period = _get_current_period_key(loan)
+    if loan.interest_prepaid_period == current_period:
+        prepaid = loan.interest_prepaid_amount or Decimal('0')
+        remaining = max(Decimal('0'), raw_interest - prepaid)
+        return remaining
+    return raw_interest
 
 
 # ---------------------------------------------------------------------------
