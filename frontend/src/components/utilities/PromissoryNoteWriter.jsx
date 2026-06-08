@@ -1,13 +1,13 @@
 // components/utilities/PromissoryNoteWriter.jsx
 import { useState, useEffect } from 'react';
-import { adminAPI } from '../../services/api';
+import { adminAPI, recoveryAPI } from '../../services/api';
 import { generatePromissoryNote } from '../admin/ReceiptPDF';
 import { showToast } from '../common/Toast';
 
 const PromissoryNoteWriter = () => {
-  const [clients, setClients] = useState([]);
-  const [loadingClients, setLoadingClients] = useState(false);
-  const [selectedClientId, setSelectedClientId] = useState('');
+  const [loans, setLoans] = useState([]);           // list of loan objects from recovery
+  const [loadingLoans, setLoadingLoans] = useState(false);
+  const [selectedLoanId, setSelectedLoanId] = useState('');
   const [mode, setMode] = useState('auto'); // 'auto' or 'manual'
   const [formData, setFormData] = useState({
     clientName: '',
@@ -22,19 +22,23 @@ const PromissoryNoteWriter = () => {
   });
   const [generating, setGenerating] = useState(false);
 
+  // Fetch active loans (recovery data) when in auto mode
   useEffect(() => {
-    fetchClients();
-  }, []);
+    if (mode === 'auto') {
+      fetchRecoveryLoans();
+    }
+  }, [mode]);
 
-  const fetchClients = async () => {
-    setLoadingClients(true);
+  const fetchRecoveryLoans = async () => {
+    setLoadingLoans(true);
     try {
-      const res = await adminAPI.getClients();
-      setClients(res.data || []);
+      const res = await recoveryAPI.getRecoveryLoans();
+      setLoans(res || []);
     } catch (error) {
-      showToast.error('Failed to load clients');
+      console.error(error);
+      showToast.error('Failed to load loan data from recovery');
     } finally {
-      setLoadingClients(false);
+      setLoadingLoans(false);
     }
   };
 
@@ -49,24 +53,22 @@ const PromissoryNoteWriter = () => {
     }
   };
 
-  const handleClientSelect = (clientId) => {
-    const client = clients.find(c => c.id === parseInt(clientId));
-    if (client) {
-      const borrowedDate = client.borrowedDate || client.disbursement_date || '';
-      const formattedBorrowedDate = formatDateForInput(borrowedDate);
-      const currentPrincipal = client.currentPrincipal || client.current_principal || 0;
-      const interestOwed = client.unpaidInterest || client.unpaid_interest || 0;
+  const handleLoanSelect = (loanId) => {
+    const loan = loans.find(l => l.loanId === parseInt(loanId));
+    if (loan) {
+      const currentPrincipal = loan.currentPrincipal || 0;
+      const interestOwed = loan.accruedInterest || 0;
       const totalBalance = currentPrincipal + interestOwed;
-      
+
       setFormData({
-        clientName: client.name,
-        idNumber: client.idNumber || '',
-        dateBorrowed: formattedBorrowedDate,
-        amountBorrowed: client.borrowedAmount || 0,
-        currentPrincipal: client.currentPrincipal || 0,
-        interestOwed: client.unpaidInterest || 0,
-        totalBalance: totalBalance || 0,
-        amountToPay: totalBalance || 0,
+        clientName: loan.clientName,
+        idNumber: loan.idNumber || '',
+        dateBorrowed: formatDateForInput(loan.borrowedDate),
+        amountBorrowed: loan.principalAmount || 0,
+        currentPrincipal: currentPrincipal,
+        interestOwed: interestOwed,
+        totalBalance: totalBalance,
+        amountToPay: totalBalance,   // default to total balance
         dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
       });
     }
@@ -135,7 +137,7 @@ const PromissoryNoteWriter = () => {
   };
 
   const resetForm = () => {
-    setSelectedClientId('');
+    setSelectedLoanId('');
     setFormData({
       clientName: '',
       idNumber: '',
@@ -163,7 +165,7 @@ const PromissoryNoteWriter = () => {
                 resetForm();
               }}
             >
-              <i className="fas fa-magic me-2"></i>Auto-fill from Client
+              <i className="fas fa-magic me-2"></i>Auto-fill from Client Loan
             </button>
             <button
               type="button"
@@ -182,28 +184,32 @@ const PromissoryNoteWriter = () => {
         {mode === 'auto' && (
           <div className="row mb-3">
             <div className="col-md-12">
-              <label className="form-label fw-bold">Select Client</label>
+              <label className="form-label fw-bold">Select Client / Loan</label>
               <select
                 className="form-control"
-                value={selectedClientId}
+                value={selectedLoanId}
                 onChange={(e) => {
-                  setSelectedClientId(e.target.value);
-                  handleClientSelect(e.target.value);
+                  setSelectedLoanId(e.target.value);
+                  handleLoanSelect(e.target.value);
                 }}
                 required
               >
-                <option value="">-- Choose client --</option>
-                {clients.map(client => (
-                  <option key={client.id} value={client.id}>
-                    {client.name} - {client.phone}
+                <option value="">-- Choose a loan --</option>
+                {loans.map(loan => (
+                  <option key={loan.loanId} value={loan.loanId}>
+                    {loan.clientName} – Loan #{loan.loanId} – {loan.currentPrincipal?.toLocaleString()} KES
                   </option>
                 ))}
               </select>
-              {loadingClients && <div className="spinner-border spinner-border-sm ms-2 mt-2"></div>}
+              {loadingLoans && <div className="spinner-border spinner-border-sm ms-2 mt-2"></div>}
+              {!loadingLoans && loans.length === 0 && (
+                <div className="text-muted small mt-1">No active loans found</div>
+              )}
             </div>
           </div>
         )}
 
+        {/* Rest of the form (same as original) */}
         <div className="row">
           <div className="col-md-6 mb-3">
             <label className="form-label fw-bold">Client Name *</label>

@@ -35,7 +35,7 @@ def get_week_number(disbursement_date):
 
 @recovery_bp.route('', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer'])
+@role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
     loans   = Loan.query.options(

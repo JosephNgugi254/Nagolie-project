@@ -164,6 +164,7 @@ export const adminAPI = {
   getBalanceSuggestions: () => api.post('/admin/balance-suggest'),
   applySuggestions: (suggestions) => api.post('/admin/apply-suggestion', { suggestions }),
   resetDayAssignments: () => api.post('/admin/reset-day-assignments'),
+  
 };
 
 export const paymentAPI = {
@@ -248,6 +249,33 @@ export const recoveryAPI = {
   saveReportComment: (loanId, comment) => api.post('/recovery/reports/comment', { loan_id: loanId, comment }),
 
   getLoanTransactions: (loanId) => api.get(`/recovery/loan/${loanId}/transactions`),
+
+  // In your existing api.js, inside recoveryAPI object add:
+  getRecoveryLoans: async () => {
+    const response = await api.get('/recovery');  // uses same endpoint as recovery module
+    const grouped = response.data;
+    // Flatten the object { Monday: [...], Tuesday: [...], ... } into a single array
+    const allLoans = [];
+    for (const day in grouped) {
+      if (Array.isArray(grouped[day])) {
+        allLoans.push(...grouped[day]);
+      }
+    }
+    // Map to a clean structure for the dropdown
+    return allLoans.map(loan => ({
+      loanId: loan.id,
+      clientName: loan.name,
+      phone: loan.contacts,
+      idNumber: loan.id_number,
+      borrowedDate: loan.disbursement_date,
+      principalAmount: loan.principal_amount,
+      currentPrincipal: loan.current_principal,
+      accruedInterest: loan.accrued_interest,
+      repaymentPlan: loan.repayment_plan,
+      interestRate: loan.interest_rate,
+      // additional fields if needed
+    }));
+  },
 };
 
 export const userAPI = {
