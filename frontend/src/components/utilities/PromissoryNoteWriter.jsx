@@ -52,8 +52,11 @@ const PromissoryNoteWriter = () => {
   const handleClientSelect = (clientId) => {
     const client = clients.find(c => c.id === parseInt(clientId));
     if (client) {
-      let borrowedDate = client.borrowedDate || client.disbursement_date || '';
+      const borrowedDate = client.borrowedDate || client.disbursement_date || '';
       const formattedBorrowedDate = formatDateForInput(borrowedDate);
+      const currentPrincipal = client.currentPrincipal || client.current_principal || 0;
+      const interestOwed = client.unpaidInterest || client.unpaid_interest || 0;
+      const totalBalance = currentPrincipal + interestOwed;
       
       setFormData({
         clientName: client.name,
@@ -62,8 +65,8 @@ const PromissoryNoteWriter = () => {
         amountBorrowed: client.borrowedAmount || 0,
         currentPrincipal: client.currentPrincipal || 0,
         interestOwed: client.unpaidInterest || 0,
-        totalBalance: client.balance || 0,
-        amountToPay: client.balance || 0,
+        totalBalance: totalBalance || 0,
+        amountToPay: totalBalance || 0,
         dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
       });
     }

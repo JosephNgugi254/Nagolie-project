@@ -7158,23 +7158,25 @@ export const generatePromissoryNote = async (data, preview = false) => {
 
   yPos += 10;
 
-  // Promise Statement with bold dynamic values
+  // --- FIX: define totalBalance from data.totalBalance ---
+  const totalBalance = parseFloat(data.totalBalance) || 0;
+
   const amountToPay = parseFloat(data.amountToPay) || 0;
   const amountInWords = numberToWords(amountToPay);
   const dueDateFormatted = data.dueDate ? new Date(data.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '___________________';
   const clientName = data.clientName || '___________________';
   const idNumber = data.idNumber || '__________';
 
-  // Build statement parts with styles
+  // Build statement parts – total balance is used in the “indebted in the sum” clause
   const statementParts = [
     { text: 'I, ', style: 'normal' },
     { text: clientName, style: 'bold' },
     { text: ', ID Number ', style: 'normal' },
     { text: idNumber, style: 'bold' },
     { text: ', hereby acknowledge that I am indebted to Nagolie Enterprises in the sum of Kenya Shillings ', style: 'normal' },
-    { text: amountInWords, style: 'bold' },
+    { text: amountInWords, style: 'bold' },                         // amount in words of the total owed
     { text: '  (KES ', style: 'normal' },
-    { text: totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
+    { text: totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },  // total owed in figures
     { text: '), being a loan advanced to me. I agree and promise to pay KES ', style: 'normal' },
     { text: amountToPay.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
     { text: ' on or before ', style: 'normal' },
@@ -7182,7 +7184,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
     { text: ' as payment of the said loan.', style: 'normal' },
   ];
 
-  // Render the statement with wrapping
+  // Render the statement with wrapping (same as before)
   let currentX = 20;
   let currentY = yPos;
   let currentLineParts = [];
@@ -7213,7 +7215,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
 
   yPos = currentY + 10;
 
-  // Signature lines
+  // Signature lines (unchanged)
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.text('Client Signature:', 20, yPos);
@@ -7224,7 +7226,6 @@ export const generatePromissoryNote = async (data, preview = false) => {
   doc.text('_________________________', 50, yPos);
   yPos += 15;
 
-  // Company representative signature
   doc.setFont('helvetica', 'bold');
   doc.text('For Nagolie Enterprises:', 20, yPos);
   yPos += 8;
@@ -7233,12 +7234,10 @@ export const generatePromissoryNote = async (data, preview = false) => {
   yPos += 8;
   doc.text('Date: _________________________', 20, yPos);
 
-  // Footer
   addFooter(doc, yPos + 15);
   addPageNumbers(doc, 'page %d');
 
   if (preview) {
-    // Return blob for preview
     return doc.output('blob');
   } else {
     const fileName = `Promissory_Note_${data.clientName?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
