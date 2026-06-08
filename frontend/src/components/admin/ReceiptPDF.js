@@ -7174,7 +7174,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
     { text: ', hereby acknowledge that I am indebted to Nagolie Enterprises in the sum of Kenya Shillings ', style: 'normal' },
     { text: amountInWords, style: 'bold' },
     { text: '  (KES ', style: 'normal' },
-    { text: amountToPay.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
+    { text: totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
     { text: '), being a loan advanced to me. I agree and promise to pay KES ', style: 'normal' },
     { text: amountToPay.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
     { text: ' on or before ', style: 'normal' },
