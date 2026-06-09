@@ -7,7 +7,7 @@ from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary,
 from app.utils.cloudinary_upload import upload_base64_image
 import cloudinary.uploader
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import joinedload
 import io
 from flask import send_file
@@ -19,6 +19,7 @@ from flask_cors import cross_origin
 
 
 recovery_bp = Blueprint('recovery', __name__)
+
 
 
 def get_week_number(disbursement_date):
