@@ -346,70 +346,94 @@ def get_all_clients():
         today = datetime.now().date()
         active_loans = Loan.query.filter_by(status='active').all()
         clients_data = []
+
         for active_loan in active_loans:
             client = active_loan.client
             if not client:
                 continue
+
             active_loan = recalculate_loan(active_loan)
             overdue_days, overdue_weeks = compute_overdue(active_loan, today)
             db.session.commit()
+
             current_principal = active_loan.current_principal or active_loan.principal_amount
-            principal_paid    = active_loan.principal_paid    or Decimal('0')
-            interest_paid     = active_loan.interest_paid     or Decimal('0')
-            unpaid_interest   = max(Decimal('0'), active_loan.accrued_interest - interest_paid)
+            principal_paid = active_loan.principal_paid or Decimal('0')
+            interest_paid = active_loan.interest_paid or Decimal('0')
+            unpaid_interest = max(Decimal('0'), active_loan.accrued_interest - interest_paid)
+
             if active_loan.due_date:
-                due  = active_loan.due_date.date() if hasattr(active_loan.due_date, 'date') else active_loan.due_date
+                due = active_loan.due_date.date() if hasattr(active_loan.due_date, 'date') else active_loan.due_date
                 days_left = (due - today).days
             else:
                 days_left = 0
+
             last_ip = active_loan.last_interest_payment_date
             weeks_overdue = 0
             if last_ip:
                 ld = last_ip.date() if hasattr(last_ip, 'date') else last_ip
                 if ld < today:
                     weeks_overdue = (today - ld).days // 7
-            from app.routes.payments import _get_current_period_key, _get_current_period_interest
+
+            from app.routes.payments import _get_current_period_key
+
+            # ---- Updated raw weekly interest calculation ----
             current_period = _get_current_period_key(active_loan)
-            period_interest = _get_current_period_interest(active_loan)
-            period_prepaid = Decimal('0')
-            period_interest_paid = False
-            if active_loan.interest_prepaid_period == current_period:
-                period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
-                period_interest_paid = period_prepaid >= period_interest - Decimal('0.01')
+            if active_loan.repayment_plan == 'weekly' and active_loan.interest_rate > 0:
+                raw_weekly_interest = (active_loan.current_principal * Decimal('0.30')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                period_interest = raw_weekly_interest
+                period_prepaid = Decimal('0')
+                period_interest_paid = False
+
+                if active_loan.interest_prepaid_period == current_period:
+                    period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
+                    period_interest_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
+            else:
+                # Fallback for daily / other plans
+                period_interest = _get_current_period_interest(active_loan)
+                period_prepaid = Decimal('0')
+                period_interest_paid = False
+                if active_loan.interest_prepaid_period == current_period:
+                    period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
+                    period_interest_paid = period_prepaid >= period_interest - Decimal('0.01')
+
             clients_data.append({
-                'id':               client.id,
-                'loan_id':          active_loan.id,
-                'name':             client.full_name,
-                'phone':            client.phone_number,
-                'idNumber':         client.id_number,
-                'borrowedDate':     active_loan.disbursement_date.isoformat() if active_loan.disbursement_date else None,
-                'borrowedAmount':   float(active_loan.principal_amount),
+                'id': client.id,
+                'loan_id': active_loan.id,
+                'name': client.full_name,
+                'phone': client.phone_number,
+                'idNumber': client.id_number,
+                'borrowedDate': active_loan.disbursement_date.isoformat() if active_loan.disbursement_date else None,
+                'borrowedAmount': float(active_loan.principal_amount),
                 'currentPrincipal': float(current_principal),
                 'expectedReturnDate': active_loan.due_date.isoformat() if active_loan.due_date else None,
-                'amountPaid':       float(active_loan.amount_paid),
-                'principalPaid':    float(principal_paid),
-                'interestPaid':     float(interest_paid),
-                'balance':          float(active_loan.balance),
-                'daysLeft':         days_left,
-                'weeks_overdue':    weeks_overdue,
+                'amountPaid': float(active_loan.amount_paid),
+                'principalPaid': float(principal_paid),
+                'interestPaid': float(interest_paid),
+                'balance': float(active_loan.balance),
+                'daysLeft': days_left,
+                'weeks_overdue': weeks_overdue,
                 'lastInterestPayment': last_ip.isoformat() if last_ip else None,
-                'interest_type':    active_loan.interest_type,
-                'repayment_plan':   active_loan.repayment_plan,
-                'unpaidInterest':   float(unpaid_interest),
+                'interest_type': active_loan.interest_type,
+                'repayment_plan': active_loan.repayment_plan,
+                'unpaidInterest': float(unpaid_interest),
                 'accrued_interest': float(active_loan.accrued_interest),
                 'current_period_interest': float(period_interest),
                 'period_interest_prepaid': float(period_prepaid),
                 'period_interest_fully_paid': period_interest_paid,
-                'interest_rate':    float(active_loan.interest_rate), 
+                'interest_rate': float(active_loan.interest_rate),
                 'overdue_days': overdue_days,
                 'overdue_weeks': overdue_weeks,
             })
+
         clients_data.sort(key=lambda x: (x['name'], x['borrowedDate'] or ''))
         return jsonify(clients_data), 200
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
 
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 # ---------------------------------------------------------------------------
 # Dashboard (unchanged)

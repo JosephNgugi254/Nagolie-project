@@ -38,12 +38,12 @@ def get_week_number(disbursement_date):
 @role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
-    loans   = Loan.query.options(
+    loans = Loan.query.options(
         joinedload(Loan.client), joinedload(Loan.livestock)
     ).filter(Loan.status == 'active').all()
 
     result = {}
-    today  = datetime.utcnow().date()
+    today = datetime.utcnow().date()
 
     for loan in loans:
         loan = recalculate_loan(loan)
@@ -51,70 +51,71 @@ def get_recovery_data():
         overdue_days, overdue_weeks = compute_overdue(loan, today)
 
         due_day = loan.disbursement_date.strftime('%A') if loan.disbursement_date else 'Monday'
-        client  = loan.client
-        lv      = loan.livestock
+        client = loan.client
+        lv = loan.livestock
 
         collateral = loan.collateral_text or (f"{lv.count} {lv.livestock_type}" if lv else '')
 
-        # ---- Pre‑period interest info (same as Admin Panel) ----
+        # ---- Pre-period interest info ----
         current_period = _get_current_period_key(loan)
-        period_interest = _get_current_period_interest(loan)
+
+        # Raw weekly interest (30% of current principal) – for display in "Interest / Period"
+        raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
         period_prepaid = Decimal('0')
         period_fully_paid = False
         if loan.interest_prepaid_period == current_period:
             period_prepaid = loan.interest_prepaid_amount or Decimal('0')
-            period_fully_paid = period_prepaid >= period_interest - Decimal('0.01')
+            period_fully_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
 
-        # Periodic interest for display (same as period_interest)
-        periodic_interest = float(period_interest)
+        # For display – use raw weekly interest
+        periodic_interest = float(raw_weekly_interest)
 
-        week_number     = get_week_number(loan.disbursement_date)
-        is_defaulter    = Defaulter.query.filter_by(loan_id=loan.id, resolved=False).first() is not None
-        # Correct unpaid_interest for weekly compound vs daily simple
+        # For unpaid interest: raw minus prepaid (or for daily loans, use accumulated interest)
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            # Weekly compound: only current week's unpaid interest (pre‑paid deducted)
-            current_period = _get_current_period_key(loan)
-            period_interest = _get_current_period_interest(loan)
             if loan.interest_prepaid_period == current_period:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+                unpaid_interest = float(max(Decimal('0'), raw_weekly_interest - period_prepaid))
             else:
-                unpaid_interest = float(period_interest)
+                unpaid_interest = float(raw_weekly_interest)
         else:
-            # Daily or zero‑interest: accumulated unpaid interest
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
+        week_number = get_week_number(loan.disbursement_date)
+        is_defaulter = Defaulter.query.filter_by(loan_id=loan.id, resolved=False).first() is not None
 
         # Days left toward current due_date
         if loan.due_date:
-            due       = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
+            due = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
             days_left = (due - today).days
         else:
             days_left = 0
 
         result.setdefault(due_day, []).append({
-            'id':               loan.id,
+            'id': loan.id,
             'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
-            'name':             client.full_name if client else 'Unknown',
-            'collateral':       collateral,
-            'location':         client.location if client else '',
-            'id_number':        client.id_number if client else '',
-            'contacts':         client.phone_number if client else '',
+            'name': client.full_name if client else 'Unknown',
+            'collateral': collateral,
+            'location': client.location if client else '',
+            'id_number': client.id_number if client else '',
+            'contacts': client.phone_number if client else '',
             'principal_amount': float(loan.principal_amount),
             'current_principal': float(loan.current_principal),
-            'interest':         periodic_interest,                     # for PaymentModal max calculation
-            'accrued_interest': unpaid_interest,
-            'week':             week_number,
-            'days_left':        days_left,
-            'is_defaulter':     is_defaulter,
-            'repayment_plan':   loan.repayment_plan,
-            'interest_type':    loan.interest_type,
-            # ---- NEW fields for pre‑period tracking ----
-            'current_period_interest': float(period_interest),
+            'interest': periodic_interest,                     # raw weekly interest
+            'accrued_interest': unpaid_interest,               # net unpaid interest
+            'week': week_number,
+            'days_left': days_left,
+            'is_defaulter': is_defaulter,
+            'repayment_plan': loan.repayment_plan,
+            'interest_type': loan.interest_type,
+            # ---- NEW fields for pre-period tracking ----
+            'current_period_interest': float(raw_weekly_interest),
             'period_interest_prepaid': float(period_prepaid),
             'period_interest_fully_paid': period_fully_paid,
             'interest_prepaid_period': loan.interest_prepaid_period,
             'interest_prepaid_amount': float(loan.interest_prepaid_amount or 0),
-            'interest_rate':    float(loan.interest_rate), 
+            'interest_rate': float(loan.interest_rate),
             'overdue_days': overdue_days,
             'overdue_weeks': overdue_weeks,
         })

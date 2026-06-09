@@ -379,25 +379,27 @@ def _loan_summary(loan):
 
     if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
         # Raw weekly interest (30% of current principal)
-        raw_period_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        period_interest = raw_period_interest   # this goes to "Interest / Period"
+        raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        period_interest = raw_weekly_interest   # This goes to "Interest / Period"
 
         if loan.interest_prepaid_period == current_period:
-            period_prepaid = loan.interest_prepaid_amount or Decimal('0')
-            # Unpaid = raw interest minus what has been prepaid
-            unpaid = max(Decimal('0'), raw_period_interest - period_prepaid)
-            period_already_paid = period_prepaid >= raw_period_interest - Decimal('0.01')
+            prepaid = loan.interest_prepaid_amount or Decimal('0')
+            period_prepaid = prepaid
+            # Unpaid = raw minus what has been pre‑paid
+            unpaid = max(Decimal('0'), raw_weekly_interest - prepaid)
+            period_already_paid = prepaid >= raw_weekly_interest - Decimal('0.01')
         else:
-            unpaid = raw_period_interest
+            unpaid = raw_weekly_interest
             period_prepaid = Decimal('0')
             period_already_paid = False
     else:
-        # Daily or zero‑interest – use accumulated interest
-        raw_period_interest = _get_current_period_interest(loan)
-        period_interest = raw_period_interest
+        # Daily or zero‑interest
+        period_interest = _get_current_period_interest(loan)
         if loan.interest_prepaid_period == current_period:
             period_prepaid = loan.interest_prepaid_amount or Decimal('0')
-            period_already_paid = period_prepaid >= raw_period_interest - Decimal('0.01')
+            period_already_paid = period_prepaid >= period_interest - Decimal('0.01')
         unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
 
     return {
@@ -407,13 +409,13 @@ def _loan_summary(loan):
         'interest_paid': float(loan.interest_paid),
         'current_principal': float(loan.current_principal),
         'accrued_interest': float(loan.accrued_interest),
-        'unpaid_interest': float(unpaid),               # correct for weekly: raw - prepaid
+        'unpaid_interest': float(unpaid),
         'balance': float(loan.balance),
         'due_date': loan.due_date.isoformat() if loan.due_date else None,
         'status': loan.status,
         'repayment_plan': loan.repayment_plan,
         'interest_type': loan.interest_type,
-        'current_period_interest': float(period_interest),   # now raw weekly interest
+        'current_period_interest': float(period_interest),          # ← raw 30%
         'period_interest_prepaid': float(period_prepaid),
         'period_interest_fully_paid': period_already_paid,
         'interest_prepaid_period': loan.interest_prepaid_period,
