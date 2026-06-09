@@ -842,83 +842,93 @@ const handleInvestorPasswordSubmit = (e) => {
   const [topupNotes, setTopupNotes] = useState("")
   const [isTopupMode, setIsTopupMode] = useState(true) // true for topup, false for adjustment
 
+  // In AdminPanel.jsx, locate openTopupModal (around line 600-620)
+
   const openTopupModal = (client) => {
     console.log("Opening top-up modal for client:", client)
     setSelectedClient(client)
     setTopupAmount("")
-    setAdjustmentAmount(client.borrowedAmount?.toString() || "")
+    // Use currentPrincipal instead of borrowedAmount for the adjustment baseline
+    const currentPrincipal = client.currentPrincipal || client.current_principal || client.borrowedAmount || 0;
+    setAdjustmentAmount(currentPrincipal.toString())
     setTopupMethod("cash")
     setTopupReference("")
     setTopupNotes("")
-    setIsTopupMode(true) // Default to top-up mode
+    setIsTopupMode(true)
     setShowTopupModal(true)
   }
-
   
+
   const handleTopup = async () => {
     if (!selectedClient?.loan_id) {
-      showToast.error("Error: No active loan found for this client")
-      return
+      showToast.error("Error: No active loan found for this client");
+      return;
     }
-
-    let amount = 0
+  
+    // Get the current principal (what the client actually owes today)
+    const currentPrincipal = selectedClient.currentPrincipal || selectedClient.current_principal || selectedClient.borrowedAmount || 0;
+  
+    let topupAmountValue = 0;
+    let newTotalPrincipal = 0;
+  
     if (isTopupMode) {
-      // Top-up mode
-      amount = parseFloat(topupAmount)
-      if (isNaN(amount) || amount <= 0) {
-        showToast.error("Please enter a valid top-up amount")
-        return
+      // Top-up mode: add extra amount to current principal
+      topupAmountValue = parseFloat(topupAmount);
+      if (isNaN(topupAmountValue) || topupAmountValue <= 0) {
+        showToast.error("Please enter a valid top-up amount");
+        return;
       }
+      newTotalPrincipal = currentPrincipal + topupAmountValue;
     } else {
-      // Adjustment mode
-      amount = parseFloat(adjustmentAmount)
-      if (isNaN(amount) || amount <= 0) {
-        showToast.error("Please enter a valid loan amount")
-        return
+      // Adjustment mode: set loan to a brand new principal amount
+      const enteredNewPrincipal = parseFloat(adjustmentAmount);
+      if (isNaN(enteredNewPrincipal) || enteredNewPrincipal <= 0) {
+        showToast.error("Please enter a valid loan amount");
+        return;
       }
-      // For adjustment, we send the new total principal amount
-      amount = amount - selectedClient.borrowedAmount
+      newTotalPrincipal = enteredNewPrincipal;
+      topupAmountValue = 0; // no extra top-up
     }
-
+  
     if (topupMethod === 'mpesa' && !topupReference.trim()) {
-      showToast.error("Please enter M-Pesa reference code for M-Pesa disbursement")
-      return
+      showToast.error("Please enter M-Pesa reference code for M-Pesa disbursement");
+      return;
     }
-
+  
     try {
       const response = await adminAPI.processTopup(selectedClient.loan_id, {
-        topup_amount: isTopupMode ? amount : 0,
-        adjustment_amount: !isTopupMode ? (parseFloat(adjustmentAmount) || selectedClient.borrowedAmount) : 0,
+        topup_amount: topupAmountValue,
+        adjustment_amount: !isTopupMode ? newTotalPrincipal : 0,
         disbursement_method: topupMethod,
         mpesa_reference: topupMethod === 'mpesa' ? topupReference.toUpperCase().trim() : '',
         notes: topupNotes || `${isTopupMode ? 'Top-up' : 'Adjustment'} processed for ${selectedClient.name}`
-      })
-
+      });
+    
       if (response.data.success) {
-        showToast.success(`Loan ${isTopupMode ? 'top-up' : 'adjustment'} processed successfully!`)
-        setShowTopupModal(false)
-        setSelectedClient(null)
-
+        showToast.success(`Loan ${isTopupMode ? 'top-up' : 'adjustment'} processed successfully!`);
+        setShowTopupModal(false);
+        setSelectedClient(null);
+      
         // Reset form
-        setTopupAmount("")
-        setAdjustmentAmount("")
-        setTopupMethod("cash")
-        setTopupReference("")
-        setTopupNotes("")
-
+        setTopupAmount("");
+        setAdjustmentAmount("");
+        setTopupMethod("cash");
+        setTopupReference("");
+        setTopupNotes("");
+      
         // Refresh all data
         await Promise.all([
           fetchDashboardData(),
           fetchClients(),
           fetchTransactions()
-        ])
+        ]);
       }
     } catch (error) {
-      console.error('Top-up processing error:', error)
-      const errorMsg = error.response?.data?.error || error.message
-      showToast.error(`Failed to process ${isTopupMode ? 'top-up' : 'adjustment'}: ${errorMsg}`)
+      console.error('Top-up processing error:', error);
+      const errorMsg = error.response?.data?.error || error.message;
+      showToast.error(`Failed to process ${isTopupMode ? 'top-up' : 'adjustment'}: ${errorMsg}`);
     }
-  }
+  };
 
   // Add to state variables section
   const [showApprovalModal, setShowApprovalModal] = useState(false)
@@ -5172,13 +5182,13 @@ Thank you for choosing us.`;
               <h6>Calculation Preview:</h6>
               <p><strong>New Loan Amount:</strong> {formatCurrency(
                 isTopupMode 
-                  ? (selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
-                  : parseFloat(adjustmentAmount || selectedClient.borrowedAmount || 0)
+                  ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
+                  : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
               )}</p>
               <p><strong>New Total to Pay:</strong> {formatCurrency(
                 (isTopupMode 
-                  ? (selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
-                  : parseFloat(adjustmentAmount || selectedClient.borrowedAmount || 0)
+                  ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
+                  : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
                 ) * 1.3
               )} <small>(including 30% interest)</small></p>
             </div>

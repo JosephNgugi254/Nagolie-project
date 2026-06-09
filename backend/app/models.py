@@ -699,3 +699,21 @@ class ReportComment(db.Model):
 
     loan = db.relationship('Loan', backref='report_comments')
     officer = db.relationship('User', backref='report_comments')
+
+class FlaggedLoan(db.Model):
+    __tablename__ = 'flagged_loans'
+    id = db.Column(db.Integer, primary_key=True)
+    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
+    flagged_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    flagged_at = db.Column(db.DateTime, default=datetime.utcnow)
+    resolved = db.Column(db.Boolean, default=False)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    resolved_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    previous_officer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    valuer_notes = db.Column(db.Text, nullable=True)
+    flag_reason = db.Column(db.String(255), nullable=True)
+
+    loan = db.relationship('Loan', backref='flag_entry')
+    flagger = db.relationship('User', foreign_keys=[flagged_by])
+    resolver = db.relationship('User', foreign_keys=[resolved_by])
+    previous_officer = db.relationship('User', foreign_keys=[previous_officer_id])

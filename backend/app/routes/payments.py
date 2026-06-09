@@ -150,15 +150,15 @@ def _accrue_daily(loan, today, last_date):
     return loan
 
 def _get_second_sunday(disbursement_date):
-    """Return the second Sunday strictly after disbursement_date."""
-    dow = disbursement_date.weekday()          # 0=Mon … 6=Sun
-    if dow == 6:
-        days_to_first_sunday = 7
+    dow = disbursement_date.weekday()
+    if dow == 6:  # Sunday
+        # For Sunday loans, second Sunday = next Sunday (7 days later)
+        return disbursement_date + timedelta(days=7)
     else:
         days_to_first_sunday = (6 - dow) % 7
-    first_sunday = disbursement_date + timedelta(days=days_to_first_sunday)
-    second_sunday = first_sunday + timedelta(days=7)
-    return second_sunday
+        first_sunday = disbursement_date + timedelta(days=days_to_first_sunday)
+        second_sunday = first_sunday + timedelta(days=7)
+        return second_sunday
 
 def _accrue_weekly(loan, today, last_date):
     """Accrue weekly compound interest only after the second Sunday."""
@@ -378,21 +378,26 @@ def _loan_summary(loan):
     current_period = _get_current_period_key(loan)
 
     if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-        # Compound weekly – only current period interest can be "unpaid"
-        period_interest = _get_current_period_interest(loan)
+        # Raw weekly interest (30% of current principal)
+        raw_period_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        period_interest = raw_period_interest   # this goes to "Interest / Period"
+
         if loan.interest_prepaid_period == current_period:
             period_prepaid = loan.interest_prepaid_amount or Decimal('0')
-            period_already_paid = period_prepaid >= period_interest - Decimal('0.01')
-            unpaid = max(Decimal('0'), period_interest - period_prepaid)
+            # Unpaid = raw interest minus what has been prepaid
+            unpaid = max(Decimal('0'), raw_period_interest - period_prepaid)
+            period_already_paid = period_prepaid >= raw_period_interest - Decimal('0.01')
         else:
+            unpaid = raw_period_interest
+            period_prepaid = Decimal('0')
             period_already_paid = False
-            unpaid = period_interest
     else:
         # Daily or zero‑interest – use accumulated interest
-        period_interest = _get_current_period_interest(loan)
+        raw_period_interest = _get_current_period_interest(loan)
+        period_interest = raw_period_interest
         if loan.interest_prepaid_period == current_period:
             period_prepaid = loan.interest_prepaid_amount or Decimal('0')
-            period_already_paid = period_prepaid >= period_interest - Decimal('0.01')
+            period_already_paid = period_prepaid >= raw_period_interest - Decimal('0.01')
         unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
 
     return {
@@ -402,18 +407,17 @@ def _loan_summary(loan):
         'interest_paid': float(loan.interest_paid),
         'current_principal': float(loan.current_principal),
         'accrued_interest': float(loan.accrued_interest),
-        'unpaid_interest': float(unpaid),          # ← fixed for weekly compound
+        'unpaid_interest': float(unpaid),               # correct for weekly: raw - prepaid
         'balance': float(loan.balance),
         'due_date': loan.due_date.isoformat() if loan.due_date else None,
         'status': loan.status,
         'repayment_plan': loan.repayment_plan,
         'interest_type': loan.interest_type,
-        'current_period_interest': float(period_interest),
+        'current_period_interest': float(period_interest),   # now raw weekly interest
         'period_interest_prepaid': float(period_prepaid),
         'period_interest_fully_paid': period_already_paid,
         'interest_prepaid_period': loan.interest_prepaid_period,
     }
-
 
 # ---------------------------------------------------------------------------
 # Cash payment endpoint

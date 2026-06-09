@@ -840,6 +840,7 @@ def claim_ownership():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
         
+
 @admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director','secretary','head_of_it', 'client_relations_officer'])
@@ -853,29 +854,47 @@ def process_topup(loan_id):
             return jsonify({'error': 'Not found'}), 404
         if loan.status != 'active':
             return jsonify({'error': 'Not active'}), 400
-        old_principal = loan.principal_amount
+
+        # Use current principal as the reference
+        old_principal = loan.current_principal
+        delta = Decimal('0')
+
         if topup_amount > 0:
-            loan.principal_amount  += topup_amount
-            loan.current_principal += topup_amount
-            loan.total_amount       = loan.principal_amount
-            loan.balance            = loan.current_principal
-            txn_type = 'topup'; txn_amt = topup_amount
+            delta = topup_amount
+            loan.current_principal += delta
+            loan.principal_amount += delta   # also update original principal for consistency
+            loan.total_amount = loan.principal_amount
+            loan.balance = loan.current_principal
+            txn_type = 'topup'
+            txn_amt = topup_amount
             txn_notes = f'Top-up of {format_currency(topup_amount)}'
         elif adjustment_amount > 0:
-            loan.principal_amount  = adjustment_amount
+            # adjustment_amount is the new total principal
+            delta = adjustment_amount - loan.current_principal
             loan.current_principal = adjustment_amount
-            loan.total_amount      = adjustment_amount
-            loan.balance           = adjustment_amount
-            txn_type = 'adjustment'; txn_amt = adjustment_amount - old_principal
-            txn_notes = f'Adjustment {format_currency(old_principal)} → {format_currency(adjustment_amount)}'
+            loan.balance = adjustment_amount
+            txn_type = 'adjustment'
+            txn_amt = delta   # positive or negative delta
+            txn_notes = f'Adjustment from {format_currency(old_principal)} → {format_currency(adjustment_amount)}'
         else:
             return jsonify({'error': 'Invalid amount'}), 400
+
+        # Optional: Recalculate accrued interest if needed
+        # from app.routes.payments import recalculate_loan
+        # loan = recalculate_loan(loan)
+
         if data.get('notes'):
             txn_notes += f'. {data["notes"]}'
-        txn = Transaction(loan_id=loan.id, transaction_type=txn_type, amount=txn_amt,
-                          payment_method=data.get('disbursement_method', 'cash'),
-                          mpesa_receipt=data.get('mpesa_reference', '').upper() or None,
-                          notes=txn_notes, status='completed')
+
+        txn = Transaction(
+            loan_id=loan.id,
+            transaction_type=txn_type,
+            amount=abs(txn_amt),
+            payment_method=data.get('disbursement_method', 'cash'),
+            mpesa_receipt=data.get('mpesa_reference', '').upper() or None,
+            notes=txn_notes,
+            status='completed'
+        )
         db.session.add(txn)
         db.session.commit()
 
@@ -889,6 +908,7 @@ def process_topup(loan_id):
             user_id=get_jwt_identity()
         )
         db.session.commit()
+
         return jsonify({'success': True, 'loan': loan.to_dict()}), 200
     except Exception as e:
         db.session.rollback()
