@@ -1580,9 +1580,9 @@ export const generateManualLoanAgreementPDF = async () => {
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
+        "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a",
         "   renewal agreement",
-        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 30 days holding period",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48 hrs(2 days) holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest of 4.5% daily on overdue amounts",
         ""
@@ -2671,9 +2671,9 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
+        "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a",
         "   renewal agreement",
-        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 30 days holding period",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48 hrs(2 days) holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
@@ -3072,9 +3072,9 @@ export const generateManualNextOfKinConsentPDF = async () => {
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 30 days to allow the Recipient to repay or sign a",
+        "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a",
         "   renewal agreement",
-        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 30-day holding period",
+        "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48 hrs(2 days) holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
@@ -7158,25 +7158,27 @@ export const generatePromissoryNote = async (data, preview = false) => {
 
   yPos += 10;
 
-  // --- FIX: define totalBalance from data.totalBalance ---
+  // --- CORRECTED: totalInWords uses totalBalance, amountInWords for the payment clause ---
   const totalBalance = parseFloat(data.totalBalance) || 0;
-
   const amountToPay = parseFloat(data.amountToPay) || 0;
-  const amountInWords = numberToWords(amountToPay);
+
+  const totalInWords = numberToWords(totalBalance);   // ← FIX: words for total debt
+  const amountInWords = numberToWords(amountToPay);   // ← kept for possible later use
+
   const dueDateFormatted = data.dueDate ? new Date(data.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '___________________';
   const clientName = data.clientName || '___________________';
   const idNumber = data.idNumber || '__________';
 
-  // Build statement parts – total balance is used in the “indebted in the sum” clause
+  // Build statement parts – now the “indebted in the sum” uses totalBalance in both words and figures
   const statementParts = [
     { text: 'I, ', style: 'normal' },
     { text: clientName, style: 'bold' },
     { text: ', ID Number ', style: 'normal' },
     { text: idNumber, style: 'bold' },
     { text: ', hereby acknowledge that I am indebted to Nagolie Enterprises in the sum of Kenya Shillings ', style: 'normal' },
-    { text: amountInWords, style: 'bold' },                         // amount in words of the total owed
+    { text: totalInWords, style: 'bold' },                         // ✅ correct: words = total owed
     { text: '  (KES ', style: 'normal' },
-    { text: totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },  // total owed in figures
+    { text: totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },  // ✅ figure = total owed
     { text: '), being a loan advanced to me. I agree and promise to pay KES ', style: 'normal' },
     { text: amountToPay.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },
     { text: ' on or before ', style: 'normal' },
@@ -7184,7 +7186,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
     { text: ' as payment of the said loan.', style: 'normal' },
   ];
 
-  // Render the statement with wrapping (same as before)
+  // Render the statement with wrapping
   let currentX = 20;
   let currentY = yPos;
   let currentLineParts = [];
@@ -7215,7 +7217,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
 
   yPos = currentY + 10;
 
-  // Signature lines (unchanged)
+  // Signature lines
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.text('Client Signature:', 20, yPos);
@@ -7391,5 +7393,120 @@ export const generateManualPromissoryNotePDF = async () => {
   addFooter(doc, yPos + 15);
 
   const fileName = `Manual_Promissory_Note_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
+};
+
+// ========== VALUER REPORT FROM DATA (GENERATED WITH ACTUAL CONTENT) ==========
+export const generateValuerReportFromData = async (flaggedClients, reportDate, officerName) => {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  addOptimizedWatermark(doc, 'document');
+
+  const margin = { left: 7, right: 7, top: 10 };
+  const pageWidth = doc.internal.pageSize.width;
+  const tableWidth = pageWidth - margin.left - margin.right;
+  const colPercent = [5, 20, 12, 15, 15, 33];
+  let colWidths = colPercent.map(p => (tableWidth * p) / 100);
+  if (colWidths[0] < 8) colWidths[0] = 8;
+  if (colWidths[1] < 38) colWidths[1] = 38;
+  if (colWidths[2] < 12) colWidths[2] = 12;
+  const used = colWidths.reduce((a,b)=>a+b,0);
+  if (used < tableWidth) colWidths[5] += (tableWidth - used);
+
+  let yPos = await addHeader(doc, margin.top);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('VALUER RECOVERY REPORT', pageWidth/2, yPos, { align: 'center' });
+  yPos += 10;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Valuer: ${officerName}`, margin.left, yPos);
+  doc.text(`Report Date: ${reportDate}`, pageWidth - margin.right - 50, yPos);
+  yPos += 8;
+
+  const headers = ['#', 'Client Name', 'Date Flagged', 'Principal (KES)', 'Interest (KES)', 'Valuer Notes'];
+  let startX = margin.left;
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.rect(startX, yPos, tableWidth, 8, 'F');
+  let x = startX;
+  headers.forEach((h,i) => {
+    doc.text(h, x+4, yPos+5.5);
+    x += colWidths[i];
+  });
+  yPos += 8;
+  doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'normal');
+  const rowHeight = 25;
+
+  for (let i=0; i<flaggedClients.length; i++) {
+    const client = flaggedClients[i];
+    if (yPos + rowHeight > 280) {
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'document');
+      yPos = margin.top;
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.setTextColor(...COLORS.white);
+      doc.rect(startX, yPos, tableWidth, 8, 'F');
+      x = startX;
+      headers.forEach((h,idx) => {
+        doc.text(h, x+2, yPos+5.5);
+        x += colWidths[idx];
+      });
+      yPos += 8;
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    }
+    if (i % 2 === 0) {
+      doc.setFillColor(...COLORS.border);
+      doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
+    }
+    let cx = startX;
+    for (let j=0; j<colWidths.length; j++) {
+      doc.rect(cx, yPos, colWidths[j], rowHeight);
+      cx += colWidths[j];
+    }
+    doc.text((i+1).toString(), startX+3, yPos+15);
+    doc.text(client.client_name, startX+colWidths[0]+3, yPos+15);
+    const flaggedDate = new Date(client.flagged_at).toLocaleDateString('en-GB');
+    doc.text(flaggedDate, startX+colWidths[0]+colWidths[1]+3, yPos+15);
+    doc.text(client.current_principal.toLocaleString(), startX+colWidths[0]+colWidths[1]+colWidths[2]+3, yPos+15);
+    doc.text(client.unpaid_interest.toLocaleString(), startX+colWidths[0]+colWidths[1]+colWidths[2]+colWidths[3]+3, yPos+15);
+    // Wrap notes
+    const notesLines = doc.splitTextToSize(client.valuer_notes || '', colWidths[5]-4);
+    let noteY = yPos+5;
+    notesLines.forEach(line => {
+      doc.text(line, startX+colWidths[0]+colWidths[1]+colWidths[2]+colWidths[3]+colWidths[4]+3, noteY);
+      noteY += 5;
+    });
+    yPos += rowHeight;
+  }
+
+  // Signature and stamp
+  yPos += 10;
+  if (yPos > 270) { doc.addPage(); addWatermarkToCurrentPage(doc, 'document'); yPos = margin.top; }
+  doc.setFont('helvetica', 'bold');
+  doc.text('Prepared by Valuer: ______________________________', margin.left, yPos);
+  doc.text('Signature: ___________________', margin.left+120, yPos);
+  yPos += 12;
+  doc.text('Approved by Director:  Shadrack Kesumet', margin.left, yPos);
+  doc.text('Signature: ___________________', margin.left+80, yPos);
+  doc.text('Date: ___________________', margin.left+140, yPos);
+  yPos += 10;
+  const stampW = 50, stampH = 30;
+  const stampX = (pageWidth - stampW)/2;
+  doc.setDrawColor(200,200,200);
+  doc.roundedRect(stampX, yPos, stampW, stampH, 2, 2);
+  doc.setTextColor(150,150,150);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'italic');
+  doc.text('COMPANY STAMP', stampX+stampW/2, yPos+stampH/2, { align: 'center' });
+  addFooter(doc, yPos+stampH+10);
+  addPageNumbers(doc, 'page %d');
+
+  const fileName = `Valuer_Report_${reportDate.replace(/\//g, '-')}.pdf`;
   doc.save(fileName);
 };
