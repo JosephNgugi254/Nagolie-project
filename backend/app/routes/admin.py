@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from app import db
-from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment
+from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, FlaggedLoan, Role, MenuItem, RoleMenuItem
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy import func
@@ -16,6 +16,7 @@ import string
 from app.services.ledger import record_ledger_entry   # NEW
 from app.routes.payments import compute_overdue
 from flask_cors import cross_origin
+from flask import current_app
 from app.routes.payments import recalculate_loan, _loan_summary, _get_current_period_key, _get_current_period_interest
 
 admin_bp = Blueprint('admin', __name__)
@@ -71,9 +72,12 @@ def _days_left_label(loan, today):
 # Helper to refresh all day‑based assignments
 def refresh_day_assignments():
     """Clear outdated day_based assignments and create new ones based on current day assignments."""
-    # Deactivate all existing day_based assignments
     ClientAssignment.query.filter_by(assignment_type='day_based', is_active=True).update({'is_active': False})
     db.session.flush()
+    
+    # Exclude flagged loans
+    flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
+    loans = Loan.query.filter(Loan.status == 'active', Loan.id.notin_(flagged_ids)).all()
 
     # For each active loan, get its disbursement weekday
     loans = Loan.query.filter_by(status='active').all()
@@ -112,6 +116,9 @@ def get_assigned_clients_for_user(user_id):
     result = []
     for ass in assignments:
         loan = ass.loan
+        flagged = FlaggedLoan.query.filter_by(loan_id=loan.id, resolved=False).first()
+        if flagged:
+            continue
         client = loan.client
         if not client or loan.status != 'active':
             continue
@@ -165,7 +172,7 @@ def test_endpoint():
 
 @admin_bp.route('/applications', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director','secretary', 'client_relations_officer'])
+@role_required(['admin', 'director','secretary', 'client_relations_officer', 'hr_manager'])
 def get_applications():
     try:
         apps = Loan.query.filter_by(status='pending').order_by(Loan.created_at.desc()).all()
@@ -202,7 +209,7 @@ def get_applications():
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director','secretary', 'client_relations_officer'])
+@role_required(['admin', 'director','secretary', 'client_relations_officer', 'hr_manager'])
 def approve_application(loan_id):
     try:
         data           = request.get_json()
@@ -316,7 +323,7 @@ def approve_application(loan_id):
 
 @admin_bp.route('/applications/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director','secretary', 'client_relations_officer'])
+@role_required(['admin', 'director','secretary', 'client_relations_officer', 'hr_manager'])
 def reject_application(loan_id):
     try:
         loan = db.session.get(Loan, loan_id)
@@ -340,7 +347,7 @@ def reject_application(loan_id):
 
 @admin_bp.route('/clients', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
 def get_all_clients():
     try:
         today = datetime.now().date()
@@ -441,7 +448,7 @@ def get_all_clients():
 
 @admin_bp.route('/dashboard', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
 def get_dashboard_stats():
     try:
         total_clients = db.session.query(Client).join(Loan).filter(
@@ -520,7 +527,7 @@ def get_dashboard_stats():
 
 @admin_bp.route('/payment-stats', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
 def get_payment_stats():
     try:
         loans = Loan.query.filter(
@@ -575,7 +582,7 @@ def get_payment_stats():
 
 @admin_bp.route('/livestock', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def get_all_livestock():
     try:
         page     = request.args.get('page', 1, type=int)
@@ -700,7 +707,7 @@ def get_public_livestock_gallery():
 
 @admin_bp.route('/transactions', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
 def get_all_transactions():
     try:
         txns = Transaction.query.order_by(Transaction.created_at.desc()).all()
@@ -726,7 +733,7 @@ def get_all_transactions():
 
 @admin_bp.route('/livestock', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def add_livestock():
     try:
         data = request.json
@@ -752,7 +759,7 @@ def add_livestock():
 
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def update_livestock(livestock_id):
     try:
         lv = db.session.get(Livestock, livestock_id)
@@ -785,7 +792,7 @@ def update_livestock(livestock_id):
 
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['DELETE'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def delete_livestock(livestock_id):
     try:
         lv = db.session.get(Livestock, livestock_id)
@@ -801,7 +808,7 @@ def delete_livestock(livestock_id):
 
 @admin_bp.route('/send-reminder', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
 def send_reminder():
     data = request.json
     if not data.get('phone') or not data.get('message'):
@@ -811,7 +818,7 @@ def send_reminder():
 
 @admin_bp.route('/claim-ownership', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'head_of_it'])
+@role_required(['admin', 'director', 'head_of_it', 'hr_manager', 'client_relations_officer'])
 def claim_ownership():
     try:
         data = request.get_json()
@@ -867,7 +874,7 @@ def claim_ownership():
 
 @admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director','secretary','head_of_it', 'client_relations_officer'])
+@role_required(['admin', 'director','secretary','head_of_it', 'client_relations_officer', 'hr_manager'])
 def process_topup(loan_id):
     try:
         data             = request.json
@@ -879,34 +886,38 @@ def process_topup(loan_id):
         if loan.status != 'active':
             return jsonify({'error': 'Not active'}), 400
 
-        # Use current principal as the reference
+        # Use current principal as the baseline
         old_principal = loan.current_principal
         delta = Decimal('0')
+        txn_type = None
+        txn_amt = None
+        txn_notes = ''
 
         if topup_amount > 0:
+            # TOP-UP: add extra amount to current principal only
             delta = topup_amount
             loan.current_principal += delta
-            loan.principal_amount += delta   # also update original principal for consistency
-            loan.total_amount = loan.principal_amount
-            loan.balance = loan.current_principal
+            loan.balance = loan.current_principal   # will be updated by recalc
             txn_type = 'topup'
             txn_amt = topup_amount
             txn_notes = f'Top-up of {format_currency(topup_amount)}'
+
         elif adjustment_amount > 0:
-            # adjustment_amount is the new total principal
+            # ADJUSTMENT: set current principal to the new total amount
             delta = adjustment_amount - loan.current_principal
             loan.current_principal = adjustment_amount
             loan.balance = adjustment_amount
             txn_type = 'adjustment'
             txn_amt = delta   # positive or negative delta
             txn_notes = f'Adjustment from {format_currency(old_principal)} → {format_currency(adjustment_amount)}'
+
         else:
             return jsonify({'error': 'Invalid amount'}), 400
 
-        # Optional: Recalculate accrued interest if needed
-        # from app.routes.payments import recalculate_loan
-        # loan = recalculate_loan(loan)
+        # Recalculate loan to apply correct interest based on new principal
+        loan = recalculate_loan(loan)
 
+        # Append any user notes
         if data.get('notes'):
             txn_notes += f'. {data["notes"]}'
 
@@ -934,14 +945,14 @@ def process_topup(loan_id):
         db.session.commit()
 
         return jsonify({'success': True, 'loan': loan.to_dict()}), 200
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-
 @admin_bp.route('/approved-loans', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
 def get_approved_loans():
     try:
         loans = db.session.query(
@@ -1314,12 +1325,16 @@ def get_investor_statement(investor_id):
 
 @admin_bp.route('/loans/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
 def renew_loan(loan_id):
     try:
         from app.routes.payments import recalculate_loan, _loan_summary
         from datetime import datetime, timedelta
         from decimal import Decimal
+
+        data = request.get_json() or {}
+        new_principal = data.get('new_principal')
+        new_repayment_plan = data.get('new_repayment_plan')
 
         loan = db.session.get(Loan, loan_id)
         if not loan:
@@ -1329,39 +1344,63 @@ def renew_loan(loan_id):
 
         loan = recalculate_loan(loan)
 
+        # Determine the new principal
+        if new_principal is not None:
+            try:
+                new_principal = Decimal(str(new_principal))
+                if new_principal <= 0:
+                    return jsonify({'error': 'New principal must be positive'}), 400
+            except:
+                return jsonify({'error': 'Invalid new_principal value'}), 400
+        else:
+            new_principal = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
+            if new_principal <= Decimal('0.01'):
+                return jsonify({'error': 'No outstanding balance to renew'}), 400
+
+        # Determine the repayment plan
+        if new_repayment_plan not in ['weekly', 'daily']:
+            new_repayment_plan = loan.repayment_plan  # fallback to original
+
         now = datetime.utcnow()
+        # Eligibility check (still required)
         disburse = loan.disbursement_date or loan.created_at
         days_since = (now - disburse).days
         if days_since < 14 and loan.due_date > now:
             return jsonify({'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'}), 400
 
-        outstanding_balance = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
-        if outstanding_balance <= Decimal('0.01'):
-            return jsonify({'error': 'No outstanding balance to renew'}), 400
-
         # Mark old loan as renewed
         loan.status = 'renewed'
         loan.balance = Decimal('0')
         loan.amount_paid = loan.total_amount
-        loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()} - new principal: {outstanding_balance}"
+        loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()} - new principal: {new_principal}"
 
-        # Create new loan
+        # Create new loan with chosen plan
+        if new_repayment_plan == 'daily':
+            interest_rate = Decimal('4.5')
+            interest_type = 'simple'
+            due_date = now + timedelta(days=14)
+        else:
+            interest_rate = Decimal('30.0')
+            interest_type = 'compound'
+            due_date = now + timedelta(days=7)
+
         new_loan = Loan(
             client_id=loan.client_id,
             livestock_id=loan.livestock_id,
-            principal_amount=outstanding_balance,
-            current_principal=outstanding_balance,
-            total_amount=outstanding_balance,
-            balance=outstanding_balance,
-            interest_rate=loan.interest_rate,
-            interest_type=loan.interest_type,
-            repayment_plan=loan.repayment_plan,
+            principal_amount=new_principal,
+            current_principal=new_principal,
+            total_amount=new_principal,
+            balance=new_principal,
+            interest_rate=interest_rate,
+            interest_type=interest_type,
+            repayment_plan=new_repayment_plan,
             funding_source=loan.funding_source,
             investor_id=loan.investor_id,
             disbursement_date=now,
+            due_date=due_date,
             status='active',
             collateral_text=loan.collateral_text,
-            notes=f"Renewal of loan #{loan.id} - original principal {loan.principal_amount}",
+            notes=f"Renewal of loan #{loan.id} - original principal {loan.principal_amount} | Plan: {new_repayment_plan}",
             created_at=now,
             principal_paid=Decimal('0'),
             interest_paid=Decimal('0'),
@@ -1373,20 +1412,15 @@ def renew_loan(loan_id):
             root_loan_id=loan.root_loan_id or loan.id
         )
 
-        if new_loan.repayment_plan == 'daily':
-            new_loan.due_date = now + timedelta(days=14)
-        else:
-            new_loan.due_date = now + timedelta(days=7)
-
         db.session.add(new_loan)
         db.session.flush()
 
         txn = Transaction(
             loan_id=loan.id,
             transaction_type='renewal',
-            amount=outstanding_balance,
+            amount=new_principal,
             payment_method='renewal',
-            notes=f'Loan renewed. New loan ID: {new_loan.id}',
+            notes=f'Loan renewed. New loan ID: {new_loan.id} | Plan: {new_repayment_plan}',
             status='completed',
             created_at=now
         )
@@ -1397,12 +1431,12 @@ def renew_loan(loan_id):
 
         db.session.commit()
 
-        # Record ledger entries for renewal
+        # Record ledger entries
         record_ledger_entry(
             loan=loan,
             event_type='renewal_merged',
             transaction=txn,
-            amount=outstanding_balance,
+            amount=new_principal,
             notes=f'Loan renewed into new loan ID {new_loan.id}',
             reference=str(new_loan.id),
             user_id=get_jwt_identity()
@@ -1412,7 +1446,7 @@ def renew_loan(loan_id):
             event_type='renewal_created',
             transaction=None,
             amount=new_loan.principal_amount,
-            notes=f'Renewal of loan #{loan.id}',
+            notes=f'Renewal of loan #{loan.id} – Plan: {new_repayment_plan}',
             reference=str(loan.id),
             user_id=get_jwt_identity()
         )
@@ -1421,8 +1455,8 @@ def renew_loan(loan_id):
         log_audit('loan_renewed', 'loan', loan.id, {
             'old_loan_id': loan.id,
             'new_loan_id': new_loan.id,
-            'outstanding_balance': float(outstanding_balance),
-            'repayment_plan': new_loan.repayment_plan
+            'new_principal': float(new_principal),
+            'repayment_plan': new_repayment_plan
         })
 
         return jsonify({
@@ -1430,7 +1464,8 @@ def renew_loan(loan_id):
             'message': f'Loan renewed. New loan ID: {new_loan.id}',
             'old_loan': loan.to_dict(),
             'new_loan': new_loan.to_dict(),
-            'outstanding_balance': float(outstanding_balance)
+            'new_principal': float(new_principal),
+            'new_repayment_plan': new_repayment_plan
         }), 200
 
     except Exception as e:
@@ -1439,17 +1474,16 @@ def renew_loan(loan_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-
 # ---------------------------------------------------------------------------
-# Loan waiver (with ledger entries and parent/root linking)
+# Loan waiver (with ledger entries, parent/root linking, and original plan storage)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/loans/<int:loan_id>/waive', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])
 def waive_loan(loan_id):
     try:
-        from app.routes.payments import recalculate_loan, _loan_summary
+        from app.routes.payments import recalculate_loan, _loan_summary, _get_current_period_interest
         from decimal import Decimal
         from datetime import datetime, timedelta
 
@@ -1464,13 +1498,35 @@ def waive_loan(loan_id):
         if not loan or loan.status != 'active':
             return jsonify({'error': 'Loan not found or not active'}), 404
 
+        # Recalculate to get latest figures
         loan = recalculate_loan(loan)
-        current_balance = loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
 
-        if new_principal >= current_balance - Decimal('0.01'):
-            return jsonify({'error': 'New principal must be less than current balance'}), 400
+        # ---------- FIX: Compute total outstanding balance correctly ----------
+        # For weekly loans, include the current week's interest (even if not yet capitalised)
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            current_period_interest = _get_current_period_interest(loan)
+            current_balance = loan.current_principal + current_period_interest
+        else:
+            # Daily or zero‑interest loans
+            current_balance = loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+
+        # Allow a tolerance of up to 1 KES
+        if new_principal >= current_balance - Decimal('1.00'):
+            return jsonify({
+                'error': f'New principal must be less than current balance (current: {current_balance:.2f})',
+                'debug_current_balance': float(current_balance),
+                'debug_new_principal': float(new_principal)
+            }), 400
+
+        current_app.logger.info(f"Waiver: loan {loan.id}, current_principal={loan.current_principal}, "
+                        f"accrued_interest={loan.accrued_interest}, interest_paid={loan.interest_paid}, "
+                        f"computed_balance={current_balance}, new_principal={new_principal}")
 
         reduction = current_balance - new_principal
+
+        # Store original plan for possible reversion
+        original_plan = loan.repayment_plan
+        original_rate = loan.interest_rate
 
         # Mark old loan as waived
         loan.status = 'waived'
@@ -1515,7 +1571,9 @@ def waive_loan(loan_id):
             interest_prepaid_period=None,
             interest_prepaid_amount=Decimal('0'),
             parent_loan_id=loan.id,
-            root_loan_id=loan.root_loan_id or loan.id
+            root_loan_id=loan.root_loan_id or loan.id,
+            original_repayment_plan=original_plan,
+            original_interest_rate=original_rate
         )
 
         db.session.add(new_loan)
@@ -1526,7 +1584,7 @@ def waive_loan(loan_id):
 
         db.session.commit()
 
-        # Record ledger entries for waiver
+        # Record ledger entries
         record_ledger_entry(
             loan=loan,
             event_type='waiver',
@@ -1552,7 +1610,9 @@ def waive_loan(loan_id):
             'new_loan_id': new_loan.id,
             'old_balance': float(current_balance),
             'new_principal': float(new_principal),
-            'duration_days': duration_days
+            'duration_days': duration_days,
+            'original_repayment_plan': original_plan,
+            'original_interest_rate': float(original_rate) if original_rate else None
         })
 
         return jsonify({
@@ -1569,6 +1629,76 @@ def waive_loan(loan_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@admin_bp.route('/revert-waived-loans', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def revert_waived_loans():
+    """
+    Revert all waived loans (interest_rate=0, repayment_plan='daily') whose due_date has passed.
+    The loan will be restored to its original repayment plan and interest rate.
+    This endpoint should be called daily (e.g., via cron job).
+    """
+    try:
+        from app.routes.payments import recalculate_loan
+        from datetime import datetime, timedelta
+
+        today = datetime.utcnow()
+        # Find all active waived loans that are overdue
+        waived_loans = Loan.query.filter(
+            Loan.status == 'active',
+            Loan.interest_rate == 0,
+            Loan.repayment_plan == 'daily',
+            Loan.due_date < today
+        ).all()
+
+        reverted_count = 0
+        for loan in waived_loans:
+            # Determine original plan and interest rate
+            original_plan = loan.original_repayment_plan
+            original_rate = loan.original_interest_rate
+
+            # Fallback to parent loan if original fields missing (for older records)
+            if not original_plan and loan.parent_loan_id:
+                parent = db.session.get(Loan, loan.parent_loan_id)
+                if parent:
+                    original_plan = parent.repayment_plan
+                    original_rate = parent.interest_rate
+
+            # Default fallback if still missing
+            if not original_plan:
+                original_plan = 'weekly'
+            if not original_rate or original_rate == 0:
+                original_rate = Decimal('30.0') if original_plan == 'weekly' else Decimal('4.5')
+
+            # Update loan to original plan
+            loan.repayment_plan = original_plan
+            loan.interest_rate = original_rate
+            loan.interest_type = 'compound' if original_plan == 'weekly' else 'simple'
+            loan.due_date = today + timedelta(days=7 if original_plan == 'weekly' else 14)
+            # Reset prepaid interest data
+            loan.interest_prepaid_period = None
+            loan.interest_prepaid_amount = Decimal('0')
+            # The current_principal already holds the balance of the waived loan
+            # Recalculate to set accrued_interest etc.
+            loan = recalculate_loan(loan)
+            db.session.add(loan)
+            reverted_count += 1
+
+            # Audit log entry
+            log_audit('loan_reverted', 'loan', loan.id, {
+                'original_plan': original_plan,
+                'original_rate': float(original_rate),
+                'current_principal': float(loan.current_principal)
+            })
+
+        db.session.commit()
+        return jsonify({'success': True, 'reverted_count': reverted_count}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 # ---------------------------------------------------------------------------
 # Livestock single item (public)
@@ -1632,7 +1762,7 @@ def get_single_livestock(livestock_id):
 
 @admin_bp.route('/loan/<int:loan_id>/ledger', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'head_of_it', 'hr_manager'])
 def get_loan_ledger(loan_id):
     from app.models import LoanLedger
     loan = db.session.get(Loan, loan_id)
@@ -1653,7 +1783,7 @@ def get_loan_ledger(loan_id):
 # In admin.py, update the get_consolidated_statement function
 @admin_bp.route('/loan/<int:loan_id>/consolidated-statement', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'client_relations_officer', 'hr_manager'])
 def get_consolidated_statement(loan_id):
     from app.models import LoanLedger, Transaction
     loan = db.session.get(Loan, loan_id)
@@ -1712,7 +1842,7 @@ def get_consolidated_statement(loan_id):
 
 @admin_bp.route('/day-assignments', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def get_day_assignments():
     """Return all officers/secretary with their assigned days."""
     # Get all users with role secretary or client_relations_officer
@@ -1731,7 +1861,7 @@ def get_day_assignments():
 
 @admin_bp.route('/day-assignments', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def update_day_assignments():
     """Update day assignments for a user. Expects { user_id, days } where days is list of ints (0-6)."""
     data = request.json
@@ -1758,16 +1888,21 @@ def update_day_assignments():
 
 
 @admin_bp.route('/client-assignments', methods=['GET'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def get_all_client_assignments():
     """Return all active loans with their assigned officer and totals per officer."""
-    # Import necessary helpers from payments module
     from app.routes.payments import _get_current_period_key, _get_current_period_interest
 
-    loans = Loan.query.filter_by(status='active').options(joinedload(Loan.client)).all()
+    flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
+    # FIX: removed invalid `.options(...)` – use `.all()` directly
+    loans = Loan.query.filter(
+        Loan.status == 'active',
+        Loan.id.notin_(flagged_ids)
+    ).all()
+
     assignments = {}
-    # Build officer totals
     officers = User.query.filter(User.role.in_(['secretary', 'client_relations_officer'])).all()
     for off in officers:
         assignments[off.id] = {
@@ -1782,7 +1917,6 @@ def get_all_client_assignments():
 
     for loan in loans:
         loan = recalculate_loan(loan)
-        # Find active assignment for this loan
         ass = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
         if not ass:
             continue
@@ -1790,7 +1924,7 @@ def get_all_client_assignments():
         if off_id not in assignments:
             continue
 
-        # --- Correct unpaid interest calculation (matching recovery module) ---
+        # Calculate correct unpaid interest
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
             current_period = _get_current_period_key(loan)
             period_interest = _get_current_period_interest(loan)
@@ -1800,7 +1934,6 @@ def get_all_client_assignments():
             else:
                 unpaid_interest = float(period_interest)
         else:
-            # daily or zero‑interest
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
         client_data = {
@@ -1810,8 +1943,8 @@ def get_all_client_assignments():
             'current_principal': float(loan.current_principal),
             'unpaid_interest': unpaid_interest,
             'total_balance': float(loan.current_principal + Decimal(str(unpaid_interest))),
-            'interest_rate': float(loan.interest_rate),      # <-- added for frontend
-            'repayment_plan': loan.repayment_plan           # <-- added for completeness
+            'interest_rate': float(loan.interest_rate),
+            'repayment_plan': loan.repayment_plan
         }
 
         assignments[off_id]['clients'].append(client_data)
@@ -1821,10 +1954,9 @@ def get_all_client_assignments():
 
     return jsonify(list(assignments.values())), 200
 
-
 @admin_bp.route('/reassign-client', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager' ])
 def reassign_client():
     """Manually reassign a client from one officer to another."""
     data = request.json
@@ -1850,10 +1982,9 @@ def reassign_client():
     db.session.commit()
     return jsonify({'success': True}), 200
 
-
 @admin_bp.route('/balance-suggest', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def suggest_balanced_distribution():
     """Return a suggested redistribution of clients to balance total unpaid interest."""
     target_min = 60000
@@ -1898,7 +2029,7 @@ def suggest_balanced_distribution():
 
 @admin_bp.route('/reset-day-assignments', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def reset_day_assignments():
     """Deactivate all manual assignments and re-run day-based assignment refresh."""
     # Deactivate all manual assignments
@@ -1910,7 +2041,7 @@ def reset_day_assignments():
 
 @admin_bp.route('/apply-suggestion', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director'])
+@role_required(['admin', 'director', 'hr_manager'])
 def apply_suggestion():
     """Apply the suggested distribution (calls reassign_client for each)."""
     data = request.json
@@ -1930,5 +2061,142 @@ def apply_suggestion():
                 is_active=True
             )
             db.session.add(new_ass)
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+# ================== Role Management ==================
+@admin_bp.route('/roles', methods=['GET'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def get_roles():
+    roles = Role.query.all()
+    return jsonify([r.to_dict() for r in roles]), 200
+
+@admin_bp.route('/roles', methods=['POST'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def create_role():
+    data = request.json
+    name = data.get('name')
+    if not name or Role.query.filter_by(name=name).first():
+        return jsonify({'error': 'Role name required or already exists'}), 400
+    role = Role(name=name, description=data.get('description', ''))
+    db.session.add(role)
+    db.session.flush()
+    # assign menu items from data['menu_items'] list of keys
+    menu_keys = data.get('menu_items', [])
+    for key in menu_keys:
+        menu_item = MenuItem.query.filter_by(key=key).first()
+        if menu_item:
+            db.session.add(RoleMenuItem(role_id=role.id, menu_item_id=menu_item.id))
+    db.session.commit()
+    return jsonify(role.to_dict()), 201
+
+@admin_bp.route('/roles/<int:role_id>', methods=['PUT'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def update_role(role_id):
+    role = Role.query.get_or_404(role_id)
+    data = request.json
+    role.name = data.get('name', role.name)
+    role.description = data.get('description', role.description)
+    # update menu items
+    if 'menu_items' in data:
+        RoleMenuItem.query.filter_by(role_id=role.id).delete()
+        for key in data['menu_items']:
+            menu_item = MenuItem.query.filter_by(key=key).first()
+            if menu_item:
+                db.session.add(RoleMenuItem(role_id=role.id, menu_item_id=menu_item.id))
+    db.session.commit()
+    return jsonify(role.to_dict()), 200
+
+@admin_bp.route('/roles/<int:role_id>', methods=['DELETE'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def delete_role(role_id):
+    role = Role.query.get_or_404(role_id)
+    if role.name in ['admin', 'director']:  # protect core roles
+        return jsonify({'error': 'Cannot delete system role'}), 400
+    db.session.delete(role)
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+@admin_bp.route('/menu-items', methods=['GET'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def get_menu_items():
+    items = MenuItem.query.order_by(MenuItem.order).all()
+    return jsonify([i.to_dict() for i in items]), 200
+
+@admin_bp.route('/users', methods=['GET'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def get_users():
+    users = User.query.all()
+    return jsonify([{
+        'id': u.id,
+        'username': u.username,
+        'email': u.email,
+        'role': u.role,
+        'created_at': u.created_at.isoformat(),
+    } for u in users]), 200
+
+@admin_bp.route('/users', methods=['POST'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def create_user():
+    data = request.json
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+    role_name = data.get('role')
+
+    if not all([username, email, password, role_name]):
+        return jsonify({'error': 'Missing fields'}), 400
+    if User.query.filter((User.username == username) | (User.email == email)).first():
+        return jsonify({'error': 'Username or email exists'}), 400
+    role = Role.query.filter_by(name=role_name).first()
+    if not role:
+        return jsonify({'error': 'Invalid role'}), 400
+
+    user = User(username=username, email=email, role=role_name)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({'success': True, 'user': user.to_dict()}), 201
+
+@admin_bp.route('/users/<int:user_id>', methods=['PUT'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def update_user(user_id):
+    user = User.query.get_or_404(user_id)
+    data = request.json
+    if 'role' in data:
+        role = Role.query.filter_by(name=data['role']).first()
+        if not role:
+            return jsonify({'error': 'Invalid role'}), 400
+        user.role = data['role']
+    if 'password' in data and data['password']:
+        user.set_password(data['password'])
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+@admin_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin'])
+def delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.role == 'admin' and User.query.filter_by(role='admin').count() <= 1:
+        return jsonify({'error': 'Cannot delete the only admin'}), 400
+    db.session.delete(user)
     db.session.commit()
     return jsonify({'success': True}), 200

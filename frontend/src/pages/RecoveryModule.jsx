@@ -34,7 +34,6 @@ import AdminTakeActionModal from "../components/admin/TakeActionModal";
 import UtilitiesPanel from '../components/utilities/UtilitiesPanel';
 import { startRegistration } from '@simplewebauthn/browser';
 import ReportsPanel from '../components/recovery/ReportsPanel';
-
 import AdminCard from "../components/admin/AdminCard";
 import AdminTable from "../components/admin/AdminTable";
 import AdminCompanyGallery from "../components/admin/AdminCompanyGallery";
@@ -44,6 +43,7 @@ import ShareLinkModal from "../components/admin/ShareLinkModal";
 import imageCompression from 'browser-image-compression';
 import { getStatusBadge } from '../components/admin/Clientstatusbadge';
 import ReportManagement from '../components/admin/ReportManagement';
+import ValuerPanel from '../components/recovery/ValuerPanel';
 
 const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -76,7 +76,7 @@ function RecoveryModule() {
   const API_BASE = import.meta.env.VITE_API_BASE_URL ||
     (window.location.hostname === 'localhost'
       ? 'http://localhost:5000/api'
-      : 'https://nagolie-backend.onrender.com/api');
+      : 'https://nagolie-backend.onrender.com/api');    
 
   // ---------- Director / Utilities state ----------
   const [directorSection, setDirectorSection] = useState("recovery");
@@ -210,6 +210,26 @@ function RecoveryModule() {
   const [isEarlyWithdrawal, setIsEarlyWithdrawal] = useState(false);
   const [generatingLink, setGeneratingLink] = useState(false);
 
+  // Flag confirmation modal
+  const [showFlagConfirmModal, setShowFlagConfirmModal] = useState(false);
+  const [flagLoanToConfirm, setFlagLoanToConfirm] = useState(null);
+  const [flagLoanName, setFlagLoanName] = useState('');
+
+  const handleConfirmFlag = async () => {
+    if (!flagLoanToConfirm) return;
+    try {
+      await recoveryAPI.flagLoan(flagLoanToConfirm, '');
+      showToast.success('Client flagged for valuer');
+      fetchData(); // refresh the list – loan disappears
+    } catch (err) {
+      showToast.error(err.response?.data?.error || 'Flagging failed');
+    } finally {
+      setShowFlagConfirmModal(false);
+      setFlagLoanToConfirm(null);
+      setFlagLoanName('');
+    }
+  };
+
   // ---------- Director data fetching ----------
   const fetchDirectorDashboard = async () => {
     try {
@@ -305,6 +325,7 @@ function RecoveryModule() {
     } catch (err) { console.error(err); }
     finally { setInvestorTransactionsLoading(false); }
   };
+
   // ---------- Director helper functions (investor management) ----------
   const generateTemporaryPassword = (name) => {
     if (!name?.trim()) return '';
@@ -335,6 +356,8 @@ function RecoveryModule() {
       setDirectorSection("investors");
       return;
     }
+    // Force modal to show
+    setInvestorPassword("");
     setShowInvestorLoginModal(true);
   };
 
@@ -1014,7 +1037,7 @@ function RecoveryModule() {
   };
 
   const canRenewLoan = (loan) => {
-    const allowed = ['director', 'admin', 'secretary', 'client_relations_officer', 'head_of_it', 'deputy_director'];
+    const allowed = ['director', 'admin', 'secretary', 'client_relations_officer', 'head_of_it', 'deputy_director', 'hr_manager'];
     if (!allowed.includes(userRole)) return false;
     if (loan.daysLeft <= 0) return true;
     if (loan.weeks_overdue > 0) return true;
@@ -1025,15 +1048,16 @@ function RecoveryModule() {
     return false;
   };
 
-  const handleDefaulter = async (loanId, mark) => {
-    try {
-      mark ? await recoveryAPI.markDefaulter(loanId) : await recoveryAPI.resolveDefaulter(loanId);
-      showToast.success(mark ? 'Marked as defaulter' : 'Defaulter resolved');
-      fetchData();
-    } catch (e) { showToast.error(e.response?.data?.error || 'Action failed'); }
-  };
+  const [newRenewalPrincipal, setNewRenewalPrincipal] = useState(0);
+  const [newRenewalPlan, setNewRenewalPlan] = useState('weekly');
 
   const openRenewalModal = (loan) => {
+    // Calculate current outstanding balance as default principal
+    const principal = Number(loan.current_principal || loan.currentPrincipal || loan.borrowedAmount || 0);
+    const isWeekly = loan.repayment_plan === 'weekly';
+    const totalBalance = isWeekly ? principal + principal * 0.30 : principal + Number(loan.accrued_interest || 0);
+    setNewRenewalPrincipal(totalBalance);
+    setNewRenewalPlan(loan.repayment_plan || 'weekly');
     setRenewalLoan(loan);
     setShowRenewalModal(true);
   };
@@ -1045,7 +1069,7 @@ function RecoveryModule() {
   };
 
   const handleOpenUtilities = () => {
-    if (['director', 'secretary', 'client_relations_officer'].includes(userRole)) {
+    if (['director', 'secretary', 'client_relations_officer','hr_manager'].includes(userRole)) {
       setDirectorSection('utilities');
     } else {
       setShowUtilities(true);
@@ -1395,7 +1419,7 @@ function RecoveryModule() {
     if (authLoading) return;
     if (!isAuthenticated()) { navigate('/login'); return; }
     if (userRole === 'admin') { navigate('/admin'); return; }
-    const allowed = ['director', 'secretary', 'client_relations_officer', 'accountant', 'valuer', 'head_of_it'];
+    const allowed = ['director', 'secretary', 'client_relations_officer', 'accountant', 'valuer', 'head_of_it', 'hr_manager'];
     if (userRole && !allowed.includes(userRole)) { logout(); navigate('/login'); return; }
     if (!userRole) return;
     fetchData();
@@ -1416,7 +1440,7 @@ function RecoveryModule() {
   }, [userRole]);
   
   useEffect(() => {
-    if (!['director', 'secretary', 'client_relations_officer'].includes(userRole)) return;
+    if (!['director', 'secretary', 'client_relations_officer','hr_manager'].includes(userRole)) return;
 
     // Poll for new applications every 30 seconds (regardless of active section)
     const fetchApps = () => {
@@ -1523,7 +1547,7 @@ function RecoveryModule() {
     };
   }, [isAuthenticated]);
 
-   if (loading) {
+  if (loading) {
     return (
       <div className="text-center py-5">
         <div className="spinner-border text-primary" role="status">
@@ -1533,6 +1557,7 @@ function RecoveryModule() {
       </div>
     );
   }
+
   // ---------- JSX ----------
   return (
     <div>
@@ -1596,8 +1621,8 @@ function RecoveryModule() {
             </div>
 
             <div className="col-md-9 col-lg-10 main-content">
-              {['director', 'secretary', 'client_relations_officer'].includes(userRole) ? (
-                // ---------- DIRECTOR PANEL RECOVERY MODULE DISPLAY ----------
+              {['director', 'secretary', 'client_relations_officer', 'hr_manager'].includes(userRole) ? (
+                // ---------- DIRECTOR / SECRETARY / CLIENT RELATIONS PANEL ----------
                 <>
                   {/* OVERVIEW SECTION */}
                   {directorSection === 'overview' && (
@@ -1658,7 +1683,7 @@ function RecoveryModule() {
                       </div>
                     </div>
                   )}
-
+            
                   {/* ORIGINAL RECOVERY MODULE (for director)*/}
                   {directorSection === 'recovery' && (
                     <>
@@ -1730,29 +1755,40 @@ function RecoveryModule() {
                                         <td>{loan.id_number}</td>
                                         <td>{loan.contacts}</td>
                                         <td>{fmtDate(loan.disbursement_date)}</td>
-                                        <td>{fmt(loan.principal_amount)}</td>
+                                        <td>
+                                          {loan.is_waiver && loan.original_principal ? fmt(loan.original_principal) : fmt(loan.principal_amount)}
+                                        </td>
                                         <td>{fmt(loan.current_principal)}</td>
-                                        <td>{fmt(loan.interest)}</td>
+                                        <td>{loan.interest_rate === 0 ? 'waived' : fmt(loan.interest)}</td>
                                         <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
                                         <td>Week {loan.week}</td>
                                         <td><div className="btn-group btn-group-sm">
-                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (
                                             <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}><i className="fas fa-money-bill-wave"></i></button>
                                           )}
                                           <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`}><i className="fas fa-phone"></i></button>
                                           <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}><i className="fas fa-comment"></i>{commentUnreads[loan.id] > 0 && <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>{commentUnreads[loan.id]}</span>}</button>
                                           <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}><i className="fas fa-bolt"></i></button>
                                           <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}><i className="fas fa-file-invoice"></i></button>
-                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (loan.days_left <= 0 || loan.overdue_days > 0 || loan.overdue_weeks > 0) && (
                                             <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}><i className="fas fa-sync-alt"></i></button>
                                           )}
-                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (
                                             <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)}>
                                               <i className="fas fa-edit"></i>
                                             </button>
                                           )}
-                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
-                                            <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)}><i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i></button>
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (                                            <button
+                                              className="btn btn-outline-danger btn-sm"
+                                              onClick={() => {
+                                                setFlagLoanToConfirm(loan.id);
+                                                setFlagLoanName(loan.name);
+                                                setShowFlagConfirmModal(true);
+                                              }}
+                                              title="Flag as defaulter – moves to valuer"
+                                            >
+                                              <i className="fas fa-flag"></i>
+                                            </button>
                                           )}
                                         </div></td>
                                       </tr>
@@ -1768,7 +1804,7 @@ function RecoveryModule() {
                       {Object.keys(filteredData).length > 0 && (() => { const t = overallTotals(); return (<div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
                     </>
                   )}
-
+            
                   {/* APPLICATIONS SECTION */}
                   {directorSection === 'applications' && (
                     <div id="applications-section" className="content-section">
@@ -1854,7 +1890,7 @@ function RecoveryModule() {
                           )}
                         </>
                       )}
-
+            
                       {/* Approved Loans Tab */}
                       {applicationsTab === 'approved' && (
                         <>
@@ -1949,7 +1985,7 @@ function RecoveryModule() {
                       )}
                     </div>
                   )}
-
+            
                   {/* PAYMENT STATS SECTION */}
                   {directorSection === 'payment-stats' && (
                     <div id="payment-stats-section" className="content-section">
@@ -2049,7 +2085,7 @@ function RecoveryModule() {
                       </div></div>
                     </div>
                   )}
-
+            
                   {/* TRANSACTIONS SECTION */}
                   {directorSection === 'transactions' && (
                     <div id="transactions-section" className="content-section">
@@ -2158,7 +2194,7 @@ function RecoveryModule() {
                       </div>
                     </div>
                   )}
-
+            
                   {/* LIVESTOCK GALLERY SECTION */}
                   {directorSection === 'gallery' && (
                     <div id="gallery-section" className="content-section">
@@ -2185,17 +2221,17 @@ function RecoveryModule() {
                           </div>))}</div>}
                     </div>
                   )}
-
+            
                   {/* COMPANY GALLERY SECTION */}
                   {directorSection === 'company-gallery' && (
                     <AdminCompanyGallery />
                   )}
-
+            
                   {/* REPORT MANAGEMENT SECTION */}
                   {directorSection === 'report-management' && (
                     <ReportManagement />
                   )}
-
+            
                   {/* INVESTORS SECTION */}
                   {directorSection === 'investors' && (
                     <div id="investors-section" className="content-section">
@@ -2367,7 +2403,7 @@ function RecoveryModule() {
                               )}
                             </>
                           )}
-
+            
                           {/* Transactions Tab */}
                           {investorTab === "transactions" && (
                             <>
@@ -2448,13 +2484,13 @@ function RecoveryModule() {
                       )}
                     </div>
                   )}
-
+            
                   {/* UTILITIES */}
                   {directorSection === 'utilities' && <UtilitiesPanel userRole={userRole} restrictedMode={true} />}
-
+                
                   {/* REPORTS */}
                   {directorSection === 'reports' && <ReportsPanel />}
-
+                
                   {/* MODALS (identical to AdminPanel)*/}
                   {showApplicationModal && selectedApplication && (
                     <Modal isOpen={showApplicationModal} onClose={() => setShowApplicationModal(false)} title="Application Details" size="lg">
@@ -2489,11 +2525,11 @@ function RecoveryModule() {
                       )}
                     </Modal>
                   )}
-
+            
                   {showApprovalModal && applicationToApprove && (
                     <LoanApprovalModal isOpen={showApprovalModal} onClose={() => setShowApprovalModal(false)} onApprove={(loanId, fundingData) => handleApplicationAction(loanId, 'approve', fundingData)} application={applicationToApprove} investors={investors} loading={approvingLoan} />
                   )}
-
+            
                   {showImageModal && selectedImage && (
                     <Modal isOpen={showImageModal} onClose={() => { setShowImageModal(false); setSelectedImage(null); }} title="Livestock Photo" size="lg"><div className="text-center"><img src={selectedImage} alt="Livestock" className="img-fluid rounded" style={{ maxHeight:'70vh' }} /></div></Modal>
                   )}
@@ -2510,7 +2546,7 @@ function RecoveryModule() {
                       </form>
                     </Modal>
                   )}
-
+            
                   {showEditLivestockModal && editingLivestock && (
                     <Modal isOpen={showEditLivestockModal} onClose={() => { setShowEditLivestockModal(false); setEditingLivestock(null); setSelectedImages([]); }} title="Edit Livestock" size="lg">
                       <form onSubmit={handleUpdateLivestock}>
@@ -2523,7 +2559,7 @@ function RecoveryModule() {
                       </form>
                     </Modal>
                   )}
-
+            
                   {showShareLinkModal && <ShareLinkModal isOpen={showShareLinkModal} onClose={() => setShowShareLinkModal(false)} shareLinkData={shareLinkData} />}
                   {showViewInvestorModal && selectedInvestor && (
                     <Modal isOpen={showViewInvestorModal} onClose={() => { setShowViewInvestorModal(false); setSelectedInvestor(null); }} title="Investor Details" size="lg">
@@ -2535,7 +2571,7 @@ function RecoveryModule() {
                       <div className="d-flex gap-2 justify-content-end mt-4"><button className="btn btn-success" onClick={() => generateInvestorAgreementPDF(selectedInvestor)}>Download Agreement</button><button className="btn btn-secondary" onClick={() => { setShowViewInvestorModal(false); setSelectedInvestor(null); }}>Close</button></div>
                     </Modal>
                   )}
-
+            
                   {showEditInvestorModal && editingInvestor && (
                     <Modal isOpen={showEditInvestorModal} onClose={() => { setShowEditInvestorModal(false); setEditingInvestor(null); }} title="Edit Investor" size="md">
                       <div className="mb-3"><label className="form-label">Full Name *</label><input type="text" className="form-control" value={updatedInvestor.name} onChange={e => setUpdatedInvestor({...updatedInvestor, name: e.target.value})} required /></div>
@@ -2553,7 +2589,7 @@ function RecoveryModule() {
                   {showDeleteInvestorModal && investorToDelete && (
                     <ConfirmationDialog isOpen={showDeleteInvestorModal} onClose={() => setShowDeleteInvestorModal(false)} onConfirm={confirmDeleteInvestor} title="Delete Investor" message={`Are you sure you want to delete ${investorToDelete.name}'s account? This action will permanently remove all investor data.`} confirmText="Delete" confirmColor="danger" />
                   )}
-
+            
                   {showProcessReturnModal && selectedInvestorForReturn && (
                     <Modal isOpen={showProcessReturnModal} onClose={() => setShowProcessReturnModal(false)} title={isTopupAdjustmentMode ? "Top Up/Adjust Investment" : "Process Investor Return"} size="md">
                       <div className="mb-3"><label className="form-label">Investor Name</label><input type="text" className="form-control" value={selectedInvestorForReturn.name} readOnly /></div>
@@ -2582,7 +2618,7 @@ function RecoveryModule() {
                       <div className="d-flex gap-2"><button className="btn btn-primary" onClick={handleProcessAction}>{isTopupAdjustmentMode ? (adjustmentType === "topup" ? "Process Top Up" : "Adjust Investment") : "Process Return"}</button><button className="btn btn-secondary" onClick={() => setShowProcessReturnModal(false)}>Cancel</button></div>
                     </Modal>
                   )}
-
+            
                   {showInvestorLoginModal && (
                     <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor:'rgba(0,0,0,0.5)', zIndex:1050, position:'fixed', top:0, left:0, width:'100%', height:'100%' }}>
                       <div className="modal-dialog modal-dialog-centered">
@@ -2593,11 +2629,11 @@ function RecoveryModule() {
                       </div>
                     </div>
                   )}
-
+            
                   {showDeleteConfirmation && (
                     <ConfirmationDialog isOpen={showDeleteConfirmation} onClose={() => setShowDeleteConfirmation(false)} onConfirm={handleDeleteLivestock} title="Delete Livestock" message="Are you sure you want to delete this livestock? This action cannot be undone." confirmText="Delete" confirmColor="danger" />
                   )}
-
+            
                   {showShareModal && sharingLivestock && (
                     <Modal isOpen={showShareModal} onClose={() => { setShowShareModal(false); setSharingLivestock(null); setShareMessage(''); }} title="Share Livestock" size="md">
                       <div className="mb-3"><label className="form-label">Livestock</label><input type="text" className="form-control" value={sharingLivestock.title || 'Untitled'} readOnly /></div>
@@ -2607,7 +2643,7 @@ function RecoveryModule() {
                       <div className="d-flex gap-2"><button type="button" className="btn btn-secondary" onClick={() => { setShowShareModal(false); setSharingLivestock(null); }}>Close</button></div>
                     </Modal>
                   )}
-
+            
                   {showTopupModal && selectedClient && (
                     <Modal
                       isOpen={showTopupModal}
@@ -2715,7 +2751,7 @@ function RecoveryModule() {
                           />
                         </div>
                       )}
-
+            
                       {(topupAmount > 0 || adjustmentAmount > 0) && (
                         <div className="alert alert-info">
                           <h6>Calculation Preview:</h6>
@@ -2732,7 +2768,7 @@ function RecoveryModule() {
                           )} <small>(including 30% interest)</small></p>
                         </div>
                       )}
-
+            
                       <div className="mb-3">
                         <label htmlFor="topupMethod" className="form-label">
                           Disbursement Method <span className="text-danger">*</span>
@@ -2766,7 +2802,7 @@ function RecoveryModule() {
                           />
                         </div>
                       )}
-
+            
                       <div className="mb-3">
                         <label htmlFor="topupNotes" className="form-label">
                           Notes
@@ -2814,7 +2850,7 @@ function RecoveryModule() {
                       </div>
                     </Modal>
                   )}
-
+            
                   {showMpesaModal && selectedClient && (
                     <Modal isOpen={showMpesaModal} onClose={() => { setShowMpesaModal(false); setSelectedClient(null); setMpesaAmount(""); setPaymentStatus(''); }} title="Process M-Pesa Payment" size="md">
                       <div className="mb-3"><label className="form-label">Client Name</label><input type="text" className="form-control" value={selectedClient.name || 'N/A'} readOnly /></div>
@@ -2827,7 +2863,7 @@ function RecoveryModule() {
                       <div className="d-flex gap-2"><button type="button" className="btn btn-success" onClick={handleMpesaPayment} disabled={sendingStk || !mpesaAmount}>{sendingStk ? <><span className="spinner-border spinner-border-sm me-2"></span>Sending...</> : <><i className="fas fa-mobile-alt me-2"></i>Send STK Push</>}</button><button type="button" className="btn btn-secondary" onClick={() => setShowMpesaModal(false)}>Cancel</button></div>
                     </Modal>
                   )}
-
+            
                   {showPaymentModal && selectedClient && (
                     <Modal isOpen={showPaymentModal} onClose={() => { setShowPaymentModal(false); setSelectedClient(null); setMpesaReference(""); }} title="Process Payment" size="md">
                       <form onSubmit={(e) => { e.preventDefault(); const fd = new FormData(e.target); handlePayment({ amount: fd.get('amount'), method: fd.get('method'), notes: fd.get('notes') }); }}>
@@ -2845,7 +2881,7 @@ function RecoveryModule() {
                       </form>
                     </Modal>
                   )}
-
+            
                   {showActionModal && selectedClient && (
                     <AdminTakeActionModal
                       client={selectedClient}
@@ -2854,25 +2890,267 @@ function RecoveryModule() {
                       onClaimOwnership={handleClaimOwnership}
                     />
                   )}
-
+            
                   {showSmsModal && (
                     <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor:'rgba(0,0,0,0.5)' }}>
                       <div className="modal-dialog modal-dialog-centered"><div className="modal-content"><div className="modal-header"><h5 className="modal-title">SMS Reminder</h5><button type="button" className="btn-close" onClick={() => setShowSmsModal(false)}></button></div><div className="modal-body"><div className="alert alert-info">SMS API coming soon. Copy the message below.</div><div className="mb-3"><label className="form-label">Recipient Phone:</label><input type="tel" className="form-control mb-3" value={smsPhone} onChange={e => setSmsPhone(e.target.value)} placeholder="+254712345678" /><label className="form-label">Message:</label><textarea className="form-control" value={smsMessage} onChange={e => setSmsMessage(e.target.value)} rows="5" /></div></div><div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowSmsModal(false)}>Cancel</button><button className="btn btn-outline-primary" onClick={() => { navigator.clipboard.writeText(smsMessage); showToast.success("Copied!"); }}>Copy Message</button><button className="btn btn-success" onClick={() => { const phone = smsPhone.trim(); if (!phone) { showToast.error("Enter phone number"); return; } window.location.href = `sms:${phone}?body=${encodeURIComponent(smsMessage)}`; }}>Open in SMS App</button></div></div></div>
                     </div>
                   )}
-
+            
                   {showRenewalModal && renewalLoan && (
-                    <Modal isOpen={showRenewalModal} onClose={() => { setShowRenewalModal(false); setRenewalLoan(null); setRenewalType('renew'); setWaiverAmount(0); setWaiverDuration(14); }} title="Loan Renewal / Waiver" size="md">
+                    <Modal
+                      isOpen={showRenewalModal}
+                      onClose={() => {
+                        setShowRenewalModal(false);
+                        setRenewalLoan(null);
+                        setRenewalType('renew');
+                        setWaiverAmount(0);
+                        setWaiverDuration(14);
+                        setNewRenewalPrincipal(0);
+                        setNewRenewalPlan('weekly');
+                      }}
+                      title="Loan Renewal / Waiver"
+                      size="md"
+                    >
                       {(() => {
                         const principal = Number(renewalLoan.current_principal || renewalLoan.currentPrincipal || renewalLoan.borrowedAmount || 0);
                         const isWeekly = renewalLoan.repayment_plan === 'weekly';
-                        const totalBalance = isWeekly ? principal + principal * 0.30 : principal + Number(renewalLoan.accrued_interest || 0);
+                        const totalBalance = isWeekly
+                          ? principal + principal * 0.30
+                          : principal + Number(renewalLoan.accrued_interest || 0);
+                      
+                        // Preview due date based on selected plan
+                        const previewDueDate = new Date();
+                        previewDueDate.setDate(previewDueDate.getDate() + (newRenewalPlan === 'daily' ? 14 : 7));
+                        const interestRateDisplay = newRenewalPlan === 'daily' ? '4.5% per day (simple)' : '30% per week (compound)';
+                      
                         return (
                           <>
-                            <div className="mb-3"><p><strong>Client:</strong> {renewalLoan.name}</p><p><strong>Current Balance:</strong> {fmt(totalBalance)}</p><hr /><div className="btn-group w-100 mb-3"><button type="button" className={`btn ${renewalType === 'renew' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setRenewalType('renew')}><i className="fas fa-sync-alt me-2"></i>Renewal</button><button type="button" className={`btn ${renewalType === 'waive' ? 'btn-success' : 'btn-outline-success'}`} onClick={() => { setRenewalType('waive'); setWaiverAmount(totalBalance); }}><i className="fas fa-hand-holding-heart me-2"></i>Waive</button></div></div>
-                            {renewalType === 'renew' && (<><div className="alert alert-warning"><i className="fas fa-file-pdf me-2"></i>Download and have the client sign the renewal agreement before confirming renewal.</div><div className="d-flex flex-column gap-2"><button className="btn btn-primary w-100" onClick={async () => { try { await generateLoanRenewalAgreementAutoPDF({ name: renewalLoan.name, idNumber: renewalLoan.id_number, phone: renewalLoan.contacts, borrowedAmount: renewalLoan.principal_amount, expectedReturnDate: renewalLoan.disbursement_date, balance: totalBalance, repayment_plan: renewalLoan.repayment_plan }, totalBalance); showToast.success("Renewal agreement downloaded. Have client sign it."); } catch (err) { showToast.error("Failed to download agreement"); } }}><i className="fas fa-download me-2"></i>Download Agreement</button><button className="btn btn-success w-100" onClick={async () => { setProcessingRenewal(true); try { const response = await recoveryAPI.renewLoan(renewalLoan.id); if (response.data.success) { showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`); setShowRenewalModal(false); fetchData(); } } catch (error) { showToast.error(error.response?.data?.error || "Renewal failed"); } finally { setProcessingRenewal(false); } }} disabled={processingRenewal}>{processingRenewal ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Renewal"}</button></div></>)}
-                            {renewalType === 'waive' && (<><div className="mb-3"><label className="form-label">Agreed Repayment Amount (KES)</label><input type="number" className="form-control" value={waiverAmount} onChange={e => setWaiverAmount(parseFloat(e.target.value))} min="0" max={totalBalance} step="100" required /><small className="text-muted">Maximum: {fmt(totalBalance)}</small></div><div className="mb-3"><label className="form-label">Repayment Duration (days)</label><input type="number" className="form-control" value={waiverDuration} onChange={e => setWaiverDuration(parseInt(e.target.value))} min="1" max="90" required /><small className="text-muted">Default 14 days</small></div><div className="alert alert-info">The agreed amount will become a new zero‑interest loan. The original loan will be marked as waived.</div><div className="alert alert-warning"><i className="fas fa-file-pdf me-2"></i>Download and have the client sign the waiver agreement before confirming waive.</div><div className="d-flex flex-column gap-2"><button className="btn btn-primary w-100" onClick={async () => { try { await generateLoanWaiverAgreementAutoPDF({ name: renewalLoan.name, idNumber: renewalLoan.id_number, phone: renewalLoan.contacts, borrowedAmount: renewalLoan.principal_amount, balance: totalBalance }, waiverAmount, waiverDuration); showToast.success("Waiver agreement downloaded. Have client sign it."); } catch (err) { showToast.error("Failed to download waiver agreement"); } }}><i className="fas fa-download me-2"></i>Download Waiver Agreement</button><button className="btn btn-success w-100" onClick={async () => { if (waiverAmount <= 0 || waiverAmount > totalBalance) { showToast.error("Please enter a valid agreed amount"); return; } setWaiverProcessing(true); try { const response = await (recoveryAPI.waiveLoan ? recoveryAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration) : adminAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration)); if (response.data.success) { showToast.success(`Loan waived! New loan ID: ${response.data.new_loan.id}`); setShowRenewalModal(false); fetchData(); } } catch (error) { showToast.error(error.response?.data?.error || "Waiver failed"); } finally { setWaiverProcessing(false); } }} disabled={waiverProcessing}>{waiverProcessing ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</> : "Confirm Waive"}</button></div></>)}
-                            <div className="mt-3"><button className="btn btn-secondary w-100" onClick={() => setShowRenewalModal(false)}>Cancel</button></div>
+                            <div className="mb-3">
+                              <p><strong>Client:</strong> {renewalLoan.name}</p>
+                              <p><strong>Current Balance:</strong> {fmt(totalBalance)}</p>
+                              <hr />
+                              <div className="btn-group w-100 mb-3">
+                                <button
+                                  type="button"
+                                  className={`btn ${renewalType === 'renew' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                  onClick={() => setRenewalType('renew')}
+                                >
+                                  <i className="fas fa-sync-alt me-2"></i>Renewal
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`btn ${renewalType === 'waive' ? 'btn-success' : 'btn-outline-success'}`}
+                                  onClick={() => {
+                                    setRenewalType('waive');
+                                    setWaiverAmount(totalBalance);
+                                  }}
+                                >
+                                  <i className="fas fa-hand-holding-heart me-2"></i>Waive
+                                </button>
+                              </div>
+                            </div>
+                                
+                            {renewalType === 'renew' && (
+                              <>
+                                <div className="alert alert-warning">
+                                  <i className="fas fa-file-pdf me-2"></i>
+                                  Download and have the client sign the renewal agreement before confirming renewal.
+                                </div>
+                            
+                                <div className="mb-3">
+                                  <label className="form-label">New Principal Amount (KES)</label>
+                                  <input
+                                    type="number"
+                                    className="form-control"
+                                    value={newRenewalPrincipal}
+                                    onChange={(e) => setNewRenewalPrincipal(parseFloat(e.target.value) || 0)}
+                                    min="1"
+                                    step="100"
+                                    required
+                                  />
+                                  <small className="text-muted">Default: {fmt(totalBalance)}</small>
+                                </div>
+                            
+                                <div className="mb-3">
+                                  <label className="form-label">Repayment Plan</label>
+                                  <select
+                                    className="form-control"
+                                    value={newRenewalPlan}
+                                    onChange={(e) => setNewRenewalPlan(e.target.value)}
+                                  >
+                                    <option value="weekly">Weekly – 30% per week (compound)</option>
+                                    <option value="daily">Daily – 4.5% per day (simple)</option>
+                                  </select>
+                                </div>
+                            
+                                <div className="alert alert-info">
+                                  <strong>Preview:</strong><br/>
+                                  Interest: {interestRateDisplay}<br/>
+                                  Due date: {previewDueDate.toLocaleDateString()}
+                                </div>
+                            
+                                <div className="d-flex flex-column gap-2">
+                                  <button
+                                    className="btn btn-primary w-100"
+                                    onClick={async () => {
+                                      try {
+                                        await generateLoanRenewalAgreementAutoPDF(
+                                          {
+                                            name: renewalLoan.name,
+                                            idNumber: renewalLoan.id_number,
+                                            phone: renewalLoan.contacts,
+                                            borrowedAmount: renewalLoan.principal_amount,
+                                            expectedReturnDate: renewalLoan.disbursement_date,
+                                            balance: totalBalance,
+                                            repayment_plan: newRenewalPlan,
+                                            new_principal: newRenewalPrincipal
+                                          },
+                                          newRenewalPrincipal,
+                                          newRenewalPlan
+                                        );
+                                        showToast.success("Renewal agreement downloaded. Have client sign it.");
+                                      } catch (err) {
+                                        console.error(err);
+                                        showToast.error("Failed to download agreement");
+                                      }
+                                    }}
+                                  >
+                                    <i className="fas fa-download me-2"></i>Download Agreement
+                                  </button>
+                                  
+                                  <button
+                                    className="btn btn-success w-100"
+                                    onClick={async () => {
+                                      if (newRenewalPrincipal <= 0) {
+                                        showToast.error("Please enter a valid principal amount");
+                                        return;
+                                      }
+                                      setProcessingRenewal(true);
+                                      try {
+                                        const response = await recoveryAPI.renewLoan(renewalLoan.id, {
+                                          new_principal: newRenewalPrincipal,
+                                          new_repayment_plan: newRenewalPlan
+                                        });
+                                        if (response.data.success) {
+                                          showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
+                                          setShowRenewalModal(false);
+                                          fetchData();        // refresh recovery data
+                                          fetchDirectorClients(); // refresh client list if needed
+                                        }
+                                      } catch (error) {
+                                        showToast.error(error.response?.data?.error || "Renewal failed");
+                                      } finally {
+                                        setProcessingRenewal(false);
+                                      }
+                                    }}
+                                    disabled={processingRenewal}
+                                  >
+                                    {processingRenewal ? (
+                                      <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
+                                    ) : "Confirm Renewal"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+
+                            {renewalType === 'waive' && (
+                              <>
+                                <div className="mb-3">
+                                  <label className="form-label">Agreed Repayment Amount (KES)</label>
+                                  <input
+                                    type="number"
+                                    className="form-control"
+                                    value={waiverAmount}
+                                    onChange={e => setWaiverAmount(parseFloat(e.target.value))}
+                                    min="0"
+                                    max={totalBalance}
+                                    step="100"
+                                    required
+                                  />
+                                  <small className="text-muted">Maximum: {fmt(totalBalance)}</small>
+                                </div>
+                                <div className="mb-3">
+                                  <label className="form-label">Repayment Duration (days)</label>
+                                  <input
+                                    type="number"
+                                    className="form-control"
+                                    value={waiverDuration}
+                                    onChange={e => setWaiverDuration(parseInt(e.target.value))}
+                                    min="1"
+                                    max="90"
+                                    required
+                                  />
+                                  <small className="text-muted">Default 14 days</small>
+                                </div>
+                                <div className="alert alert-info">
+                                  The agreed amount will become a new zero‑interest loan. The original loan will be marked as waived.
+                                </div>
+                                <div className="alert alert-warning">
+                                  <i className="fas fa-file-pdf me-2"></i>
+                                  Download and have the client sign the waiver agreement before confirming waive.
+                                </div>
+                                <div className="d-flex flex-column gap-2">
+                                  <button
+                                    className="btn btn-primary w-100"
+                                    onClick={async () => {
+                                      try {
+                                        await generateLoanWaiverAgreementAutoPDF(
+                                          {
+                                            name: renewalLoan.name,
+                                            idNumber: renewalLoan.id_number,
+                                            phone: renewalLoan.contacts,
+                                            borrowedAmount: renewalLoan.principal_amount,
+                                            balance: totalBalance
+                                          },
+                                          waiverAmount,
+                                          waiverDuration
+                                        );
+                                        showToast.success("Waiver agreement downloaded. Have client sign it.");
+                                      } catch (err) {
+                                        showToast.error("Failed to download waiver agreement");
+                                      }
+                                    }}
+                                  >
+                                    <i className="fas fa-download me-2"></i>Download Waiver Agreement
+                                  </button>
+                                  <button
+                                    className="btn btn-success w-100"
+                                    onClick={async () => {
+                                      if (waiverAmount <= 0 || waiverAmount > totalBalance) {
+                                        showToast.error("Please enter a valid agreed amount");
+                                        return;
+                                      }
+                                      setWaiverProcessing(true);
+                                      try {
+                                        const response = await (recoveryAPI.waiveLoan
+                                          ? recoveryAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration)
+                                          : adminAPI.waiveLoan(renewalLoan.id, waiverAmount, waiverDuration)
+                                        );
+                                        if (response.data.success) {
+                                          showToast.success(`Loan waived! New loan ID: ${response.data.new_loan.id}`);
+                                          setShowRenewalModal(false);
+                                          fetchData();
+                                        }
+                                      } catch (error) {
+                                        showToast.error(error.response?.data?.error || "Waiver failed");
+                                      } finally {
+                                        setWaiverProcessing(false);
+                                      }
+                                    }}
+                                    disabled={waiverProcessing}
+                                  >
+                                    {waiverProcessing ? (
+                                      <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
+                                    ) : "Confirm Waive"}
+                                  </button>
+                                </div>
+                              </>
+                            )}
+
+                            <div className="mt-3">
+                              <button className="btn btn-secondary w-100" onClick={() => setShowRenewalModal(false)}>Cancel</button>
+                            </div>
                           </>
                         );
                       })()}
@@ -2880,7 +3158,7 @@ function RecoveryModule() {
                   )}
                 </>
               ) : (
-                // ---------- ORIGINAL RECOVERY MODULE UI FOR OTHER ROLES ----------
+                // ---------- OTHER ROLES (valuer, accountant, head_of_it) ----------
                 !showUtilities ? (
                   <>
                     {/* digital clock */}
@@ -2897,155 +3175,265 @@ function RecoveryModule() {
                         <span><i className="fas fa-clock me-2"></i>{formatClockTime(currentDateTime)}</span>
                       </div>
                     </div>
-                    {/* Branch filter tabs */}
-                    <div className="d-flex flex-wrap gap-3 mb-3">
-                      <button
-                        className={`btn ${branchFilter === 'all' ? 'btn-primary' : 'btn-outline-secondary'}`}
-                        onClick={() => setBranchFilter('all')}
-                      >
-                        <i className="fas fa-globe me-1"></i> All
-                      </button>
-                      <button
-                        className={`btn ${branchFilter === 'isinya' ? 'btn-primary' : 'btn-outline-secondary'}`}
-                        onClick={() => setBranchFilter('isinya')}
-                      >
-                        <i className="fas fa-building me-1"></i> Isinya (Kap North Ward)
-                      </button>
-                      <button
-                        className={`btn ${branchFilter === 'emarti' ? 'btn-primary' : 'btn-outline-secondary'}`}
-                        onClick={() => setBranchFilter('emarti')}
-                      >
-                        <i className="fas fa-store me-1"></i> Emarti Branch (Imaroro Ward)
-                      </button>
-                    </div>
-                    {/* recovery module table cards */}
-                    <div className="card mb-4 shadow-sm">
-                      <div className="card-body">
-                        <div className="row g-3 align-items-end">
-                          <div className="col-md-3"><label className="form-label small fw-bold"><i className="fas fa-search me-1"></i> Search</label><input type="text" className="form-control" placeholder="Name, Collateral, ID, Contact" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-                          <div className="col-md-2"><label className="form-label small fw-bold"><i className="fas fa-calendar-week me-1"></i> Payment Plan</label><select className="form-select" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}><option value="all">All</option><option value="weekly">Weekly</option><option value="daily">Daily</option><option value="waived">Waived</option></select></div>
-                          <div className="col-md-2"><label className="form-label small fw-bold"><i className="fas fa-sun me-1"></i> Day</label><select className="form-select" value={dayFilter} onChange={(e) => setDayFilter(e.target.value)}><option value="all">All Days</option>{DAYS_ORDER.map(day => <option key={day} value={day}>{day}</option>)}</select></div>
-                          <div className="col-md-2"><label className="form-label small fw-bold"><i className="fas fa-calendar-alt me-1"></i> Borrowed Date</label><input type="date" className="form-control" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} /></div>
-                          <div className="col-md-3"><label className="form-label small fw-bold"><i className="fas fa-sort-amount-down me-1"></i> Sort by</label><div className="input-group"><select className="form-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}><option value="name">Name</option><option value="date">Borrowed Date</option><option value="principal">Current Principal</option><option value="balance">Accrued Interest</option></select><button className="btn btn-outline-secondary" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}>{sortOrder === 'asc' ? <i className="fas fa-arrow-up"></i> : <i className="fas fa-arrow-down"></i>}</button></div></div>
+                                
+                    {/* RECOVERY MODULE (tables) – only shown when directorSection === 'recovery' */}
+                    {directorSection === 'recovery' && (
+                      <>
+                        {/* Branch filter tabs – now inside the recovery block */}
+                        <div className="d-flex flex-wrap gap-3 mb-3">
+                          <button
+                            className={`btn ${branchFilter === 'all' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                            onClick={() => setBranchFilter('all')}
+                          >
+                            <i className="fas fa-globe me-1"></i> All
+                          </button>
+                          <button
+                            className={`btn ${branchFilter === 'isinya' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                            onClick={() => setBranchFilter('isinya')}
+                          >
+                            <i className="fas fa-building me-1"></i> Isinya (Kap North Ward)
+                          </button>
+                          <button
+                            className={`btn ${branchFilter === 'emarti' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                            onClick={() => setBranchFilter('emarti')}
+                          >
+                            <i className="fas fa-store me-1"></i> Emarti Branch (Imaroro Ward)
+                          </button>
                         </div>
-                        {(searchTerm || planFilter !== 'all' || dayFilter !== 'all' || dateFilter || sortBy !== 'name') && (<div className="mt-3 text-end"><button className="btn btn-sm btn-outline-danger" onClick={() => { setSearchTerm(''); setPlanFilter('all'); setDayFilter('all'); setDateFilter(''); setSortBy('name'); setSortOrder('asc'); }}><i className="fas fa-times me-1"></i> Clear Filters</button></div>)}
-                      </div>
-                    </div>
-                    {Object.keys(filteredData).length === 0 && (<div className="text-center py-5"><i className="fas fa-filter fa-3x text-muted mb-3"></i><h5>No loans match your filters</h5></div>)}
-                    {DAYS_ORDER.map(day =>
-                      filteredData[day]?.length > 0 && (
-                        <div key={day} className="card mb-4">
-                          <div className="card-header bg-primary">
-                            <h5 className="mb-0 text-white">{day}</h5>
-                          </div>
-                          <div className="card-body p-0">
-                            <div className="table-responsive">
-                              <table className="table table-hover mb-0">
-                                <thead className="table-light">
-                                  <tr>
-                                    <th>Name</th>
-                                    <th>Collateral</th>
-                                    <th>Location</th> 
-                                    <th>ID Number</th>
-                                    <th>Contact</th>
-                                    <th>Borrowed Date</th>
-                                    <th>Initial Principal</th>
-                                    <th>Current Principal</th>
-                                    <th>Interest / Period</th>
-                                    <th>Accrued (Unpaid)</th>
-                                    <th>Week</th>
-                                    <th>Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {filteredData[day].map(loan => {
-                                    const badge = getDaysBadge(loan);
-                                    return (
-                                      <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
-                                        <td>
-                                          <div>{loan.name}</div>
-                                          <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
-                                            {loan.interest_rate === 0 ? 'Waived' : (loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}
-                                          </span>
-                                          {badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}
-                                        </td>
-                                        <td>{loan.collateral}</td>
-                                        <td>{loan.location}</td>
-                                        <td>{loan.id_number}</td>
-                                        <td>{loan.contacts}</td>
-                                        <td>{fmtDate(loan.disbursement_date)}</td>
-                                        <td>{fmt(loan.principal_amount)}</td>
-                                        <td>{fmt(loan.current_principal)}</td>
-                                        <td>{fmt(loan.interest)}</td>
-                                        <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
-                                        <td>Week {loan.week}</td>
-                                        <td>
-                                          <div className="btn-group btn-group-sm">
-                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
-                                              <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }} title="process payment">
-                                                <i className="fas fa-money-bill-wave"></i>
-                                              </button>
-                                            )}
-                                            <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`} title="Send prompt">
-                                              <i className="fas fa-phone"></i>
-                                            </button>
-                                            <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }} title="leave a comment">
-                                              <i className="fas fa-comment"></i>
-                                              {commentUnreads[loan.id] > 0 && (
-                                                <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>
-                                                  {commentUnreads[loan.id]}
-                                                </span>
-                                              )}
-                                            </button>                                           
-                                            <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)} title="send reminder or claim ownership">
-                                              <i className="fas fa-bolt"></i>
-                                            </button>
-                                            <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)} title="Download Invoice">
-                                              <i className="fas fa-file-invoice"></i>
-                                            </button>
-                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && loan.days_left <= 0 && (
-                                              <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)} title="Renew or waive loan">
-                                                <i className="fas fa-sync-alt"></i>
-                                              </button>
-                                            )}
-                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director'].includes(userRole) && (
-                                              <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)} title="Process top-up or adjust loan">
-                                                <i className="fas fa-edit"></i>
-                                              </button>
-                                            )}
-                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director', 'valuer'].includes(userRole) && (
-                                              <button className={`btn btn-outline-${loan.is_defaulter ? 'warning' : 'danger'}`} onClick={() => handleDefaulter(loan.id, !loan.is_defaulter)} title="Mark defaulter">
-                                                <i className={`fas fa-${loan.is_defaulter ? 'check' : 'flag'}`}></i>
-                                              </button>
-                                            )}
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                                <tfoot className="table-secondary fw-bold">
-                                  {(() => {
-                                    const t = dayTotals(filteredData[day]);
-                                    return (
-                                      <tr>
-                                        <td colSpan="6">Day Totals</td>
-                                        <td>{fmt(t.principal)}</td>
-                                        <td>{fmt(t.curPrincipal)}</td>
-                                        <td>{fmt(t.interest)}</td>
-                                        <td className="text-danger">{fmt(t.accrued)}</td>
-                                        <td colSpan="2"></td>
-                                      </tr>
-                                    );
-                                  })()}
-                                </tfoot>
-                              </table>
+                    
+                        {/* search card */}
+                        <div className="card mb-4 shadow-sm">
+                          <div className="card-body">
+                            <div className="row g-3 align-items-end">
+                              <div className="col-md-3">
+                                <label className="form-label small fw-bold"><i className="fas fa-search me-1"></i> Search</label>
+                                <input type="text" className="form-control" placeholder="Name, Collateral, ID, Contact" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                              </div>
+                              <div className="col-md-2">
+                                <label className="form-label small fw-bold"><i className="fas fa-calendar-week me-1"></i> Payment Plan</label>
+                                <select className="form-select" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
+                                  <option value="all">All</option>
+                                  <option value="weekly">Weekly</option>
+                                  <option value="daily">Daily</option>
+                                  <option value="waived">Waived</option>
+                                </select>
+                              </div>
+                              <div className="col-md-2">
+                                <label className="form-label small fw-bold"><i className="fas fa-sun me-1"></i> Day</label>
+                                <select className="form-select" value={dayFilter} onChange={(e) => setDayFilter(e.target.value)}>
+                                  <option value="all">All Days</option>
+                                  {DAYS_ORDER.map(day => <option key={day} value={day}>{day}</option>)}
+                                </select>
+                              </div>
+                              <div className="col-md-2">
+                                <label className="form-label small fw-bold"><i className="fas fa-calendar-alt me-1"></i> Borrowed Date</label>
+                                <input type="date" className="form-control" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
+                              </div>
+                              <div className="col-md-3">
+                                <label className="form-label small fw-bold"><i className="fas fa-sort-amount-down me-1"></i> Sort by</label>
+                                <div className="input-group">
+                                  <select className="form-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                                    <option value="name">Name</option>
+                                    <option value="date">Borrowed Date</option>
+                                    <option value="principal">Current Principal</option>
+                                    <option value="balance">Accrued Interest</option>
+                                  </select>
+                                  <button className="btn btn-outline-secondary" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}>
+                                    {sortOrder === 'asc' ? <i className="fas fa-arrow-up"></i> : <i className="fas fa-arrow-down"></i>}
+                                  </button>
+                                </div>
+                              </div>
                             </div>
+                            {(searchTerm || planFilter !== 'all' || dayFilter !== 'all' || dateFilter || sortBy !== 'name') && (
+                              <div className="mt-3 text-end">
+                                <button className="btn btn-sm btn-outline-danger" onClick={() => {
+                                  setSearchTerm('');
+                                  setPlanFilter('all');
+                                  setDayFilter('all');
+                                  setDateFilter('');
+                                  setSortBy('name');
+                                  setSortOrder('asc');
+                                }}>
+                                  <i className="fas fa-times me-1"></i> Clear Filters
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      )
+                          
+                        {/* Day tables */}
+                        {Object.keys(filteredData).length === 0 && (
+                          <div className="text-center py-5">
+                            <i className="fas fa-filter fa-3x text-muted mb-3"></i>
+                            <h5>No loans match your filters</h5>
+                          </div>
+                        )}
+                        {DAYS_ORDER.map(day =>
+                          filteredData[day]?.length > 0 && (
+                            <div key={day} className="card mb-4">
+                              <div className="card-header bg-primary">
+                                <h5 className="mb-0 text-white">{day}</h5>
+                              </div>
+                              <div className="card-body p-0">
+                                <div className="table-responsive">
+                                  <table className="table table-hover mb-0">
+                                    <thead className="table-light">
+                                      <tr>
+                                        <th>Name</th>
+                                        <th>Collateral</th>
+                                        <th>Location</th>
+                                        <th>ID Number</th>
+                                        <th>Contact</th>
+                                        <th>Borrowed Date</th>
+                                        <th>Initial Principal</th>
+                                        <th>Current Principal</th>
+                                        <th>Interest / Period</th>
+                                        <th>Accrued (Unpaid)</th>
+                                        <th>Week</th>
+                                        <th>Actions</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {filteredData[day].map(loan => {
+                                        const badge = getDaysBadge(loan);
+                                        return (
+                                          <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
+                                            <td>
+                                              <div>{loan.name}</div>
+                                              <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
+                                                {loan.interest_rate === 0 ? 'Waived' : (loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}
+                                              </span>
+                                              {badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}
+                                            </td>
+                                            <td>{loan.collateral}</td>
+                                            <td>{loan.location}</td>
+                                            <td>{loan.id_number}</td>
+                                            <td>{loan.contacts}</td>
+                                            <td>{fmtDate(loan.disbursement_date)}</td>
+                                            <td>
+                                              {loan.is_waiver && loan.original_principal ? fmt(loan.original_principal) : fmt(loan.principal_amount)}
+                                            </td>
+                                            <td>{fmt(loan.current_principal)}</td>
+                                            <td>{loan.interest_rate === 0 ? 'waived' : fmt(loan.interest)}</td>
+                                            <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
+                                            <td>Week {loan.week}</td>
+                                            <td>
+                                              <div className="btn-group btn-group-sm">
+                                                {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (
+                                                  <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }} title="process payment">
+                                                    <i className="fas fa-money-bill-wave"></i>
+                                                  </button>
+                                                )}
+                                                <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`} title="Send prompt">
+                                                  <i className="fas fa-phone"></i>
+                                                </button>
+                                                <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }} title="leave a comment">
+                                                  <i className="fas fa-comment"></i>
+                                                  {commentUnreads[loan.id] > 0 && (
+                                                    <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>
+                                                      {commentUnreads[loan.id]}
+                                                    </span>
+                                                  )}
+                                                </button>
+                                                <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)} title="send reminder or claim ownership">
+                                                  <i className="fas fa-bolt"></i>
+                                                </button>
+                                                <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)} title="Download Invoice">
+                                                  <i className="fas fa-file-invoice"></i>
+                                                </button>
+                                                {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && loan.days_left <= 0 && (
+                                                  <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)} title="Renew or waive loan">
+                                                    <i className="fas fa-sync-alt"></i>
+                                                  </button>
+                                                )}
+                                                {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (
+                                                  <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)} title="Process top-up or adjust loan">
+                                                    <i className="fas fa-edit"></i>
+                                                  </button>
+                                                )}
+                                                {['secretary', 'client_relations_officer', 'director', 'hr_manager'].includes(userRole) && (
+                                                  <button
+                                                    className="btn btn-outline-danger btn-sm"
+                                                    onClick={() => {
+                                                      setFlagLoanToConfirm(loan.id);
+                                                      setFlagLoanName(loan.name);
+                                                      setShowFlagConfirmModal(true);
+                                                    }}
+                                                    title="Flag as defaulter – moves to valuer"
+                                                  >
+                                                    <i className="fas fa-flag"></i>
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                    <tfoot className="table-secondary fw-bold">
+                                      {(() => {
+                                        const t = dayTotals(filteredData[day]);
+                                        return (
+                                          <tr>
+                                            <td colSpan="6">Day Totals</td>
+                                            <td>{fmt(t.principal)}</td>
+                                            <td>{fmt(t.curPrincipal)}</td>
+                                            <td>{fmt(t.interest)}</td>
+                                            <td className="text-danger">{fmt(t.accrued)}</td>
+                                            <td colSpan="2"></td>
+                                          </tr>
+                                        );
+                                      })()}
+                                    </tfoot>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        )}
+                        {Object.keys(filteredData).length > 0 && (
+                          (() => {
+                            const t = overallTotals();
+                            return (
+                              <div className="card mt-2 mb-4">
+                                <div className="card-header bg-dark">
+                                  <h5 className="mb-0 text-white">Overall Totals</h5>
+                                </div>
+                                <div className="card-body">
+                                  <div className="row text-center">
+                                    <div className="col-md-3">
+                                      <p className="mb-1 text-muted fw-bold">Initial Principal</p>
+                                      <h5>{fmt(t.principal)}</h5>
+                                    </div>
+                                    <div className="col-md-3">
+                                      <p className="mb-1 text-muted fw-bold">Current Principal</p>
+                                      <h5>{fmt(t.curPrincipal)}</h5>
+                                    </div>
+                                    <div className="col-md-3">
+                                      <p className="mb-1 text-muted fw-bold">Periodic Interest</p>
+                                      <h5>{fmt(t.interest)}</h5>
+                                    </div>
+                                    <div className="col-md-3">
+                                      <p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p>
+                                      <h5 className="text-danger">{fmt(t.accrued)}</h5>
+                                    </div>
+                                  </div>
+                                  <div className="row mt-3 pt-2 border-top text-center">
+                                    <div className="col-12">
+                                      <p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p>
+                                      <h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()
+                        )}
+                      </>
                     )}
-                    {Object.keys(filteredData).length > 0 && (() => { const t = overallTotals(); return (<div className="card mt-2 mb-4"><div className="card-header bg-dark"><h5 className="mb-0 text-white">Overall Totals</h5></div><div className="card-body"><div className="row text-center"><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Initial Principal</p><h5>{fmt(t.principal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Current Principal</p><h5>{fmt(t.curPrincipal)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Periodic Interest</p><h5>{fmt(t.interest)}</h5></div><div className="col-md-3"><p className="mb-1 text-muted fw-bold">Accrued (Unpaid)</p><h5 className="text-danger">{fmt(t.accrued)}</h5></div></div><div className="row mt-3 pt-2 border-top text-center"><div className="col-12"><p className="mb-1 text-muted fw-bold">Total Owed (Current Principal + Accrued Interest)</p><h3 className="text-primary">{fmt(t.curPrincipal + t.accrued)}</h3></div></div></div></div>); })()}
+                
+                    {/* Valuer Reports Section */}
+                    {directorSection === 'reports' && <ValuerPanel />}
                   </>
                 ) : (
                   <UtilitiesPanel userRole={userRole} restrictedMode={true} />
@@ -3111,20 +3499,23 @@ function RecoveryModule() {
             setRenewalType('renew');
             setWaiverAmount(0);
             setWaiverDuration(14);
+            setNewRenewalPrincipal(0);
+            setNewRenewalPlan('weekly');
           }}
           title="Loan Renewal / Waiver"
           size="md"
         >
           {(() => {
-            const principal = Number(
-              renewalLoan.current_principal ||
-              renewalLoan.currentPrincipal ||
-              renewalLoan.borrowedAmount || 0
-            );
+            const principal = Number(renewalLoan.current_principal || renewalLoan.currentPrincipal || renewalLoan.borrowedAmount || 0);
             const isWeekly = renewalLoan.repayment_plan === 'weekly';
             const totalBalance = isWeekly
               ? principal + principal * 0.30
               : principal + Number(renewalLoan.accrued_interest || 0);
+          
+            // Preview due date based on selected plan
+            const previewDueDate = new Date();
+            previewDueDate.setDate(previewDueDate.getDate() + (newRenewalPlan === 'daily' ? 14 : 7));
+            const interestRateDisplay = newRenewalPlan === 'daily' ? '4.5% per day (simple)' : '30% per week (compound)';
           
             return (
               <>
@@ -3159,6 +3550,39 @@ function RecoveryModule() {
                       <i className="fas fa-file-pdf me-2"></i>
                       Download and have the client sign the renewal agreement before confirming renewal.
                     </div>
+                
+                    <div className="mb-3">
+                      <label className="form-label">New Principal Amount (KES)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={newRenewalPrincipal}
+                        onChange={(e) => setNewRenewalPrincipal(parseFloat(e.target.value) || 0)}
+                        min="1"
+                        step="100"
+                        required
+                      />
+                      <small className="text-muted">Default: {fmt(totalBalance)}</small>
+                    </div>
+                
+                    <div className="mb-3">
+                      <label className="form-label">Repayment Plan</label>
+                      <select
+                        className="form-control"
+                        value={newRenewalPlan}
+                        onChange={(e) => setNewRenewalPlan(e.target.value)}
+                      >
+                        <option value="weekly">Weekly – 30% per week (compound)</option>
+                        <option value="daily">Daily – 4.5% per day (simple)</option>
+                      </select>
+                    </div>
+                
+                    <div className="alert alert-info">
+                      <strong>Preview:</strong><br/>
+                      Interest: {interestRateDisplay}<br/>
+                      Due date: {previewDueDate.toLocaleDateString()}
+                    </div>
+                
                     <div className="d-flex flex-column gap-2">
                       <button
                         className="btn btn-primary w-100"
@@ -3172,28 +3596,40 @@ function RecoveryModule() {
                                 borrowedAmount: renewalLoan.principal_amount,
                                 expectedReturnDate: renewalLoan.disbursement_date,
                                 balance: totalBalance,
-                                repayment_plan: renewalLoan.repayment_plan
+                                repayment_plan: newRenewalPlan,
+                                new_principal: newRenewalPrincipal
                               },
-                              totalBalance
+                              newRenewalPrincipal,
+                              newRenewalPlan
                             );
                             showToast.success("Renewal agreement downloaded. Have client sign it.");
                           } catch (err) {
+                            console.error(err);
                             showToast.error("Failed to download agreement");
                           }
                         }}
                       >
                         <i className="fas fa-download me-2"></i>Download Agreement
                       </button>
+                      
                       <button
                         className="btn btn-success w-100"
                         onClick={async () => {
+                          if (newRenewalPrincipal <= 0) {
+                            showToast.error("Please enter a valid principal amount");
+                            return;
+                          }
                           setProcessingRenewal(true);
                           try {
-                            const response = await recoveryAPI.renewLoan(renewalLoan.id);
+                            const response = await recoveryAPI.renewLoan(renewalLoan.id, {
+                              new_principal: newRenewalPrincipal,
+                              new_repayment_plan: newRenewalPlan
+                            });
                             if (response.data.success) {
                               showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
                               setShowRenewalModal(false);
-                              fetchData();
+                              fetchData();        // refresh recovery data
+                              fetchDirectorClients(); // refresh client list if needed
                             }
                           } catch (error) {
                             showToast.error(error.response?.data?.error || "Renewal failed");
@@ -3306,9 +3742,7 @@ function RecoveryModule() {
                 )}
 
                 <div className="mt-3">
-                  <button className="btn btn-secondary w-100" onClick={() => setShowRenewalModal(false)}>
-                    Cancel
-                  </button>
+                  <button className="btn btn-secondary w-100" onClick={() => setShowRenewalModal(false)}>Cancel</button>
                 </div>
               </>
             );
@@ -3674,6 +4108,20 @@ function RecoveryModule() {
         </div>
       </Modal>
       )}
+
+      <ConfirmationDialog
+        isOpen={showFlagConfirmModal}
+        onClose={() => {
+          setShowFlagConfirmModal(false);
+          setFlagLoanToConfirm(null);
+          setFlagLoanName('');
+        }}
+        onConfirm={handleConfirmFlag}
+        title="Confirm Flag for Valuer"
+        message={`Are you sure you want to flag "${flagLoanName}" for valuer? Their records will be moved to the valuer's report.`}
+        confirmText="Yes, Flag Client"
+        confirmColor="danger"
+      />
       
 
     </div>

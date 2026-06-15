@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "../../context/AuthContext";
+import { useUserMenu } from '../hooks/useUserMenu';
 
 function AdminSidebar({
   activeSection,
@@ -10,55 +10,48 @@ function AdminSidebar({
   onLogout,
   isMobile,
 }) {
-  const { userRole } = useAuth();
+  const { menuItems, loading } = useUserMenu();
 
-  const baseMenuItems = [
-    { id: "overview", icon: "fa-tachometer-alt", label: "Overview", path: "/admin" },
-    { id: "clients", icon: "fa-users", label: "Clients", path: "/admin/clients" },
-    { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/admin/transactions" },
-    { id: "payment-stats", icon: "fa-chart-bar", label: "Payment Stats", path: "/admin/payment-stats" },
-    { id: "gallery", icon: "fa-images", label: "Livestock Gallery", path: "/admin/gallery" },
-    { id: "company-gallery", icon: "fa-images", label: "Company Gallery", path: "/admin/company-gallery" },
-    { id: "applications", icon: "fa-file-alt", label: "Applications", path: "/admin/applications", badge: pendingApplications },
-    { id: "report-management", icon: "fa-chart-line", label: "Report Management", path: "/admin/report-management" },
-    { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/admin/utilities" },
-    { id: "investors", icon: "fa-users", label: "Investors", path: "/admin/investors", badge: pendingInvestorsCount },
-    { id: "settings", icon: "fa-cog", label: "Settings", path: "/admin/settings" }, 
-  ];
+  if (loading) {
+    return (
+      <div className="sidebar-sticky">
+        <div className="text-center py-4">
+          <div className="spinner-border spinner-border-sm text-primary" role="status">
+            <span className="visually-hidden">Loading menu...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="sidebar-sticky">
       <ul className="nav flex-column h-100">
-        {baseMenuItems.map((item) => (
-          <li className="nav-item" key={item.id}>
+        {menuItems.map((item) => (
+          <li className="nav-item" key={item.key}>
             <a
               href={item.path}
-              className={`nav-link ${activeSection === item.id ? "active" : ""}`}
+              className={`nav-link d-flex align-items-center ${activeSection === item.key ? "active" : ""}`}
               onClick={(e) => {
                 e.preventDefault();
-                onSectionChange(item.id);
+                onSectionChange(item.key);
               }}
             >
               <i className={`fas ${item.icon} me-2`} />
               <span>{item.label}</span>
-              {item.badge > 0 && (
-                <span className="badge bg-danger ms-2">{item.badge}</span>
+              {item.key === "applications" && pendingApplications > 0 && (
+                <span className="badge bg-danger ms-2">{pendingApplications}</span>
+              )}
+              {item.key === "investors" && pendingInvestorsCount > 0 && (
+                <span className="badge bg-danger ms-2">{pendingInvestorsCount}</span>
               )}
             </a>
           </li>
         ))}
         {isMobile && (
           <li className="nav-item mt-auto">
-            <a
-              href="#"
-              className="nav-link"
-              onClick={(e) => {
-                e.preventDefault();
-                onLogout?.();
-              }}
-            >
-              <i className="fas fa-sign-out-alt me-2" />
-              <span>Logout</span>
+            <a href="#" className="nav-link" onClick={(e) => { e.preventDefault(); onLogout?.(); }}>
+              <i className="fas fa-sign-out-alt me-2" /><span>Logout</span>
             </a>
           </li>
         )}

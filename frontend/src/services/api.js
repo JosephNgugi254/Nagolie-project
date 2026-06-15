@@ -145,11 +145,10 @@ export const adminAPI = {
   renewLoan: (loanId) => api.post(`/admin/loans/${loanId}/renew`),
 
   waiveLoan: (loanId, newPrincipal, durationDays) => {
-    const token = localStorage.getItem('admin_token');
-    return axios.post(`${API_URL}/admin/loans/${loanId}/waive`, 
-      { new_principal: newPrincipal, duration_days: durationDays },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    return api.post(`/admin/loans/${loanId}/waive`, {
+      new_principal: newPrincipal,
+      duration_days: durationDays
+    });
   },
 
   //getting loan ledger and consolidated statement
@@ -164,6 +163,15 @@ export const adminAPI = {
   getBalanceSuggestions: () => api.post('/admin/balance-suggest'),
   applySuggestions: (suggestions) => api.post('/admin/apply-suggestion', { suggestions }),
   resetDayAssignments: () => api.post('/admin/reset-day-assignments'),
+
+  // User & Role Management
+  getUsers: () => api.get('/admin/users'),
+  createUser: (data) => api.post('/admin/users', data),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  getRoles: () => api.get('/admin/roles'),
+  createRole: (data) => api.post('/admin/roles', data),
+  deleteRole: (id) => api.delete(`/admin/roles/${id}`),
+  getMenuItems: () => api.get('/admin/menu-items'),
   
 };
 
@@ -235,8 +243,19 @@ export const recoveryAPI = {
   claimOwnership: (loanId) => api.post(`/recovery/loan/${loanId}/claim`),
 
   // Renew Loan & waive loan
-  renewLoan: (loanId) => api.post(`/recovery/loan/${loanId}/renew`),
+  renewLoan: (loanId, data) => api.post(`/recovery/loan/${loanId}/renew`, data),
   waiveLoan: (loanId, newPrincipal, durationDays) => {
+    return api.post(`/admin/loans/${loanId}/waive`, {
+      new_principal: newPrincipal,
+      duration_days: durationDays
+    });
+  },
+
+  // Reports
+  getReportAssignments: (date) => api.get(`/recovery/reports/assignments?date=${date}`),
+  saveReportComment: (loanId, comment) => api.post('/recovery/reports/comment', { loan_id: loanId, comment }),
+
+  getLoanTransactions: (loanId) => api.get(`/recovery/loan/${loanId}/transactions`),waiveLoan: (loanId, newPrincipal, durationDays) => {
     const token = localStorage.getItem('token');
     return axios.post(`${API_URL}/admin/loans/${loanId}/waive`,
       { new_principal: newPrincipal, duration_days: durationDays },
@@ -244,13 +263,7 @@ export const recoveryAPI = {
     );  
   },
 
-  // Reports
-  getReportAssignments: (date) => api.get(`/recovery/reports/assignments?date=${date}`),
-  saveReportComment: (loanId, comment) => api.post('/recovery/reports/comment', { loan_id: loanId, comment }),
-
-  getLoanTransactions: (loanId) => api.get(`/recovery/loan/${loanId}/transactions`),
-
-  // In your existing api.js, inside recoveryAPI object add:
+  
   getRecoveryLoans: async () => {
     const response = await api.get('/recovery');  // uses same endpoint as recovery module
     const grouped = response.data;
@@ -276,6 +289,14 @@ export const recoveryAPI = {
       // additional fields if needed
     }));
   },
+
+  // Flagging
+  flagLoan: (loanId, reason) => api.post(`/recovery/flag-loan/${loanId}`, { reason }),
+  resolveFlag: (loanId) => api.post(`/recovery/resolve-flag/${loanId}`),
+  getFlaggedClients: () => api.get('/recovery/flagged-clients'),
+  updateValuerNotes: (loanId, notes) => api.put(`/recovery/flagged-clients/${loanId}/notes`, { notes }),
+
+  getLoanReportComments: (loanId) => api.get(`/recovery/loan/${loanId}/report-comments`),
 };
 
 export const userAPI = {

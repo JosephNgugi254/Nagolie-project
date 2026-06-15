@@ -1,5 +1,7 @@
 "use client";
 
+import { useUserMenu } from '../hooks/useUserMenu';
+
 function RecoverySidebar({
   activeSection,
   onSectionChange,
@@ -9,89 +11,55 @@ function RecoverySidebar({
   unreadCount = 0,
   onOpenSettings,
   onOpenUtilities,
-  userRole,
+  userRole,              // already passed from RecoveryModule
   pendingApplications = 0 
 }) {
-  let menuItems = [];
+  const { menuItems, loading } = useUserMenu();
 
-  if (userRole === 'director') {
-    menuItems = [
-      { id: "overview", icon: "fa-tachometer-alt", label: "Overview", path: "/recovery" },
-      { id: "recovery", icon: "fa-chart-line", label: "Recovery Module", path: "/recovery" },
-      { id: "inbox", icon: "fa-envelope", label: "Inbox", path: "/recovery/inbox" },
-      { id: "applications", icon: "fa-file-alt", label: "Applications", path: "/recovery/applications", badge: pendingApplications },
-      { id: "payment-stats", icon: "fa-chart-bar", label: "Payment Stats", path: "/recovery/payment-stats" },
-      { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/recovery/transactions" },
-      { id: "gallery", icon: "fa-images", label: "Livestock Gallery", path: "/recovery/gallery" },
-      { id: "investors", icon: "fa-users", label: "Investors", path: "/recovery/investors" },
-      { id: "report-management", icon: "fa-chart-pie", label: "Report Management", path: "/recovery/report-management" },
-      { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/recovery/utilities" },
-      { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
-    ];
-  } else if (userRole === 'secretary' || userRole === 'client_relations_officer') {
-    // Same as director – you can remove gallery/investors later if desired
-    menuItems = [
-      { id: "overview", icon: "fa-tachometer-alt", label: "Overview", path: "/recovery" },
-      { id: "recovery", icon: "fa-chart-line", label: "Recovery Module", path: "/recovery" },
-      { id: "inbox", icon: "fa-envelope", label: "Inbox", path: "/recovery/inbox" },
-      { id: "applications", icon: "fa-file-alt", label: "Applications", path: "/recovery/applications", badge: pendingApplications },
-      { id: "payment-stats", icon: "fa-chart-bar", label: "Payment Stats", path: "/recovery/payment-stats" },
-      { id: "transactions", icon: "fa-exchange-alt", label: "Transactions", path: "/recovery/transactions" },
-      { id: "reports", icon: "fa-chart-pie", label: "Reports", path: "/recovery/reports" },
-      { id: "utilities", icon: "fa-tools", label: "Utilities", path: "/recovery/utilities" },
-      { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
-    ];
-  } else {
-    // Other roles (accountant, valuer, head_of_it)
-    menuItems = [
-      { id: "recovery", icon: "fa-chart-line", label: "Recovery Module", path: "/recovery" },
-      { id: "inbox", icon: "fa-envelope", label: "Inbox", path: "/recovery/inbox" },
-      { id: "settings", icon: "fa-cog", label: "Settings", path: "/recovery/settings" }
-    ];
+  if (loading) {
+    return (
+      <div className="sidebar-sticky">
+        <div className="text-center py-4">
+          <div className="spinner-border spinner-border-sm text-primary" role="status">
+            <span className="visually-hidden">Loading menu...</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="sidebar-sticky">
       <ul className="nav flex-column h-100">
         {menuItems.map((item) => (
-          <li className="nav-item" key={item.id}>
+          <li className="nav-item" key={item.key}>
             <a
               href={item.path}
-              className={`nav-link d-flex align-items-center ${activeSection === item.id ? "active" : ""}`}
+              className={`nav-link d-flex align-items-center ${activeSection === item.key ? "active" : ""}`}
               onClick={(e) => {
                 e.preventDefault();
-                if (item.id === "inbox") {
+                if (item.key === "inbox") {
                   onToggleInbox?.();
-                } else if (item.id === "settings") {
+                } else if (item.key === "settings") {
                   onOpenSettings?.();
-                } else if (item.id === "utilities") {
+                } else if (item.key === "utilities") {
                   onOpenUtilities?.();
                 } else {
-                  onSectionChange(item.id);
+                  onSectionChange(item.key);
                 }
               }}
             >
               <i className={`fas ${item.icon} me-2`} />
               <span>{item.label}</span>
-              {item.id === "inbox" && unreadCount > 0 && (
+              {item.key === "inbox" && unreadCount > 0 && (
                 <span className="badge bg-danger rounded-pill ms-auto">{unreadCount}</span>
               )}
-              {item.badge > 0 && (
-                <span className="badge bg-danger ms-2">{item.badge}</span>
+              {item.key === "applications" && pendingApplications > 0 && (
+                <span className="badge bg-danger ms-2">{pendingApplications}</span>
               )}
             </a>
           </li>
         ))}
-
-        {/* For other roles that are not director/secretary/client_relations_officer, add Utilities if needed */}
-        {!['director', 'secretary', 'client_relations_officer'].includes(userRole) && 
-         ['head_of_it', 'valuer', 'accountant'].includes(userRole) && (
-          <li className="nav-item">
-            <a href="#" className="nav-link d-flex align-items-center" onClick={(e) => { e.preventDefault(); onOpenUtilities?.(); }}>
-              <i className="fas fa-tools me-2" /><span>Utilities</span>
-            </a>
-          </li>
-        )}
 
         {isMobile && (
           <li className="nav-item mt-auto">

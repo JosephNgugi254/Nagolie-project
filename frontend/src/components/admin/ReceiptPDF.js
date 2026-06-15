@@ -1049,14 +1049,14 @@ export const generateLoanAgreementPDF = async (application) => {
         { checkbox: true, plan: 'weekly', label: "Weekly Plan:" },
         "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30%",
         "(negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a maximum period",
-        "of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will accrue.",
+        "of two (2) weeks. After two (2) weeks, if the loan is not fully repaid",
         "The Recipient must then either:",
         "  (a) repay the outstanding loan balance in full, or",
         "  (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         { checkbox: true, plan: 'daily', label: "Daily Plan:" },
         "The loan is repayable with an interest of 4.5% per day. Interest shall be charged daily for a maximum",
-        "period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid",
         "accrue. The Recipient must then either:",
         "  (a) repay the outstanding loan balance in full, or",
         "  (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
@@ -1522,7 +1522,7 @@ export const generateManualLoanAgreementPDF = async () => {
         "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
         "due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
         "Interest shall be charged on a weekly basis for a",
-        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
         "accrue. The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
@@ -2614,7 +2614,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
         "due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
         "Interest shall be charged on a weekly basis for a",
-        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid",
         "accrue. The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
@@ -3017,7 +3017,7 @@ export const generateManualNextOfKinConsentPDF = async () => {
         "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
         "due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
         "Interest shall be charged on a weekly basis for a",
-        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no further interest will",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid",
         "accrue. The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
@@ -3790,7 +3790,7 @@ export const generateProposalPDF = async () => {
   }
 };
 
-export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal) => {
+export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal, newPlan = 'weekly') => {
   try {
     const doc = new jsPDF();
     addOptimizedWatermark(doc, 'agreement');
@@ -3800,6 +3800,15 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     const formattedDate = currentDate.toLocaleDateString('en-GB', {
       day: '2-digit', month: '2-digit', year: 'numeric'
     });
+
+    // Calculate due date based on selected plan
+    const dueDateObj = new Date();
+    dueDateObj.setDate(dueDateObj.getDate() + (newPlan === 'daily' ? 14 : 7));
+    const dueDateFormatted = dueDateObj.toLocaleDateString('en-GB');
+
+    const interestText = newPlan === 'daily'
+      ? '4.5% per day (simple interest)'
+      : '30% per week (compound interest)';
 
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
@@ -3838,7 +3847,7 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     doc.text('Loan Details:', 20, yPos);
     yPos += 6;
     
-    // Original Loan Amount (with bold "KES")
+    // Original Loan Amount
     doc.setFont('helvetica', 'normal');
     doc.text('Original Loan Amount: ', 25, yPos);
     const origLabelWidth = doc.getTextWidth('Original Loan Amount: ');
@@ -3849,23 +3858,22 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     doc.text(origAmt, 25 + origLabelWidth + kesWidth, yPos);
     yPos += 5.5;
     
-    // Outstanding Balance (with bold "KES")
+    // New Principal Amount
     doc.setFont('helvetica', 'normal');
-    doc.text('Outstanding Balance: ', 25, yPos);
-    const outLabelWidth = doc.getTextWidth('Outstanding Balance: ');
+    doc.text('New Principal Amount: ', 25, yPos);
+    const newLabelWidth = doc.getTextWidth('New Principal Amount: ');
     doc.setFont('helvetica', 'bold');
-    doc.text('KES ', 25 + outLabelWidth, yPos);
-    const outKesWidth = doc.getTextWidth('KES ');
-    const outAmt = newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 });
-    doc.text(outAmt, 25 + outLabelWidth + outKesWidth, yPos);
+    doc.text('KES ', 25 + newLabelWidth, yPos);
+    const newKesWidth = doc.getTextWidth('KES ');
+    doc.text(newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 }), 25 + newLabelWidth + newKesWidth, yPos);
     yPos += 5.5;
     
-    // Original Due Date
+    // Original Due Date (for reference)
     doc.setFont('helvetica', 'normal');
     doc.text('Original Due Date: ', 25, yPos);
     doc.setFont('helvetica', 'bold');
-    const dueDate = loanData.expectedReturnDate ? new Date(loanData.expectedReturnDate).toLocaleDateString('en-GB') : 'N/A';
-    doc.text(dueDate, 25 + doc.getTextWidth('Original Due Date: '), yPos);
+    const originalDue = loanData.expectedReturnDate ? new Date(loanData.expectedReturnDate).toLocaleDateString('en-GB') : 'N/A';
+    doc.text(originalDue, 25 + doc.getTextWidth('Original Due Date: '), yPos);
     yPos += 10;
 
     // Renewal Terms heading
@@ -3874,77 +3882,60 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     doc.text('RENEWAL TERMS', 105, yPos, { align: 'center' });
     yPos += 8;
     
-    // Terms font size remains 10pt (original)
     doc.setFontSize(10);
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'normal');
 
-    // Helper to write a line with a bold segment inside (including "KES" in bold)
-    const writeBoldSegment = (prefix, boldText, suffix, y, xStart = 20) => {
-      doc.setFont('helvetica', 'normal');
-      doc.text(prefix, xStart, y);
-      const xAfterPrefix = xStart + doc.getTextWidth(prefix);
-      doc.setFont('helvetica', 'bold');
-      doc.text(boldText, xAfterPrefix, y);
-      if (suffix) {
-        const xAfterBold = xAfterPrefix + doc.getTextWidth(boldText);
-        doc.setFont('helvetica', 'normal');
-        doc.text(suffix, xAfterBold, y);
-      }
-    };
-
-    // Line 1
+    // Renewal clauses
     doc.text("1. The Borrower acknowledges that the original loan is overdue and that the Company has agreed to renew the loan", 20, yPos);
     yPos += 4.5;
     doc.text("   under the following terms.", 20, yPos);
     yPos += 5;
     
-    // Line 2
     doc.text("2. The Borrower shall repay the outstanding balance as follows:", 20, yPos);
     yPos += 5;
     
-    // Line 2a – New Principal (bold "KES" + bold amount)
+    // New Principal
     doc.setFont('helvetica', 'normal');
     doc.text("   New Principal: ", 20, yPos);
-    const newPrincLabelWidth = doc.getTextWidth("   New Principal: ");
+    const npLabelW = doc.getTextWidth("   New Principal: ");
     doc.setFont('helvetica', 'bold');
-    doc.text("KES ", 20 + newPrincLabelWidth, yPos);
-    const newPrincKesWidth = doc.getTextWidth("KES ");
-    doc.text(newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 }), 20 + newPrincLabelWidth + newPrincKesWidth, yPos);
+    doc.text(`KES ${newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 20 + npLabelW, yPos);
     yPos += 5;
     
-    // Line 2b – Interest (bold whole value)
-    const interestText = loanData.repayment_plan === 'daily' 
-      ? '4.5% per day (simple interest)' 
-      : '30% per week (compound interest)';
+    // Interest rate and plan
     doc.setFont('helvetica', 'normal');
     doc.text("   Interest: ", 20, yPos);
     doc.setFont('helvetica', 'bold');
     doc.text(interestText, 20 + doc.getTextWidth("   Interest: "), yPos);
     yPos += 5;
     
-    // Line 3
+    // Plan-specific due date
     doc.setFont('helvetica', 'normal');
-    doc.text("3. The interest will continue to accrue on the new principal according to the original loan's repayment plan.", 20, yPos);
+    doc.text("   New Due Date: ", 20, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text(dueDateFormatted, 20 + doc.getTextWidth("   New Due Date: "), yPos);
+    yPos += 5;
+
+    doc.setFont('helvetica', 'normal');
+
+    doc.text("3. The interest will continue to accrue on the new principal according to the selected repayment plan.", 20, yPos);
     yPos += 5;
     
-    // Line 4
     doc.text("4. All terms and conditions of the original Livestock Advance Payment Agreement (including the collateral provisions)", 20, yPos);
     yPos += 4.5;
-    doc.text("   remain in full force and effect.", 20, yPos);
+    doc.text("    remain in full force and effect.", 20, yPos);
     yPos += 5;
     
-    // Line 5
     doc.text("5. The Borrower agrees that failure to comply with this renewal agreement will constitute immediate default,", 20, yPos);
     yPos += 4.5;
-    doc.text("   and the Company may take possession of the collateral livestock without further notice.", 20, yPos);
+    doc.text("    and the Company may take possession of the collateral livestock without further notice.", 20, yPos);
     yPos += 5;
     
-    // Line 6
     doc.text("6. This renewal agreement is effective from the date signed below and supersedes the original due date.", 20, yPos);
     yPos += 8;
 
-    // Signatures section (tightened spacing)
+    // Signatures
     if (yPos > 185) {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'agreement');
@@ -3974,7 +3965,7 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     yPos += 8;
 
     const leftX = 20;
-    const rightX = 20 + 95; // half of 190
+    const rightX = 20 + 95;
 
     doc.setFont('helvetica', 'bold');
     doc.text('CONFIRMED BY:', 20, yPos);
@@ -3996,7 +3987,7 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
 
     // Stamp box
     const stampBoxWidth = 60;
-    const stampBoxHeight = 30; // reduced height to save space
+    const stampBoxHeight = 30;
     const stampBoxX = (210 - stampBoxWidth) / 2;
     const stampBoxY = yPos;
     doc.setDrawColor(230, 235, 245);
@@ -4007,7 +3998,7 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     doc.setFont('helvetica', 'italic');
     doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2, { align: 'center' });
 
-    // Footer (ensure it stays within page)
+    // Footer
     const footerY = 285;
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
@@ -4662,6 +4653,11 @@ const getSignatureByUser = (user) => {
   if (role === 'head_of_it') {
     return { name: 'Joseph Ngugi', title: 'Head of I.T' };
   }
+
+  //hr manager
+  if (role == 'hr_manager') {
+    return {name: 'Terry Kintei' , title: 'Human Resource Manager'}
+  }
   // Valuer
   if (role === 'valuer') {
     if (username === 'robert') return { name: 'Robert Kalama', title: 'Valuer' };
@@ -5015,7 +5011,8 @@ export const generateLoanWaiverAgreementAutoPDF = async (loanData, newPrincipal,
     yPos = addWrappedLine("5. No further interest will accrue on this waived amount. The new loan carries 0% interest.", yPos);
     yPos = addWrappedLine("6. All other terms of the original Livestock Advance Payment Agreement (collateral, ownership, etc.) remain in full force.", yPos);
     yPos = addWrappedLine("7. Failure to repay the agreed amount by the due date will constitute default, and the Company may take possession of the collateral livestock without further notice.", yPos);
-    yPos = addWrappedLine("8. This waiver agreement is effective from the date signed below.", yPos);
+    yPos = addWrappedLine("8. If the Borrower fails to clear the full agreed balance on or before the due date specified in clause 4, then effective the next calendar day, the loan shall utomatically revert to the original payment plan that existed before this waiver agreement.", yPos);
+    yPos = addWrappedLine("9. This waiver agreement is effective from the date signed below.", yPos);
     yPos += 8;
 
     // ---- Signatures section ----
@@ -5219,7 +5216,9 @@ export const generateManualLoanWaiverAgreementPDF = async () => {
     yPos = addWrappedLine("5. No further interest will accrue on this waived amount. The new loan carries 0% interest.", yPos);
     yPos = addWrappedLine("6. All other terms of the original Livestock Advance Payment Agreement (collateral, ownership, etc.) remain in full force.", yPos);
     yPos = addWrappedLine("7. Failure to repay the agreed amount by the due date will constitute default, and the Company may take possession of the collateral livestock without further notice.", yPos);
-    yPos = addWrappedLine("8. This waiver agreement is effective from the date signed below.", yPos);
+    yPos = addWrappedLine("8. If the Borrower fails to clear the full agreed balance on or before the due date specified in clause 4, then effective the next calendar day, the loan shall", yPos);
+    yPos = addWrappedLine("   automatically revert to the original payment plan that existed before this waiver agreement.", yPos);
+    yPos = addWrappedLine("9. This waiver agreement is effective from the date signed below.", yPos);
     yPos += 8;
 
     // ---- Signatures section ----

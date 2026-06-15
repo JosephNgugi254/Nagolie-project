@@ -16,7 +16,7 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
   const fetchUsers = async () => {
     try {
       const res = await recoveryAPI.getUsers();
-      const allowedRoles = ['director', 'secretary','client_relations_officer', 'accountant', 'valuer', 'head_of_it', 'deputy_director'];
+      const allowedRoles = ['director', 'secretary','client_relations_officer', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'hr_manager'];
       const filtered = res.data.filter(u => allowedRoles.includes(u.role));
       setUsers(filtered);
     } catch (err) {

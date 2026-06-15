@@ -11,6 +11,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(30), default='admin') # admin, investor, staff
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=True)   # NEW
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     # NEW - to enable fingerprint biometric
     fingerprint_enabled = db.Column(db.Boolean, default=False)
@@ -19,6 +20,9 @@ class User(db.Model):
     webauthn_public_key = db.Column(db.LargeBinary, nullable=True)
     webauthn_sign_count = db.Column(db.Integer, default=0)
     webauthn_transports = db.Column(db.JSON, nullable=True)  # stores list of strings
+
+    role_obj = db.relationship('Role', back_populates='users', foreign_keys=[role_id])
+
     
     # investor role relationship
     investor_profile = db.relationship('Investor',back_populates='user',uselist=False,overlaps="investor,investor_user")    
@@ -170,6 +174,10 @@ class Loan(db.Model):
     # NEW: Repayment Plan (weekly or daily)
     repayment_plan = db.Column(db.String(20), default='weekly')  # 'weekly' or 'daily'
 
+    #for tracking for the sake of defaulted waived loan to revert to original plans
+    original_repayment_plan = db.Column(db.String(20), nullable=True)
+    original_interest_rate = db.Column(db.Numeric(5, 2), nullable=True)
+
     # AddED TO ALLOW PRE PROCESSING INTEREST BEFORE DUE DTE
     interest_prepaid_period = db.Column(db.String(20), nullable=True)
     interest_prepaid_amount = db.Column(db.Numeric(10, 2), default=Decimal('0'))
@@ -180,6 +188,9 @@ class Loan(db.Model):
 
     # NEW: last date when an accrual was recorded (to avoid duplicate ledger entries)
     last_accrual_recorded = db.Column(db.DateTime, nullable=True)
+
+    last_compounding_date = db.Column(db.DateTime, nullable=True)
+
 
     # relationships
     investor = db.relationship('Investor', backref='loans', lazy=True)   
@@ -218,6 +229,7 @@ class Loan(db.Model):
             'interest_prepaid_amount': float(self.interest_prepaid_amount or 0),# Added
             'parent_loan_id': self.parent_loan_id,
             'root_loan_id': self.root_loan_id,
+            'last_compounding_date': self.last_compounding_date.isoformat() if self.last_compounding_date else None,
         }
 
 class LoanLedger(db.Model):
@@ -694,6 +706,14 @@ class ReportComment(db.Model):
     officer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     report_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
     comment = db.Column(db.Text, nullable=False)
+
+    # NEW: financial snapshot fields
+    current_principal = db.Column(db.Numeric(12, 2), nullable=True)
+    unpaid_interest = db.Column(db.Numeric(12, 2), nullable=True)
+    total_balance = db.Column(db.Numeric(12, 2), nullable=True)
+    interest_rate = db.Column(db.Numeric(5, 2), nullable=True)
+    repayment_plan = db.Column(db.String(20), nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -717,3 +737,58 @@ class FlaggedLoan(db.Model):
     flagger = db.relationship('User', foreign_keys=[flagged_by])
     resolver = db.relationship('User', foreign_keys=[resolved_by])
     previous_officer = db.relationship('User', foreign_keys=[previous_officer_id])
+
+
+# ================== Dynamic Roles & Permissions ==================
+
+class Role(db.Model):
+    __tablename__ = 'roles'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), unique=True, nullable=False)   # e.g. 'hr_manager'
+    description = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    users = db.relationship('User', back_populates='role_obj', lazy='dynamic')
+    menu_items = db.relationship('RoleMenuItem', back_populates='role', lazy='joined', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'menu_items': [rim.menu_item.key for rim in self.menu_items]
+        }
+
+class MenuItem(db.Model):
+    __tablename__ = 'menu_items'
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(50), unique=True, nullable=False)    # e.g. 'overview', 'investors'
+    label = db.Column(db.String(100), nullable=False)
+    icon = db.Column(db.String(50), nullable=False)                # FontAwesome class
+    path = db.Column(db.String(100), nullable=False)               # frontend route
+    parent_id = db.Column(db.Integer, db.ForeignKey('menu_items.id'), nullable=True)
+    order = db.Column(db.Integer, default=0)
+
+    parent = db.relationship('MenuItem', remote_side=[id], backref='children')
+    role_assignments = db.relationship('RoleMenuItem', back_populates='menu_item', cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'key': self.key,
+            'label': self.label,
+            'icon': self.icon,
+            'path': self.path,
+            'parent_id': self.parent_id,
+            'order': self.order
+        }
+
+class RoleMenuItem(db.Model):
+    __tablename__ = 'role_menu_items'
+    id = db.Column(db.Integer, primary_key=True)
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=False)
+    menu_item_id = db.Column(db.Integer, db.ForeignKey('menu_items.id'), nullable=False)
+
+    role = db.relationship('Role', back_populates='menu_items')
+    menu_item = db.relationship('MenuItem', back_populates='role_assignments')

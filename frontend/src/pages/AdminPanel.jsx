@@ -26,6 +26,7 @@ import imageCompression from 'browser-image-compression'
 import { getStatusBadge } from '../components/admin/Clientstatusbadge';
 import UtilitiesPanel from "../components/utilities/UtilitiesPanel"
 import ReportManagement from "../components/admin/ReportManagement";
+import UserManagement from '../components/admin/UserManagement';
 
 function AdminPanel() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth()
@@ -1398,6 +1399,8 @@ const handleInvestorPasswordSubmit = (e) => {
       section = "payment-stats";
     } else if (path.includes("/admin/report-management")) {
       section = "report-management";  
+    } else if (path.includes("/admin/user-management")) {
+      section = "user-management";  
     } else if (path.includes("/admin/utilities")) {  
       section = "utilities";
     } else if (path.includes("/admin/investors")) {
@@ -1857,6 +1860,12 @@ useEffect(() => {
     if (section === "utilities") {
       setActiveSection("utilities");
       navigate("/admin/utilities");
+      return;
+    }
+
+    if (section === 'user-management') {
+      setActiveSection('user-management');
+      navigate('/admin/user-management');
       return;
     }
 
@@ -4077,10 +4086,14 @@ Thank you for choosing us.`;
                         )}
                       </>
                     )}
+
+                    {activeSection === 'user-management' && <UserManagement />}
                   </>
                 )}
               </div>
             )}
+
+            {activeSection === 'user-management' && <UserManagement />}
           </div>
         </div>
       </div>

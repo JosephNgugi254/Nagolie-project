@@ -468,3 +468,34 @@ def change_password():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+    
+@auth_bp.route('/menu', methods=['GET'])
+@jwt_required()
+def get_user_menu():
+    """Return menu items for the currently logged-in user based on their role."""
+    from app.models import Role, MenuItem, RoleMenuItem
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    # Get role object (either by role_id if migrated, or fallback to old role string)
+    role = None
+    if user.role_id:
+        role = Role.query.get(user.role_id)
+    else:
+        role = Role.query.filter_by(name=user.role).first()
+        if role:
+            # Update user to use role_id for future
+            user.role_id = role.id
+            db.session.commit()
+
+    if not role:
+        return jsonify([]), 200
+
+    # Fetch all menu items assigned to this role, ordered
+    menu_items = db.session.query(MenuItem).join(RoleMenuItem).filter(
+        RoleMenuItem.role_id == role.id
+    ).order_by(MenuItem.order).all()
+
+    return jsonify([item.to_dict() for item in menu_items]), 200

@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan)
 from app.utils.decorators import role_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary, _get_current_period_interest, _get_current_period_key
 from app.utils.cloudinary_upload import upload_base64_image
@@ -36,45 +36,53 @@ def get_week_number(disbursement_date):
 
 @recovery_bp.route('', methods=['GET'])
 @jwt_required()
-@role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer'])
+@role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
+    
+    # Subquery to get IDs of loans that are flagged and unresolved
+    flagged_subq = db.session.query(FlaggedLoan.loan_id).filter(FlaggedLoan.resolved == False).subquery()
+    
     loans = Loan.query.options(
         joinedload(Loan.client), joinedload(Loan.livestock)
-    ).filter(Loan.status == 'active').all()
-
+    ).filter(
+        Loan.status == 'active',
+        Loan.id.notin_(flagged_subq)   # exclude flagged loans
+    ).all()
+    
     result = {}
     today = datetime.utcnow().date()
-
+    
     for loan in loans:
         loan = recalculate_loan(loan)
         today = datetime.utcnow().date()
         overdue_days, overdue_weeks = compute_overdue(loan, today)
-
+        
         due_day = loan.disbursement_date.strftime('%A') if loan.disbursement_date else 'Monday'
         client = loan.client
         lv = loan.livestock
-
+        
         collateral = loan.collateral_text or (f"{lv.count} {lv.livestock_type}" if lv else '')
-
+        
         # ---- Pre-period interest info ----
         current_period = _get_current_period_key(loan)
-
-        # Raw weekly interest (30% of current principal) – for display in "Interest / Period"
-        raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
-
+        raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         period_prepaid = Decimal('0')
         period_fully_paid = False
         if loan.interest_prepaid_period == current_period:
             period_prepaid = loan.interest_prepaid_amount or Decimal('0')
             period_fully_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
-
-        # For display – use raw weekly interest
-        periodic_interest = float(raw_weekly_interest)
-
-        # For unpaid interest: raw minus prepaid (or for daily loans, use accumulated interest)
+        
+        # Determine the interest amount for the current period (1 week or 1 day)
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            periodic_interest = float(raw_weekly_interest)          # 30% of current principal
+        elif loan.repayment_plan == 'daily' and loan.interest_rate > 0:
+            periodic_interest = float((loan.current_principal * Decimal('0.045')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            ))                                                      # 4.5% of current principal
+        else:
+            periodic_interest = 0.0     
+        
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
             if loan.interest_prepaid_period == current_period:
                 unpaid_interest = float(max(Decimal('0'), raw_weekly_interest - period_prepaid))
@@ -82,17 +90,24 @@ def get_recovery_data():
                 unpaid_interest = float(raw_weekly_interest)
         else:
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
-
+        
         week_number = get_week_number(loan.disbursement_date)
         is_defaulter = Defaulter.query.filter_by(loan_id=loan.id, resolved=False).first() is not None
-
-        # Days left toward current due_date
+        
         if loan.due_date:
             due = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
             days_left = (due - today).days
         else:
             days_left = 0
-
+        
+        # ---------- NEW: Detect waived loans and get original principal ----------
+        is_waiver = (loan.interest_rate == 0 and loan.repayment_plan == 'daily')
+        original_principal = None
+        if is_waiver and loan.parent_loan_id:
+            parent = db.session.get(Loan, loan.parent_loan_id)
+            if parent:
+                original_principal = float(parent.principal_amount)
+        
         result.setdefault(due_day, []).append({
             'id': loan.id,
             'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
@@ -103,14 +118,13 @@ def get_recovery_data():
             'contacts': client.phone_number if client else '',
             'principal_amount': float(loan.principal_amount),
             'current_principal': float(loan.current_principal),
-            'interest': periodic_interest,                     # raw weekly interest
-            'accrued_interest': unpaid_interest,               # net unpaid interest
+            'interest': periodic_interest,
+            'accrued_interest': unpaid_interest,
             'week': week_number,
             'days_left': days_left,
             'is_defaulter': is_defaulter,
             'repayment_plan': loan.repayment_plan,
             'interest_type': loan.interest_type,
-            # ---- NEW fields for pre-period tracking ----
             'current_period_interest': float(raw_weekly_interest),
             'period_interest_prepaid': float(period_prepaid),
             'period_interest_fully_paid': period_fully_paid,
@@ -119,13 +133,15 @@ def get_recovery_data():
             'interest_rate': float(loan.interest_rate),
             'overdue_days': overdue_days,
             'overdue_weeks': overdue_weeks,
+            # ---------- NEW fields ----------
+            'is_waiver': is_waiver,
+            'original_principal': original_principal,
         })
-
+    
     for day in result:
         result[day].sort(key=lambda x: x['name'])
-
+    
     return jsonify(result), 200
-
 
 # ---------------------------------------------------------------------------
 # Payment endpoint – already uses _apply_payment() (no changes needed)
@@ -133,7 +149,7 @@ def get_recovery_data():
 
 @recovery_bp.route('/loan/<int:loan_id>/payment', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer'])
+@role_required(['director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
 def process_recovery_payment(loan_id):
     """
     Process a payment from the recovery module.
@@ -282,7 +298,7 @@ def mark_read(msg_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/defaulter', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it', 'deputy_director', 'secretary', 'client_relations_officer', 'valuer'])
+@role_required(['director', 'secretary', 'head_of_it', 'deputy_director', 'secretary', 'client_relations_officer', 'valuer', 'hr_manager'])
 def mark_defaulter(loan_id):
     uid = int(get_jwt_identity())
     ex  = Defaulter.query.filter_by(loan_id=loan_id).first()
@@ -295,7 +311,7 @@ def mark_defaulter(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/defaulter', methods=['DELETE'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it', 'deputy_director','secretary', 'client_relations_officer', 'valuer'])
+@role_required(['director', 'secretary', 'head_of_it', 'deputy_director','secretary', 'client_relations_officer', 'valuer', 'hr_manager'])
 def resolve_defaulter(loan_id):
     d = Defaulter.query.filter_by(loan_id=loan_id, resolved=False).first()
     if not d: return jsonify({'error': 'Not marked as defaulter'}), 404
@@ -446,7 +462,7 @@ def mark_comments_read(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/claim', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it', 'accountant', 'valuer', 'deputy_director', 'client_relations_officer'])
+@role_required(['director', 'secretary', 'head_of_it', 'accountant', 'valuer', 'deputy_director', 'client_relations_officer', 'hr_manager'])
 def claim_ownership(loan_id):
     try:
         loan = db.session.get(Loan, loan_id)
@@ -496,12 +512,16 @@ def claim_ownership(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
 def renew_loan_recovery(loan_id):
     try:
         from app.routes.payments import recalculate_loan
         from datetime import datetime, timedelta
         from decimal import Decimal
+
+        data = request.get_json() or {}
+        new_principal = data.get('new_principal')
+        new_repayment_plan = data.get('new_repayment_plan')   # <-- READ FROM REQUEST
 
         loan = db.session.get(Loan, loan_id)
         if not loan:
@@ -511,39 +531,63 @@ def renew_loan_recovery(loan_id):
 
         loan = recalculate_loan(loan)
 
+        # Determine the new principal
+        if new_principal is not None:
+            try:
+                new_principal = Decimal(str(new_principal))
+                if new_principal <= 0:
+                    return jsonify({'error': 'New principal must be positive'}), 400
+            except:
+                return jsonify({'error': 'Invalid new_principal value'}), 400
+        else:
+            new_principal = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
+            if new_principal <= Decimal('0.01'):
+                return jsonify({'error': 'No outstanding balance to renew'}), 400
+
+        # Validate and set the repayment plan
+        if new_repayment_plan not in ['weekly', 'daily']:
+            new_repayment_plan = loan.repayment_plan   # fallback
+
         now = datetime.utcnow()
+        # Eligibility check
         disburse = loan.disbursement_date or loan.created_at
         days_since = (now - disburse).days
         if days_since < 14 and loan.due_date > now:
-            return jsonify({'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'}), 400
-
-        outstanding_balance = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
-        if outstanding_balance <= Decimal('0.01'):
-            return jsonify({'error': 'No outstanding balance to renew'}), 400
+            return jsonify({'error': 'Loan is not yet eligible for renewal'}), 400
 
         # Mark old loan as renewed
         loan.status = 'renewed'
         loan.balance = Decimal('0')
         loan.amount_paid = loan.total_amount
-        loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()} - new principal: {outstanding_balance}"
+        loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()}"
 
-        # Create new loan
+        # Create new loan with the chosen plan
+        if new_repayment_plan == 'daily':
+            interest_rate = Decimal('4.5')
+            interest_type = 'simple'
+            due_date = now + timedelta(days=14)
+        else:
+            interest_rate = Decimal('30.0')
+            interest_type = 'compound'
+            due_date = now + timedelta(days=7)
+
         new_loan = Loan(
             client_id=loan.client_id,
             livestock_id=loan.livestock_id,
-            principal_amount=outstanding_balance,
-            current_principal=outstanding_balance,
-            total_amount=outstanding_balance,
-            balance=outstanding_balance,
-            interest_rate=loan.interest_rate,
-            interest_type=loan.interest_type,
-            repayment_plan=loan.repayment_plan,
+            principal_amount=new_principal,
+            current_principal=new_principal,
+            total_amount=new_principal,
+            balance=new_principal,
+            interest_rate=interest_rate,
+            interest_type=interest_type,
+            repayment_plan=new_repayment_plan,          # <-- USE THE NEW PLAN
             funding_source=loan.funding_source,
             investor_id=loan.investor_id,
             disbursement_date=now,
+            due_date=due_date,
             status='active',
             collateral_text=loan.collateral_text,
-            notes=f"Renewal of loan #{loan.id} - original principal {loan.principal_amount}",
+            notes=f"Renewal of loan #{loan.id} - new plan: {new_repayment_plan}",
             created_at=now,
             principal_paid=Decimal('0'),
             interest_paid=Decimal('0'),
@@ -555,20 +599,15 @@ def renew_loan_recovery(loan_id):
             root_loan_id=loan.root_loan_id or loan.id
         )
 
-        if new_loan.repayment_plan == 'daily':
-            new_loan.due_date = now + timedelta(days=14)
-        else:
-            new_loan.due_date = now + timedelta(days=7)
-
         db.session.add(new_loan)
         db.session.flush()
 
         txn = Transaction(
             loan_id=loan.id,
             transaction_type='renewal',
-            amount=outstanding_balance,
+            amount=new_principal,
             payment_method='renewal',
-            notes=f'Loan renewed. New loan ID: {new_loan.id}',
+            notes=f'Loan renewed. New loan ID: {new_loan.id} | Plan: {new_repayment_plan}',
             status='completed',
             created_at=now
         )
@@ -584,7 +623,7 @@ def renew_loan_recovery(loan_id):
             loan=loan,
             event_type='renewal_merged',
             transaction=txn,
-            amount=outstanding_balance,
+            amount=new_principal,
             notes=f'Loan renewed into new loan ID {new_loan.id}',
             reference=str(new_loan.id),
             user_id=get_jwt_identity()
@@ -594,7 +633,7 @@ def renew_loan_recovery(loan_id):
             event_type='renewal_created',
             transaction=None,
             amount=new_loan.principal_amount,
-            notes=f'Renewal of loan #{loan.id}',
+            notes=f'Renewal of loan #{loan.id} – Plan: {new_repayment_plan}',
             reference=str(loan.id),
             user_id=get_jwt_identity()
         )
@@ -605,7 +644,8 @@ def renew_loan_recovery(loan_id):
             'message': f'Loan renewed. New loan ID: {new_loan.id}',
             'old_loan': loan.to_dict(),
             'new_loan': new_loan.to_dict(),
-            'outstanding_balance': float(outstanding_balance)
+            'new_principal': float(new_principal),
+            'new_repayment_plan': new_repayment_plan
         }), 200
 
     except Exception as e:
@@ -613,10 +653,10 @@ def renew_loan_recovery(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+        
 @recovery_bp.route('/loan/<int:loan_id>/transactions', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'client_relations_officer'])
+@role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])
 def get_loan_transactions(loan_id):
     try:
         loan = db.session.get(Loan, loan_id)
@@ -682,28 +722,34 @@ def get_my_assigned_clients():
     else:
         report_date = datetime.utcnow().date()
 
-    # Get assigned clients (this helper already includes interest_rate & repayment_plan)
+    # Get assigned clients (live data, as before)
     from app.routes.admin import get_assigned_clients_for_user
     assigned = get_assigned_clients_for_user(officer_id)
 
-    # Attach comments for this report date
+    # For each client, check if a snapshot exists for the requested date
     for client in assigned:
-        comment_obj = ReportComment.query.filter_by(
-            loan_id=client['loan_id'], officer_id=officer_id, report_date=report_date
+        snapshot = ReportComment.query.filter_by(
+            loan_id=client['loan_id'],
+            officer_id=officer_id,
+            report_date=report_date
         ).first()
-        client['comment'] = comment_obj.comment if comment_obj else ''
+        if snapshot:
+            # Use the stored financial values
+            client['current_principal'] = float(snapshot.current_principal)
+            client['unpaid_interest'] = float(snapshot.unpaid_interest)
+            client['total_balance'] = float(snapshot.total_balance)
+            client['comment'] = snapshot.comment   # already set, but ensure it's the stored one
+        else:
+            # No snapshot – fall back to live data (already in client dict)
+            # The comment field will be empty (or you could keep it blank)
+            client['comment'] = ''   # ensure no stale comment
 
-    # Get officer's assigned weekdays
+    # Get officer's assigned weekdays (unchanged)
     from app.models import DayAssignment
     day_assignments = DayAssignment.query.filter_by(user_id=officer_id).all()
     assigned_days = [da.day_of_week for da in day_assignments]
 
-    # Build response with explicit CORS headers
-    response = jsonify({
-    'clients': assigned,
-    'assigned_days': assigned_days
-    })
-    # Dynamically allow the requesting origin if it's in our allowed list
+    response = jsonify({'clients': assigned, 'assigned_days': assigned_days})
     origin = request.headers.get('Origin')
     allowed_origins = ['http://localhost:5173', 'https://www.nagolie.com', 'https://nagolie.com']
     if origin in allowed_origins:
@@ -719,11 +765,34 @@ def save_report_comment():
     data = request.json
     loan_id = data.get('loan_id')
     comment_text = data.get('comment', '')
-    report_date = datetime.utcnow().date()
+    report_date = datetime.utcnow().date()   # you may also allow a custom date from request
 
     if not loan_id:
         return jsonify({'error': 'loan_id required'}), 400
 
+    # Get the loan and recalculate to get current financials
+    loan = db.session.get(Loan, loan_id)
+    if not loan or loan.status != 'active':
+        return jsonify({'error': 'Loan not found or not active'}), 404
+
+    loan = recalculate_loan(loan)
+
+    # Compute the same figures as shown in the report table
+    if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+        current_period = _get_current_period_key(loan)
+        period_interest = _get_current_period_interest(loan)
+        if loan.interest_prepaid_period == current_period:
+            prepaid = loan.interest_prepaid_amount or Decimal('0')
+            unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+        else:
+            unpaid_interest = float(period_interest)
+    else:
+        unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
+    current_principal = float(loan.current_principal)
+    total_balance = current_principal + unpaid_interest
+
+    # Find or create the ReportComment for this loan, officer, and date
     comment = ReportComment.query.filter_by(
         loan_id=loan_id, officer_id=officer_id, report_date=report_date
     ).first()
@@ -736,6 +805,163 @@ def save_report_comment():
             report_date=report_date, comment=comment_text
         )
         db.session.add(comment)
+
+    # Store the financial snapshot
+    comment.current_principal = current_principal
+    comment.unpaid_interest = unpaid_interest
+    comment.total_balance = total_balance
+    comment.interest_rate = float(loan.interest_rate)
+    comment.repayment_plan = loan.repayment_plan
+
     db.session.commit()
     return jsonify({'success': True}), 200
 
+@recovery_bp.route('/flag-loan/<int:loan_id>', methods=['POST'])
+@jwt_required()
+@role_required(['secretary', 'client_relations_officer', 'admin', 'director', 'hr_manager'])
+def flag_loan(loan_id):
+    """Officer flags a client for valuer attention."""
+    user_id = int(get_jwt_identity())
+    loan = db.session.get(Loan, loan_id)
+    if not loan or loan.status != 'active':
+        return jsonify({'error': 'Loan not found or not active'}), 404
+
+    # Check if already flagged and unresolved
+    existing = FlaggedLoan.query.filter_by(loan_id=loan_id, resolved=False).first()
+    if existing:
+        return jsonify({'error': 'Loan already flagged'}), 400
+
+    # Get current active assignment
+    ass = ClientAssignment.query.filter_by(loan_id=loan_id, is_active=True).first()
+    prev_officer_id = ass.officer_id if ass else None
+
+    # Deactivate current assignment
+    if ass:
+        ass.is_active = False
+
+    flagged = FlaggedLoan(
+        loan_id=loan_id,
+        flagged_by=user_id,
+        previous_officer_id=prev_officer_id,
+        flag_reason=request.json.get('reason', '')
+    )
+    db.session.add(flagged)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': 'Loan flagged for valuer'}), 200
+
+
+@recovery_bp.route('/resolve-flag/<int:loan_id>', methods=['POST'])
+@jwt_required()
+@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+def resolve_flag(loan_id):
+    """Valuer resolves a flagged loan – moves it back to original officer."""
+    user_id = int(get_jwt_identity())
+    flagged = FlaggedLoan.query.filter_by(loan_id=loan_id, resolved=False).first()
+    if not flagged:
+        return jsonify({'error': 'No unresolved flag for this loan'}), 404
+
+    flagged.resolved = True
+    flagged.resolved_at = datetime.utcnow()
+    flagged.resolved_by = user_id
+
+    # Restore previous assignment (or create a new day-based one)
+    prev_officer_id = flagged.previous_officer_id
+    if prev_officer_id:
+        # Reactivate day assignment or create new manual assignment
+        # First deactivate any existing active assignments for this loan
+        ClientAssignment.query.filter_by(loan_id=loan_id, is_active=True).update({'is_active': False})
+        new_ass = ClientAssignment(
+            loan_id=loan_id,
+            officer_id=prev_officer_id,
+            assignment_type='manual',
+            assigned_by=user_id,
+            override_reason='Restored after valuer resolution',
+            is_active=True
+        )
+        db.session.add(new_ass)
+    else:
+        # Fallback: assign based on day of week (refresh day assignments later)
+        from app.routes.admin import refresh_day_assignments
+        refresh_day_assignments()   # this will create day assignments for all loans
+
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Flag resolved, loan reassigned to original officer'}), 200
+
+
+@recovery_bp.route('/flagged-clients', methods=['GET'])
+@jwt_required()
+@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+def get_flagged_clients():
+    """Return all currently flagged loans with client details, balances, and livestock value."""
+    flagged = FlaggedLoan.query.filter_by(resolved=False).all()
+    result = []
+    for f in flagged:
+        loan = f.loan
+        if not loan or loan.status != 'active':
+            continue
+        loan = recalculate_loan(loan)
+        client = loan.client
+        livestock = loan.livestock
+
+        # Calculate unpaid interest correctly
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            current_period = _get_current_period_key(loan)
+            period_interest = _get_current_period_interest(loan)
+            if loan.interest_prepaid_period == current_period:
+                prepaid = loan.interest_prepaid_amount or Decimal('0')
+                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+            else:
+                unpaid_interest = float(period_interest)
+        else:
+            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
+        collateral_value = float(livestock.estimated_value) if livestock else 0
+
+        result.append({
+            'flag_id': f.id,
+            'loan_id': loan.id,
+            'client_name': client.full_name if client else 'Unknown',
+            'phone': client.phone_number if client else '',
+            'current_principal': float(loan.current_principal),
+            'unpaid_interest': unpaid_interest,
+            'total_outstanding': float(loan.current_principal) + unpaid_interest,
+            'collateral_value': collateral_value,
+            'flagged_at': f.flagged_at.isoformat() + 'Z',
+            'flagged_by_username': f.flagger.username if f.flagger else None,
+            'valuer_notes': f.valuer_notes or '',
+            'repayment_plan': loan.repayment_plan,
+            'interest_rate': float(loan.interest_rate),
+            'location': client.location if client and client.location else '',
+
+        })
+    return jsonify(result), 200
+
+
+@recovery_bp.route('/flagged-clients/<int:loan_id>/notes', methods=['PUT'])
+@jwt_required()
+@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+def update_valuer_notes(loan_id):
+    """Auto-save valuer notes for a flagged loan."""
+    data = request.json
+    notes = data.get('notes', '')
+    flagged = FlaggedLoan.query.filter_by(loan_id=loan_id, resolved=False).first()
+    if not flagged:
+        return jsonify({'error': 'No unresolved flag for this loan'}), 404
+    flagged.valuer_notes = notes
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+@recovery_bp.route('/loan/<int:loan_id>/report-comments', methods=['GET'])
+@jwt_required()
+@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+def get_loan_report_comments(loan_id):
+    """Return all report comments (daily loan report notes) for a given loan."""
+    comments = ReportComment.query.filter_by(loan_id=loan_id).order_by(ReportComment.created_at.desc()).all()
+    return jsonify([{
+        'id': c.id,
+        'comment': c.comment,
+        'report_date': c.report_date.isoformat(),
+        'officer_name': c.officer.username,
+        'created_at': c.created_at.isoformat()
+    } for c in comments]), 200

@@ -40,8 +40,14 @@ const getFullName = (user) => {
   // Client Relations Officer
   if (role === 'client_relations_officer') {
     if (username === 'lucie') return 'Lucy Nyambura';
-    if (username === 'annie') return 'Ann Wanjiru';
+    if (username === 'annie') return 'Ann Ndura';
     return 'Client Relations Officer';
+  }
+
+  //HUMAN RESOURCE MANAGER
+  if (role === 'hr_manager') {
+    if (username == 'terry') return 'Terry Kintei';
+    return 'HR Manager';
   }
   // Fallback
   return user.username || user.fullName || 'Unknown';
