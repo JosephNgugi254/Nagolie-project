@@ -9,12 +9,17 @@ const ReportsPanel = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
-  const [assignedDaysString, setAssignedDaysString] = useState('');   // <-- ADDED
+  const [assignedDaysString, setAssignedDaysString] = useState('');
 
   const fetchingRef = useRef(false);
   const saveTimeouts = useRef({});
 
-  // Load report data
+  // Determine if the selected date is in the past (strictly before today)
+  const isPastReport = (() => {
+    const today = new Date().toISOString().split('T')[0];
+    return reportDate < today;
+  })();
+
   const fetchData = useCallback(async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
@@ -24,7 +29,7 @@ const ReportsPanel = () => {
       setClients(res.data.clients);
       const daysMap = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
       const assignedDayNames = (res.data.assigned_days || []).map(d => daysMap[d]);
-      setAssignedDaysString(assignedDayNames.join(', '));   // <-- SET THE STRING
+      setAssignedDaysString(assignedDayNames.join(', '));
     } catch (error) {
       showToast.error('Failed to load assigned clients');
     } finally {
@@ -38,6 +43,8 @@ const ReportsPanel = () => {
   }, [fetchData]);
 
   const saveComment = async (loanId, comment) => {
+    // Do not save if the report is from a past date
+    if (isPastReport) return;
     try {
       await recoveryAPI.saveReportComment(loanId, comment);
     } catch (error) {
@@ -46,6 +53,9 @@ const ReportsPanel = () => {
   };
 
   const handleCommentChange = (loanId, value) => {
+    // Prevent any changes if report is from a past date
+    if (isPastReport) return;
+
     setClients(prev =>
       prev.map(c => (c.loan_id === loanId ? { ...c, comment: value } : c))
     );
@@ -78,6 +88,12 @@ const ReportsPanel = () => {
           </div>
         </div>
         <div className="card-body">
+          {isPastReport && (
+            <div className="alert alert-info mb-3">
+              <i className="fas fa-info-circle me-2"></i>
+              You are viewing a past report. Comments are read‑only.
+            </div>
+          )}
           <div className="table-responsive">
             <table className="table table-bordered table-hover">
               <thead className="table-light">
@@ -102,11 +118,12 @@ const ReportsPanel = () => {
                       <td>{client.interest_rate === 0 ? 'waived' : (client.unpaid_interest?.toLocaleString() ?? 0)}</td>
                       <td>
                         <textarea
-                          className="form-control"
+                          className={`form-control ${isPastReport ? 'bg-light' : ''}`}
                           rows="2"
                           value={client.comment || ''}
                           onChange={(e) => handleCommentChange(client.loan_id, e.target.value)}
-                          placeholder="Enter follow-up notes..."
+                          placeholder={isPastReport ? 'Past report – comments locked' : 'Enter follow-up notes...'}
+                          readOnly={isPastReport}
                         />
                       </td>
                     </tr>
