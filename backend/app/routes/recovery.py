@@ -722,11 +722,9 @@ def get_my_assigned_clients():
     else:
         report_date = datetime.utcnow().date()
 
-    # Get assigned clients (live data, as before)
     from app.routes.admin import get_assigned_clients_for_user
     assigned = get_assigned_clients_for_user(officer_id)
 
-    # For each client, check if a snapshot exists for the requested date
     for client in assigned:
         snapshot = ReportComment.query.filter_by(
             loan_id=client['loan_id'],
@@ -734,17 +732,14 @@ def get_my_assigned_clients():
             report_date=report_date
         ).first()
         if snapshot:
-            # Use the stored financial values
-            client['current_principal'] = float(snapshot.current_principal)
-            client['unpaid_interest'] = float(snapshot.unpaid_interest)
-            client['total_balance'] = float(snapshot.total_balance)
-            client['comment'] = snapshot.comment   # already set, but ensure it's the stored one
+            # Use snapshot values if they exist, otherwise fall back to current
+            client['current_principal'] = float(snapshot.current_principal) if snapshot.current_principal is not None else client['current_principal']
+            client['unpaid_interest'] = float(snapshot.unpaid_interest) if snapshot.unpaid_interest is not None else client['unpaid_interest']
+            client['total_balance'] = float(snapshot.total_balance) if snapshot.total_balance is not None else client['total_balance']
+            client['comment'] = snapshot.comment
         else:
-            # No snapshot – fall back to live data (already in client dict)
-            # The comment field will be empty (or you could keep it blank)
-            client['comment'] = ''   # ensure no stale comment
+            client['comment'] = ''
 
-    # Get officer's assigned weekdays (unchanged)
     from app.models import DayAssignment
     day_assignments = DayAssignment.query.filter_by(user_id=officer_id).all()
     assigned_days = [da.day_of_week for da in day_assignments]
@@ -765,19 +760,17 @@ def save_report_comment():
     data = request.json
     loan_id = data.get('loan_id')
     comment_text = data.get('comment', '')
-    report_date = datetime.utcnow().date()   # you may also allow a custom date from request
+    report_date = datetime.utcnow().date()
 
     if not loan_id:
         return jsonify({'error': 'loan_id required'}), 400
 
-    # Get the loan and recalculate to get current financials
     loan = db.session.get(Loan, loan_id)
     if not loan or loan.status != 'active':
         return jsonify({'error': 'Loan not found or not active'}), 404
 
-    loan = recalculate_loan(loan)
+    loan = recalculate_loan(loan, save=False)   # read only
 
-    # Compute the same figures as shown in the report table
     if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
         current_period = _get_current_period_key(loan)
         period_interest = _get_current_period_interest(loan)
@@ -792,7 +785,6 @@ def save_report_comment():
     current_principal = float(loan.current_principal)
     total_balance = current_principal + unpaid_interest
 
-    # Find or create the ReportComment for this loan, officer, and date
     comment = ReportComment.query.filter_by(
         loan_id=loan_id, officer_id=officer_id, report_date=report_date
     ).first()
@@ -806,7 +798,6 @@ def save_report_comment():
         )
         db.session.add(comment)
 
-    # Store the financial snapshot
     comment.current_principal = current_principal
     comment.unpaid_interest = unpaid_interest
     comment.total_balance = total_balance

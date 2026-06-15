@@ -69,7 +69,7 @@ def seed():
                              'payment-stats', 'transactions', 'reports', 'utilities', 'settings'],
             'accountant': ['recovery', 'reports', 'inbox', 'utilities', 'settings'],
             'valuer': ['recovery', 'reports', 'inbox','utilities', 'settings'],
-            'head_of_it': ['recovery', 'reports', 'inbox', 'settings', 'utilities'],
+            'head_of_it': ['recovery', 'inbox', 'settings', 'utilities'],
             'deputy_director': ['recovery', 'reports', 'inbox', 'settings', 'utilities'],
             # 'hr_manager' will be added via API later, not here
         }

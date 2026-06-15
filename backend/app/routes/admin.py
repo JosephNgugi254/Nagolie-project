@@ -122,8 +122,8 @@ def get_assigned_clients_for_user(user_id):
         client = loan.client
         if not client or loan.status != 'active':
             continue
-        # recalc loan to get fresh figures
-        loan = recalculate_loan(loan)
+        # recalc loan to get fresh figures – read only!
+        loan = recalculate_loan(loan, save=False)
 
         # --- Correct unpaid interest (same as recovery module) ---
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
@@ -359,7 +359,7 @@ def get_all_clients():
             if not client:
                 continue
 
-            active_loan = recalculate_loan(active_loan)
+            active_loan = recalculate_loan(active_loan, save=False)
             overdue_days, overdue_weeks = compute_overdue(active_loan, today)
             db.session.commit()
 
@@ -441,7 +441,7 @@ def get_all_clients():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
+    
 # ---------------------------------------------------------------------------
 # Dashboard (unchanged)
 # ---------------------------------------------------------------------------
@@ -476,7 +476,7 @@ def get_dashboard_stats():
         ).all()
         due_today_data = []
         for loan in due_today_loans:
-            loan = recalculate_loan(loan)
+            loan = recalculate_loan(loan, save=False)
             due_today_data.append({
                 'id': loan.id, 'client_id': loan.client_id, 'loan_id': loan.id,
                 'client_name': loan.client.full_name if loan.client else 'Unknown',
@@ -492,7 +492,7 @@ def get_dashboard_stats():
         ).all()
         overdue_data = []
         for loan in overdue_loans:
-            loan = recalculate_loan(loan)
+            loan = recalculate_loan(loan, save=False)
             overdue_days, overdue_weeks = compute_overdue(loan, today)
             overdue_data.append({
                 'id': loan.id,
@@ -519,7 +519,6 @@ def get_dashboard_stats():
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
 
 # ---------------------------------------------------------------------------
 # Payment stats (unchanged)
@@ -1896,7 +1895,6 @@ def get_all_client_assignments():
     from app.routes.payments import _get_current_period_key, _get_current_period_interest
 
     flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
-    # FIX: removed invalid `.options(...)` – use `.all()` directly
     loans = Loan.query.filter(
         Loan.status == 'active',
         Loan.id.notin_(flagged_ids)
@@ -1916,7 +1914,7 @@ def get_all_client_assignments():
         }
 
     for loan in loans:
-        loan = recalculate_loan(loan)
+        loan = recalculate_loan(loan, save=False)
         ass = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
         if not ass:
             continue
@@ -1990,11 +1988,10 @@ def suggest_balanced_distribution():
     target_min = 60000
     target_max = 70000
 
-    # Get all active clients assigned to any officer (secretary + officers)
     officers = User.query.filter(User.role.in_(['secretary', 'client_relations_officer'])).all()
     all_clients = []
     for loan in Loan.query.filter_by(status='active').all():
-        loan = recalculate_loan(loan)
+        loan = recalculate_loan(loan, save=False)
         unpaid = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
         all_clients.append({
             'loan_id': loan.id,
@@ -2003,20 +2000,16 @@ def suggest_balanced_distribution():
             'current_principal': float(loan.current_principal)
         })
 
-    # Sort by unpaid interest descending
     all_clients.sort(key=lambda x: x['unpaid_interest'], reverse=True)
 
-    # Greedy assignment: assign each client to the officer with current lowest total
     totals = {o.id: 0 for o in officers}
     suggestions = {o.id: [] for o in officers}
 
     for client in all_clients:
-        # Find officer with smallest total
         best = min(officers, key=lambda o: totals[o.id])
         suggestions[best.id].append(client['loan_id'])
         totals[best.id] += client['unpaid_interest']
 
-    # Format result
     result = []
     for o in officers:
         result.append({
