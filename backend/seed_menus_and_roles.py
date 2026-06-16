@@ -71,7 +71,8 @@ def seed():
             'valuer': ['recovery', 'reports', 'inbox','utilities', 'settings'],
             'head_of_it': ['recovery', 'inbox', 'settings', 'utilities'],
             'deputy_director': ['recovery', 'reports', 'inbox', 'settings', 'utilities'],
-            # 'hr_manager' will be added via API later, not here
+            'hr_manager': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
+                   'transactions', 'gallery', 'report-management', 'utilities', 'settings'],
         }
 
         for role_name, menu_keys in roles_data.items():
