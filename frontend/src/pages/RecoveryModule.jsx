@@ -1748,7 +1748,7 @@ function RecoveryModule() {
                                   {filteredData[day].map(loan => {
                                     const badge = getDaysBadge(loan);
                                     return (
-                                      <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
+                                      <tr key={loan.id}>
                                         <td><div>{loan.name}</div><span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>{loan.interest_rate === 0 ? 'Waived' : (loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}</span>{badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}</td>
                                         <td>{loan.collateral}</td>
                                         <td>{loan.location}</td>
@@ -3297,7 +3297,7 @@ function RecoveryModule() {
                                       {filteredData[day].map(loan => {
                                         const badge = getDaysBadge(loan);
                                         return (
-                                          <tr key={loan.id} className={loan.is_defaulter ? 'table-danger' : ''}>
+                                          <tr key={loan.id}>
                                             <td>
                                               <div>{loan.name}</div>
                                               <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
