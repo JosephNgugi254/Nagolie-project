@@ -11,7 +11,7 @@ const ValuerPanel = () => {
   const [flaggedClients, setFlaggedClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
-  const [showClientModal, setShowClientModal] = useState(false);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [reportComments, setReportComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [branchFilter, setBranchFilter] = useState('all'); // 'all', 'isinya', 'emarti'
@@ -19,8 +19,34 @@ const ValuerPanel = () => {
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [resolveLoanId, setResolveLoanId] = useState(null);
 
+  const [showLoanDetailsModal, setShowLoanDetailsModal] = useState(false);
+  const [selectedLoanDetails, setSelectedLoanDetails] = useState(null);
+
+  // Image zoom state
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+
   const noteTimeout = useRef({});
 
+  // ---------- Helpers ----------
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-KE', {
+      style: 'currency',
+      currency: 'KES',
+      minimumFractionDigits: 0,
+    }).format(amount || 0);
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'N/A';
+    try {
+      return new Date(dateStr).toLocaleDateString('en-GB');
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  // ---------- Data Fetching ----------
   const fetchFlagged = useCallback(async () => {
     try {
       const res = await recoveryAPI.getFlaggedClients();
@@ -49,6 +75,7 @@ const ValuerPanel = () => {
     }
   };
 
+  // Auto‑save valuer notes
   const autoSaveNotes = (loanId, value) => {
     if (noteTimeout.current[loanId]) clearTimeout(noteTimeout.current[loanId]);
     noteTimeout.current[loanId] = setTimeout(async () => {
@@ -80,10 +107,10 @@ const ValuerPanel = () => {
     }
   };
 
-  const previewReport = async () => {
+  // Generate report – preview or download
+  const generateReport = async (download = true) => {
     const reportDate = new Date().toLocaleDateString('en-GB');
-    // Download report for the currently filtered list
-    await generateValuerReportFromData(filteredClients, reportDate, user.username);
+    await generateValuerReportFromData(filteredClients, reportDate, user.username, download);
   };
 
   // Branch filter logic 
@@ -115,9 +142,14 @@ const ValuerPanel = () => {
     <div className="valuers-panel">
       <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <h2>📋 Flagged Clients for Recovery</h2>
-        <button className="btn btn-info" onClick={previewReport}>
-          <i className="fas fa-download me-2"></i>Download Report
-        </button>
+        <div className="d-flex gap-2">
+          <button className="btn btn-info" onClick={() => generateReport(false)}>
+            <i className="fas fa-eye me-2"></i>Preview Report
+          </button>
+          <button className="btn btn-success" onClick={() => generateReport(true)}>
+            <i className="fas fa-download me-2"></i>Download Report
+          </button>
+        </div>
       </div>
 
       {/* Branch filter buttons */}
@@ -160,31 +192,50 @@ const ValuerPanel = () => {
           <tbody>
             {filteredClients.map(client => (
               <tr key={client.loan_id}>
-                <td>{client.client_name}</td>
+                <td>
+                  {client.client_name}
+                  <span className={`badge ms-2 ${client.repayment_plan === 'daily' ? 'bg-primary' : 'bg-secondary'}`}>
+                    {client.repayment_plan === 'daily' ? 'Daily' : 'Weekly'}
+                  </span>
+                </td>
                 <td>{client.phone}</td>
                 <td>{client.current_principal.toLocaleString()}</td>
                 <td>{client.unpaid_interest.toLocaleString()}</td>
-                <td className="fw-bold">{client.total_outstanding.toLocaleString()}</td>
+                <td className="fw-bold text-danger">{client.total_outstanding.toLocaleString()}</td>
                 <td>{client.collateral_value.toLocaleString()}</td>
                 <td>{client.flagged_by_username}</td>
                 <td>{client.location || '—'}</td>
                 <td>
-                  <button
-                    className="btn btn-sm btn-primary me-1"
-                    onClick={async () => {
-                      setSelectedClient(client);
-                      await fetchReportComments(client.loan_id);
-                      setShowClientModal(true);
-                    }}
-                  >
-                    <i className="fas fa-edit"></i> Details
-                  </button>
-                  <button
-                    className="btn btn-sm btn-warning"
-                    onClick={() => handleResolveClick(client.loan_id)}
-                  >
-                    <i className="fas fa-check"></i> Resolve
-                  </button>
+                  <div className="btn-group btn-group-sm">
+                    <button
+                      className="btn btn-sm btn-primary me-1"
+                      onClick={async () => {
+                        setSelectedClient(client);
+                        await fetchReportComments(client.loan_id);
+                        setShowCommentsModal(true);
+                      }}
+                      title="View/Edit Comments & Valuer Notes"
+                    >
+                      <i className="fas fa-comment"></i> Comments
+                    </button>
+                    <button
+                      className="btn btn-sm btn-info me-1"
+                      onClick={() => {
+                        setSelectedLoanDetails(client);
+                        setShowLoanDetailsModal(true);
+                      }}
+                      title="View Full Loan Details"
+                    >
+                      <i className="fas fa-eye"></i> View Details
+                    </button>
+                    <button
+                      className="btn btn-sm btn-warning"
+                      onClick={() => handleResolveClick(client.loan_id)}
+                      title="Resolve and return to officer"
+                    >
+                      <i className="fas fa-check"></i> Resolve
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -199,37 +250,35 @@ const ValuerPanel = () => {
         </table>
       </div>
 
-      {/* Client Detail Modal */}
+      {/* ---------- Comments Modal (Officer's Daily Report Comments + Valuer Notes) ---------- */}
       <Modal
-        isOpen={showClientModal}
-        onClose={() => setShowClientModal(false)}
-        title={`Recovery Details – ${selectedClient?.client_name}`}
+        isOpen={showCommentsModal}
+        onClose={() => setShowCommentsModal(false)}
+        title={`Recovery Comments – ${selectedClient?.client_name}`}
         size="lg"
       >
         {selectedClient && (
           <>
-            <div className="row">
-              <div className="col-md-6">
-                <p><strong>Phone:</strong> {selectedClient.phone}</p>
-                <p><strong>Current Principal:</strong> KES {selectedClient.current_principal.toLocaleString()}</p>
-                <p><strong>Unpaid Interest:</strong> KES {selectedClient.unpaid_interest.toLocaleString()}</p>
-                <p><strong>Total Outstanding:</strong> KES {selectedClient.total_outstanding.toLocaleString()}</p>
-                <p><strong>Collateral Value:</strong> KES {selectedClient.collateral_value.toLocaleString()}</p>
-                <p><strong>Repayment Plan:</strong> {selectedClient.repayment_plan}</p>
-              </div>
-              <div className="col-md-6">
-                <label className="form-label fw-bold">Valuer Notes (auto‑saved)</label>
-                <textarea
-                  className="form-control"
-                  rows="4"
-                  value={selectedClient.valuer_notes}
-                  onChange={(e) => {
-                    const newNotes = e.target.value;
-                    setSelectedClient({ ...selectedClient, valuer_notes: newNotes });
-                    autoSaveNotes(selectedClient.loan_id, newNotes);
-                  }}
-                />
-              </div>
+            <div className="mb-3">
+              <p><strong>Client:</strong> {selectedClient.client_name}</p>
+              <p><strong>Phone:</strong> {selectedClient.phone}</p>
+              <p><strong>Loan ID:</strong> {selectedClient.loan_id}</p>
+            </div>
+
+            {/* Valuer Notes - auto‑save */}
+            <div className="mb-3">
+              <label className="form-label fw-bold">Valuer Recovery Notes (auto‑saved)</label>
+              <textarea
+                className="form-control"
+                rows="3"
+                value={selectedClient.valuer_notes || ''}
+                onChange={(e) => {
+                  const newNotes = e.target.value;
+                  setSelectedClient({ ...selectedClient, valuer_notes: newNotes });
+                  autoSaveNotes(selectedClient.loan_id, newNotes);
+                }}
+                placeholder="Enter your valuer notes here..."
+              />
             </div>
 
             <hr />
@@ -251,15 +300,98 @@ const ValuerPanel = () => {
                 ))}
               </div>
             )}
-
             <div className="mt-3 d-flex justify-content-end">
-              <button className="btn btn-secondary" onClick={() => setShowClientModal(false)}>Close</button>
+              <button className="btn btn-secondary" onClick={() => setShowCommentsModal(false)}>Close</button>
             </div>
           </>
         )}
       </Modal>
 
-      {/* Resolve Confirmation Modal */}
+      {/* ---------- Loan Details Modal (Full Loan & Livestock Info) ---------- */}
+      {showLoanDetailsModal && selectedLoanDetails && (
+        <Modal
+          isOpen={showLoanDetailsModal}
+          onClose={() => {
+            setShowLoanDetailsModal(false);
+            setSelectedLoanDetails(null);
+          }}
+          title="Loan Details"
+          size="lg"
+        >
+          <div className="row">
+            <div className="col-md-6">
+              <p><strong>Client Name:</strong> {selectedLoanDetails.client_name}</p>
+              <p><strong>Phone:</strong> {selectedLoanDetails.phone}</p>
+              <p><strong>ID Number:</strong> {selectedLoanDetails.id_number || 'N/A'}</p>
+              <p><strong>Location:</strong> {selectedLoanDetails.location || 'N/A'}</p>
+              <p><strong>Disbursement Date:</strong> {formatDate(selectedLoanDetails.disbursement_date)}</p>
+              <p><strong>Due Date:</strong> {formatDate(selectedLoanDetails.due_date)}</p>
+              <p><strong>Repayment Plan:</strong> {selectedLoanDetails.repayment_plan === 'daily' ? 'Daily (4.5%)' : 'Weekly (30%)'}</p>
+              <p><strong>Current Principal:</strong> {formatCurrency(selectedLoanDetails.current_principal)}</p>
+              <p><strong>Unpaid Interest:</strong> {formatCurrency(selectedLoanDetails.unpaid_interest)}</p>
+              <p><strong>Total Outstanding:</strong> <span className="text-danger fw-bold">{formatCurrency(selectedLoanDetails.total_outstanding)}</span></p>
+            </div>
+            <div className="col-md-6">
+              <p><strong>Livestock Type:</strong> {selectedLoanDetails.livestock_type}</p>
+              <p><strong>Count:</strong> {selectedLoanDetails.livestock_count}</p>
+              <p><strong>Collateral Value:</strong> {formatCurrency(selectedLoanDetails.collateral_value)}</p>
+              <p><strong>Flagged By:</strong> {selectedLoanDetails.flagged_by_username}</p>
+              <p><strong>Flagged At:</strong> {formatDate(selectedLoanDetails.flagged_at)}</p>
+              <p><strong>Interest Rate:</strong> {selectedLoanDetails.interest_rate}%</p>
+              {/* Valuer Notes intentionally excluded; they are in the Comments modal */}
+            </div>
+          </div>
+
+          {/* Livestock Photos */}
+          {selectedLoanDetails.photos && selectedLoanDetails.photos.length > 0 && (
+            <div className="mt-3">
+              <h6>Livestock Photos</h6>
+              <div className="row">
+                {selectedLoanDetails.photos.map((photo, index) => (
+                  <div key={index} className="col-4 mb-2">
+                    <img
+                      src={photo}
+                      alt={`Livestock ${index + 1}`}
+                      className="img-fluid rounded"
+                      style={{ height: '150px', width: '100%', objectFit: 'cover', cursor: 'pointer' }}
+                      onClick={() => {
+                        setSelectedImage(photo);
+                        setShowImageModal(true);
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 d-flex justify-content-end">
+            <button className="btn btn-secondary" onClick={() => setShowLoanDetailsModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ---------- Image Zoom Modal ---------- */}
+      {showImageModal && selectedImage && (
+        <Modal
+          isOpen={showImageModal}
+          onClose={() => {
+            setShowImageModal(false);
+            setSelectedImage(null);
+          }}
+          title="Livestock Photo"
+          size="lg"
+        >
+          <div className="text-center">
+            <img src={selectedImage} alt="Livestock" className="img-fluid rounded" style={{ maxHeight: '70vh' }} />
+          </div>
+          <div className="mt-3 text-center">
+            <button className="btn btn-secondary" onClick={() => setShowImageModal(false)}>Close</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ---------- Resolve Confirmation Modal ---------- */}
       <ConfirmationDialog
         isOpen={showResolveModal}
         onClose={() => {

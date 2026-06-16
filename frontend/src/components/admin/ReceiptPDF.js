@@ -7395,8 +7395,8 @@ export const generateManualPromissoryNotePDF = async () => {
   doc.save(fileName);
 };
 
-// ========== VALUER REPORT FROM DATA (GENERATED WITH ACTUAL CONTENT) ==========
-export const generateValuerReportFromData = async (flaggedClients, reportDate, officerName) => {
+// ========== VALUER REPORT FROM DATA (with preview/download support) ==========
+export const generateValuerReportFromData = async (flaggedClients, reportDate, officerName, download = true) => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   addOptimizedWatermark(doc, 'document');
 
@@ -7502,10 +7502,19 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
   doc.setTextColor(150,150,150);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'italic');
-  doc.text('COMPANY STAMP', stampX+stampW/2, yPos+stampH/2, { align: 'center' });
+  doc.text('STAMP', stampX+stampW/2, yPos+stampH/2, { align: 'center' });
   addFooter(doc, yPos+stampH+10);
   addPageNumbers(doc, 'page %d');
 
+  // ---------- Preview or Download ----------
   const fileName = `Valuer_Report_${reportDate.replace(/\//g, '-')}.pdf`;
-  doc.save(fileName);
+  if (download) {
+    doc.save(fileName);
+  } else {
+    // Preview: open in new tab
+    const blob = doc.output('blob');
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    URL.revokeObjectURL(url);
+  }
 };

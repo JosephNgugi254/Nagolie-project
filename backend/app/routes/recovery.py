@@ -907,6 +907,7 @@ def get_flagged_clients():
         else:
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
+        # Collateral value from livestock
         collateral_value = float(livestock.estimated_value) if livestock else 0
 
         result.append({
@@ -914,6 +915,7 @@ def get_flagged_clients():
             'loan_id': loan.id,
             'client_name': client.full_name if client else 'Unknown',
             'phone': client.phone_number if client else '',
+            'id_number': client.id_number if client else '',
             'current_principal': float(loan.current_principal),
             'unpaid_interest': unpaid_interest,
             'total_outstanding': float(loan.current_principal) + unpaid_interest,
@@ -924,11 +926,16 @@ def get_flagged_clients():
             'repayment_plan': loan.repayment_plan,
             'interest_rate': float(loan.interest_rate),
             'location': client.location if client and client.location else '',
-
+            # NEW fields for loan details modal
+            'disbursement_date': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
+            'due_date': loan.due_date.isoformat() if loan.due_date else None,
+            'livestock_type': livestock.livestock_type if livestock else 'N/A',
+            'livestock_count': livestock.count if livestock else 0,
+            'estimated_value': collateral_value,  # kept for compatibility, but frontend uses collateral_value
+            'photos': livestock.photos if livestock and livestock.photos else [],
+            'client_id': client.id if client else None,
         })
     return jsonify(result), 200
-
-
 @recovery_bp.route('/flagged-clients/<int:loan_id>/notes', methods=['PUT'])
 @jwt_required()
 @role_required(['valuer', 'admin', 'director', 'hr_manager'])
