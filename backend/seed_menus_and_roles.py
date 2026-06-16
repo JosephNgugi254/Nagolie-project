@@ -45,6 +45,7 @@ def seed():
             {'key': 'settings', 'label': 'Settings', 'icon': 'fa-cog', 'path': '/recovery/settings', 'order': 90},
             {'key': 'reports', 'label': 'Reports', 'icon': 'fa-chart-pie', 'path': '/recovery/reports', 'order': 100},
             {'key': 'investor-section', 'label': 'Investor Section', 'icon': 'fa-lock', 'path': '/recovery/investors', 'order': 110},
+            {'key': 'loan-reports', 'label': 'Loan Reports', 'icon': 'fa-file-alt', 'path': '/loan-reports', 'order': 75},
         ]
 
         for item in menu_items_data:
@@ -58,10 +59,10 @@ def seed():
         #    For simplicity, we reuse the same keys. HR manager will be created later via API.
         roles_data = {
             'admin': ['overview', 'clients', 'transactions', 'payment-stats', 'gallery',
-                      'company-gallery', 'applications', 'report-management', 'utilities',
+                      'company-gallery', 'applications', 'report-management','loan-reports', 'utilities',
                       'investors','user-management', 'settings'],
             'director': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
-                         'transactions', 'gallery', 'investors', 'report-management',
+                         'transactions', 'gallery', 'investors', 'report-management','loan-reports',
                          'utilities', 'settings'],
             'secretary': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
                           'transactions', 'reports', 'utilities', 'settings'],
@@ -69,10 +70,10 @@ def seed():
                              'payment-stats', 'transactions', 'reports', 'utilities', 'settings'],
             'accountant': ['recovery', 'reports', 'inbox', 'utilities', 'settings'],
             'valuer': ['recovery', 'reports', 'inbox','utilities', 'settings'],
-            'head_of_it': ['recovery', 'inbox', 'settings', 'utilities'],
+            'head_of_it': ['recovery', 'inbox','loan-reports', 'settings', 'utilities'],
             'deputy_director': ['recovery', 'reports', 'inbox', 'settings', 'utilities'],
             'hr_manager': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
-                   'transactions', 'gallery', 'report-management', 'utilities', 'settings'],
+                   'transactions', 'gallery', 'report-management','loan-reports', 'utilities', 'settings'],
         }
 
         for role_name, menu_keys in roles_data.items():

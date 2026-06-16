@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from app import db
-from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, FlaggedLoan, Role, MenuItem, RoleMenuItem
+from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, ReportComment, FlaggedLoan, Role, MenuItem, RoleMenuItem
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy import func
@@ -2193,3 +2193,87 @@ def delete_user(user_id):
     db.session.delete(user)
     db.session.commit()
     return jsonify({'success': True}), 200
+
+@admin_bp.route('/officers', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director', 'head_of_it', 'hr_manager'])
+def get_officers():
+    users = User.query.filter(User.role.in_(['secretary', 'client_relations_officer', 'valuer'])).all()
+    return jsonify([{'id': u.id, 'username': u.username, 'role': u.role} for u in users]), 200
+
+@admin_bp.route('/reports/officer', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director', 'head_of_it', 'hr_manager'])
+def get_officer_report():
+    officer_id = request.args.get('officer_id')
+    report_date_str = request.args.get('date')
+    if not officer_id or not report_date_str:
+        return jsonify({'error': 'officer_id and date required'}), 400
+    try:
+        report_date = datetime.strptime(report_date_str, '%Y-%m-%d').date()
+    except:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    officer = db.session.get(User, officer_id)
+    if not officer or officer.role not in ['secretary', 'client_relations_officer']:
+        return jsonify({'error': 'Invalid officer'}), 400
+
+    # Get all active assignments for this officer
+    assignments = ClientAssignment.query.filter_by(
+        officer_id=officer_id,
+        is_active=True
+    ).options(joinedload(ClientAssignment.loan).joinedload(Loan.client)).all()
+
+    result = []
+    for ass in assignments:
+        loan = ass.loan
+        if not loan or loan.status != 'active':
+            continue
+        client = loan.client
+        if not client:
+            continue
+        loan = recalculate_loan(loan, save=False)
+
+        # Compute unpaid interest correctly
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            current_period = _get_current_period_key(loan)
+            period_interest = _get_current_period_interest(loan)
+            if loan.interest_prepaid_period == current_period:
+                prepaid = loan.interest_prepaid_amount or Decimal('0')
+                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+            else:
+                unpaid_interest = float(period_interest)
+        else:
+            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
+        # Check for report comment on that date
+        comment = ReportComment.query.filter_by(
+            loan_id=loan.id,
+            officer_id=officer_id,
+            report_date=report_date
+        ).first()
+
+        if comment:
+            current_principal = float(comment.current_principal) if comment.current_principal is not None else float(loan.current_principal)
+            unpaid_interest = float(comment.unpaid_interest) if comment.unpaid_interest is not None else unpaid_interest
+            total_balance = float(comment.total_balance) if comment.total_balance is not None else float(loan.current_principal + Decimal(str(unpaid_interest)))
+            comment_text = comment.comment
+        else:
+            current_principal = float(loan.current_principal)
+            total_balance = current_principal + unpaid_interest
+            comment_text = ''
+
+        result.append({
+            'loan_id': loan.id,
+            'client_name': client.full_name,
+            'phone': client.phone_number,
+            'current_principal': current_principal,
+            'unpaid_interest': unpaid_interest,
+            'total_balance': total_balance,
+            'interest_rate': float(loan.interest_rate),
+            'repayment_plan': loan.repayment_plan,
+            'comment': comment_text,
+        })
+
+    return jsonify(result), 200
+
