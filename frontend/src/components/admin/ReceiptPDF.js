@@ -7403,19 +7403,21 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
   const margin = { left: 7, right: 7, top: 10 };
   const pageWidth = doc.internal.pageSize.width;
   const tableWidth = pageWidth - margin.left - margin.right;
-  const colPercent = [5, 20, 12, 15, 15, 33];
+
+  // Column widths: # (4%), Name (22%), Date (8%), Principal (16%), Interest (18%), Notes (32%)
+  const colPercent = [4, 22, 8, 16, 18, 32];
   let colWidths = colPercent.map(p => (tableWidth * p) / 100);
   if (colWidths[0] < 8) colWidths[0] = 8;
   if (colWidths[1] < 38) colWidths[1] = 38;
-  if (colWidths[2] < 12) colWidths[2] = 12;
-  const used = colWidths.reduce((a,b)=>a+b,0);
+  if (colWidths[2] < 10) colWidths[2] = 10;
+  const used = colWidths.reduce((a, b) => a + b, 0);
   if (used < tableWidth) colWidths[5] += (tableWidth - used);
 
   let yPos = await addHeader(doc, margin.top);
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('VALUER RECOVERY REPORT', pageWidth/2, yPos, { align: 'center' });
+  doc.text('VALUER RECOVERY REPORT', pageWidth / 2, yPos, { align: 'center' });
   yPos += 10;
 
   doc.setFontSize(10);
@@ -7425,23 +7427,28 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
   doc.text(`Report Date: ${reportDate}`, pageWidth - margin.right - 50, yPos);
   yPos += 8;
 
-  const headers = ['#', 'Client Name', 'Date Flagged', 'Principal (KES)', 'Interest (KES)', 'Valuer Notes'];
+  const headers = ['#', 'Client Name', 'Date', 'Principal (KES)', 'Interest (KES)', 'Valuer Notes'];
   let startX = margin.left;
   doc.setFillColor(...COLORS.primaryBlue);
   doc.setTextColor(...COLORS.white);
   doc.setFont('helvetica', 'bold');
   doc.rect(startX, yPos, tableWidth, 8, 'F');
   let x = startX;
-  headers.forEach((h,i) => {
-    doc.text(h, x+4, yPos+5.5);
+  headers.forEach((h, i) => {
+    doc.text(h, x + 4, yPos + 5.5);
     x += colWidths[i];
   });
   yPos += 8;
   doc.setTextColor(...COLORS.textDark);
   doc.setFont('helvetica', 'normal');
-  const rowHeight = 25;
 
-  for (let i=0; i<flaggedClients.length; i++) {
+  const formatCurrency = (amount) => {
+    return `KES ${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  };
+
+  const rowHeight = 28;
+
+  for (let i = 0; i < flaggedClients.length; i++) {
     const client = flaggedClients[i];
     if (yPos + rowHeight > 280) {
       doc.addPage();
@@ -7451,8 +7458,8 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
       doc.setTextColor(...COLORS.white);
       doc.rect(startX, yPos, tableWidth, 8, 'F');
       x = startX;
-      headers.forEach((h,idx) => {
-        doc.text(h, x+2, yPos+5.5);
+      headers.forEach((h, idx) => {
+        doc.text(h, x + 2, yPos + 5.5);
         x += colWidths[idx];
       });
       yPos += 8;
@@ -7464,54 +7471,90 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
       doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
     }
     let cx = startX;
-    for (let j=0; j<colWidths.length; j++) {
+    for (let j = 0; j < colWidths.length; j++) {
       doc.rect(cx, yPos, colWidths[j], rowHeight);
       cx += colWidths[j];
     }
-    doc.text((i+1).toString(), startX+3, yPos+15);
-    doc.text(client.client_name, startX+colWidths[0]+3, yPos+15);
+
+    // Column 0: Index
+    doc.text((i + 1).toString(), startX + 3, yPos + 15);
+
+    // Column 1: Client name + Plan badge
+    const nameX = startX + colWidths[0] + 3;
+    doc.text(client.client_name, nameX, yPos + 15);
+    if (client.repayment_plan) {
+      const planText = client.repayment_plan === 'daily' ? 'Daily' : 'Weekly';
+      doc.setTextColor(...COLORS.primaryBlue);
+      doc.setFontSize(8);
+      doc.text(planText, nameX, yPos + 21);
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFontSize(10);
+    }
+
+    // Column 2: Date Flagged – rotated +45° (bottom-left to top-right), pushed down
     const flaggedDate = new Date(client.flagged_at).toLocaleDateString('en-GB');
-    doc.text(flaggedDate, startX+colWidths[0]+colWidths[1]+3, yPos+15);
-    doc.text(client.current_principal.toLocaleString(), startX+colWidths[0]+colWidths[1]+colWidths[2]+3, yPos+15);
-    doc.text(client.unpaid_interest.toLocaleString(), startX+colWidths[0]+colWidths[1]+colWidths[2]+colWidths[3]+3, yPos+15);
-    // Wrap notes
-    const notesLines = doc.splitTextToSize(client.valuer_notes || '', colWidths[5]-4);
-    let noteY = yPos+5;
+    const dateX = startX + colWidths[0] + colWidths[1] + (colWidths[2] / 2)+ 3;
+    const dateY = yPos + 20; // pushed down from 15 to 20
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(9);
+    doc.text(flaggedDate, dateX, dateY, { align: 'center', angle: 45 });
+
+    // Column 3: Principal
+    doc.text(formatCurrency(client.current_principal), startX + colWidths[0] + colWidths[1] + colWidths[2] + 3, yPos + 15);
+
+    // Column 4: Interest + Total (blue)
+    const interestX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 3;
+    const interest = client.unpaid_interest || 0;
+    doc.text(formatCurrency(interest), interestX, yPos + 15);
+    const total = (client.current_principal || 0) + interest;
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(8);
+    doc.text(`Total: ${formatCurrency(total)}`, interestX, yPos + 21);
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(10);
+
+    // Column 5: Valuer Notes
+    const notesLines = doc.splitTextToSize(client.valuer_notes || '', colWidths[5] - 4);
+    let noteY = yPos + 5;
     notesLines.forEach(line => {
-      doc.text(line, startX+colWidths[0]+colWidths[1]+colWidths[2]+colWidths[3]+colWidths[4]+3, noteY);
+      doc.text(line, startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 3, noteY);
       noteY += 5;
     });
     yPos += rowHeight;
   }
 
-  // Signature and stamp
+  // ---------- Signatures & Stamp ----------
   yPos += 10;
-  if (yPos > 270) { doc.addPage(); addWatermarkToCurrentPage(doc, 'document'); yPos = margin.top; }
+  if (yPos > 270) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'document');
+    yPos = margin.top;
+  }
   doc.setFont('helvetica', 'bold');
   doc.text('Prepared by Valuer: ______________________________', margin.left, yPos);
-  doc.text('Signature: ___________________', margin.left+120, yPos);
+  doc.text('Signature: ___________________', margin.left + 120, yPos);
   yPos += 12;
   doc.text('Approved by Director:  Shadrack Kesumet', margin.left, yPos);
-  doc.text('Signature: ___________________', margin.left+80, yPos);
-  doc.text('Date: ___________________', margin.left+140, yPos);
+  doc.text('Signature: ___________________', margin.left + 80, yPos);
+  doc.text('Date: ___________________', margin.left + 140, yPos);
   yPos += 10;
+
   const stampW = 50, stampH = 30;
-  const stampX = (pageWidth - stampW)/2;
-  doc.setDrawColor(200,200,200);
+  const stampX = (pageWidth - stampW) / 2;
+  doc.setDrawColor(200, 200, 200);
   doc.roundedRect(stampX, yPos, stampW, stampH, 2, 2);
-  doc.setTextColor(150,150,150);
+  doc.setTextColor(150, 150, 150);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'italic');
-  doc.text('STAMP', stampX+stampW/2, yPos+stampH/2, { align: 'center' });
-  addFooter(doc, yPos+stampH+10);
+  doc.text('STAMP', stampX + stampW / 2, yPos + stampH / 2, { align: 'center' });
+
+  addFooter(doc, yPos + stampH + 10);
   addPageNumbers(doc, 'page %d');
 
-  // ---------- Preview or Download ----------
   const fileName = `Valuer_Report_${reportDate.replace(/\//g, '-')}.pdf`;
   if (download) {
     doc.save(fileName);
   } else {
-    // Preview: open in new tab
     const blob = doc.output('blob');
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
