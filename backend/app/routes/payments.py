@@ -97,27 +97,50 @@ def _accrue_daily(loan, today, last_date, save=True):
     if not loan.last_compounding_date:
         loan.last_compounding_date = loan.disbursement_date
 
-    last_dt = loan.last_interest_payment_date
-    now_dt = datetime.combine(today, datetime.min.time())
-    delta_days = (now_dt - last_dt).days
-    daily_rate = Decimal('0.045')
-
-    if delta_days > 0:
-        for i in range(delta_days):
-            day_interest = (loan.current_principal * daily_rate).quantize(
+    # ---------- Day-zero interest: add immediately if not already added ----------
+    # This covers both new loans and renewals where last_interest_payment_date == disbursement_date
+    if loan.accrued_interest == 0 and loan.last_interest_payment_date is not None:
+        if loan.last_interest_payment_date.date() <= disb:
+            day_interest = (loan.current_principal * Decimal('0.045')).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
             loan.accrued_interest += day_interest
-            accrual_date = last_dt + timedelta(days=i+1)
+            _record_accrual(
+                loan=loan,
+                amount=day_interest,
+                notes='Daily interest accrued on disbursement day (day 0)',
+                event_date=datetime.combine(disb, datetime.min.time()),
+                save=save
+            )
+            # Mark this day as accrued so we don't add it again
+            loan.last_interest_payment_date = datetime.combine(disb, datetime.min.time())
+
+    # ---------- Accrue interest for fully completed days ----------
+    # Only days strictly before today (i.e., fully elapsed) are considered.
+    last_dt = loan.last_interest_payment_date.date()
+    first_accrual_date = last_dt + timedelta(days=1)          # first day not yet accrued
+    last_accrual_date = today - timedelta(days=1)             # last fully elapsed day
+
+    if first_accrual_date <= last_accrual_date:
+        # Loop over each day from first to last inclusive
+        for accrual_date in [
+            first_accrual_date + timedelta(days=i)
+            for i in range((last_accrual_date - first_accrual_date).days + 1)
+        ]:
+            day_interest = (loan.current_principal * Decimal('0.045')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            loan.accrued_interest += day_interest
             _record_accrual(
                 loan=loan,
                 amount=day_interest,
                 notes='Daily interest accrued at 4.5%',
-                event_date=datetime.combine(accrual_date.date(), datetime.min.time()),
+                event_date=datetime.combine(accrual_date, datetime.min.time()),
                 save=save
             )
-        loan.last_interest_payment_date += timedelta(days=delta_days)
+            loan.last_interest_payment_date = datetime.combine(accrual_date, datetime.min.time())
 
+    # ---------- Weekly compounding (unchanged) ----------
     last_compound = loan.last_compounding_date.date()
     weeks_passed = (today - last_compound).days // 7
     if weeks_passed > 0:
@@ -147,6 +170,7 @@ def _accrue_daily(loan, today, last_date, save=True):
                 loan.interest_prepaid_amount = Decimal('0')
         loan.last_compounding_date += timedelta(days=weeks_passed * 7)
 
+    # ---------- Final balance ----------
     unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
     loan.balance = loan.current_principal + unpaid
     if loan.current_principal <= Decimal('0.01') and unpaid <= Decimal('0.01'):
