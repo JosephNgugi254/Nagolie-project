@@ -2307,4 +2307,9 @@ def get_loan(loan_id):
     response['period_interest_prepaid'] = float(period_prepaid)
     response['period_interest_fully_paid'] = period_fully_paid
 
+    client = loan.client
+    response['name'] = client.full_name if client else 'Unknown'
+    response['contacts'] = client.phone_number if client else 'N/A'
+    response['id_number'] = client.id_number if client else 'N/A'
+
     return jsonify(response), 200
