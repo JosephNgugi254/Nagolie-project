@@ -1,22 +1,21 @@
-// components/utilities/UtilitiesPanel.jsx
 import { useState, useCallback } from 'react';
 import { showToast } from '../common/Toast';
 import {
   generateManualLoanAgreementPDF,
   generateManualNextOfKinConsentPDF,
   generateManualLoanRenewalAgreementPDF,
-  generateManualLoanWaiverAgreementPDF,   
+  generateManualLoanWaiverAgreementPDF,
   generateLetterPDF,
   downloadLetterPDF,
   generateInvoicePDF,
   generateLeaveRequestPDF,
   generateManualLeaveRequestPDF,
-  generateManualInvoicePDF,               
+  generateManualInvoicePDF,
   generateManualDeliveryNotePDF,
   generateBlankReportPDF,
   generateValuerReportPDF,
   generateClientRelationsOfficerContractPDF,
-  generatePromissoryNote,   // Keep for any direct calls (not used in modal now)
+  generatePromissoryNote,
   generateManualPromissoryNotePDF
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
@@ -26,20 +25,29 @@ import InvoiceGenerator from './InvoiceGenerator';
 import LeaveRequestWriter from './LeaveRequestWriter';
 import DocumentGenerator from './DocumentGenerator';
 import DeliveryNoteGenerator from './DeliveryNoteGenerator';
-import PromissoryNoteWriter from './PromissoryNoteWriter';   // New import
+import PromissoryNoteWriter from './PromissoryNoteWriter';
+import SalaryAdvanceStaff from '../salary/SalaryAdvanceStaff';
 
 const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('forms');
 
-  // Allow accountant and valuer as well (for Recovery Module)
-  const canAccessFull = ['admin', 'secretary', 'client_relations_officer', 'director', 'head_of_it', 'accountant', 'valuer','hr_manager'].includes(userRole);
+  // Define roles that can access each feature
+  const canAccessFull = ['admin', 'secretary', 'client_relations_officer', 'director', 'head_of_it', 'accountant', 'valuer', 'hr_manager'].includes(userRole);
   const canAccessManualForms = true;
   const canAccessLetter = canAccessFull;
   const canAccessInvoice = canAccessFull;
 
+  // Staff roles that can request salary advances (must match backend get_staff_roles)
+  const staffRoles = ['head_of_it', 'client_relations_officer', 'valuer', 'secretary', 'hr_manager'];
+  const isStaff = userRole && staffRoles.includes(userRole);
+
+  // If the user is not staff, ensure we don't show the salary tab
+  if (!isStaff && activeTab === 'salary') {
+    setActiveTab('forms');
+  }
+
   const handleDownloadForm = async (formType) => {
-    // ... (unchanged)
     try {
       switch (formType) {
         case 'loan':
@@ -51,7 +59,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
         case 'renewal':
           await generateManualLoanRenewalAgreementPDF();
           break;
-        case 'waiver':                       
+        case 'waiver':
           await generateManualLoanWaiverAgreementPDF();
           break;
         default:
@@ -131,6 +139,16 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                 </button>
               </li>
             )}
+            {isStaff && (
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'salary' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('salary')}
+                >
+                  <i className="fas fa-hand-holding-usd me-2"></i>Salary Advance
+                </button>
+              </li>
+            )}
             {canAccessFull && (
               <li className="nav-item">
                 <button
@@ -147,7 +165,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
           <div className="tab-content">
             {activeTab === 'forms' && (
               <div className="row g-4">
-                {/* manual loan agreement form */}
+                {/* All form cards – unchanged */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-primary">
                     <div className="card-body text-center">
@@ -160,7 +178,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* manual loan renewal agreement form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-success">
                     <div className="card-body text-center">
@@ -173,7 +190,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* manual next of kin consent form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-warning">
                     <div className="card-body text-center">
@@ -185,8 +201,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                       </button>
                     </div>
                   </div>
-                </div>   
-                {/* manual loan waiver agreement form */}
+                </div>
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-info">
                     <div className="card-body text-center">
@@ -199,7 +214,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* manual promissory note form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-secondary">
                     <div className="card-body text-center">
@@ -219,7 +233,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* manual invoice */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-primary">
                     <div className="card-body text-center">
@@ -239,7 +252,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* manual delivery note */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-info">
                     <div className="card-body text-center">
@@ -259,7 +271,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* manual leave form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-info">
                     <div className="card-body text-center">
@@ -279,7 +290,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* manual reports form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-secondary">
                     <div className="card-body text-center">
@@ -292,7 +302,6 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                     </div>
                   </div>
                 </div>
-                {/* Valuer report form */}
                 <div className="col-md-6 col-lg-4">
                   <div className="card h-100 border-success">
                     <div className="card-body text-center">
@@ -330,6 +339,10 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
 
             {activeTab === 'document' && canAccessLetter && (
               <DocumentGenerator userRole={user} />
+            )}
+
+            {activeTab === 'salary' && isStaff && (
+              <SalaryAdvanceStaff user={user} />
             )}
           </div>
         </div>

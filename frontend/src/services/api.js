@@ -151,6 +151,10 @@ export const adminAPI = {
     });
   },
 
+  getLoan: (id) => api.get(`/admin/loans/${id}`),
+  updateUserBranch: (userId, branch) => api.put(`/admin/users/${userId}/branch`, { branch }),
+
+
   //getting loan ledger and consolidated statement
   getLoanLedger: (loanId) => api.get(`/admin/loan/${loanId}/ledger`),
   getConsolidatedStatement: (loanId) => api.get(`/admin/loan/${loanId}/consolidated-statement`),
@@ -172,6 +176,10 @@ export const adminAPI = {
   createRole: (data) => api.post('/admin/roles', data),
   deleteRole: (id) => api.delete(`/admin/roles/${id}`),
   getMenuItems: () => api.get('/admin/menu-items'),
+
+  getOfficers: () => api.get('/admin/officers'),
+  getOfficerReport: (officerId, date) => api.get(`/admin/reports/officer?officer_id=${officerId}&date=${date}`),
+  clientAssignmentSearch: (query) => api.get(`/admin/reports/client-assignment?q=${encodeURIComponent(query)}`),
   
 };
 
@@ -302,6 +310,27 @@ export const recoveryAPI = {
 export const userAPI = {
   changeUsername: (data) => api.put('/auth/change-username', data),
   changePassword: (data) => api.put('/auth/change-password', data),
+};
+
+export const salaryAPI = {
+  // Staff Settings (Director)
+  getStaffSettings: (month) => api.get(`/salary/staff-settings?month=${month}`),
+  setStaffSalary: (userId, month, salaryAmount) => api.post('/salary/staff-settings', { user_id: userId, month, salary_amount: salaryAmount }),
+
+  // Advance Requests
+  getAdvanceRequests: () => api.get('/salary/advance-requests'),
+  createAdvanceRequest: (amount, note, month) => api.post('/salary/advance-requests', { amount, note, month }),
+  processAdvanceRequest: (requestId, action, reason) => api.put(`/salary/advance-requests/${requestId}/process`, { action, reason }),
+  payAdvanceRequest: (requestId, mpesaReference, paymentMethod, notes) => api.post(`/salary/advance-requests/${requestId}/pay`, { mpesa_reference: mpesaReference, payment_method: paymentMethod, notes }),
+
+  // Direct Salary Payment
+  recordSalaryPayment: (userId, month, amount, paymentMethod, reference, notes) => api.post('/salary/salary-payment', { user_id: userId, month, amount, payment_method: paymentMethod, reference, notes }),
+
+  // Staff view
+  getMySalaryStats: (month) => api.get(`/salary/my-stats?month=${month}`),
+
+  // Reports
+  getStaffReportData: (userId, month) => api.get(`/salary/staff-report/${userId}?month=${month}`),
 };
 
 export default api;

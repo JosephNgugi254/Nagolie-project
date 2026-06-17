@@ -44,6 +44,9 @@ import imageCompression from 'browser-image-compression';
 import { getStatusBadge } from '../components/admin/Clientstatusbadge';
 import ReportManagement from '../components/admin/ReportManagement';
 import ValuerPanel from '../components/recovery/ValuerPanel';
+import LoanReports from '../components/loan-reports/LoanReports';
+import SalaryManagement from '../components/director/SalaryManagement';
+import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
 
 const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -214,6 +217,20 @@ function RecoveryModule() {
   const [showFlagConfirmModal, setShowFlagConfirmModal] = useState(false);
   const [flagLoanToConfirm, setFlagLoanToConfirm] = useState(null);
   const [flagLoanName, setFlagLoanName] = useState('');
+
+
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+  
+  const fetchPendingRequestsCount = async () => {
+    try {
+      const res = await salaryAPI.getAdvanceRequests();
+      const pending = res.data.filter(r => r.status === 'pending').length;
+      setPendingRequestsCount(pending);
+    } catch (err) {
+      console.error('Failed to fetch pending requests');
+    }
+  };
+
 
   const handleConfirmFlag = async () => {
     if (!flagLoanToConfirm) return;
@@ -763,6 +780,8 @@ function RecoveryModule() {
     );
   };
 
+  
+
   // ---------- Payment and client helpers (same as AdminPanel) ----------
   const [paymentType, setPaymentType] = useState('principal');
   const [mpesaReference, setMpesaReference] = useState("");
@@ -1078,11 +1097,16 @@ function RecoveryModule() {
   };
 
   const handleDownloadInvoice = async (loan) => {
-    console.log('Download invoice clicked for loan:', loan);
     try {
-      const response = await recoveryAPI.getLoanTransactions(loan.id);
-      console.log('Transactions response:', response);
-      await generateLoanInvoicePDF(loan, response.data || []);
+      // 1. Fetch the most current loan data (including period_interest_prepaid)
+      const loanResponse = await adminAPI.getLoan(loan.id);   // or recoveryAPI.getLoan(loan.id)
+      const freshLoan = loanResponse.data;
+
+      // 2. Get transactions for the invoice
+      const txnResponse = await recoveryAPI.getLoanTransactions(loan.id);
+
+      // 3. Generate invoice with fresh data
+      await generateLoanInvoicePDF(freshLoan, txnResponse.data || []);
       showToast.success('Invoice downloaded');
     } catch (error) {
       console.error('Invoice error:', error);
@@ -2525,6 +2549,13 @@ function RecoveryModule() {
                       )}
                     </Modal>
                   )}
+
+                  {/* LOAN REPORTS SECTION */}
+                  {directorSection === 'loan-reports' &&<UnifiedReportsTabs />}
+
+                  {directorSection === 'salaries' && (
+                    <SalaryManagement />
+                  )}
             
                   {showApprovalModal && applicationToApprove && (
                     <LoanApprovalModal isOpen={showApprovalModal} onClose={() => setShowApprovalModal(false)} onApprove={(loanId, fundingData) => handleApplicationAction(loanId, 'approve', fundingData)} application={applicationToApprove} investors={investors} loading={approvingLoan} />
@@ -3431,7 +3462,10 @@ function RecoveryModule() {
                         )}
                       </>
                     )}
-                
+
+                    {/* Loan Reports Section for director and admin */}
+                    {directorSection === 'loan-reports' && <UnifiedReportsTabs />}
+          
                     {/* Valuer Reports Section */}
                     {directorSection === 'reports' && <ValuerPanel />}
                   </>

@@ -3585,3 +3585,16 @@ section {
   height: 36px;
   border-radius: 18px;
 }
+
+/* Salary-related messages – green background */
+.message-bubble.salary-message {
+  background-color: #d4edda !important;
+  border: 1px solid #b7d4b7 !important;
+}
+.message-bubble.sent.salary-message {
+  background-color: #b7d4b7 !important;
+  color: #155724 !important;
+}
+.message-bubble.salary-message .message-content {
+  color: #155724 !important;
+}

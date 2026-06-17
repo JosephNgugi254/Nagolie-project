@@ -147,7 +147,7 @@ def create_advance_request():
             msg = PrivateMessage(
                 sender_id=user_id,
                 recipient_id=director.id,
-                content=f"New salary advance request from {user.username} for KES {amount:.2f}. Note: {note}",
+                content=f"New salary advance request from {user.username} for KES {amount:.2f}.\n Note: {note}",
                 status='sent'
             )
             db.session.add(msg)
@@ -165,6 +165,7 @@ def create_advance_request():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+# ---------- Process advance request (approve/reject) – includes private message ----------
 @salary_bp.route('/advance-requests/<int:request_id>/process', methods=['PUT'])
 @jwt_required()
 @role_required(['director', 'hr_manager'])
@@ -180,11 +181,31 @@ def process_advance_request(request_id):
         if req.status != 'pending':
             return jsonify({'error': 'Request already processed'}), 400
 
+        director_id = int(get_jwt_identity())
+        director = User.query.get(director_id)
+        staff = User.query.get(req.user_id)
+
         if action == 'reject':
             req.status = 'rejected'
             req.rejected_reason = reason
             req.processed_at = datetime.utcnow()
             db.session.commit()
+
+            # Send private message to the staff who requested
+            if director and staff:
+                msg_content = (
+                    f"❌ Your salary advance request of KES {req.amount:.2f} for {req.month} "
+                    f"has been rejected.\nReason: {reason}"
+                )
+                msg = PrivateMessage(
+                    sender_id=director.id,
+                    recipient_id=staff.id,
+                    content=msg_content,
+                    status='sent'
+                )
+                db.session.add(msg)
+                db.session.commit()
+
             log_audit('advance_request_rejected', 'salary_advance_request', req.id, {'user_id': req.user_id})
             return jsonify({'success': True, 'status': 'rejected'}), 200
 
@@ -192,6 +213,22 @@ def process_advance_request(request_id):
             req.status = 'approved'
             req.processed_at = datetime.utcnow()
             db.session.commit()
+
+            # Send approval notification
+            if director and staff:
+                msg_content = (
+                    f"✅ Your salary advance request of KES {req.amount:.2f} for {req.month} "
+                    f"has been approved. Please wait for payment processing."
+                )
+                msg = PrivateMessage(
+                    sender_id=director.id,
+                    recipient_id=staff.id,
+                    content=msg_content,
+                    status='sent'
+                )
+                db.session.add(msg)
+                db.session.commit()
+
             log_audit('advance_request_approved', 'salary_advance_request', req.id, {'user_id': req.user_id})
             return jsonify({'success': True, 'status': 'approved'}), 200
 

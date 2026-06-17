@@ -1,3 +1,4 @@
+// components/recovery/ValuerPanel.jsx
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { recoveryAPI } from '../../services/api';
@@ -6,15 +7,16 @@ import Modal from '../common/Modal';
 import ConfirmationDialog from '../common/ConfirmationDialog';
 import { generateValuerReportFromData } from '../admin/ReceiptPDF';
 
-const ValuerPanel = () => {
+const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
   const { user } = useAuth();
+
   const [flaggedClients, setFlaggedClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState(null);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [reportComments, setReportComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
-  const [branchFilter, setBranchFilter] = useState('all'); // 'all', 'isinya', 'emarti'
+  const [branchFilter, setBranchFilter] = useState('all');
 
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [resolveLoanId, setResolveLoanId] = useState(null);
@@ -22,13 +24,12 @@ const ValuerPanel = () => {
   const [showLoanDetailsModal, setShowLoanDetailsModal] = useState(false);
   const [selectedLoanDetails, setSelectedLoanDetails] = useState(null);
 
-  // Image zoom state
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
 
   const noteTimeout = useRef({});
 
-  // ---------- Helpers ----------
+  // Helpers
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-KE', {
       style: 'currency',
@@ -46,7 +47,7 @@ const ValuerPanel = () => {
     }
   };
 
-  // ---------- Data Fetching ----------
+  // Fetch flagged clients
   const fetchFlagged = useCallback(async () => {
     try {
       const res = await recoveryAPI.getFlaggedClients();
@@ -62,6 +63,14 @@ const ValuerPanel = () => {
     fetchFlagged();
   }, [fetchFlagged]);
 
+  // Auto‑set branch filter based on logged-in valuer's default_branch
+  useEffect(() => {
+    if (user && user.role === 'valuer' && user.default_branch) {
+      setBranchFilter(user.default_branch);
+    }
+  }, [user]);
+
+  // Fetch report comments for a loan
   const fetchReportComments = async (loanId) => {
     setLoadingComments(true);
     try {
@@ -75,13 +84,19 @@ const ValuerPanel = () => {
     }
   };
 
-  // Auto‑save valuer notes
+  // Auto‑save valuer notes – only when editable
   const autoSaveNotes = (loanId, value) => {
+    if (!editable) return;   // <-- no saving when read‑only
+
     if (noteTimeout.current[loanId]) clearTimeout(noteTimeout.current[loanId]);
     noteTimeout.current[loanId] = setTimeout(async () => {
       try {
         await recoveryAPI.updateValuerNotes(loanId, value);
-        setFlaggedClients(prev => prev.map(c => c.loan_id === loanId ? { ...c, valuer_notes: value } : c));
+        setFlaggedClients(prev =>
+          prev.map(c =>
+            c.loan_id === loanId ? { ...c, valuer_notes: value } : c
+          )
+        );
       } catch (err) {
         console.error('Auto-save failed', err);
       }
@@ -89,6 +104,7 @@ const ValuerPanel = () => {
   };
 
   const handleResolveClick = (loanId) => {
+    if (!editable) return;   // <-- no resolve in read‑only mode
     setResolveLoanId(loanId);
     setShowResolveModal(true);
   };
@@ -107,13 +123,13 @@ const ValuerPanel = () => {
     }
   };
 
-  // Generate report – preview or download
+  // Generate report – preview or download (always available)
   const generateReport = async (download = true) => {
     const reportDate = new Date().toLocaleDateString('en-GB');
-    await generateValuerReportFromData(filteredClients, reportDate, user.username, download);
+    await generateValuerReportFromData(filteredClients, reportDate, user?.username || 'Valuer', download);
   };
 
-  // Branch filter logic 
+  // Branch filter logic
   const filterByBranch = (clients) => {
     if (branchFilter === 'all') return clients;
     return clients.filter(client => {
@@ -214,7 +230,7 @@ const ValuerPanel = () => {
                         await fetchReportComments(client.loan_id);
                         setShowCommentsModal(true);
                       }}
-                      title="View/Edit Comments & Valuer Notes"
+                      title="View Comments & Valuer Notes"
                     >
                       <i className="fas fa-comment"></i> Comments
                     </button>
@@ -228,13 +244,15 @@ const ValuerPanel = () => {
                     >
                       <i className="fas fa-eye"></i> View Details
                     </button>
-                    <button
-                      className="btn btn-sm btn-warning"
-                      onClick={() => handleResolveClick(client.loan_id)}
-                      title="Resolve and return to officer"
-                    >
-                      <i className="fas fa-check"></i> Resolve
-                    </button>
+                    {editable && (   // <-- only show Resolve button if editable
+                      <button
+                        className="btn btn-sm btn-warning"
+                        onClick={() => handleResolveClick(client.loan_id)}
+                        title="Resolve and return to officer"
+                      >
+                        <i className="fas fa-check"></i> Resolve
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -250,7 +268,7 @@ const ValuerPanel = () => {
         </table>
       </div>
 
-      {/* ---------- Comments Modal (Officer's Daily Report Comments + Valuer Notes) ---------- */}
+      {/* ---------- Comments Modal ---------- */}
       <Modal
         isOpen={showCommentsModal}
         onClose={() => setShowCommentsModal(false)}
@@ -265,21 +283,32 @@ const ValuerPanel = () => {
               <p><strong>Loan ID:</strong> {selectedClient.loan_id}</p>
             </div>
 
-            {/* Valuer Notes - auto‑save */}
-            <div className="mb-3">
-              <label className="form-label fw-bold">Valuer Recovery Notes (auto‑saved)</label>
-              <textarea
-                className="form-control"
-                rows="3"
-                value={selectedClient.valuer_notes || ''}
-                onChange={(e) => {
-                  const newNotes = e.target.value;
-                  setSelectedClient({ ...selectedClient, valuer_notes: newNotes });
-                  autoSaveNotes(selectedClient.loan_id, newNotes);
-                }}
-                placeholder="Enter your valuer notes here..."
-              />
-            </div>
+            {/* Valuer Notes – show only when editable */}
+            {editable && (
+              <div className="mb-3">
+                <label className="form-label fw-bold">Valuer Recovery Notes (auto‑saved)</label>
+                <textarea
+                  className="form-control"
+                  rows="3"
+                  value={selectedClient.valuer_notes || ''}
+                  onChange={(e) => {
+                    const newNotes = e.target.value;
+                    setSelectedClient({ ...selectedClient, valuer_notes: newNotes });
+                    autoSaveNotes(selectedClient.loan_id, newNotes);
+                  }}
+                  placeholder="Enter your valuer notes here..."
+                />
+              </div>
+            )}
+
+            {!editable && selectedClient.valuer_notes && (
+              <div className="mb-3">
+                <label className="form-label fw-bold">Valuer Notes (read‑only)</label>
+                <div className="p-2 bg-light rounded">
+                  {selectedClient.valuer_notes}
+                </div>
+              </div>
+            )}
 
             <hr />
             <h5>Officer's Daily Report Comments</h5>
@@ -293,7 +322,15 @@ const ValuerPanel = () => {
                   <div key={comment.id} className="list-group-item">
                     <div className="d-flex justify-content-between">
                       <strong>{comment.officer_name}</strong>
-                      <small className="text-muted">{new Date(comment.report_date).toLocaleDateString()}</small>
+                      <small className="text-muted">
+                        {new Date(comment.created_at).toLocaleString('en-GB', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </small>
                     </div>
                     <p className="mt-1 mb-0">{comment.comment}</p>
                   </div>
@@ -307,7 +344,7 @@ const ValuerPanel = () => {
         )}
       </Modal>
 
-      {/* ---------- Loan Details Modal (Full Loan & Livestock Info) ---------- */}
+      {/* ---------- Loan Details Modal ---------- */}
       {showLoanDetailsModal && selectedLoanDetails && (
         <Modal
           isOpen={showLoanDetailsModal}
@@ -338,7 +375,6 @@ const ValuerPanel = () => {
               <p><strong>Flagged By:</strong> {selectedLoanDetails.flagged_by_username}</p>
               <p><strong>Flagged At:</strong> {formatDate(selectedLoanDetails.flagged_at)}</p>
               <p><strong>Interest Rate:</strong> {selectedLoanDetails.interest_rate}%</p>
-              {/* Valuer Notes intentionally excluded; they are in the Comments modal */}
             </div>
           </div>
 
@@ -391,19 +427,21 @@ const ValuerPanel = () => {
         </Modal>
       )}
 
-      {/* ---------- Resolve Confirmation Modal ---------- */}
-      <ConfirmationDialog
-        isOpen={showResolveModal}
-        onClose={() => {
-          setShowResolveModal(false);
-          setResolveLoanId(null);
-        }}
-        onConfirm={confirmResolve}
-        title="Confirm Recovery"
-        message="Are you sure you want to add this client back to the recovery module? The client will be returned to the original officer and will no longer appear in your flagged list."
-        confirmText="Yes, Add to Recovery Module"
-        confirmColor="success"
-      />
+      {/* ---------- Resolve Confirmation Modal (only if editable) ---------- */}
+      {editable && (
+        <ConfirmationDialog
+          isOpen={showResolveModal}
+          onClose={() => {
+            setShowResolveModal(false);
+            setResolveLoanId(null);
+          }}
+          onConfirm={confirmResolve}
+          title="Confirm Recovery"
+          message="Are you sure you want to add this client back to the recovery module? The client will be returned to the original officer and will no longer appear in your flagged list."
+          confirmText="Yes, Add to Recovery Module"
+          confirmColor="success"
+        />
+      )}
     </div>
   );
 };

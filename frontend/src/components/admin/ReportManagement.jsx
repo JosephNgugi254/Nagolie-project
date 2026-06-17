@@ -171,6 +171,33 @@ const ReportManagement = () => {
     }
   };
 
+  // In ReportManagement.jsx, add a new state and fetch valuers
+const [valuers, setValuers] = useState([]);
+const [updatingBranch, setUpdatingBranch] = useState({});
+
+useEffect(() => {
+  fetchValuers();
+}, []);
+
+const fetchValuers = async () => {
+  try {
+    const res = await adminAPI.getOfficers(); // already fetches all officers
+    setValuers(res.data.filter(u => u.role === 'valuer'));
+  } catch (error) {
+    showToast.error('Failed to load valuers');
+  }
+};
+
+const handleBranchChange = async (userId, branch) => {
+  try {
+    await adminAPI.updateUserBranch(userId, branch);
+    showToast.success('Branch updated');
+    fetchValuers();
+  } catch (error) {
+    showToast.error('Failed to update branch');
+  }
+};
+
   
 
   const totals = assignments.reduce((acc, off) => ({
@@ -206,7 +233,7 @@ const ReportManagement = () => {
       {/* Day assignment panel */}
       <div className="card mb-4">
         <div className="card-header bg-primary text-white">
-          <h5 className="mb-0">Officer Day Assignments</h5>
+          <h5 className="mb-0 text-white">Officer Day Assignments</h5>
         </div>
         <div className="card-body">
           <div className="table-responsive">
@@ -305,6 +332,48 @@ const ReportManagement = () => {
         </div>
       </div>
 
+        {/*VALUER BRANCH ASSIGNMENT SECTION  */}
+      <div className="card mb-4 mt-5">
+        <div className="card-header bg-primary text-white">
+          <h5 className="mb-0 text-white">Valuer Branch Assignments</h5>
+        </div>
+        <div className="card-body">
+          <div className="table-responsive">
+            <table className="table table-bordered">
+              <thead>
+                <tr>
+                  <th>Valuer</th>
+                  <th>Branch</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {valuers.map(val => (
+                  <tr key={val.id}>
+                    <td>{val.username}</td>
+                    <td>
+                      <select
+                        className="form-select"
+                        value={val.default_branch || 'all'}
+                        onChange={(e) => handleBranchChange(val.id, e.target.value)}
+                      >
+                        <option value="all">All Branches</option>
+                        <option value="isinya">Isinya (Kap North)</option>
+                        <option value="emarti">Emarti (Imaroro)</option>
+                      </select>
+                    </td>
+                    <td>
+                      <span className="badge bg-secondary">Auto-applied in valuer reports</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <small className="text-muted">Set the default branch for each valuer. This will be used to filter flagged clients automatically.</small>
+        </div>
+      </div>
+              
       {/* Drag‑and‑drop confirmation dialog */}
       <ConfirmationDialog
         isOpen={showConfirm}

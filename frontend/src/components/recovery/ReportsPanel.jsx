@@ -73,11 +73,23 @@ const ReportsPanel = () => {
 
   if (loading) return <div className="text-center py-5"><div className="spinner-border text-primary"></div></div>;
 
+  const formatDisplayDate = (dateStr) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
+
   return (
     <div className="reports-panel">
       <div className="card shadow-sm">
         <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-          <h4 className="mb-0">📋 Daily Loan Reports</h4>
+          <h4 className="mb-0">
+            📋 Daily Loan Reports
+            <span className="ms-3 badge bg-light text-dark fs-6">
+              {formatDisplayDate(reportDate)}
+            </span>
+          </h4>
           <div>
             <input
               type="date"

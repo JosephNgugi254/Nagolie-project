@@ -27,6 +27,9 @@ import { getStatusBadge } from '../components/admin/Clientstatusbadge';
 import UtilitiesPanel from "../components/utilities/UtilitiesPanel"
 import ReportManagement from "../components/admin/ReportManagement";
 import UserManagement from '../components/admin/UserManagement';
+import LoanReports from '../components/loan-reports/LoanReports';
+import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
+
 
 function AdminPanel() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth()
@@ -1398,7 +1401,9 @@ const handleInvestorPasswordSubmit = (e) => {
     } else if (path.includes("/admin/payment-stats")) {
       section = "payment-stats";
     } else if (path.includes("/admin/report-management")) {
-      section = "report-management";  
+      section = "report-management"; 
+    } else if (path.includes("/admin/loan-reports")) {
+      section = "loan-reports";  
     } else if (path.includes("/admin/user-management")) {
       section = "user-management";  
     } else if (path.includes("/admin/utilities")) {  
@@ -1850,6 +1855,12 @@ useEffect(() => {
   const handleSectionChange = (section) => {
     // Close sidebar on mobile when any section is clicked
     setSidebarOpen(false);
+
+    if (section === 'reports') {
+      setActiveSection('reports');
+      navigate('/admin/reports');
+      return;
+    }
 
     if (section === "report-management") {
       setActiveSection("report-management");
@@ -4085,14 +4096,17 @@ Thank you for choosing us.`;
                           />
                         )}
                       </>
-                    )}
+                    )}                    
 
-                    {activeSection === 'user-management' && <UserManagement />}
                   </>
                 )}
               </div>
             )}
 
+            {/* Loan Reports Section for director and admin */}
+            {activeSection === 'loan-reports' && <UnifiedReportsTabs />}
+
+            {/* User Management Section */}
             {activeSection === 'user-management' && <UserManagement />}
           </div>
         </div>

@@ -323,19 +323,28 @@ const MessageBubble = memo(({
   openMenuId, setOpenMenuId, menuRef, handleTouchStart, handleTouchEnd,
   renderStatus, fmtTime, markRead,
 }) => {
+  // Determine if this is a salary-related message (green background)
+  const isSalaryMessage = msg.content && (
+    msg.content.includes('salary advance') ||
+    msg.content.includes('approved') ||
+    msg.content.includes('rejected') ||
+    msg.content.includes('KES') ||
+    msg.content.includes('withdrawal') ||
+    msg.content.includes('payment')
+  );
+
+  const bubbleClass = `message-bubble ${isOwn ? 'sent' : 'received'} ${isSalaryMessage ? 'salary-message' : ''}`;
+
   const handleImageClick = () => {
-    // Mark as read when the image is clicked (opened)
     if (!isOwn && msg.status !== 'read') {
       markRead(msg.id);
     }
   };
 
   const handleFileDownload = (e) => {
-    // Mark as read when the user downloads the file
     if (!isOwn && msg.status !== 'read') {
       markRead(msg.id);
     }
-    // Then actually download the file
     onDownloadFile(msg.attachment_url, msg.attachment_name, msg.attachment_type);
   };
 
@@ -346,7 +355,7 @@ const MessageBubble = memo(({
       onTouchStart={() => handleTouchStart(msg.id)}
       onTouchEnd={handleTouchEnd}
     >
-      <div className="message-bubble" style={!isOwn && msg.status === 'read' ? { backgroundColor: '#fff3cd' } : {}}>
+      <div className={bubbleClass} style={!isOwn && msg.status === 'read' ? { backgroundColor: '#fff3cd' } : {}}>
         <div className="message-content">
           {editingMessageId === msg.id ? (
             <div>
@@ -423,7 +432,7 @@ const MessageBubble = memo(({
 });
 
 // ------------------------------------------------------------
-// Main ChatWindow
+// Main ChatWindow (unchanged except for imports and component usage)
 // ------------------------------------------------------------
 function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
   // Voice recording state
