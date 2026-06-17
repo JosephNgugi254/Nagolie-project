@@ -2199,7 +2199,47 @@ def delete_user(user_id):
 @role_required(['admin', 'director', 'head_of_it', 'hr_manager'])
 def get_officers():
     users = User.query.filter(User.role.in_(['secretary', 'client_relations_officer', 'valuer'])).all()
-    return jsonify([{'id': u.id, 'username': u.username, 'role': u.role} for u in users]), 200
+    return jsonify([{
+        'id': u.id,
+        'username': u.username,
+        'role': u.role,
+        'default_branch': u.default_branch or 'all'
+    } for u in users]), 200
+
+@admin_bp.route('/reports/client-assignment', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director', 'hr_manager', 'secretary', 'client_relations_officer'])
+def client_assignment_search():
+    q = request.args.get('q', '')
+    if not q:
+        return jsonify([])
+
+    clients = Client.query.filter(
+        db.or_(
+            Client.full_name.ilike(f'%{q}%'),
+            Client.id_number.ilike(f'%{q}%'),
+            Client.phone_number.ilike(f'%{q}%')
+        )
+    ).all()
+
+    result = []
+    for client in clients:
+        loans = Loan.query.filter_by(client_id=client.id, status='active').all()
+        for loan in loans:
+            ass = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
+            officer = ass.officer if ass else None
+            flagged = FlaggedLoan.query.filter_by(loan_id=loan.id, resolved=False).first()
+            result.append({
+                'client_id': client.id,
+                'client_name': client.full_name,
+                'id_number': client.id_number,
+                'phone': client.phone_number,
+                'loan_id': loan.id,
+                'assigned_officer': officer.username if officer else 'Unassigned',
+                'officer_role': officer.role if officer else None,
+                'is_flagged': flagged is not None
+            })
+    return jsonify(result), 200
 
 @admin_bp.route('/reports/officer', methods=['GET'])
 @jwt_required()
@@ -2313,3 +2353,18 @@ def get_loan(loan_id):
     response['id_number'] = client.id_number if client else 'N/A'
 
     return jsonify(response), 200
+
+@admin_bp.route('/users/<int:user_id>/branch', methods=['PUT'])
+@jwt_required()
+@role_required(['admin', 'director', 'hr_manager'])
+def update_user_branch(user_id):
+    data = request.json
+    branch = data.get('branch')
+    if branch not in ['all', 'isinya', 'emarti']:
+        return jsonify({'error': 'Invalid branch'}), 400
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    user.default_branch = branch
+    db.session.commit()
+    return jsonify({'success': True, 'branch': branch}), 200
