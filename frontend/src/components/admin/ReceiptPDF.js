@@ -6574,7 +6574,7 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('LOAN REPORT', 105, yPos, { align: 'center' });
+  doc.text('LIVESTOCK ADVANCE PAYMENT REPORT', 105, yPos, { align: 'center' });
   yPos += 5;
   yPos = addDivider(doc, yPos);
   yPos += 5;
@@ -6790,7 +6790,7 @@ export const generateBlankReportPDF = async () => {
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('LOAN REPORT', pageWidth / 2, yPos, { align: 'center' });
+  doc.text('LIVESTOCK ADVANCE PAYMENT REPORT', pageWidth / 2, yPos, { align: 'center' });
   yPos += 10;
 
   // Officer and Date row – aligned with new margins
