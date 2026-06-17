@@ -3659,3 +3659,22 @@ section {
     z-index: 1060;             /* ensure it stays clickable above sidebar */
   }
 }
+
+@media (max-width: 991.98px) {
+  .sidebar-toggle {
+    display: flex !important;
+    position: static !important;         /* override fixed */
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    background: transparent !important;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    width: 40px;
+    height: 40px;
+    margin: 0 0 0 auto;                  /* push to the right */
+    box-shadow: none;
+    z-index: auto;
+  }
+}

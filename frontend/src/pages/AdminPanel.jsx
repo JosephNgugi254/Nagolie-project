@@ -2639,7 +2639,7 @@ Thank you for choosing us.`;
           <div className="navbar-nav ms-auto align-items-center flex-row">
             <span className="navbar-text me-3 d-none d-lg-block">Welcome, Admin</span>
             
-            <button className="sidebar-toggle d-lg-none ms-3" onClick={toggleSidebar}>
+            <button className="sidebar-toggle d-lg-none" onClick={toggleSidebar}>
               <i className="fas fa-bars"></i>
             </button>
 
