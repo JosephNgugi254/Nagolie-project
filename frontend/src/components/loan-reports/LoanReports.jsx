@@ -20,6 +20,9 @@ const LoanReports = () => {
   const searchTimeoutRef = useRef(null);
 
   useEffect(() => {
+    // 🔐 Only fetch if user is authenticated
+    if (!user) return;
+  
     const fetchUsersAndAssignments = async () => {
       try {
         const [officersRes, assignmentsRes] = await Promise.all([
@@ -30,24 +33,21 @@ const LoanReports = () => {
         setOfficers(officersData);
         setDayAssignments(assignmentsRes.data);
         
-        // ✅ Find the first non‑valuer officer
         const firstOfficer = officersData.find(o => o.role !== 'valuer');
         if (firstOfficer) {
           setSelectedOfficerId(firstOfficer.id);
         }
-        // Optionally handle the case where no officers exist
       } catch (error) {
         showToast.error('Failed to load officers or assignments');
       }
     };
     fetchUsersAndAssignments();
-  }, []);
+  }, [user]);   // <-- add 'user' as a dependency
 
   useEffect(() => {
-    if (selectedOfficerId && reportDate) {
-      fetchReport();
-    }
-  }, [selectedOfficerId, reportDate]);
+  if (!user || !selectedOfficerId || !reportDate) return;
+  fetchReport();
+}, [user, selectedOfficerId, reportDate]);
 
   const fetchReport = async () => {
     setLoading(true);
