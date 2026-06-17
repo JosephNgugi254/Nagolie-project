@@ -19,16 +19,9 @@ export default defineConfig({
     minify: 'esbuild',
     rollupOptions: {
       output: {
-        // ✅ Replace object with a function
         manualChunks(id) {
-          // Put all node_modules into a 'vendor' chunk
           if (id.includes('node_modules')) {
-            // You can further split by package name if needed
             return 'vendor';
-          }
-          // Optionally split react-router-dom or other large libraries
-          if (id.includes('react-router-dom')) {
-            return 'react-router';
           }
         }
       }
