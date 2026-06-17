@@ -21,6 +21,8 @@ class User(db.Model):
     webauthn_sign_count = db.Column(db.Integer, default=0)
     webauthn_transports = db.Column(db.JSON, nullable=True)  # stores list of strings
 
+    default_branch = db.Column(db.String(20), default='all')  # 'all', 'isinya', 'emarti'
+
     role_obj = db.relationship('Role', back_populates='users', foreign_keys=[role_id])
 
     
@@ -737,7 +739,6 @@ class FlaggedLoan(db.Model):
     flagger = db.relationship('User', foreign_keys=[flagged_by])
     resolver = db.relationship('User', foreign_keys=[resolved_by])
     previous_officer = db.relationship('User', foreign_keys=[previous_officer_id])
-
 
 # ================== Dynamic Roles & Permissions ==================
 
