@@ -278,42 +278,57 @@ def _get_current_period_interest(loan):
 def _apply_payment(loan, payment_type, payment_amount, notes, method='Cash'):
     """
     Mutate loan fields for a payment.
-    For both daily and weekly plans, interest payments are recorded as
-    prepaid for the current week. Prepaid amounts reduce the amount that
-    will be capitalised at the end of the week.
+    For weekly loans, interest payments are recorded as prepaid for the current week.
+    For daily loans, interest payments directly reduce the accrued interest.
     """
     if payment_type == 'interest':
-        current_period = _get_current_period_key(loan)
-        current_period_interest = _get_current_period_interest(loan)
+        # ---------- DAILY simple interest ----------
+        if loan.repayment_plan == 'daily':
+            total_unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+            max_payable = total_unpaid
+            period_label = 'day'
 
-        # For both plans we use the same logic: interest payments are prepaid
-        # for the current week and cannot exceed the remaining weekly interest.
-        if loan.interest_prepaid_period == current_period:
-            already_paid = loan.interest_prepaid_amount or Decimal('0')
-            remaining_period_interest = max(Decimal('0'), current_period_interest - already_paid)
-            if remaining_period_interest <= Decimal('0.01'):
-                return (
-                    f'Interest for this week has already been paid '
-                    f'(KSh {float(already_paid):,.2f}). '
-                    f'Next interest payment available after the week ends.',
-                    400
-                )
-            max_payable = remaining_period_interest
+        # ---------- WEEKLY compound interest ----------
         else:
-            max_payable = current_period_interest
+            current_period = _get_current_period_key(loan)
+            current_period_interest = _get_current_period_interest(loan)
 
+            if loan.interest_prepaid_period == current_period:
+                already_paid = loan.interest_prepaid_amount or Decimal('0')
+                remaining_period_interest = max(Decimal('0'), current_period_interest - already_paid)
+                if remaining_period_interest <= Decimal('0.01'):
+                    return (
+                        f'Interest for this week has already been paid '
+                        f'(KSh {float(already_paid):,.2f}). '
+                        f'Next interest payment available after the week ends.',
+                        400
+                    )
+                max_payable = remaining_period_interest
+            else:
+                max_payable = current_period_interest
+            period_label = 'week'
+
+        # Validate payment amount
         if payment_amount > max_payable + Decimal('0.01'):
             return (
-                f'Interest payment cannot exceed KSh {float(max_payable):,.2f} for this week.',
+                f'Interest payment cannot exceed KSh {float(max_payable):,.2f} for this {period_label}.',
                 400
             )
 
-        # Record prepaid amount
-        loan.interest_prepaid_period = current_period
-        loan.interest_prepaid_amount = (loan.interest_prepaid_amount or Decimal('0')) + payment_amount
-        loan.interest_paid += payment_amount
-        loan.amount_paid += payment_amount
-        notes_text = notes or f'{method} interest payment of KSh {float(payment_amount):,.2f} (prepaid for this week)'
+        # Record payment
+        if loan.repayment_plan == 'daily':
+            # For daily loans: simply increase interest_paid (reduces accrued)
+            loan.interest_paid += payment_amount
+            loan.amount_paid += payment_amount
+            # No prepaid tracking needed for daily
+            notes_text = notes or f'{method} interest payment of KSh {float(payment_amount):,.2f}'
+        else:
+            # Weekly: store as prepaid for the current period
+            loan.interest_prepaid_period = current_period
+            loan.interest_prepaid_amount = (loan.interest_prepaid_amount or Decimal('0')) + payment_amount
+            loan.interest_paid += payment_amount
+            loan.amount_paid += payment_amount
+            notes_text = notes or f'{method} interest payment of KSh {float(payment_amount):,.2f} (prepaid for this week)'
 
     elif payment_type == 'principal':
         if payment_amount > loan.current_principal + Decimal('0.01'):

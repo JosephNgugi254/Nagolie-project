@@ -793,3 +793,94 @@ class RoleMenuItem(db.Model):
 
     role = db.relationship('Role', back_populates='menu_items')
     menu_item = db.relationship('MenuItem', back_populates='role_assignments')
+
+
+# ========== SALARY ADVANCE & MANAGEMENT ==========
+
+class StaffSalarySetting(db.Model):
+    __tablename__ = 'staff_salary_settings'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    month = db.Column(db.String(7), nullable=False)          # 'YYYY-MM'
+    salary_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'month', name='uq_staff_salary_month'),)
+    user = db.relationship('User', backref='salary_settings')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'month': self.month,
+            'salary_amount': float(self.salary_amount),
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat()
+        }
+
+
+class SalaryAdvanceRequest(db.Model):
+    __tablename__ = 'salary_advance_requests'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    note = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), default='pending')     # pending, approved, rejected, paid
+    requested_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, nullable=True)
+    rejected_reason = db.Column(db.Text, nullable=True)
+    mpesa_reference = db.Column(db.String(50), nullable=True)
+    payment_method = db.Column(db.String(20), nullable=True)  # mpesa, cash
+    month = db.Column(db.String(7), nullable=False)
+    user = db.relationship('User', backref='advance_requests')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'username': self.user.username if self.user else None,
+            'amount': float(self.amount),
+            'note': self.note,
+            'status': self.status,
+            'requested_at': self.requested_at.isoformat() if self.requested_at else None,
+            'processed_at': self.processed_at.isoformat() if self.processed_at else None,
+            'rejected_reason': self.rejected_reason,
+            'mpesa_reference': self.mpesa_reference,
+            'payment_method': self.payment_method,
+            'month': self.month,
+        }
+
+
+class SalaryTransaction(db.Model):
+    __tablename__ = 'salary_transactions'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    month = db.Column(db.String(7), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    transaction_type = db.Column(db.String(20), nullable=False)  # 'advance', 'salary_payment'
+    reference = db.Column(db.String(50), nullable=True)
+    payment_method = db.Column(db.String(20), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    advance_request_id = db.Column(db.Integer, db.ForeignKey('salary_advance_requests.id'), nullable=True)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+    creator = db.relationship('User', foreign_keys=[created_by])
+    advance_request = db.relationship('SalaryAdvanceRequest', backref='transaction')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'username': self.user.username if self.user else None,
+            'month': self.month,
+            'amount': float(self.amount),
+            'transaction_type': self.transaction_type,
+            'reference': self.reference,
+            'payment_method': self.payment_method,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_by': self.created_by,
+        }

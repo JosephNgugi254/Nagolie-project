@@ -46,6 +46,7 @@ def seed():
             {'key': 'reports', 'label': 'Reports', 'icon': 'fa-chart-pie', 'path': '/recovery/reports', 'order': 100},
             {'key': 'investor-section', 'label': 'Investor Section', 'icon': 'fa-lock', 'path': '/recovery/investors', 'order': 110},
             {'key': 'loan-reports', 'label': 'Loan Reports', 'icon': 'fa-file-alt', 'path': '/loan-reports', 'order': 75},
+            {'key': 'salaries', 'label': 'Salaries', 'icon': 'fa-wallet', 'path': '/admin/salaries', 'order': 95},
         ]
 
         for item in menu_items_data:
@@ -62,8 +63,8 @@ def seed():
                       'company-gallery', 'applications', 'report-management','loan-reports', 'utilities',
                       'investors','user-management', 'settings'],
             'director': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
-                         'transactions', 'gallery', 'investors', 'report-management','loan-reports',
-                         'utilities', 'settings'],
+                         'transactions', 'gallery', 'investors', 'report-management','loan-reports', 
+                         'salaries' , 'utilities', 'settings'],
             'secretary': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
                           'transactions', 'reports', 'utilities', 'settings'],
             'client_relations_officer': ['overview', 'recovery', 'inbox', 'applications',
@@ -73,7 +74,7 @@ def seed():
             'head_of_it': ['recovery', 'inbox','loan-reports', 'settings', 'utilities'],
             'deputy_director': ['recovery', 'reports', 'inbox', 'settings', 'utilities'],
             'hr_manager': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
-                   'transactions', 'gallery', 'report-management','loan-reports', 'utilities', 'settings'],
+                   'transactions', 'gallery', 'report-management','loan-reports','salaries', 'utilities', 'settings'],
         }
 
         for role_name, menu_keys in roles_data.items():

@@ -71,6 +71,7 @@ def create_app(config_class=Config):
     from app.routes.company_gallery import company_gallery_bp
     from app.routes.recovery import recovery_bp
     from app.routes.biometric import biometric_bp
+    from app.routes.salary import salary_bp
 
 
     app.register_blueprint(biometric_bp)
@@ -83,6 +84,7 @@ def create_app(config_class=Config):
     app.register_blueprint(password_reset_bp, url_prefix='/api/auth')    
     app.register_blueprint(company_gallery_bp, url_prefix='/api/company-gallery')
     app.register_blueprint(recovery_bp, url_prefix='/api/recovery')
+    app.register_blueprint(salary_bp, url_prefix='/api/salary')
 
     app.register_blueprint(test_bp, url_prefix='/api/test')
 
