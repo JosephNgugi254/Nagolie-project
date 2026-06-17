@@ -16,23 +16,28 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    // Add these optimizations for production
     minify: 'esbuild',
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
+        // ✅ Replace object with a function
+        manualChunks(id) {
+          // Put all node_modules into a 'vendor' chunk
+          if (id.includes('node_modules')) {
+            // You can further split by package name if needed
+            return 'vendor';
+          }
+          // Optionally split react-router-dom or other large libraries
+          if (id.includes('react-router-dom')) {
+            return 'react-router';
+          }
         }
       }
     }
   },
-  // Updated environment variable handling
   define: {
     'process.env': {}
   },
-  // Add base URL configuration for production
   base: '/',
-  // Optional: Preview configuration for production-like testing
   preview: {
     port: 4173,
     host: true
