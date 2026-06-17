@@ -2277,3 +2277,34 @@ def get_officer_report():
 
     return jsonify(result), 200
 
+@admin_bp.route('/loans/<int:loan_id>', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director','head_of_it', 'hr_manager', 'secretary', 'client_relations_officer', 'valuer'])
+def get_loan(loan_id):
+    from app.routes.payments import recalculate_loan, _get_current_period_key, _get_current_period_interest
+    from decimal import Decimal
+
+    loan = Loan.query.get(loan_id)
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
+
+    # Recalculate to get fresh values
+    loan = recalculate_loan(loan, save=False)
+
+    current_period = _get_current_period_key(loan)
+    raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP
+    )
+    period_prepaid = Decimal('0')
+    period_fully_paid = False
+    if loan.interest_prepaid_period == current_period:
+        period_prepaid = loan.interest_prepaid_amount or Decimal('0')
+        period_fully_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
+
+    # Build the response dict from loan.to_dict() and add computed fields
+    response = loan.to_dict()
+    response['current_period_interest'] = float(raw_weekly_interest)
+    response['period_interest_prepaid'] = float(period_prepaid)
+    response['period_interest_fully_paid'] = period_fully_paid
+
+    return jsonify(response), 200
