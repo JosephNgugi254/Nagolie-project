@@ -8,6 +8,7 @@ from app.utils.extensions import db
 from app.models import User, Investor, Loan, Client, PasswordResetToken, Livestock
 from app.utils.cloudinary_upload import upload_base64_image
 from app.utils.extensions import socketio
+from datetime import datetime, timedelta
 
 app = create_app()
 
@@ -124,6 +125,11 @@ def migrate_images():
                 logger.warning(f"Livestock ID {livestock.id} had no successfully uploaded images, leaving unchanged.")
 
         logger.info("Migration completed.")
+
+@app.cli.command("create-snapshots")
+def create_snapshots_command():
+    create_daily_snapshots()
+    print("Snapshots created for", datetime.utcnow().date() - timedelta(days=1))
 
 if __name__ == '__main__':
     app.run()

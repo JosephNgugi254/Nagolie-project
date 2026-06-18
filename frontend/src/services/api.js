@@ -261,7 +261,7 @@ export const recoveryAPI = {
 
   // Reports
   getReportAssignments: (date) => api.get(`/recovery/reports/assignments?date=${date}`),
-  saveReportComment: (loanId, comment) => api.post('/recovery/reports/comment', { loan_id: loanId, comment }),
+  saveReportComment: (loanId, comment, reportDate) => api.post('/recovery/reports/comment', { loan_id: loanId, comment, report_date: reportDate }),
 
   getLoanTransactions: (loanId) => api.get(`/recovery/loan/${loanId}/transactions`),waiveLoan: (loanId, newPrincipal, durationDays) => {
     const token = localStorage.getItem('token');

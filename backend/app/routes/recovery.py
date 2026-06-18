@@ -727,7 +727,6 @@ def get_my_assigned_clients():
 
     today = datetime.utcnow().date()
     for client in assigned:
-        # Fetch snapshot for this officer/loan/date (if any)
         snapshot = ReportComment.query.filter_by(
             loan_id=client['loan_id'],
             officer_id=officer_id,
@@ -735,17 +734,17 @@ def get_my_assigned_clients():
         ).first()
 
         if report_date < today:
-            # Past date → use snapshot values (if available), else fallback to live
+            # Past date: always use snapshot if available
             if snapshot:
                 client['current_principal'] = float(snapshot.current_principal) if snapshot.current_principal is not None else client['current_principal']
                 client['unpaid_interest'] = float(snapshot.unpaid_interest) if snapshot.unpaid_interest is not None else client['unpaid_interest']
                 client['total_balance'] = float(snapshot.total_balance) if snapshot.total_balance is not None else client['total_balance']
                 client['comment'] = snapshot.comment
             else:
-                # No snapshot for this past date – keep live values (fallback)
+                # No snapshot – fallback to live (should not happen if cron runs)
                 client['comment'] = ''
         else:
-            # Today or future (should only be today) → use live data, but keep comment if any
+            # Today: use live data, but keep comment if any
             client['comment'] = snapshot.comment if snapshot else ''
 
     from app.models import DayAssignment
@@ -768,7 +767,15 @@ def save_report_comment():
     data = request.json
     loan_id = data.get('loan_id')
     comment_text = data.get('comment', '')
-    report_date = datetime.utcnow().date()
+    # Accept report_date from request, default to today if not provided
+    report_date_str = data.get('report_date')
+    if report_date_str:
+        try:
+            report_date = datetime.strptime(report_date_str, '%Y-%m-%d').date()
+        except:
+            return jsonify({'error': 'Invalid report_date format'}), 400
+    else:
+        report_date = datetime.utcnow().date()
 
     if not loan_id:
         return jsonify({'error': 'loan_id required'}), 400
@@ -777,22 +784,13 @@ def save_report_comment():
     if not loan or loan.status != 'active':
         return jsonify({'error': 'Loan not found or not active'}), 404
 
-    loan = recalculate_loan(loan, save=False)   # read only
-
-    if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-        current_period = _get_current_period_key(loan)
-        period_interest = _get_current_period_interest(loan)
-        if loan.interest_prepaid_period == current_period:
-            prepaid = loan.interest_prepaid_amount or Decimal('0')
-            unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
-        else:
-            unpaid_interest = float(period_interest)
-    else:
-        unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
-
+    # Compute unpaid interest as of the report_date
+    from app.routes.payments import compute_historical_unpaid_interest
+    unpaid_interest = float(compute_historical_unpaid_interest(loan, report_date))
     current_principal = float(loan.current_principal)
     total_balance = current_principal + unpaid_interest
 
+    # Upsert snapshot for this officer/loan/report_date
     comment = ReportComment.query.filter_by(
         loan_id=loan_id, officer_id=officer_id, report_date=report_date
     ).first()

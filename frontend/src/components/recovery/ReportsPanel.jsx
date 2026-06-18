@@ -46,7 +46,7 @@ const ReportsPanel = () => {
     // Do not save if the report is from a past date
     if (isPastReport) return;
     try {
-      await recoveryAPI.saveReportComment(loanId, comment);
+      await recoveryAPI.saveReportComment(loanId, comment, reportDate);
     } catch (error) {
       showToast.error('Failed to save comment');
     }

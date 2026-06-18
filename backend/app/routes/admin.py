@@ -69,6 +69,62 @@ def _days_left_label(loan, today):
     days_left = (due - today).days
     return days_left, days_left
 
+def create_daily_snapshots(as_of_date=None):
+    """
+    Create a ReportComment snapshot for every active loan for the given date.
+    If as_of_date is None, use yesterday (so that the day is complete).
+    """
+    if as_of_date is None:
+        as_of_date = datetime.utcnow().date() - timedelta(days=1)
+    else:
+        as_of_date = as_of_date.date() if hasattr(as_of_date, 'date') else as_of_date
+
+    # Get all active loans (excluding flagged ones if you like)
+    loans = Loan.query.filter_by(status='active').all()
+
+    for loan in loans:
+        # Recalculate the loan as of today? No – we want the state as of the end of that day.
+        # But we don't have a way to recalculate for a past date easily.
+        # However, since the cron runs daily at the end of the day, we can just use the current live state
+        # because it already includes all transactions and accruals up to that moment.
+        # We need to ensure that the loan has been recalculated for the current date.
+        loan = recalculate_loan(loan, save=False)
+
+        # Compute unpaid interest for today (which is the end of as_of_date)
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            unpaid_interest = float(_get_current_period_interest(loan))
+        else:
+            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
+        current_principal = float(loan.current_principal)
+        total_balance = current_principal + unpaid_interest
+
+        # Check if a snapshot already exists for this loan/date
+        existing = ReportComment.query.filter_by(
+            loan_id=loan.id,
+            report_date=as_of_date
+        ).first()
+        if existing:
+            # Optionally update if you want to refresh (but better to keep original)
+            continue
+
+        # Create snapshot
+        snapshot = ReportComment(
+            loan_id=loan.id,
+            officer_id=None,          # No officer – system‑generated
+            report_date=as_of_date,
+            comment='',               # No comment
+            current_principal=current_principal,
+            unpaid_interest=unpaid_interest,
+            total_balance=total_balance,
+            interest_rate=float(loan.interest_rate),
+            repayment_plan=loan.repayment_plan,
+            created_at=datetime.utcnow()
+        )
+        db.session.add(snapshot)
+
+    db.session.commit()
+
 # Helper to refresh all day‑based assignments
 def refresh_day_assignments():
     """Clear outdated day_based assignments and create new ones based on current day assignments."""
@@ -106,7 +162,6 @@ def refresh_day_assignments():
 
 
 def get_assigned_clients_for_user(user_id):
-    """Return list of active loans assigned to given officer (day_based + manual)."""
     from app.routes.payments import _get_current_period_key, _get_current_period_interest
 
     assignments = ClientAssignment.query.filter_by(
@@ -122,20 +177,13 @@ def get_assigned_clients_for_user(user_id):
         client = loan.client
         if not client or loan.status != 'active':
             continue
-        # recalc loan to get fresh figures – read only!
         loan = recalculate_loan(loan, save=False)
 
-        # --- Correct unpaid interest (same as recovery module) ---
+        # --- Correct unpaid interest ---
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            current_period = _get_current_period_key(loan)
-            period_interest = _get_current_period_interest(loan)
-            if loan.interest_prepaid_period == current_period:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
-            else:
-                unpaid_interest = float(period_interest)
+            # _get_current_period_interest already subtracts prepaid, so use it directly
+            unpaid_interest = float(_get_current_period_interest(loan))
         else:
-            # daily or zero‑interest
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
         result.append({
@@ -1891,7 +1939,6 @@ def update_day_assignments():
 @jwt_required()
 @role_required(['admin', 'director', 'hr_manager'])
 def get_all_client_assignments():
-    """Return all active loans with their assigned officer and totals per officer."""
     from app.routes.payments import _get_current_period_key, _get_current_period_interest
 
     flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
@@ -1924,13 +1971,7 @@ def get_all_client_assignments():
 
         # Calculate correct unpaid interest
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            current_period = _get_current_period_key(loan)
-            period_interest = _get_current_period_interest(loan)
-            if loan.interest_prepaid_period == current_period:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
-            else:
-                unpaid_interest = float(period_interest)
+            unpaid_interest = float(_get_current_period_interest(loan))
         else:
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
@@ -2272,41 +2313,43 @@ def get_officer_report():
         client = loan.client
         if not client:
             continue
-        # Recalculate live data (always)
-        loan = recalculate_loan(loan, save=False)
 
-        # Compute live unpaid interest
-        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            current_period = _get_current_period_key(loan)
-            period_interest = _get_current_period_interest(loan)
-            if loan.interest_prepaid_period == current_period:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+        # For past dates, we only need the snapshot – no recalculation needed
+        if report_date < today:
+            snapshot = ReportComment.query.filter_by(
+                loan_id=loan.id,
+                officer_id=officer_id,
+                report_date=report_date
+            ).first()
+            if snapshot:
+                current_principal = float(snapshot.current_principal) if snapshot.current_principal is not None else 0
+                unpaid_interest = float(snapshot.unpaid_interest) if snapshot.unpaid_interest is not None else 0
+                total_balance = float(snapshot.total_balance) if snapshot.total_balance is not None else 0
+                comment_text = snapshot.comment
             else:
-                unpaid_interest = float(period_interest)
+                # No snapshot – fallback to live (should not happen if cron runs)
+                loan = recalculate_loan(loan, save=False)
+                if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+                    unpaid_interest = float(_get_current_period_interest(loan))
+                else:
+                    unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+                current_principal = float(loan.current_principal)
+                total_balance = current_principal + unpaid_interest
+                comment_text = ''
         else:
-            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
-
-        live_principal = float(loan.current_principal)
-        live_total = live_principal + unpaid_interest
-
-        # Fetch snapshot for this date (if any)
-        comment = ReportComment.query.filter_by(
-            loan_id=loan.id,
-            officer_id=officer_id,
-            report_date=report_date
-        ).first()
-
-        if report_date < today and comment:
-            # Past date with snapshot → use snapshot values
-            current_principal = float(comment.current_principal) if comment.current_principal is not None else live_principal
-            unpaid_interest = float(comment.unpaid_interest) if comment.unpaid_interest is not None else unpaid_interest
-            total_balance = float(comment.total_balance) if comment.total_balance is not None else live_total
-            comment_text = comment.comment
-        else:
-            # Today (or no snapshot) → use live values
-            current_principal = live_principal
-            total_balance = live_total
+            # Today: use live data, but include comment if any
+            loan = recalculate_loan(loan, save=False)
+            if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+                unpaid_interest = float(_get_current_period_interest(loan))
+            else:
+                unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+            current_principal = float(loan.current_principal)
+            total_balance = current_principal + unpaid_interest
+            comment = ReportComment.query.filter_by(
+                loan_id=loan.id,
+                officer_id=officer_id,
+                report_date=report_date
+            ).first()
             comment_text = comment.comment if comment else ''
 
         result.append({

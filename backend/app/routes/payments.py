@@ -44,6 +44,40 @@ def compute_overdue(loan, today=None):
         return 0, overdue_weeks
 
 
+def compute_historical_unpaid_interest(loan, as_of_date):
+    """
+    Compute the unpaid interest for a loan as of a specific date.
+    For daily loans: simple interest = principal * 0.045 * days since disbursement (including day 0).
+    For weekly loans: fallback to current live value (we'll improve later).
+    Returns a Decimal.
+    """
+    if loan.repayment_plan == 'daily' and loan.interest_rate > 0:
+        disb = loan.disbursement_date.date() if loan.disbursement_date else None
+        if not disb:
+            return Decimal('0')
+        # days since disbursement, including day 0 (disbursement day counts as one day)
+        days = (as_of_date - disb).days + 1
+        if days <= 0:
+            return Decimal('0')
+        # total interest accrued up to as_of_date
+        total_accrued = loan.current_principal * Decimal('0.045') * days
+        # sum of interest payments made up to as_of_date
+        from app import db
+        from app.models import Transaction
+        from sqlalchemy import func
+        paid = db.session.query(func.sum(Transaction.amount)).filter(
+            Transaction.loan_id == loan.id,
+            Transaction.transaction_type == 'payment',
+            Transaction.payment_type == 'interest',
+            Transaction.created_at <= as_of_date,
+            Transaction.status == 'completed'
+        ).scalar() or Decimal('0')
+        return max(Decimal('0'), total_accrued - paid)
+    else:
+        # For weekly loans, we don't have historical logic yet – fallback to current live value
+        # This will be improved later.
+        from app.routes.payments import _get_current_period_interest
+        return _get_current_period_interest(loan)
 
 
 # ---------------------------------------------------------------------------
