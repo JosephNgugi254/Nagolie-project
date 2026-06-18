@@ -2258,13 +2258,13 @@ def get_officer_report():
     if not officer or officer.role not in ['secretary', 'client_relations_officer']:
         return jsonify({'error': 'Invalid officer'}), 400
 
-    # Get all active assignments for this officer
     assignments = ClientAssignment.query.filter_by(
         officer_id=officer_id,
         is_active=True
     ).options(joinedload(ClientAssignment.loan).joinedload(Loan.client)).all()
 
     result = []
+    today = datetime.utcnow().date()
     for ass in assignments:
         loan = ass.loan
         if not loan or loan.status != 'active':
@@ -2272,9 +2272,10 @@ def get_officer_report():
         client = loan.client
         if not client:
             continue
+        # Recalculate live data (always)
         loan = recalculate_loan(loan, save=False)
 
-        # Compute unpaid interest correctly
+        # Compute live unpaid interest
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
             current_period = _get_current_period_key(loan)
             period_interest = _get_current_period_interest(loan)
@@ -2286,22 +2287,27 @@ def get_officer_report():
         else:
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
-        # Check for report comment on that date
+        live_principal = float(loan.current_principal)
+        live_total = live_principal + unpaid_interest
+
+        # Fetch snapshot for this date (if any)
         comment = ReportComment.query.filter_by(
             loan_id=loan.id,
             officer_id=officer_id,
             report_date=report_date
         ).first()
 
-        if comment:
-            current_principal = float(comment.current_principal) if comment.current_principal is not None else float(loan.current_principal)
+        if report_date < today and comment:
+            # Past date with snapshot → use snapshot values
+            current_principal = float(comment.current_principal) if comment.current_principal is not None else live_principal
             unpaid_interest = float(comment.unpaid_interest) if comment.unpaid_interest is not None else unpaid_interest
-            total_balance = float(comment.total_balance) if comment.total_balance is not None else float(loan.current_principal + Decimal(str(unpaid_interest)))
+            total_balance = float(comment.total_balance) if comment.total_balance is not None else live_total
             comment_text = comment.comment
         else:
-            current_principal = float(loan.current_principal)
-            total_balance = current_principal + unpaid_interest
-            comment_text = ''
+            # Today (or no snapshot) → use live values
+            current_principal = live_principal
+            total_balance = live_total
+            comment_text = comment.comment if comment else ''
 
         result.append({
             'loan_id': loan.id,

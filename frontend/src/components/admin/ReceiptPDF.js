@@ -4688,7 +4688,9 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
     const owedInterest = periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid);
     totalOutstandingInterest = owedInterest;
   } else {
-    totalOutstandingInterest = Number(loan.accrued_interest) || 0;
+    // ✅ For daily loans: outstanding = accrued - paid
+    const unpaid = (Number(loan.accrued_interest) || 0) - (Number(loan.interest_paid) || 0);
+    totalOutstandingInterest = Math.max(0, unpaid);
   }
 
   const totalBalance = currentPrincipal + totalOutstandingInterest;

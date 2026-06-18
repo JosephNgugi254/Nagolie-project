@@ -725,20 +725,28 @@ def get_my_assigned_clients():
     from app.routes.admin import get_assigned_clients_for_user
     assigned = get_assigned_clients_for_user(officer_id)
 
+    today = datetime.utcnow().date()
     for client in assigned:
+        # Fetch snapshot for this officer/loan/date (if any)
         snapshot = ReportComment.query.filter_by(
             loan_id=client['loan_id'],
             officer_id=officer_id,
             report_date=report_date
         ).first()
-        if snapshot:
-            # Use snapshot values if they exist, otherwise fall back to current
-            client['current_principal'] = float(snapshot.current_principal) if snapshot.current_principal is not None else client['current_principal']
-            client['unpaid_interest'] = float(snapshot.unpaid_interest) if snapshot.unpaid_interest is not None else client['unpaid_interest']
-            client['total_balance'] = float(snapshot.total_balance) if snapshot.total_balance is not None else client['total_balance']
-            client['comment'] = snapshot.comment
+
+        if report_date < today:
+            # Past date → use snapshot values (if available), else fallback to live
+            if snapshot:
+                client['current_principal'] = float(snapshot.current_principal) if snapshot.current_principal is not None else client['current_principal']
+                client['unpaid_interest'] = float(snapshot.unpaid_interest) if snapshot.unpaid_interest is not None else client['unpaid_interest']
+                client['total_balance'] = float(snapshot.total_balance) if snapshot.total_balance is not None else client['total_balance']
+                client['comment'] = snapshot.comment
+            else:
+                # No snapshot for this past date – keep live values (fallback)
+                client['comment'] = ''
         else:
-            client['comment'] = ''
+            # Today or future (should only be today) → use live data, but keep comment if any
+            client['comment'] = snapshot.comment if snapshot else ''
 
     from app.models import DayAssignment
     day_assignments = DayAssignment.query.filter_by(user_id=officer_id).all()
