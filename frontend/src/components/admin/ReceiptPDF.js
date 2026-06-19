@@ -7706,3 +7706,84 @@ export const generateSalaryReportPDF = async (data) => {
   // Save the PDF
   doc.save(`salary_report_${data.user}_${data.month}.pdf`);
 };
+
+// ========== OATH OF SECRECY (MANUAL) – WITH FULL LETTERHEAD ==========
+export const generateManualOathOfSecrecyPDF = async () => {
+  try {
+    const doc = new jsPDF();
+    addOptimizedWatermark(doc, 'agreement');
+
+    // Use the standard company header (logo + branded info)
+    let yPos = await addHeader(doc, 15);
+
+    // ---- Title ----
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('OATH OF SECRECY AND PROFESSIONAL CONDUCT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    yPos = addDivider(doc, yPos);
+    yPos += 6;
+
+    // ---- Oath Text ----
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    const oathText = `I ______________________________________,the undersigned, holding the position of ______________________________________ at Nagolie Enterprises Ltd, do solemnly affirm that I will maintain the highest standards of professionalism and confidentiality in the performance of my duties. I acknowledge that during my employment, I may have access to confidential information regarding clients, business operations, and financial data. I undertake to protect this information and not disclose it to any unauthorized person or entity, either during or after my employment. I understand that breach of this oath may lead to disciplinary action and legal consequences.`;
+    const lines = doc.splitTextToSize(oathText, 170);
+    lines.forEach(line => {
+      doc.text(line, 20, yPos);
+      yPos += 6;
+    });
+    yPos += 8;
+
+    // ---- Staff Fields ----
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Signature:', 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('______________________________', 50, yPos);
+    yPos += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date:', 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('______________________________', 50, yPos);
+    yPos += 16;
+
+    // ---- Director Section ----
+    doc.setFont('helvetica', 'bold');
+    doc.text('Director:', 20, yPos);
+    yPos += 6;
+    doc.text('Shadrack Kesumet', 20, yPos);
+    yPos += 10;
+    doc.text('Signature: ______________________________', 20, yPos);
+    yPos += 8;
+    doc.text('Date:        ______________________________', 20, yPos);
+    yPos += 14;
+
+    // ---- Company Stamp Box ----
+    const stampBoxWidth = 60;
+    const stampBoxHeight = 35;
+    const stampBoxX = (210 - stampBoxWidth) / 2;
+    const stampBoxY = yPos;
+    doc.setDrawColor(230, 235, 245);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth / 2, stampBoxY + stampBoxHeight / 2 - 3, { align: 'center' });
+    doc.text('(To be affixed here)', stampBoxX + stampBoxWidth / 2, stampBoxY + stampBoxHeight / 2 + 3, { align: 'center' });
+
+    // ---- Footer ----
+    addFooter(doc, stampBoxY + stampBoxHeight + 10);
+
+    // ---- Save ----
+    const fileName = `Oath_of_Secrecy_Manual.pdf`;
+    doc.save(fileName);
+  } catch (error) {
+    console.error('Error generating oath of secrecy:', error);
+    throw error;
+  }
+};

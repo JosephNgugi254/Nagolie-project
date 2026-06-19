@@ -16,7 +16,8 @@ import {
   generateValuerReportPDF,
   generateClientRelationsOfficerContractPDF,
   generatePromissoryNote,
-  generateManualPromissoryNotePDF
+  generateManualPromissoryNotePDF,
+  generateManualOathOfSecrecyPDF
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
 import { useAuth } from '../../context/AuthContext';
@@ -309,6 +310,28 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                       <h5>Valuer Report Form</h5>
                       <p className="text-muted">Valuer Report for Loan recoveries</p>
                       <button className="btn btn-success" onClick={generateValuerReportPDF}>
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-danger">
+                    <div className="card-body text-center">
+                      <i className="fas fa-user-secret fa-3x text-danger mb-3"></i>
+                      <h5>Oath of Secrecy</h5>
+                      <p className="text-muted">Oath of secrecy and professional conduct form</p>
+                      <button
+                        className="btn btn-danger"
+                        onClick={async () => {
+                          try {
+                            await generateManualOathOfSecrecyPDF();
+                            showToast.success('Oath of Secrecy downloaded!');
+                          } catch (error) {
+                            showToast.error('Failed to generate Oath of Secrecy');
+                          }
+                        }}
+                      >
                         <i className="fas fa-download me-2"></i>Download PDF
                       </button>
                     </div>
