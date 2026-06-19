@@ -7711,7 +7711,7 @@ export const generateSalaryReportPDF = async (data) => {
 export const generateManualOathOfSecrecyPDF = async () => {
   try {
     const doc = new jsPDF();
-    addOptimizedWatermark(doc, 'agreement');
+    addOptimizedWatermark(doc, 'document');
 
     // Use the standard company header (logo + branded info)
     let yPos = await addHeader(doc, 15);
