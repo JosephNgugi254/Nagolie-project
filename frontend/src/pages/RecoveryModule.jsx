@@ -2084,20 +2084,50 @@ function RecoveryModule() {
                                     </span>
                                   ),
                                 },
-                                { header: "Actions", render: row => (
-                                  <button className="btn btn-sm btn-outline-info" onClick={async () => {
-                                    const clientForStatement = {
-                                      name: row.name, phone: row.phone || 'N/A', idNumber: row.id_number || 'N/A',
-                                      loan_id: row.id, borrowedAmount: row.borrowed_amount || 0,
-                                      borrowedDate: row.borrowed_date, expectedReturnDate: row.expected_return_date || null,
-                                      amountPaid: (row.principal_paid || 0) + (row.interest_paid || 0),
-                                      balance: (row.current_principal || 0) + ((row.accrued_interest || 0) - (row.interest_paid || 0))
-                                    };
-                                    const loanTransactions = transactions.filter(t => t.loan_id === row.id);
-                                    await generateClientStatement(clientForStatement);
-                                    showToast.success(`Statement for ${row.name} downloaded!`);
-                                  }}><i className="fas fa-download"></i></button>
-                                ) }
+                                {
+                                  header: "Actions",
+                                  render: row => (
+                                    <div className="btn-group btn-group-sm">
+                                      {/* Statement download button (existing) */}
+                                      <button 
+                                        className="btn btn-sm btn-outline-info" 
+                                        onClick={async () => {
+                                          const clientForStatement = {
+                                            name: row.name,
+                                            phone: row.phone || 'N/A',
+                                            idNumber: row.id_number || 'N/A',
+                                            loan_id: row.id,
+                                            borrowedAmount: row.borrowed_amount || 0,
+                                            borrowedDate: row.borrowed_date,
+                                            expectedReturnDate: row.expected_return_date || null,
+                                            amountPaid: (row.principal_paid || 0) + (row.interest_paid || 0),
+                                            balance: (row.current_principal || 0) + ((row.accrued_interest || 0) - (row.interest_paid || 0))
+                                          };
+                                          const loanTransactions = transactions.filter(t => t.loan_id === row.id);
+                                          await generateClientStatement(clientForStatement);
+                                          showToast.success(`Statement for ${row.name} downloaded!`);
+                                        }}
+                                        title='Download Loan statement (PDF)'
+                                      >
+                                        <i className="fas fa-download"></i>
+                                      </button>
+                                      
+                                      {/* NEW: Thank‑You button – only for completed loans */}
+                                      {row.status === 'completed' && (
+                                        <button
+                                          className="btn btn-sm btn-outline-success"
+                                          onClick={() => {
+                                            const message = `Hello ${row.name}, your payment has been received and the loan has been settled. Thank you for choosing Nagolie Enterprises. Welcome back!`;
+                                            handleSendReminder({ name: row.name, phone: row.phone }, message);
+                                          }}
+                                          title="Send thank‑you message"
+                                        >
+                                          <i className="fas fa-envelope"></i>
+                                        </button>
+                                      )}
+                                    </div>
+                                  )
+                                }
                               ]} data={filteredStats} />
                             );
                           })()
