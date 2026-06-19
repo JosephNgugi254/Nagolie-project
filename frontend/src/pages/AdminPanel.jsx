@@ -2632,7 +2632,7 @@ Thank you for choosing us.`;
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/logo.png" alt="Nagolie Enterprises" height="30" className="me-2" />
+            <img src="/logo.png" alt="Nagolie Enterprises Ltd" height="30" className="me-2" />
             <span>Admin Dashboard</span>
           </a>
 
@@ -5496,7 +5496,7 @@ Thank you for choosing us.`;
                 onClick={() => {
                   // Use custom message if provided, otherwise use original title
                   const livestockTitle = shareMessage.trim() || sharingLivestock.title;
-                  const message = `Check out this livestock available for purchase from Nagolie Enterprises:\n\n${livestockTitle}\nPrice: ${formatCurrency(sharingLivestock.price)}\n\nView details: ${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`;
+                  const message = `Check out this livestock available for purchase from Nagolie Enterprises Ltd:\n\n${livestockTitle}\nPrice: ${formatCurrency(sharingLivestock.price)}\n\nView details: ${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`;
                   const encodedMessage = encodeURIComponent(message);
                   window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
                 }}
@@ -5509,7 +5509,7 @@ Thank you for choosing us.`;
                 className="btn btn-info flex-fill d-flex align-items-center justify-content-center"
                 onClick={() => {
                   const livestockTitle = shareMessage.trim() || sharingLivestock.title;
-                  const text = `Check out this livestock available for purchase from Nagolie Enterprises: ${livestockTitle} - ${formatCurrency(sharingLivestock.price)}`;
+                  const text = `Check out this livestock available for purchase from Nagolie Enterprises Ltd: ${livestockTitle} - ${formatCurrency(sharingLivestock.price)}`;
                   const url = `${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`;
                   window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(text)}`, '_blank');
                 }}
@@ -5522,7 +5522,7 @@ Thank you for choosing us.`;
                 className="btn btn-danger flex-fill d-flex align-items-center justify-content-center"
                 onClick={() => {
                   const livestockTitle = shareMessage.trim() || sharingLivestock.title;
-                  const text = `Check out this livestock available for purchase from Nagolie Enterprises:\n${livestockTitle}\nPrice: ${formatCurrency(sharingLivestock.price)}`;
+                  const text = `Check out this livestock available for purchase from Nagolie Enterprises Ltd:\n${livestockTitle}\nPrice: ${formatCurrency(sharingLivestock.price)}`;
                   const url = `${window.location.origin}/#gallery?livestock=${sharingLivestock.id}`;
 
                   // Since Instagram doesn't have a direct web sharing API, we'll copy to clipboard

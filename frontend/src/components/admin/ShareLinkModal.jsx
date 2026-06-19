@@ -32,20 +32,20 @@ function ShareLinkModal({ isOpen, onClose, shareLinkData }) {
   }
 
   const handleShareEmail = () => {
-    const subject = `Complete Your Nagolie Enterprises Investor Account Setup - ${shareLinkData.investorName}`
-    const body = `Hello ${shareLinkData.investorName},\n\nWelcome to Nagolie Enterprises!\n\nPlease complete your investor account setup by clicking the link below:\n\n${shareLinkData.link}\n\nYour temporary password: ${shareLinkData.temporaryPassword}\n\nImportant Instructions:\n1. Click the link above to open the registration page\n2. Enter the temporary password shown above\n3. Choose your username and new password\n4. Complete the registration\n\nThis link is valid for 24 hours.\n\nBest regards,\nNagolie Enterprises LTD\n${COMPANY_INFO.phone1} | ${COMPANY_INFO.email}`
+    const subject = `Complete Your Nagolie Enterprises Ltd Investor Account Setup - ${shareLinkData.investorName}`
+    const body = `Hello ${shareLinkData.investorName},\n\nWelcome to Nagolie Enterprises Ltd!\n\nPlease complete your investor account setup by clicking the link below:\n\n${shareLinkData.link}\n\nYour temporary password: ${shareLinkData.temporaryPassword}\n\nImportant Instructions:\n1. Click the link above to open the registration page\n2. Enter the temporary password shown above\n3. Choose your username and new password\n4. Complete the registration\n\nThis link is valid for 24 hours.\n\nBest regards,\nNagolie Enterprises LTD\n${COMPANY_INFO.phone1} | ${COMPANY_INFO.email}`
     
     window.location.href = `mailto:${shareLinkData.investorEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   }
 
   const handleShareWhatsApp = () => {
-    const message = `Hello ${shareLinkData.investorName}, Welcome to Nagolie Enterprises!\n\nComplete your investor account setup:\nLink: ${shareLinkData.link}\nTemporary Password: ${shareLinkData.temporaryPassword}\n\nClick the link and enter the password to create your account.`
+    const message = `Hello ${shareLinkData.investorName}, Welcome to Nagolie Enterprises Ltd!\n\nComplete your investor account setup:\nLink: ${shareLinkData.link}\nTemporary Password: ${shareLinkData.temporaryPassword}\n\nClick the link and enter the password to create your account.`
     const encodedMessage = encodeURIComponent(message)
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank')
   }
 
   const handleShareSMS = () => {
-    const message = `Hello ${shareLinkData.investorName}, Welcome to Nagolie Enterprises! Complete account setup: ${shareLinkData.link} Password: ${shareLinkData.temporaryPassword}`
+    const message = `Hello ${shareLinkData.investorName}, Welcome to Nagolie Enterprises Ltd! Complete account setup: ${shareLinkData.link} Password: ${shareLinkData.temporaryPassword}`
     window.location.href = `sms:${shareLinkData.investorPhone}?body=${encodeURIComponent(message)}`
   }
 

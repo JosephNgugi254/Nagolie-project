@@ -218,7 +218,6 @@ function RecoveryModule() {
   const [flagLoanToConfirm, setFlagLoanToConfirm] = useState(null);
   const [flagLoanName, setFlagLoanName] = useState('');
 
-
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   
   const fetchPendingRequestsCount = async () => {
@@ -230,7 +229,6 @@ function RecoveryModule() {
       console.error('Failed to fetch pending requests');
     }
   };
-
 
   const handleConfirmFlag = async () => {
     if (!flagLoanToConfirm) return;
@@ -779,8 +777,6 @@ function RecoveryModule() {
       lowerStr.includes('for purchase')
     );
   };
-
-  
 
   // ---------- Payment and client helpers (same as AdminPanel) ----------
   const [paymentType, setPaymentType] = useState('principal');

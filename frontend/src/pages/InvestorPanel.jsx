@@ -433,7 +433,7 @@ function InvestorPanel() {
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/logo.png" alt="Nagolie Enterprises" height="30" className="me-2" />
+            <img src="/logo.png" alt="Nagolie Enterprises Ltd" height="30" className="me-2" />
             <span>Investor Dashboard</span>
           </a>
 
@@ -1458,7 +1458,7 @@ function InvestorPanel() {
 
           <div className="alert alert-info">
             <i className="fas fa-info-circle me-2"></i>
-            This will open your SMS app with a pre-filled message to the director Nagolie Enterprises LTD.
+            This will open your SMS app with a pre-filled message to the director Nagolie Enterprises Ltd.
           </div>
               
           <div className="d-flex gap-2">

@@ -23,7 +23,7 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
   const isActive = true; // all loans in admin panel are active unless status is different
 
   // ----- Default messages -----
-  const defaultReminderMessage = `Hello ${client?.client_name || client?.name}, this is a reminder from Nagolie Enterprises that your loan of KES ${client?.balance?.toLocaleString()} is due. Please make your payment to avoid additional charges. Thank you.`;
+  const defaultReminderMessage = `Hello ${client?.client_name || client?.name}, this is a reminder from Nagolie Enterprises Ltd that your loan of KES ${client?.balance?.toLocaleString()} is due. Please make your payment to avoid additional charges. Thank you.`;
 
   const defaultDeadlineMessage = (() => {
     const name = client?.client_name || client?.name;

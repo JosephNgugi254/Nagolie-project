@@ -23,7 +23,7 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
   const isActive = true; // all loans in recovery are active
 
   // ----- Default messages -----
-  const defaultReminderMessage = `Hello ${client?.name}, this is a reminder from Nagolie Enterprises that your loan is due.
+  const defaultReminderMessage = `Hello ${client?.name}, this is a reminder from Nagolie Enterprises Ltd that your loan is due.
 • Principal owed: KES ${client?.current_principal?.toLocaleString()}
 • Interest owed: KES ${client?.accrued_interest?.toLocaleString()}
 • Total balance: KES ${(client?.current_principal + client?.accrued_interest)?.toLocaleString()}

@@ -3,7 +3,6 @@
 import { Link } from "react-router-dom"
 import { useEffect, useRef, useState } from "react"
 import { motion, useMotionValue, useSpring, useInView } from "framer-motion"
-import CountUp from "react-countup"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import LoanApply from "../features/loans/LoanApply"
@@ -11,6 +10,33 @@ import { adminAPI, loanAPI } from "../services/api"
 import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
 import SEO from '../components/common/SEO'
+import { CountUp as CountUpCore } from 'countup.js';
+
+const CountUp = ({ end, duration, suffix, prefix, ...rest }) => {
+  const ref = useRef(null);
+  const instance = useRef(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      instance.current = new CountUpCore(ref.current, end, {
+        duration,
+        suffix: suffix || '',
+        prefix: prefix || '',
+        ...rest,
+      });
+      if (!instance.current.error) {
+        instance.current.start();
+      }
+    }
+    return () => {
+      if (instance.current) {
+        instance.current.reset();
+      }
+    };
+  }, [end, duration, suffix, prefix, rest]);
+
+  return <span ref={ref}>0</span>;
+};
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ||
   (window.location.hostname === 'localhost'
@@ -501,7 +527,7 @@ function Home() {
                 through fair and innovative buying solutions
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
+                At Nagolie Enterprises Ltd, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
                 while our streamlined approach guarantees you access to funds when you need them most.
               </p>
               <p className="mb-4">

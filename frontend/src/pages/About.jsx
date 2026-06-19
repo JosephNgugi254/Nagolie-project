@@ -3,10 +3,37 @@
 import { Link } from "react-router-dom"
 import { motion, useInView } from "framer-motion"
 import { useRef, useState, useEffect } from "react"
-import CountUp from "react-countup"
 import Navbar from "../components/common/Navbar"
 import Footer from "../components/common/Footer"
 import SEO from '../components/common/SEO'
+
+import { CountUp as CountUpCore } from 'countup.js';
+
+const CountUp = ({ end, duration, suffix, prefix, ...rest }) => {
+  const ref = useRef(null);
+  const instance = useRef(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      instance.current = new CountUpCore(ref.current, end, {
+        duration,
+        suffix: suffix || '',
+        prefix: prefix || '',
+        ...rest,
+      });
+      if (!instance.current.error) {
+        instance.current.start();
+      }
+    }
+    return () => {
+      if (instance.current) {
+        instance.current.reset();
+      }
+    };
+  }, [end, duration, suffix, prefix, rest]);
+
+  return <span ref={ref}>0</span>;
+};
 
 // ---------- TypewriterRole Component ----------
 const TypewriterRole = ({ role }) => {
@@ -99,7 +126,7 @@ function About() {
     {
       name: "Gladys Sakinoi",
       role: "Secretary",
-      bio: "Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises.",
+      bio: "Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises Ltd.",
       image: "/Glado.png",
       whatsapp: "https://wa.me/0727635515",
       email: ""
@@ -132,7 +159,7 @@ function About() {
     {
       name: "Terry Kintei",
       role: "Human Resource Manager",
-      bio: "Responsible for overseeing recruitment, staff welfare, and organizational development to ensure efficient and motivated workforce operations at Nagolie Enterprises.",
+      bio: "Responsible for overseeing recruitment, staff welfare, and organizational development to ensure efficient and motivated workforce operations at Nagolie Enterprises Ltd.",
       image: "./Terry.png",
       whatsapp: "https://wa.me/",
       email: ""
@@ -140,7 +167,7 @@ function About() {
     {
       name: "Tait Lesiamon",
       role: "Legal Consultant",
-      bio: "Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises and its clients in every transaction.",
+      bio: "Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises Ltd and its clients in every transaction.",
       image: "/Timothy.png",
       whatsapp: "https://wa.me/",
       email: ""
@@ -188,7 +215,7 @@ function About() {
         <div className="container">
           <div className="row align-items-center">
             <div className="col-lg-8 mx-auto text-center">
-              <h1 className="display-4 fw-bold mb-4 text-primary">About Nagolie Enterprises</h1>
+              <h1 className="display-4 fw-bold mb-4 text-primary">About Nagolie Enterprises Ltd</h1>
               <p className="lead mb-4">Revolutionizing direct livestock acquisitions in Kajiado County</p>
             </div>
           </div>
@@ -219,7 +246,7 @@ function About() {
                 through fair and innovative buying solutions
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that 
+                At Nagolie Enterprises Ltd, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that
                 recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
                 while our streamlined approach guarantees you access to funds when you need them most.
               </p>
@@ -229,7 +256,7 @@ function About() {
                 With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises, we go beyond traditional livestock financing by recognizing each animal as part of a broader agricultural value chain.
+                At Nagolie Enterprises Ltd, we go beyond traditional livestock financing by recognizing each animal as part of a broader agricultural value chain.
                 Through structured classification and professional valuation, we assess not only the physical asset, but also its income-generating potential, enabling smarter financing, 
                 better risk management, and more sustainable outcomes for our farmers.
               </p>
@@ -274,7 +301,7 @@ function About() {
               <div className="about-image">
                 <img
                   src="/logo.png"
-                  alt="Nagolie Enterprises"
+                  alt="Nagolie Enterprises Ltd Logo"
                   className="img-fluid rounded shadow"
                   width="500"
                   height="400"

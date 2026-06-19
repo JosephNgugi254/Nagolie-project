@@ -7,7 +7,7 @@ import { autoTable } from 'jspdf-autotable';
 
 // Company constants (branded info)
 const COMPANY_INFO = {
-  name: 'NAGOLIE ENTERPRISES',
+  name: 'NAGOLIE ENTERPRISES LTD',
   tagline: 'Investing in Living Assets',
   address: 'Target - Isinya, Kajiado County, Kenya',
   phone1: '+254 721 451 707',
@@ -71,7 +71,7 @@ export const addOptimizedWatermark = (doc, type = 'agreement') => {
       
       watermarks.forEach(pos => {
         doc.setFontSize(28);
-        doc.text('NAGOLIE ENTERPRISES', pos.x, pos.y, { align: 'center', angle });
+        doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
         doc.setFontSize(18);
         doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
       });
@@ -125,7 +125,7 @@ const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
     
     watermarks.forEach(pos => {
       doc.setFontSize(28);
-      doc.text('NAGOLIE ENTERPRISES', pos.x, pos.y, { align: 'center', angle });
+      doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
       doc.setFontSize(18);
       doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
     });
@@ -327,7 +327,7 @@ export const addFooter = (doc, yPos) => {
   doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`, 20, footerY);
   doc.setTextColor(...COLORS.textDark);
   doc.setFontSize(9);
-  doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 10, { align: 'center' });
+  doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 10, { align: 'center' });
 };
 
 // Helper function to get first return date (14 days from agreement date)
@@ -836,7 +836,7 @@ export const generateLoanAgreementPDF = async (application) => {
       { text: `${application.livestockType || '__________'}`, style: 'bold' },
       { text: " (No. of livestock ", style: 'normal' },
       { text: `${application.livestockCount || '____'}`, style: 'bold' },
-      { text: ") by Nagolie enterprises.", style: 'normal' }
+      { text: ") by Nagolie Enterprises Ltd.", style: 'normal' }
     ];
     writeStyledLine(doc, thirdLineParts, 20, yPos, 11.5);
     yPos += 8;
@@ -994,14 +994,14 @@ export const generateLoanAgreementPDF = async (application) => {
       [
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
+        " Nagolie Enterprises Ltd (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -1031,8 +1031,8 @@ export const generateLoanAgreementPDF = async (application) => {
           { text: application.idNumber || "___________________", style: 'bold' },
           { text: " acknowledge that I have read and fully understood the terms of this", style: 'normal' }
         ],
-        "Agreement, particularly the rights of Nagolie Enterprises to recover the collateral livestock upon default.",
-        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises and its authorized",
+        "Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd  and its authorized",
         "agents may immediately take possession of the collateral livestock without the need for a court order, further",
         "notice, or additional consent from any party. I hereby waive all rights to legally obstruct or delay such",
         "recovery. This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the",
@@ -1068,7 +1068,7 @@ export const generateLoanAgreementPDF = async (application) => {
         "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
         "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises Ltd may at their",
         "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
@@ -1084,7 +1084,7 @@ export const generateLoanAgreementPDF = async (application) => {
       // 5. Livestock Valuation & Value Chain Classification
       [
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         "",
         "In addition to standard valuation, each livestock asset shall be classified according to its economic production ",
@@ -1105,7 +1105,7 @@ export const generateLoanAgreementPDF = async (application) => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises to:",
+        "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -1348,7 +1348,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+    doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
 
     addPageNumbers(doc, 'page %d');
 
@@ -1414,7 +1414,7 @@ export const generateManualLoanAgreementPDF = async () => {
       { text: "_______________", style: 'bold' },
       { text: " (No. of livestock ", style: 'normal' },
       { text: "_______", style: 'bold' },
-      { text: ") by Nagolie enterprises.", style: 'normal' }
+      { text: ") by Nagolie Enterprises Ltd.", style: 'normal' }
     ];
     writeStyledLine(doc, thirdLineParts, 20, yPos, 11.5);
     yPos += 8;
@@ -1462,14 +1462,14 @@ export const generateManualLoanAgreementPDF = async () => {
       [
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
+        " Nagolie Enterprises Ltd (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -1499,8 +1499,8 @@ export const generateManualLoanAgreementPDF = async () => {
           { text: "___________________", style: 'bold' },
           { text: " acknowledge that I have read and fully understood the ", style: 'normal' }
         ],
-        "terms of this Agreement, particularly the rights of Nagolie Enterprises to recover the collateral livestock upon default.",
-        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises and its authorized agents",
+        "terms of this Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents",
         "may immediately take possession of the collateral livestock without the need for a court order, further notice,",
         "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery",
         "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest extent",
@@ -1542,7 +1542,7 @@ export const generateManualLoanAgreementPDF = async () => {
         "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
         "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises Ltd may at their",
         "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
@@ -1558,7 +1558,7 @@ export const generateManualLoanAgreementPDF = async () => {
       // 5. Livestock Valuation & Value Chain Classification
       [
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         "",
         "In addition to standard valuation, each livestock asset shall be classified according to its economic production ",
@@ -1579,7 +1579,7 @@ export const generateManualLoanAgreementPDF = async () => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises to:",
+        "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -1917,7 +1917,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+    doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
 
     addPageNumbers(doc, 'page %d');
 
@@ -1973,7 +1973,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
 
     // Company Details
     doc.setFont('helvetica', 'bold');
-    doc.text('1. NAGOLIE ENTERPRISES (hereinafter referred to as "the Company"):', 20, yPos);
+    doc.text('1. NAGOLIE ENTERPRISES LTD (hereinafter referred to as "the Company"):', 20, yPos);
     yPos += 6;
     doc.setFont('helvetica', 'normal');
     doc.text(` Registered Office: ${COMPANY_INFO.address}`, 25, yPos);
@@ -2051,7 +2051,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
     const termGroups = [
       [
         { text: "1. Agreement Overview", bold: true },
-        "This Investment Agreement (\"Agreement\") is entered into between Nagolie Enterprises ",
+        "This Investment Agreement (\"Agreement\") is entered into between Nagolie Enterprises Ltd ",
         "(the \"Company\") and the investor named above (the \"Investor\"). The Investor agrees to",
         "invest the specified amount in the Company's livestock financing operations, and the Company",
         "agrees to manage the investment and provide returns as specified herein.",
@@ -2279,7 +2279,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
     // Company/Director Section
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('FOR AND ON BEHALF OF NAGOLIE ENTERPRISES:', 20, yPos);
+    doc.text('FOR AND ON BEHALF OF NAGOLIE ENTERPRISES LTD:', 20, yPos);
     yPos += 8;
 
     doc.text('DIRECTOR:', 25, yPos);
@@ -2319,7 +2319,7 @@ export const generateInvestorAgreementPDF = async (investor) => {
 
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for investing with Nagolie Enterprises!', 105, footerY + 6, { align: 'center' });
+    doc.text('Thank you for investing with Nagolie Enterprises Ltd!', 105, footerY + 6, { align: 'center' });
 
     addPageNumbers(doc, 'page %d');
 
@@ -2412,13 +2412,13 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
     doc.setTextColor(...COLORS.textDark);
 
     const consentParagraph = "I, the undersigned Next of Kin to the above-named Borrower, hereby acknowledge and consent that:\n\n" +
-      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises.\n" +
+      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises Ltd.\n" +
       "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises.\n" +
       "3. I acknowledge that the livestock specified in the loan agreement will serve as collateral for this loan.\n" +
       "4. I understand the implications of default as outlined in the loan agreement.\n" +
       "5. I agree to act as a point of contact in matters relating to this loan.\n" +
-      "6. In the event of default, I understand that Nagolie Enterprises will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not, after the second missed payment date.\n" +
-      "7. I will cooperate with Nagolie Enterprises in their recovery efforts should the need arise.";
+      "6. In the event of default, I understand that Nagolie Enterprises Ltd will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not, after the second missed payment date.\n" +
+      "7. I will cooperate with Nagolie Enterprises Ltd in their recovery efforts should the need arise.";
 
     const consentLines = doc.splitTextToSize(consentParagraph, 170);
     consentLines.forEach(line => {
@@ -2571,14 +2571,14 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       [
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
+        " Nagolie Enterprises Ltd (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody (without 2.3)
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -2634,7 +2634,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
         "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises Ltd may at their",
         "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
@@ -2650,7 +2650,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       // 5. Livestock Valuation & Value Chain Classification (updated)
       [
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         "",
         "In addition to standard valuation, each livestock asset shall be classified according to its economic production ",
@@ -2670,7 +2670,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises to:",
+        "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -2813,13 +2813,13 @@ export const generateManualNextOfKinConsentPDF = async () => {
     doc.setTextColor(...COLORS.textDark);
 
     const consentParagraph = "I, the undersigned Next of Kin to the above-named Borrower, hereby acknowledge and consent that:\n\n" +
-      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises.\n" +
-      "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises.\n" +
+      "1. I am fully aware that the Borrower is taking a livestock financing loan from Nagolie Enterprises Ltd.\n" +
+      "2. I have read, understood, and consent to all the terms and conditions of the loan agreement between the Borrower and Nagolie Enterprises Ltd.\n" +
       "3. I acknowledge that the livestock specified in the loan agreement will serve as collateral for this loan.\n" +
       "4. I understand the implications of default as outlined in the loan agreement.\n" +
       "5. I agree to act as a point of contact in matters relating to this loan.\n" +
-      "6. In the event of default, I understand that Nagolie Enterprises will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not , after the second missed payment date.\n" +
-      "7. I will cooperate with Nagolie Enterprises in their recovery efforts should the need arise.";
+      "6. In the event of default, I understand that Nagolie Enterprises Ltd will provide notice and has the absolute right to claim, take possession of, and remove the collateral livestock without further notice, whether I am present or not , after the second missed payment date.\n" +
+      "7. I will cooperate with Nagolie Enterprises Ltd in their recovery efforts should the need arise.";
 
     const consentLines = doc.splitTextToSize(consentParagraph, 170);
     consentLines.forEach(line => {
@@ -2976,13 +2976,13 @@ export const generateManualNextOfKinConsentPDF = async () => {
       [
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises until the loan is fully repaid.",
+        " Nagolie Enterprises Ltd (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured",
+        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises,",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
         " with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
@@ -3037,7 +3037,7 @@ export const generateManualNextOfKinConsentPDF = async () => {
         "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
         "interest alone, shall not constitute settlement or discharge of the loan obligation.",
         "",
-        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises may at their",
+        "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises Ltd may at their",
         "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
@@ -3052,7 +3052,7 @@ export const generateManualNextOfKinConsentPDF = async () => {
       // Updated Clause 5
       [
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
-        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises.",
+        "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
         "",
         "In addition to standard valuation, each livestock asset shall be classified according to its economic production ",
@@ -3071,7 +3071,7 @@ export const generateManualNextOfKinConsentPDF = async () => {
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises to:",
+        "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
         "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a",
         "   renewal agreement",
@@ -3686,10 +3686,10 @@ export const generateProposalPDF = async () => {
       { text: 'Improve operational efficiency', style: 'bullet' },
       { text: 'Strengthen investor confidence', style: 'bullet' },
       { text: 'Enhance brand dominance in Isinya and its surroundings, Kajiado County and beyond', style: 'bullet' },
-      { text: 'Position Nagolie Enterprises for scalable growth', style: 'bullet' },
+      { text: 'Position Nagolie Enterprises Ltd for scalable growth', style: 'bullet' },
       // ===== 4. CONCLUSION =====
       { text: '4. Conclusion', style: 'section' },
-      { text: 'This proposal aims to strategically position Nagolie Enterprises as:', style: 'normal' },
+      { text: 'This proposal aims to strategically position Nagolie Enterprises Ltd as:', style: 'normal' },
       { text: 'A digitally organized company', style: 'bullet' },
       { text: 'A trusted investment partner', style: 'bullet' },
       { text: 'A locally dominant livestock acquisition enterprise', style: 'bullet' },
@@ -4006,7 +4006,7 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+    doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
 
     const fileName = `Loan_Renewal_${loanData.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
@@ -4225,7 +4225,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+    doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
 
     const fileName = `Manual_Loan_Renewal_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
@@ -5097,7 +5097,7 @@ export const generateLoanWaiverAgreementAutoPDF = async (loanData, newPrincipal,
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+    doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
 
     const fileName = `Loan_Waiver_${loanData.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
@@ -5315,7 +5315,7 @@ export const generateManualLoanWaiverAgreementPDF = async () => {
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises!', 105, footerY + 5, { align: 'center' });
+    doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
 
     const fileName = `Manual_Loan_Waiver_Agreement_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
@@ -5353,7 +5353,7 @@ export const generateSecretaryContractPDF = async () => {
     yPos += 8;
 
     doc.setFont('helvetica', 'normal');
-    doc.text('Nagolie Enterprises (hereinafter referred to as “the Employer”)', 25, yPos);
+    doc.text('Nagolie Enterprises Ltd (hereinafter referred to as “the Employer”)', 25, yPos);
     yPos += 6;
     doc.text('and', 25, yPos);
     yPos += 6;
@@ -5528,7 +5528,7 @@ export const generateSecretaryContractPDF = async () => {
 
     // Employer signature block
     doc.setFont('helvetica', 'bold');
-    doc.text('FOR NAGOLIE ENTERPRISES (Employer):', 20, yPos);
+    doc.text('FOR NAGOLIE ENTERPRISES LTD (Employer):', 20, yPos);
     yPos += 6;
     doc.setFont('helvetica', 'normal');
     doc.text('Name: Shadrack Kesumet', 25, yPos);
@@ -6337,7 +6337,7 @@ export const generateClientRelationsOfficerContractPDF = async () => {
     yPos += 8;
 
     doc.setFont('helvetica', 'normal');
-    doc.text('NAGOLIE ENTERPRISES (hereinafter referred to as "the Employer")', 25, yPos);
+    doc.text('NAGOLIE ENTERPRISES LTD (hereinafter referred to as "the Employer")', 25, yPos);
     yPos += 6;
     doc.text('and', 25, yPos);
     yPos += 5;
@@ -6444,7 +6444,7 @@ export const generateClientRelationsOfficerContractPDF = async () => {
       'a) Work with minimal supervision.',
       'b) Demonstrate professionalism, integrity, and accountability.',
       'c) Maintain positive relationships with clients and colleagues.',
-      'd) Protect the reputation and interests of Nagolie Enterprises.',
+      'd) Protect the reputation and interests of Nagolie Enterprises Ltd.',
       'e) Contribute positively towards achieving the Company\'s objectives and continued growth.'
     ];
     expectations.forEach(exp => {
@@ -7177,7 +7177,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
     { text: clientName, style: 'bold' },
     { text: ', ID Number ', style: 'normal' },
     { text: idNumber, style: 'bold' },
-    { text: ', hereby acknowledge that I am indebted to Nagolie Enterprises in the sum of Kenya Shillings ', style: 'normal' },
+    { text: ', hereby acknowledge that I am indebted to Nagolie Enterprises Ltd in the sum of Kenya Shillings ', style: 'normal' },
     { text: totalInWords, style: 'bold' },                         // ✅ correct: words = total owed
     { text: '  (KES ', style: 'normal' },
     { text: totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2 }), style: 'bold' },  // ✅ figure = total owed
@@ -7231,7 +7231,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
   yPos += 15;
 
   doc.setFont('helvetica', 'bold');
-  doc.text('For Nagolie Enterprises:', 20, yPos);
+  doc.text('For Nagolie Enterprises Ltd:', 20, yPos);
   yPos += 8;
   doc.setFont('helvetica', 'normal');
   doc.text('Signature: _________________________', 20, yPos);
@@ -7295,7 +7295,7 @@ export const generateManualPromissoryNotePDF = async () => {
   // Promise Statement (with blank spaces)
   doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
-  const statement = `I, __________________________, ID Number __________________________, hereby acknowledge that I am indebted to Nagolie Enterprises in the sum of Kenya Shillings ___________________________________________________ (KES ________________), being a loan advanced to me. I agree and promise to pay KES ____________________ on or before ____________________ as payment of the said loan.`;
+  const statement = `I, __________________________, ID Number __________________________, hereby acknowledge that I am indebted to Nagolie Enterprises Ltd in the sum of Kenya Shillings ___________________________________________________ (KES ________________), being a loan advanced to me. I agree and promise to pay KES ____________________ on or before ____________________ as payment of the said loan.`;
   const wrapped = doc.splitTextToSize(statement, 170);
   wrapped.forEach(line => {
     doc.text(line, 20, yPos);
@@ -7317,7 +7317,7 @@ export const generateManualPromissoryNotePDF = async () => {
 
   // Company representative signature
   doc.setFont('helvetica', 'bold');
-  doc.text('For Nagolie Enterprises:', 20, yPos);
+  doc.text('For Nagolie Enterprises Ltd:', 20, yPos);
   yPos += 8;
   doc.setFont('helvetica', 'normal');
   doc.text('Signature: _________________________', 20, yPos);

@@ -174,7 +174,7 @@ const CompanyGallery = () => {
               <h1 className="display-5 fw-bold mb-3">Company Gallery</h1>
               <p className="lead mb-4">
                 A visual journey through our company's milestones, events, and daily operations.
-                See behind the scenes of Nagolie Enterprises.
+                See behind the scenes of Nagolie Enterprises Ltd.
               </p>
             </div>
           </div>
