@@ -969,3 +969,35 @@ def get_loan_report_comments(loan_id):
         'officer_name': c.officer.username,
         'created_at': c.created_at.isoformat()
     } for c in comments]), 200
+
+# routes/call_logs.py (or add to recovery_bp)
+
+@recovery_bp.route('/calls/<int:other_user_id>', methods=['GET'])
+@jwt_required()
+def get_call_logs(other_user_id):
+    user_id = int(get_jwt_identity())
+    logs = CallLog.query.filter(
+        ((CallLog.caller_id == user_id) & (CallLog.callee_id == other_user_id)) |
+        ((CallLog.caller_id == other_user_id) & (CallLog.callee_id == user_id))
+    ).order_by(CallLog.started_at.desc()).limit(50).all()
+    return jsonify([l.to_dict() for l in logs]), 200
+
+@recovery_bp.route('/calls', methods=['POST'])
+@jwt_required()
+def save_call_log():
+    data = request.json
+    user_id = int(get_jwt_identity())
+    log = CallLog(
+        call_type=data['call_type'],
+        status=data['status'],
+        started_at=datetime.fromisoformat(data['started_at']) if data.get('started_at') else datetime.utcnow(),
+        ended_at=datetime.fromisoformat(data['ended_at']) if data.get('ended_at') else None,
+        duration_seconds=data.get('duration_seconds', 0),
+        caller_id=data['caller_id'],
+        callee_id=data.get('callee_id'),
+        is_group=data.get('is_group', False),
+        group_participants=data.get('participants')
+    )
+    db.session.add(log)
+    db.session.commit()
+    return jsonify({'success': True, 'log': log.to_dict()}), 201

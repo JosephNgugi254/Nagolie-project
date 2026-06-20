@@ -3,6 +3,7 @@ import { Virtuoso } from 'react-virtuoso';
 import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import EmojiPicker from 'emoji-picker-react';
+import { useCall } from '../../context/CallContext'; // <-- NEW
 
 // ------------------------------------------------------------
 // WaveformAudioPlayer – fixed time display + blue logic
@@ -432,9 +433,21 @@ const MessageBubble = memo(({
 });
 
 // ------------------------------------------------------------
-// Main ChatWindow (unchanged except for imports and component usage)
+// Main ChatWindow (with call buttons)
 // ------------------------------------------------------------
 function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
+  // ---------- CALL INTEGRATION ----------
+  const { startCall, activeCall, endCall, isMinimized, setIsMinimized } = useCall();
+
+  // Helper to start a call with offline check
+  const handleStartCall = (type) => {
+    if (!onlineUsers.has(user.id)) {
+      showToast.error(`${user.username} is offline`);
+      return;
+    }
+    startCall(user.id, type);
+  };
+
   // Voice recording state
   const [isRecording, setIsRecording]           = useState(false);
   const [analyserNode, setAnalyserNode]         = useState(null);
@@ -936,6 +949,21 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           </span>
         </span>
         <div className="chat-window-header-actions">
+          {/* === CALL BUTTONS === */}
+          <button
+            className="btn btn-sm btn-outline-light me-1"
+            onClick={() => handleStartCall('voice')}
+            title="Voice Call"
+          >
+            <i className="fas fa-phone" />
+          </button>
+          <button
+            className="btn btn-sm btn-outline-light me-1"
+            onClick={() => handleStartCall('video')}
+            title="Video Call"
+          >
+            <i className="fas fa-video" />
+          </button>
           <button className="btn-close btn-close-white" onClick={onClose} />
         </div>
       </div>

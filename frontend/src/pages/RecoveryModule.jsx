@@ -48,6 +48,13 @@ import LoanReports from '../components/loan-reports/LoanReports';
 import SalaryManagement from '../components/director/SalaryManagement';
 import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
 
+import { CallProvider, useCall } from '../context/CallContext';
+import IncomingCallModal from '../components/call/IncomingCallModal';
+import CallScreen from '../components/call/CallScreen';
+import FloatingCallWidget from '../components/call/FloatingCallWidget';
+import AddParticipantModal from '../components/call/AddParticipantModal';
+import CallContext from '../context/CallContext';
+
 const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MAX_CHAT_WINDOWS = 4;
 const CHAT_WINDOW_WIDTH = 360;
@@ -1578,10 +1585,75 @@ function RecoveryModule() {
     );
   }
 
+  const [showAddParticipant, setShowAddParticipant] = useState(false);
+
+  const CallUI = () => {
+   const {
+     activeCall,
+     incomingCall,
+     isMinimized,
+     setIsMinimized,
+     callDuration,
+     localStream,
+     remoteStreams,
+     answerCall,
+     endCall,
+     addParticipant,
+   } = useCall();
+  
+   if (!activeCall && !incomingCall) return null;
+  
+   return (
+     <>
+       {incomingCall && (
+         <IncomingCallModal
+           call={incomingCall}
+           onAnswer={() => answerCall(incomingCall.callId, true)}
+           onDecline={() => answerCall(incomingCall.callId, false)}
+         />
+       )}
+  
+       {activeCall && !isMinimized && (
+         <CallScreen
+           call={activeCall}
+           localStream={localStream}
+           remoteStream={remoteStreams[activeCall.callId]?.[activeCall.remoteUser?.id]}
+           onEnd={() => endCall(activeCall.callId)}
+           onMinimize={() => setIsMinimized(true)}
+           duration={callDuration}
+           isGroup={activeCall.isGroup}
+           participants={activeCall.participants}
+           onAddParticipant={() => setShowAddParticipant(true)}   // <-- open modal
+         />
+       )}
+  
+       {activeCall && isMinimized && (
+         <FloatingCallWidget
+           call={activeCall}
+           duration={callDuration}
+           onMaximize={() => setIsMinimized(false)}
+           onEnd={() => endCall(activeCall.callId)}
+         />
+       )}
+  
+       {/* Add Participant Modal */}
+       <AddParticipantModal
+         isOpen={showAddParticipant}
+         onClose={() => setShowAddParticipant(false)}
+         onAdd={addParticipant}
+         currentParticipants={activeCall?.participants || []}
+         onlineUsers={onlineUsers}   // <-- pass the onlineUsers set from parent
+       />
+     </>
+   );
+} ;
+
   // ---------- JSX ----------
   return (
+    <CallProvider socket={socket}>
     <div>
       <Toast />
+      <CallUI /> 
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
@@ -4185,6 +4257,7 @@ function RecoveryModule() {
       
 
     </div>
+    </CallProvider>
   );
 }
 

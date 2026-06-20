@@ -144,3 +144,107 @@ def handle_mark_read(data):
                 'message_id': msg.id,
                 'status': 'read'
             }, room=room)
+
+
+
+# socket_events.py (or wherever you handle socket events)
+
+@socketio.on('call_offer')
+def handle_call_offer(data):
+    """Caller sends SDP offer to callee."""
+    user = get_user_from_token()
+    if not user:
+        return
+    target_user_id = data['target_user_id']
+    room = f'user_{target_user_id}'
+    emit('call_offer', {
+        'caller_id': user.id,
+        'caller_name': user.username,
+        'call_type': data['call_type'],      # 'voice' or 'video'
+        'offer': data['offer'],              # SDP
+        'call_id': data.get('call_id'),      # unique call identifier
+        'is_group': data.get('is_group', False),
+        'participants': data.get('participants', [user.id])
+    }, room=room)
+
+@socketio.on('call_answer')
+def handle_call_answer(data):
+    """Callee answers with SDP answer."""
+    user = get_user_from_token()
+    if not user:
+        return
+    target_user_id = data['target_user_id']
+    room = f'user_{target_user_id}'
+    emit('call_answer', {
+        'answerer_id': user.id,
+        'answer': data['answer'],
+        'call_id': data['call_id']
+    }, room=room)
+
+@socketio.on('call_ice')
+def handle_call_ice(data):
+    """Exchange ICE candidates."""
+    user = get_user_from_token()
+    if not user:
+        return
+    target_user_id = data['target_user_id']
+    room = f'user_{target_user_id}'
+    emit('call_ice', {
+        'sender_id': user.id,
+        'candidate': data['candidate'],
+        'call_id': data['call_id']
+    }, room=room)
+
+@socketio.on('call_end')
+def handle_call_end(data):
+    """Notify all participants that call ended."""
+    user = get_user_from_token()
+    if not user:
+        return
+    call_id = data['call_id']
+    # Broadcast to all users in the call (we need to track rooms per call)
+    # For simplicity, we'll emit to all participants individually
+    participants = data.get('participants', [])
+    for p in participants:
+        room = f'user_{p}'
+        emit('call_ended', {
+            'call_id': call_id,
+            'ended_by': user.id,
+            'duration': data.get('duration', 0)
+        }, room=room)
+
+    # Save call log (will be done by the frontend via API, or we can do it here)
+    # We'll use an API endpoint to save the log after call ends.
+
+@socketio.on('call_status')
+def handle_call_status(data):
+    """Send status updates (ringing, busy, etc.)."""
+    user = get_user_from_token()
+    if not user:
+        return
+    target_user_id = data['target_user_id']
+    room = f'user_{target_user_id}'
+    emit('call_status', {
+        'status': data['status'],    # 'ringing', 'busy', 'unavailable'
+        'call_id': data['call_id'],
+        'from': user.id
+    }, room=room)
+
+@socketio.on('call_add_participant')
+def handle_add_participant(data):
+    """For group calls: invite a new participant."""
+    user = get_user_from_token()
+    if not user:
+        return
+    new_user_id = data['new_user_id']
+    call_id = data['call_id']
+    # Forward the invite to the new user
+    room = f'user_{new_user_id}'
+    emit('call_invite', {
+        'call_id': call_id,
+        'inviter_id': user.id,
+        'inviter_name': user.username,
+        'call_type': data['call_type'],
+        'existing_participants': data['existing_participants'],
+        'offer': data['offer']   # SDP offer for new participant
+    }, room=room)

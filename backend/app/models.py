@@ -884,3 +884,43 @@ class SalaryTransaction(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'created_by': self.created_by,
         }
+    
+# models.py
+
+class CallLog(db.Model):
+    __tablename__ = 'call_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    call_type = db.Column(db.String(10), nullable=False)   # 'voice' or 'video'
+    status = db.Column(db.String(20), default='missed')    # 'missed', 'answered', 'declined', 'ended'
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    duration_seconds = db.Column(db.Integer, default=0)
+
+    # For 1‑on‑1 calls
+    caller_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    callee_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    # For group calls
+    is_group = db.Column(db.Boolean, default=False)
+    group_participants = db.Column(db.JSON, nullable=True)   # list of user IDs
+
+    # Optional reference to a chat message (to show call history)
+    message_id = db.Column(db.Integer, db.ForeignKey('private_messages.id'), nullable=True)
+
+    caller = db.relationship('User', foreign_keys=[caller_id])
+    callee = db.relationship('User', foreign_keys=[callee_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'call_type': self.call_type,
+            'status': self.status,
+            'started_at': self.started_at.isoformat() + 'Z' if self.started_at else None,
+            'ended_at': self.ended_at.isoformat() + 'Z' if self.ended_at else None,
+            'duration_seconds': self.duration_seconds,
+            'caller_id': self.caller_id,
+            'callee_id': self.callee_id,
+            'is_group': self.is_group,
+            'participants': self.group_participants,
+            'message_id': self.message_id,
+        }
