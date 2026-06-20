@@ -3,7 +3,7 @@ import { Virtuoso } from 'react-virtuoso';
 import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import EmojiPicker from 'emoji-picker-react';
-import { useCall } from '../../context/CallContext'; // <-- NEW
+import { useCall } from '../../context/CallContext';
 
 // ------------------------------------------------------------
 // WaveformAudioPlayer – fixed time display + blue logic
@@ -130,7 +130,7 @@ const WaveformAudioPlayer = memo(({ src, isRead = false, isOwnMessage = false, o
       audio.src = '';
       if (objUrlRef.current) { URL.revokeObjectURL(objUrlRef.current); objUrlRef.current = null; }
     };
-  }, [src]); // eslint-disable-line
+  }, [src]);
 
   useEffect(() => {
     isReadRef.current = isRead;
@@ -250,7 +250,7 @@ const LiveWaveform = ({ analyserNode }) => {
 };
 
 // ------------------------------------------------------------
-// ForwardModal (unchanged)
+// ForwardModal
 // ------------------------------------------------------------
 function ForwardModal({ isOpen, onClose, message, onForward }) {
   const [users, setUsers]       = useState([]);
@@ -316,7 +316,7 @@ function ForwardModal({ isOpen, onClose, message, onForward }) {
 }
 
 // ------------------------------------------------------------
-// Memoized MessageBubble – marks read on image click & file download
+// MessageBubble – updated to detect call logs
 // ------------------------------------------------------------
 const MessageBubble = memo(({
   msg, isOwn, user, onEdit, onCopy, onForward, onDelete, onDownloadFile,
@@ -324,7 +324,19 @@ const MessageBubble = memo(({
   openMenuId, setOpenMenuId, menuRef, handleTouchStart, handleTouchEnd,
   renderStatus, fmtTime, markRead,
 }) => {
-  // Determine if this is a salary-related message (green background)
+  // Detect call log messages
+  const isCallLogMessage = msg.content && /^[📞📹] (Voice|Video) call · \d+:\d{2}$/.test(msg.content);
+
+  // If it's a call log, render as system message
+  if (isCallLogMessage) {
+    return (
+      <div className="chat-message" data-msg-id={msg.id}>
+        <div className="call-log-message">{msg.content}</div>
+      </div>
+    );
+  }
+
+  // Salary message detection
   const isSalaryMessage = msg.content && (
     msg.content.includes('salary advance') ||
     msg.content.includes('approved') ||
@@ -433,13 +445,12 @@ const MessageBubble = memo(({
 });
 
 // ------------------------------------------------------------
-// Main ChatWindow (with call buttons)
+// Main ChatWindow (unchanged except for MessageBubble)
 // ------------------------------------------------------------
 function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
   // ---------- CALL INTEGRATION ----------
   const { startCall, activeCall, endCall, isMinimized, setIsMinimized } = useCall();
 
-  // Helper to start a call with offline check
   const handleStartCall = (type) => {
     if (!onlineUsers.has(user.id)) {
       showToast.error(`${user.username} is offline`);
@@ -473,10 +484,8 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   const socketRef    = useRef(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
-  // Track pending temp IDs for duplicate prevention
   const pendingTempIds = useRef(new Map());
 
-  // Message actions
   const [openMenuId, setOpenMenuId]               = useState(null);
   const [editingMessageId, setEditingMessageId]   = useState(null);
   const [editContent, setEditContent]             = useState('');
@@ -487,7 +496,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingMessage, setDeletingMessage]     = useState(null);
 
-  // Scroll / virtuoso
   const virtuosoRef       = useRef(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [newMessageCount, setNewMessageCount]   = useState(0);
@@ -510,7 +518,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   const fmtTime = (d)   => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const fmtDur  = (sec) => { const m = Math.floor(sec / 60), s = sec % 60; return `${m}:${s < 10 ? '0' : ''}${s}`; };
 
-  // Viewport resize
   useEffect(() => {
     if (!windowRef.current) return;
     const fn = () => { if (windowRef.current) windowRef.current.style.height = `${window.visualViewport?.height || window.innerHeight}px`; };
@@ -518,7 +525,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     return () => window.visualViewport?.removeEventListener('resize', fn);
   }, []);
 
-  // Socket (NO polling)
   useEffect(() => {
     const socket = globalSocket;
     if (!socket) return;
@@ -627,7 +633,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     setNewMessageCount(0);
   };
 
-  // Send text / file
   const sendMessage = async () => {
     const content = newMessage, files = attachments;
     if (!content?.trim() && !files.length) return;
@@ -680,7 +685,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     }
   };
 
-  // Voice recording
   const getBestMime = () => {
     for (const t of ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4','']) {
       if (!t || MediaRecorder.isTypeSupported(t)) return t;
@@ -867,7 +871,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     }
   };
 
-  // Improved read receipts: also runs when messages change
   useEffect(() => {
     if (loading || !messages.length) return;
     const timer = setTimeout(() => {
@@ -916,7 +919,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     );
   }, [user, editingMessageId, editContent, openMenuId]);
 
-  // Drag window
   const handleMouseDown = (e) => {
     if (e.target.closest('.chat-window-header-actions')) return;
     const r = windowRef.current.getBoundingClientRect();
@@ -949,7 +951,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           </span>
         </span>
         <div className="chat-window-header-actions">
-          {/* === CALL BUTTONS === */}
           <button
             className="btn btn-sm btn-outline-light me-1"
             onClick={() => handleStartCall('voice')}

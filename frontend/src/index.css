@@ -3950,3 +3950,13 @@ section {
 .end-call-btn:hover {
   background: #d32f2f;
 }
+
+/* Call log messages – centered, grey, no bubble */
+.call-log-message {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #6c757d;
+  padding: 0.5rem 0;
+  width: 100%;
+  font-style: italic;
+}

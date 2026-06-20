@@ -5,6 +5,12 @@ import { useSocket } from './SocketContext';
 import { recoveryAPI } from '../services/api';
 import { showToast } from '../components/common/Toast';
 
+const formatCallDuration = (seconds) => {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+};
+
 const CallContext = createContext();
 
 const RINGTONE_URL = '/nagolie-iphone-call-ringtone.mp3';
@@ -37,7 +43,6 @@ export const CallProvider = ({ children }) => {
 
   const getUserId = () => user?.id;
 
-  // ---- Ringtone ----
   const playRingtone = () => {
     if (!ringtoneAudio.current) {
       ringtoneAudio.current = new Audio(RINGTONE_URL);
@@ -62,7 +67,6 @@ export const CallProvider = ({ children }) => {
     }
   };
 
-  // ---- Timer ----
   const startTimer = useCallback(() => {
     if (callTimer.current) return;
     callTimer.current = setInterval(() => {
@@ -77,26 +81,21 @@ export const CallProvider = ({ children }) => {
     }
   }, []);
 
-  // ---- End call (MOVED UP before createPeerConnection) ----
   const endCall = useCallback(async (callId) => {
     stopTimer();
 
-    // Close all peer connections
     if (peerConnections.current[callId]) {
       Object.values(peerConnections.current[callId]).forEach(pc => pc.close());
       delete peerConnections.current[callId];
     }
 
-    // Stop local tracks
     if (localStream.current) {
       localStream.current.getTracks().forEach(t => t.stop());
       localStream.current = null;
     }
 
-    // Clean remote streams
     delete remoteStreams.current[callId];
 
-    // Save call log
     const active = activeCall;
     if (active) {
       const duration = Math.floor((Date.now() - active.startTime) / 1000);
@@ -112,14 +111,23 @@ export const CallProvider = ({ children }) => {
           is_group: active.isGroup,
           participants: active.participants,
         };
-        console.log('[Call] Saving call log with payload:', payload);
         await recoveryAPI.saveCallLog(payload);
       } catch (err) {
-        console.error('Failed to save call log:', err.response?.data || err.message || err);
+        console.error('Failed to save call log:', err);
+      }
+
+      if (!active.isGroup && active.remoteUser) {
+        const callTypeEmoji = active.type === 'video' ? '📹' : '📞';
+        const durationStr = formatCallDuration(duration);
+        const messageContent = `${callTypeEmoji} ${active.type === 'video' ? 'Video' : 'Voice'} call · ${durationStr}`;
+        try {
+          await recoveryAPI.sendMessage(active.remoteUser.id, messageContent);
+        } catch (err) {
+          console.error('Failed to send call log message:', err);
+        }
       }
     }
 
-    // Notify others
     const participants = active?.participants || [];
     socket.emit('call_end', {
       call_id: callId,
@@ -127,7 +135,6 @@ export const CallProvider = ({ children }) => {
       duration: callDuration,
     });
 
-    // Reset state
     setActiveCall(null);
     setIsCallConnected(false);
     setCallDuration(0);
@@ -135,7 +142,6 @@ export const CallProvider = ({ children }) => {
     stopRingtone();
   }, [activeCall, socket, getUserId, callDuration, stopTimer]);
 
-  // ---- WebRTC helpers ----
   const createPeerConnection = useCallback((callId, targetUserId, isInitiator = false) => {
     const pc = new RTCPeerConnection(iceServers);
 
@@ -158,7 +164,6 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.ontrack = (event) => {
-      console.log('[Call] ontrack for call', callId, 'from', targetUserId);
       if (!remoteStreams.current[callId]) remoteStreams.current[callId] = {};
       remoteStreams.current[callId][targetUserId] = event.streams[0];
 
@@ -176,7 +181,6 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('[Call] connection state:', pc.connectionState, 'callId:', callId);
       if (pc.connectionState === 'connected') {
         setIsCallConnected(true);
         startTimer();
@@ -186,18 +190,9 @@ export const CallProvider = ({ children }) => {
       }
     };
 
-    pc.oniceconnectionstatechange = () => {
-      console.log('[Call] ICE state:', pc.iceConnectionState, 'callId:', callId);
-    };
-
-    pc.onsignalingstatechange = () => {
-      console.log('[Call] signaling state:', pc.signalingState, 'callId:', callId);
-    };
-
     return pc;
   }, [socket, activeCall, startTimer, isCallConnected, endCall]);
 
-  // ---- Start a call ----
   const startCall = useCallback(async (targetUserId, type, isGroup = false, participants = []) => {
     if (!isGroup && !onlineUsers.has(targetUserId)) {
       showToast.error('User is offline');
@@ -267,7 +262,6 @@ export const CallProvider = ({ children }) => {
     }
   }, [socket, onlineUsers, getUserId, user, createPeerConnection]);
 
-  // ---- Answer a call ----
   const answerCall = useCallback(async (callId, accept) => {
     const call = incomingCall;
     if (!call) return;
@@ -294,7 +288,6 @@ export const CallProvider = ({ children }) => {
       if (!peerConnections.current[callId]) peerConnections.current[callId] = {};
       peerConnections.current[callId][call.callerId] = pc;
 
-      console.log('[Call] Setting remote description with offer:', call.offer);
       await pc.setRemoteDescription(new RTCSessionDescription(call.offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -328,13 +321,10 @@ export const CallProvider = ({ children }) => {
       setIsMinimized(false);
     } catch (err) {
       console.error('Error answering call:', err);
-      console.log('Call object:', call);
-      console.log('Offer SDP:', call.offer);
       showToast.error('Could not answer call');
     }
   }, [incomingCall, socket, getUserId, createPeerConnection]);
 
-  // ---- Add participant ----
   const addParticipant = useCallback(async (newUserId) => {
     if (!activeCall || !activeCall.isGroup) return;
     const callId = activeCall.callId;
@@ -359,7 +349,6 @@ export const CallProvider = ({ children }) => {
     }));
   }, [activeCall, socket, createPeerConnection]);
 
-  // ---- Socket listeners ----
   useEffect(() => {
     if (!socket) return;
 
@@ -470,7 +459,6 @@ export const CallProvider = ({ children }) => {
     };
   }, [socket, activeCall, incomingCall, endCall]);
 
-  // Cleanup
   useEffect(() => {
     return () => {
       stopRingtone();
