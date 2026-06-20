@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, CallLog)
 from app.utils.decorators import role_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary, _get_current_period_interest, _get_current_period_key
 from app.utils.cloudinary_upload import upload_base64_image
@@ -989,12 +989,18 @@ def save_call_log():
         data = request.json
         user_id = int(get_jwt_identity())
 
-        # Build log with safe fallbacks
+        # Parse dates safely (handle 'Z' suffix)
+        def parse_date(date_str):
+            if not date_str:
+                return None
+            # Replace 'Z' with '+00:00' for ISO parsing
+            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+
         log = CallLog(
             call_type=data.get('call_type', 'voice'),
             status=data.get('status', 'ended'),
-            started_at=datetime.fromisoformat(data['started_at'].replace('Z', '+00:00')) if data.get('started_at') else datetime.utcnow(),
-            ended_at=datetime.fromisoformat(data['ended_at'].replace('Z', '+00:00')) if data.get('ended_at') else None,
+            started_at=parse_date(data.get('started_at')) or datetime.utcnow(),
+            ended_at=parse_date(data.get('ended_at')),
             duration_seconds=data.get('duration_seconds', 0),
             caller_id=data['caller_id'],
             callee_id=data.get('callee_id'),
@@ -1006,5 +1012,5 @@ def save_call_log():
         return jsonify({'success': True, 'log': log.to_dict()}), 201
     except Exception as e:
         db.session.rollback()
-        print(f"[CallLog Error] {str(e)}")  # Log to server console
+        print(f"[CallLog Error] {e}")  # This will appear in your server logs
         return jsonify({'error': str(e)}), 500
