@@ -47,13 +47,18 @@ import ValuerPanel from '../components/recovery/ValuerPanel';
 import LoanReports from '../components/loan-reports/LoanReports';
 import SalaryManagement from '../components/director/SalaryManagement';
 import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
+import { useSocket } from '../context/SocketContext';
 
-import { CallProvider, useCall } from '../context/CallContext';
-import IncomingCallModal from '../components/call/IncomingCallModal';
-import CallScreen from '../components/call/CallScreen';
-import FloatingCallWidget from '../components/call/FloatingCallWidget';
-import AddParticipantModal from '../components/call/AddParticipantModal';
-import CallUI from '../components/call/CallUI';
+
+
+// import { CallProvider, useCall } from '../context/CallContext';
+// import IncomingCallModal from '../components/call/IncomingCallModal';
+// import CallScreen from '../components/call/CallScreen';
+// import FloatingCallWidget from '../components/call/FloatingCallWidget';
+// import AddParticipantModal from '../components/call/AddParticipantModal';
+// import CallUI from '../components/call/CallUI';
+
+
 
 
 const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -65,6 +70,9 @@ function RecoveryModule() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth();
   const navigate = useNavigate();
   useSessionTimeout(logout, isAuthenticated, userRole);
+
+
+  const { socket, onlineUsers } = useSocket();
 
 
   const [branchFilter, setBranchFilter] = useState('all'); // 'all', 'isinya', 'emarti'
@@ -80,9 +88,9 @@ function RecoveryModule() {
   };
 
   // socket states
-  const [socket, setSocket] = useState(null);
-  const [onlineUsers, setOnlineUsers] = useState(new Set());
-  const socketRef = useRef(null);
+  // const [socket, setSocket] = useState(null);
+  // const [onlineUsers, setOnlineUsers] = useState(new Set());
+  // const socketRef = useRef(null);
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL ||
     (window.location.hostname === 'localhost'
@@ -228,7 +236,7 @@ function RecoveryModule() {
 
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
-  const [showAddParticipant, setShowAddParticipant] = useState(false);
+  // const [showAddParticipant, setShowAddParticipant] = useState(false);
 
   
   const fetchPendingRequestsCount = async () => {
@@ -1508,75 +1516,75 @@ function RecoveryModule() {
   }, [directorSection, userRole, isInvestorSectionAuthenticated]);
 
   // Global Socket.IO connection for online status & chat
-  useEffect(() => {
-    // Only connect if user is authenticated and not already connected
-    if (!isAuthenticated() || socketRef.current) return;
+  // useEffect(() => {
+  //   // Only connect if user is authenticated and not already connected
+  //   if (!isAuthenticated() || socketRef.current) return;
 
-    const socketUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
-    const token = localStorage.getItem('token');
-    if (!token) return;
+  //   const socketUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
+  //   const token = localStorage.getItem('token');
+  //   if (!token) return;
 
-    console.log('[Global Socket] Connecting to:', socketUrl);
-    const newSocket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      pingInterval: 25000,
-      pingTimeout: 60000,
-      query: { token },
-    });
+  //   console.log('[Global Socket] Connecting to:', socketUrl);
+  //   const newSocket = io(socketUrl, {
+  //     transports: ['websocket', 'polling'],
+  //     reconnection: true,
+  //     reconnectionAttempts: 10,
+  //     reconnectionDelay: 1000,
+  //     pingInterval: 25000,
+  //     pingTimeout: 60000,
+  //     query: { token },
+  //   });
 
-    newSocket.on('connect', () => {
-      console.log('[Global Socket] Connected');
-      // Join the user's personal room (already handled on server)
-    });
+  //   newSocket.on('connect', () => {
+  //     console.log('[Global Socket] Connected');
+  //     // Join the user's personal room (already handled on server)
+  //   });
 
-    newSocket.on('online_users_list', (data) => {
-      console.log('[Global Socket] Initial online users:', data.user_ids);
-      setOnlineUsers(new Set(data.user_ids));
-    });
+  //   newSocket.on('online_users_list', (data) => {
+  //     console.log('[Global Socket] Initial online users:', data.user_ids);
+  //     setOnlineUsers(new Set(data.user_ids));
+  //   });
 
-    newSocket.on('user_online', (data) => {
-      console.log('[Global Socket] User online:', data.user_id);
-      if (disconnectTimeouts.current[data.user_id]) {
-        clearTimeout(disconnectTimeouts.current[data.user_id]);
-        delete disconnectTimeouts.current[data.user_id];
-      }
-      setOnlineUsers(prev => new Set([...prev, data.user_id]));
-    });
+  //   newSocket.on('user_online', (data) => {
+  //     console.log('[Global Socket] User online:', data.user_id);
+  //     if (disconnectTimeouts.current[data.user_id]) {
+  //       clearTimeout(disconnectTimeouts.current[data.user_id]);
+  //       delete disconnectTimeouts.current[data.user_id];
+  //     }
+  //     setOnlineUsers(prev => new Set([...prev, data.user_id]));
+  //   });
 
-    newSocket.on('user_offline', (data) => {
-      console.log('[Global Socket] User offline:', data.user_id);
-      // Delay removal to avoid flickering on temporary disconnects
-      if (disconnectTimeouts.current[data.user_id]) {
-        clearTimeout(disconnectTimeouts.current[data.user_id]);
-      }
-      const timeout = setTimeout(() => {
-        setOnlineUsers(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(data.user_id);
-          return newSet;
-        });
-        delete disconnectTimeouts.current[data.user_id];
-      }, 10000); // 10 seconds grace period
-      disconnectTimeouts.current[data.user_id] = timeout;
-    });
+  //   newSocket.on('user_offline', (data) => {
+  //     console.log('[Global Socket] User offline:', data.user_id);
+  //     // Delay removal to avoid flickering on temporary disconnects
+  //     if (disconnectTimeouts.current[data.user_id]) {
+  //       clearTimeout(disconnectTimeouts.current[data.user_id]);
+  //     }
+  //     const timeout = setTimeout(() => {
+  //       setOnlineUsers(prev => {
+  //         const newSet = new Set(prev);
+  //         newSet.delete(data.user_id);
+  //         return newSet;
+  //       });
+  //       delete disconnectTimeouts.current[data.user_id];
+  //     }, 10000); // 10 seconds grace period
+  //     disconnectTimeouts.current[data.user_id] = timeout;
+  //   });
 
-    newSocket.on('disconnect', () => {
-      console.log('[Global Socket] Disconnected');
-    });
+  //   newSocket.on('disconnect', () => {
+  //     console.log('[Global Socket] Disconnected');
+  //   });
 
-    socketRef.current = newSocket;
-    setSocket(newSocket);
+  //   socketRef.current = newSocket;
+  //   setSocket(newSocket);
 
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-    };
-  }, [isAuthenticated]);
+  //   return () => {
+  //     if (socketRef.current) {
+  //       socketRef.current.disconnect();
+  //       socketRef.current = null;
+  //     }
+  //   };
+  // }, [isAuthenticated]);
 
   if (loading) {
     return (
@@ -1592,10 +1600,8 @@ function RecoveryModule() {
 
   // ---------- JSX ----------
   return (
-    <CallProvider socket={socket}>
     <div>
       <Toast />
-      <CallUI onlineUsers={onlineUsers} /> 
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
@@ -4199,7 +4205,6 @@ function RecoveryModule() {
       
 
     </div>
-    </CallProvider>
   );
 }
 

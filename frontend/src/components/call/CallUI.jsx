@@ -1,12 +1,14 @@
 // components/call/CallUI.jsx
 import React from 'react';
 import { useCall } from '../../context/CallContext';
+import { useSocket } from '../../context/SocketContext'; // NEW
 import IncomingCallModal from './IncomingCallModal';
 import CallScreen from './CallScreen';
 import FloatingCallWidget from './FloatingCallWidget';
 import AddParticipantModal from './AddParticipantModal';
 
-const CallUI = ({ onlineUsers }) => {
+const CallUI = () => {
+  const { onlineUsers } = useSocket(); // get onlineUsers from context
   const {
     activeCall,
     incomingCall,
@@ -20,7 +22,6 @@ const CallUI = ({ onlineUsers }) => {
     addParticipant,
   } = useCall();
 
-  // Add state for modal visibility locally
   const [showAddParticipant, setShowAddParticipant] = React.useState(false);
 
   if (!activeCall && !incomingCall) return null;
