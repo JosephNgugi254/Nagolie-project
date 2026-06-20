@@ -227,6 +227,9 @@ function RecoveryModule() {
   const [flagLoanName, setFlagLoanName] = useState('');
 
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+
+  const [showAddParticipant, setShowAddParticipant] = useState(false);
+
   
   const fetchPendingRequestsCount = async () => {
     try {
@@ -1586,7 +1589,6 @@ function RecoveryModule() {
     );
   }
 
-  const [showAddParticipant, setShowAddParticipant] = useState(false);
 
   // ---------- JSX ----------
   return (
