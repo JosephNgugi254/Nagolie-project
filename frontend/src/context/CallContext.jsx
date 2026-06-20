@@ -1,7 +1,7 @@
 // context/CallContext.jsx
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
-import { useSocket } from './SocketContext';  // <-- NEW
+import { useSocket } from './SocketContext';
 import { recoveryAPI } from '../services/api';
 import { showToast } from '../components/common/Toast';
 
@@ -18,7 +18,7 @@ const iceServers = {
 
 export const CallProvider = ({ children }) => {
   const { user } = useAuth();
-  const { socket, onlineUsers } = useSocket();  // <-- get from context
+  const { socket, onlineUsers } = useSocket();
   const [activeCall, setActiveCall] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -26,7 +26,6 @@ export const CallProvider = ({ children }) => {
   const [isCallConnected, setIsCallConnected] = useState(false);
   const [ringtoneEnabled, setRingtoneEnabled] = useState(false);
 
-  // Refs
   const peerConnections = useRef({});
   const localStream = useRef(null);
   const remoteStreams = useRef({});
@@ -44,7 +43,6 @@ export const CallProvider = ({ children }) => {
     ringtoneAudio.current.play()
       .then(() => setRingtoneEnabled(true))
       .catch(() => {
-        // Autoplay blocked – show toast and set up click listener
         showToast.warning('Tap anywhere to enable ringtone', 5000);
         const enableAudio = () => {
           ringtoneAudio.current?.play().catch(() => {});
@@ -113,7 +111,6 @@ export const CallProvider = ({ children }) => {
 
   // ---- Start a call ----
   const startCall = useCallback(async (targetUserId, type, isGroup = false, participants = []) => {
-    // Check if target is online (from onlineUsers context)
     if (!isGroup && !onlineUsers.has(targetUserId)) {
       showToast.error('User is offline');
       return;
@@ -145,6 +142,7 @@ export const CallProvider = ({ children }) => {
             call_id: callId,
             is_group: true,
             participants: allParticipants,
+            caller_name: user.username, // ✅ pass caller name
           });
         }
       } else {
@@ -160,6 +158,7 @@ export const CallProvider = ({ children }) => {
           call_id: callId,
           is_group: false,
           participants: [getUserId(), targetUserId],
+          caller_name: user.username, // ✅ pass caller name
         });
       }
 
@@ -178,7 +177,7 @@ export const CallProvider = ({ children }) => {
       console.error('Error starting call:', err);
       showToast.error('Could not access microphone/camera');
     }
-  }, [socket, onlineUsers, getUserId]);
+  }, [socket, onlineUsers, getUserId, user]);
 
   // ---- Answer a call ----
   const answerCall = useCallback(async (callId, accept) => {
@@ -244,24 +243,203 @@ export const CallProvider = ({ children }) => {
     }
   }, [incomingCall, socket, getUserId]);
 
-  // ---- End call (unchanged, but uses socket from context) ----
+  // ---- End call (full implementation) ----
   const endCall = useCallback(async (callId) => {
-    // ... (same as before, just uses `socket` from context)
-    // I'll keep it short here, but you can copy the previous implementation.
+    // Stop timer
+    if (callTimer.current) {
+      clearInterval(callTimer.current);
+      callTimer.current = null;
+    }
+
+    // Close all peer connections
+    if (peerConnections.current[callId]) {
+      Object.values(peerConnections.current[callId]).forEach(pc => pc.close());
+      delete peerConnections.current[callId];
+    }
+
+    // Stop local tracks
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(t => t.stop());
+      localStream.current = null;
+    }
+
+    // Clean remote streams
+    delete remoteStreams.current[callId];
+
+    // Save call log
+    const active = activeCall;
+    if (active) {
+      const duration = Math.floor((Date.now() - active.startTime) / 1000);
+      try {
+        await recoveryAPI.saveCallLog({
+          call_type: active.type,
+          status: 'ended',
+          started_at: new Date(active.startTime).toISOString(),
+          ended_at: new Date().toISOString(),
+          duration_seconds: duration,
+          caller_id: getUserId(),
+          callee_id: active.isGroup ? null : active.remoteUser.id,
+          is_group: active.isGroup,
+          participants: active.participants,
+        });
+      } catch (err) {
+        console.error('Failed to save call log:', err);
+      }
+    }
+
+    // Notify others
+    const participants = active?.participants || [];
+    socket.emit('call_end', {
+      call_id: callId,
+      participants: participants,
+      duration: callDuration,
+    });
+
+    // Reset state
+    setActiveCall(null);
+    setIsCallConnected(false);
+    setCallDuration(0);
+    setIsMinimized(false);
+    stopRingtone();
   }, [activeCall, socket, getUserId, callDuration]);
 
-  // ---- Add participant (unchanged) ----
+  // ---- Add participant ----
   const addParticipant = useCallback(async (newUserId) => {
-    // ... (same as before)
+    if (!activeCall || !activeCall.isGroup) return;
+    const callId = activeCall.callId;
+    const pc = createPeerConnection(callId, newUserId, true);
+    if (!peerConnections.current[callId]) peerConnections.current[callId] = {};
+    peerConnections.current[callId][newUserId] = pc;
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    socket.emit('call_add_participant', {
+      new_user_id: newUserId,
+      call_id: callId,
+      call_type: activeCall.type,
+      existing_participants: activeCall.participants,
+      offer: offer,
+    });
+
+    setActiveCall(prev => ({
+      ...prev,
+      participants: [...prev.participants, newUserId],
+    }));
   }, [activeCall, socket]);
 
-  // ---- Socket listeners (unchanged, but uses socket from context) ----
+  // ---- Socket listeners ----
   useEffect(() => {
-    // ... (same as before, but uses `socket` from context)
-    // Ensure all event handlers use the socket variable.
+    if (!socket) return;
+
+    const onCallOffer = (data) => {
+      const { caller_id, caller_name, call_type, offer, call_id, is_group, participants } = data;
+      if (activeCall) {
+        socket.emit('call_status', {
+          target_user_id: caller_id,
+          status: 'busy',
+          call_id: call_id,
+        });
+        return;
+      }
+
+      setIncomingCall({
+        callId: call_id,
+        callerId: caller_id,
+        callerName: caller_name || 'Unknown',
+        type: call_type,
+        offer: offer,
+        isGroup: is_group || false,
+        participants: participants || [caller_id],
+      });
+      playRingtone();
+    };
+
+    const onCallAnswer = (data) => {
+      const { answerer_id, answer, call_id } = data;
+      const pc = peerConnections.current[call_id]?.[answerer_id];
+      if (pc) {
+        pc.setRemoteDescription(new RTCSessionDescription(answer));
+        setActiveCall(prev => ({
+          ...prev,
+          status: 'connected',
+          remoteUser: { ...prev.remoteUser, id: answerer_id },
+        }));
+      }
+    };
+
+    const onCallIce = (data) => {
+      const { sender_id, candidate, call_id } = data;
+      const pc = peerConnections.current[call_id]?.[sender_id];
+      if (pc) {
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    };
+
+    const onCallEnded = (data) => {
+      const { call_id } = data;
+      if (activeCall && activeCall.callId === call_id) {
+        endCall(call_id);
+        showToast.info('Call ended by other party');
+      }
+    };
+
+    const onCallStatus = (data) => {
+      const { status, call_id } = data;
+      if (activeCall && activeCall.callId === call_id) {
+        if (status === 'declined') {
+          endCall(call_id);
+          showToast.info('Call declined');
+        } else if (status === 'busy') {
+          endCall(call_id);
+          showToast.info('User is busy');
+        } else if (status === 'unavailable') {
+          endCall(call_id);
+          showToast.info('User is unavailable');
+        }
+      }
+    };
+
+    const onCallInvite = (data) => {
+      const { call_id, inviter_id, inviter_name, call_type, existing_participants, offer } = data;
+      if (!activeCall && !incomingCall) {
+        setIncomingCall({
+          callId: call_id,
+          callerId: inviter_id,
+          callerName: inviter_name || 'Inviter',
+          type: call_type,
+          offer: offer,
+          isGroup: true,
+          participants: existing_participants,
+        });
+        playRingtone();
+      } else {
+        socket.emit('call_status', {
+          target_user_id: inviter_id,
+          status: 'busy',
+          call_id: call_id,
+        });
+      }
+    };
+
+    socket.on('call_offer', onCallOffer);
+    socket.on('call_answer', onCallAnswer);
+    socket.on('call_ice', onCallIce);
+    socket.on('call_ended', onCallEnded);
+    socket.on('call_status', onCallStatus);
+    socket.on('call_invite', onCallInvite);
+
+    return () => {
+      socket.off('call_offer', onCallOffer);
+      socket.off('call_answer', onCallAnswer);
+      socket.off('call_ice', onCallIce);
+      socket.off('call_ended', onCallEnded);
+      socket.off('call_status', onCallStatus);
+      socket.off('call_invite', onCallInvite);
+    };
   }, [socket, activeCall, incomingCall, endCall]);
 
-  // Cleanup (unchanged)
+  // Cleanup
   useEffect(() => {
     return () => {
       stopRingtone();
@@ -291,7 +469,7 @@ export const CallProvider = ({ children }) => {
     localStream: localStream.current,
     remoteStreams: remoteStreams.current,
     peerConnections: peerConnections.current,
-    onlineUsers, // expose if needed elsewhere
+    onlineUsers,
   };
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;
