@@ -13,6 +13,9 @@ const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ],
 };
 
@@ -59,8 +62,23 @@ export const CallProvider = ({ children }) => {
     }
   };
 
+  // ---- Start the timer (call this when call is connected) ----
+  const startTimer = useCallback(() => {
+    if (callTimer.current) return;
+    callTimer.current = setInterval(() => {
+      setCallDuration(d => d + 1);
+    }, 1000);
+  }, []);
+
+  const stopTimer = useCallback(() => {
+    if (callTimer.current) {
+      clearInterval(callTimer.current);
+      callTimer.current = null;
+    }
+  }, []);
+
   // ---- WebRTC helpers ----
-  const createPeerConnection = (callId, targetUserId, isInitiator = false) => {
+  const createPeerConnection = useCallback((callId, targetUserId, isInitiator = false) => {
     const pc = new RTCPeerConnection(iceServers);
 
     if (localStream.current) {
@@ -82,32 +100,46 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.ontrack = (event) => {
+      console.log('[Call] ontrack for call', callId, 'from', targetUserId);
       if (!remoteStreams.current[callId]) remoteStreams.current[callId] = {};
       remoteStreams.current[callId][targetUserId] = event.streams[0];
+
+      // If this is a 1‑on‑1 call, set the remote stream on activeCall
       if (!activeCall?.isGroup) {
         setActiveCall(prev => ({
           ...prev,
           remoteStream: event.streams[0],
         }));
       }
+
+      // Start timer when we receive the first remote stream (audio/video)
+      if (!isCallConnected) {
+        setIsCallConnected(true);
+        startTimer();
+      }
     };
 
     pc.onconnectionstatechange = () => {
+      console.log('[Call] connection state:', pc.connectionState, 'callId:', callId);
       if (pc.connectionState === 'connected') {
         setIsCallConnected(true);
-        if (!callTimer.current) {
-          callTimer.current = setInterval(() => {
-            setCallDuration(d => d + 1);
-          }, 1000);
-        }
+        startTimer();
       }
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         endCall(callId);
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      console.log('[Call] ICE state:', pc.iceConnectionState, 'callId:', callId);
+    };
+
+    pc.onsignalingstatechange = () => {
+      console.log('[Call] signaling state:', pc.signalingState, 'callId:', callId);
+    };
+
     return pc;
-  };
+  }, [socket, activeCall, startTimer, isCallConnected, endCall]);
 
   // ---- Start a call ----
   const startCall = useCallback(async (targetUserId, type, isGroup = false, participants = []) => {
@@ -142,7 +174,7 @@ export const CallProvider = ({ children }) => {
             call_id: callId,
             is_group: true,
             participants: allParticipants,
-            caller_name: user.username, // ✅ pass caller name
+            caller_name: user.username,
           });
         }
       } else {
@@ -158,7 +190,7 @@ export const CallProvider = ({ children }) => {
           call_id: callId,
           is_group: false,
           participants: [getUserId(), targetUserId],
-          caller_name: user.username, // ✅ pass caller name
+          caller_name: user.username,
         });
       }
 
@@ -177,7 +209,7 @@ export const CallProvider = ({ children }) => {
       console.error('Error starting call:', err);
       showToast.error('Could not access microphone/camera');
     }
-  }, [socket, onlineUsers, getUserId, user]);
+  }, [socket, onlineUsers, getUserId, user, createPeerConnection]);
 
   // ---- Answer a call ----
   const answerCall = useCallback(async (callId, accept) => {
@@ -206,6 +238,7 @@ export const CallProvider = ({ children }) => {
       if (!peerConnections.current[callId]) peerConnections.current[callId] = {};
       peerConnections.current[callId][call.callerId] = pc;
 
+      console.log('[Call] Setting remote description with offer:', call.offer);
       await pc.setRemoteDescription(new RTCSessionDescription(call.offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -239,17 +272,15 @@ export const CallProvider = ({ children }) => {
       setIsMinimized(false);
     } catch (err) {
       console.error('Error answering call:', err);
+      console.log('Call object:', call);
+      console.log('Offer SDP:', call.offer);
       showToast.error('Could not answer call');
     }
-  }, [incomingCall, socket, getUserId]);
+  }, [incomingCall, socket, getUserId, createPeerConnection]);
 
-  // ---- End call (full implementation) ----
+  // ---- End call ----
   const endCall = useCallback(async (callId) => {
-    // Stop timer
-    if (callTimer.current) {
-      clearInterval(callTimer.current);
-      callTimer.current = null;
-    }
+    stopTimer();
 
     // Close all peer connections
     if (peerConnections.current[callId]) {
@@ -271,7 +302,7 @@ export const CallProvider = ({ children }) => {
     if (active) {
       const duration = Math.floor((Date.now() - active.startTime) / 1000);
       try {
-        await recoveryAPI.saveCallLog({
+        const payload = {
           call_type: active.type,
           status: 'ended',
           started_at: new Date(active.startTime).toISOString(),
@@ -281,9 +312,11 @@ export const CallProvider = ({ children }) => {
           callee_id: active.isGroup ? null : active.remoteUser.id,
           is_group: active.isGroup,
           participants: active.participants,
-        });
+        };
+        console.log('[Call] Saving call log with payload:', payload);
+        await recoveryAPI.saveCallLog(payload);
       } catch (err) {
-        console.error('Failed to save call log:', err);
+        console.error('Failed to save call log:', err.response?.data || err.message || err);
       }
     }
 
@@ -301,7 +334,7 @@ export const CallProvider = ({ children }) => {
     setCallDuration(0);
     setIsMinimized(false);
     stopRingtone();
-  }, [activeCall, socket, getUserId, callDuration]);
+  }, [activeCall, socket, getUserId, callDuration, stopTimer]);
 
   // ---- Add participant ----
   const addParticipant = useCallback(async (newUserId) => {
@@ -326,7 +359,7 @@ export const CallProvider = ({ children }) => {
       ...prev,
       participants: [...prev.participants, newUserId],
     }));
-  }, [activeCall, socket]);
+  }, [activeCall, socket, createPeerConnection]);
 
   // ---- Socket listeners ----
   useEffect(() => {
@@ -443,7 +476,7 @@ export const CallProvider = ({ children }) => {
   useEffect(() => {
     return () => {
       stopRingtone();
-      if (callTimer.current) clearInterval(callTimer.current);
+      stopTimer();
       Object.values(peerConnections.current).forEach(pcs => {
         Object.values(pcs).forEach(pc => pc.close());
       });
@@ -451,7 +484,7 @@ export const CallProvider = ({ children }) => {
         localStream.current.getTracks().forEach(t => t.stop());
       }
     };
-  }, []);
+  }, [stopTimer]);
 
   const value = {
     activeCall,
