@@ -18,12 +18,11 @@ const AddParticipantModal = ({ isOpen, onClose, onAdd, currentParticipants, onli
     setLoading(true);
     try {
       const res = await recoveryAPI.getUsers();
-      // Filter out current participants and self
       const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
       const filtered = res.data.filter(u =>
         u.id !== currentUser.id &&
         !currentParticipants.includes(u.id) &&
-        onlineUsers.has(u.id) // only show online users
+        onlineUsers.has(u.id)
       );
       setUsers(filtered);
     } catch (err) {
