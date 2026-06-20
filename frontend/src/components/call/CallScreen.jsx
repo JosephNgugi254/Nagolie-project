@@ -22,15 +22,19 @@ const CallScreen = ({
   const [speaker, setSpeaker] = React.useState(false);
   const [cameraOn, setCameraOn] = React.useState(call?.type === 'video');
 
+  // Attach local stream
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(() => {});
     }
   }, [localStream]);
 
+  // Attach remote stream (always – for both video and voice calls)
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch(() => {});
     }
   }, [remoteStream]);
 
@@ -61,15 +65,31 @@ const CallScreen = ({
     onToggleCamera && onToggleCamera();
   };
 
+  const isVideoCall = call?.type === 'video';
+
   return (
     <div className="call-screen-container">
       <div className="call-video-area">
-        {call?.type === 'video' ? (
-          <>
-            <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
-            <video ref={localVideoRef} autoPlay playsInline muted className="local-video" />
-          </>
+        {/* Remote video/audio – always rendered, hidden for voice calls */}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className={isVideoCall ? 'remote-video' : 'remote-audio-only'}
+          style={isVideoCall ? {} : { display: 'none' }}
+        />
+
+        {isVideoCall ? (
+          // Video call: show local video (picture‑in‑picture) and remote video (visible)
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="local-video"
+          />
         ) : (
+          // Voice call: show avatar
           <div className="voice-call-avatar">
             <i className="fas fa-user-circle fa-8x" />
             <h3>{call?.remoteUser?.name || 'User'}</h3>
@@ -90,7 +110,7 @@ const CallScreen = ({
         <button className={`control-btn ${speaker ? 'active' : ''}`} onClick={handleToggleSpeaker}>
           <i className={`fas fa-volume-up${speaker ? '' : '-off'}`} />
         </button>
-        {call?.type === 'video' && (
+        {isVideoCall && (
           <button className={`control-btn ${cameraOn ? 'active' : ''}`} onClick={handleToggleCamera}>
             <i className={`fas fa-video${cameraOn ? '' : '-slash'}`} />
           </button>
