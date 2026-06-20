@@ -305,6 +305,8 @@ export const recoveryAPI = {
   updateValuerNotes: (loanId, notes) => api.put(`/recovery/flagged-clients/${loanId}/notes`, { notes }),
 
   getLoanReportComments: (loanId) => api.get(`/recovery/loan/${loanId}/report-comments`),
+
+  saveCallLog: (data) => api.post('/recovery/calls', data),
 };
 
 export const userAPI = {
