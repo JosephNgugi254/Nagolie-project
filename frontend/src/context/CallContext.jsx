@@ -62,7 +62,7 @@ export const CallProvider = ({ children }) => {
     }
   };
 
-  // ---- Start the timer (call this when call is connected) ----
+  // ---- Timer ----
   const startTimer = useCallback(() => {
     if (callTimer.current) return;
     callTimer.current = setInterval(() => {
@@ -76,6 +76,64 @@ export const CallProvider = ({ children }) => {
       callTimer.current = null;
     }
   }, []);
+
+  // ---- End call (MOVED UP before createPeerConnection) ----
+  const endCall = useCallback(async (callId) => {
+    stopTimer();
+
+    // Close all peer connections
+    if (peerConnections.current[callId]) {
+      Object.values(peerConnections.current[callId]).forEach(pc => pc.close());
+      delete peerConnections.current[callId];
+    }
+
+    // Stop local tracks
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(t => t.stop());
+      localStream.current = null;
+    }
+
+    // Clean remote streams
+    delete remoteStreams.current[callId];
+
+    // Save call log
+    const active = activeCall;
+    if (active) {
+      const duration = Math.floor((Date.now() - active.startTime) / 1000);
+      try {
+        const payload = {
+          call_type: active.type,
+          status: 'ended',
+          started_at: new Date(active.startTime).toISOString(),
+          ended_at: new Date().toISOString(),
+          duration_seconds: duration,
+          caller_id: getUserId(),
+          callee_id: active.isGroup ? null : active.remoteUser.id,
+          is_group: active.isGroup,
+          participants: active.participants,
+        };
+        console.log('[Call] Saving call log with payload:', payload);
+        await recoveryAPI.saveCallLog(payload);
+      } catch (err) {
+        console.error('Failed to save call log:', err.response?.data || err.message || err);
+      }
+    }
+
+    // Notify others
+    const participants = active?.participants || [];
+    socket.emit('call_end', {
+      call_id: callId,
+      participants: participants,
+      duration: callDuration,
+    });
+
+    // Reset state
+    setActiveCall(null);
+    setIsCallConnected(false);
+    setCallDuration(0);
+    setIsMinimized(false);
+    stopRingtone();
+  }, [activeCall, socket, getUserId, callDuration, stopTimer]);
 
   // ---- WebRTC helpers ----
   const createPeerConnection = useCallback((callId, targetUserId, isInitiator = false) => {
@@ -104,7 +162,6 @@ export const CallProvider = ({ children }) => {
       if (!remoteStreams.current[callId]) remoteStreams.current[callId] = {};
       remoteStreams.current[callId][targetUserId] = event.streams[0];
 
-      // If this is a 1‑on‑1 call, set the remote stream on activeCall
       if (!activeCall?.isGroup) {
         setActiveCall(prev => ({
           ...prev,
@@ -112,7 +169,6 @@ export const CallProvider = ({ children }) => {
         }));
       }
 
-      // Start timer when we receive the first remote stream (audio/video)
       if (!isCallConnected) {
         setIsCallConnected(true);
         startTimer();
@@ -277,64 +333,6 @@ export const CallProvider = ({ children }) => {
       showToast.error('Could not answer call');
     }
   }, [incomingCall, socket, getUserId, createPeerConnection]);
-
-  // ---- End call ----
-  const endCall = useCallback(async (callId) => {
-    stopTimer();
-
-    // Close all peer connections
-    if (peerConnections.current[callId]) {
-      Object.values(peerConnections.current[callId]).forEach(pc => pc.close());
-      delete peerConnections.current[callId];
-    }
-
-    // Stop local tracks
-    if (localStream.current) {
-      localStream.current.getTracks().forEach(t => t.stop());
-      localStream.current = null;
-    }
-
-    // Clean remote streams
-    delete remoteStreams.current[callId];
-
-    // Save call log
-    const active = activeCall;
-    if (active) {
-      const duration = Math.floor((Date.now() - active.startTime) / 1000);
-      try {
-        const payload = {
-          call_type: active.type,
-          status: 'ended',
-          started_at: new Date(active.startTime).toISOString(),
-          ended_at: new Date().toISOString(),
-          duration_seconds: duration,
-          caller_id: getUserId(),
-          callee_id: active.isGroup ? null : active.remoteUser.id,
-          is_group: active.isGroup,
-          participants: active.participants,
-        };
-        console.log('[Call] Saving call log with payload:', payload);
-        await recoveryAPI.saveCallLog(payload);
-      } catch (err) {
-        console.error('Failed to save call log:', err.response?.data || err.message || err);
-      }
-    }
-
-    // Notify others
-    const participants = active?.participants || [];
-    socket.emit('call_end', {
-      call_id: callId,
-      participants: participants,
-      duration: callDuration,
-    });
-
-    // Reset state
-    setActiveCall(null);
-    setIsCallConnected(false);
-    setCallDuration(0);
-    setIsMinimized(false);
-    stopRingtone();
-  }, [activeCall, socket, getUserId, callDuration, stopTimer]);
 
   // ---- Add participant ----
   const addParticipant = useCallback(async (newUserId) => {
