@@ -53,7 +53,6 @@ import IncomingCallModal from '../components/call/IncomingCallModal';
 import CallScreen from '../components/call/CallScreen';
 import FloatingCallWidget from '../components/call/FloatingCallWidget';
 import AddParticipantModal from '../components/call/AddParticipantModal';
-import CallContext from '../context/CallContext';
 
 const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -1600,9 +1599,9 @@ function RecoveryModule() {
      endCall,
      addParticipant,
    } = useCall();
-  
+
    if (!activeCall && !incomingCall) return null;
-  
+
    return (
      <>
        {incomingCall && (
@@ -1612,7 +1611,7 @@ function RecoveryModule() {
            onDecline={() => answerCall(incomingCall.callId, false)}
          />
        )}
-  
+
        {activeCall && !isMinimized && (
          <CallScreen
            call={activeCall}
@@ -1626,7 +1625,7 @@ function RecoveryModule() {
            onAddParticipant={() => setShowAddParticipant(true)}   // <-- open modal
          />
        )}
-  
+
        {activeCall && isMinimized && (
          <FloatingCallWidget
            call={activeCall}
@@ -1635,7 +1634,7 @@ function RecoveryModule() {
            onEnd={() => endCall(activeCall.callId)}
          />
        )}
-  
+
        {/* Add Participant Modal */}
        <AddParticipantModal
          isOpen={showAddParticipant}
