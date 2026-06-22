@@ -579,6 +579,20 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     return result;
   };
 
+  // Auto‑scroll to bottom when new messages arrive, if user is already at bottom
+  useEffect(() => {
+    if (!messages.length) return;
+    // Delay to let Virtuoso update its internal state
+    const timer = setTimeout(() => {
+      if (virtuosoRef.current && isUserAtBottom.current) {
+        virtuosoRef.current.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+        setShowScrollButton(false);
+        setNewMessageCount(0);
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [messages]);
+
   // ---------- Resize handling ----------
   useEffect(() => {
     if (!windowRef.current) return;
@@ -620,7 +634,12 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
       });
 
       if (m.sender_id === user.id && m.status !== 'read') markRead(m.id);
-      if (isUserAtBottom.current) scrollToBottom();
+      // No explicit scroll; the useEffect will handle it.
+      // Keep the new message count logic if not at bottom:
+      if (!isUserAtBottom.current) {
+        setNewMessageCount(p => p + 1);
+        setShowScrollButton(true);
+      }
       else { setNewMessageCount(p => p + 1); setShowScrollButton(true); }
     };
 
@@ -772,7 +791,6 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     };
 
     setMessages(prev => [...prev, tempMsg]);
-    scrollToBottom();
     setNewMessage('');
     setAttachments([]);
     const currentReply = replyTo;
