@@ -328,13 +328,12 @@ def approve_application(loan_id):
 
         db.session.commit()
 
-        # ========== CRITICAL: Recalculate immediately to apply first-day interest for daily loans ==========
+        # ========== Recalculate to apply first-day interest ==========
         from app.routes.payments import recalculate_loan
-        loan = recalculate_loan(loan)   # updates accrued_interest etc.
+        loan = recalculate_loan(loan)
         db.session.commit()
-        # ================================================================================================
 
-        # Record ledger entry for disbursement
+        # ========== Record ledger entry ==========
         record_ledger_entry(
             loan=loan,
             event_type='disbursement',
@@ -345,6 +344,31 @@ def approve_application(loan_id):
             user_id=get_jwt_identity()
         )
         db.session.commit()
+
+        # ========== NEW: Auto-assign to officer for the disbursement day ==========
+        from app.models import DayAssignment, ClientAssignment
+
+        weekday = loan.disbursement_date.weekday()  # Monday=0, Sunday=6
+        day_assignment = DayAssignment.query.filter_by(day_of_week=weekday).first()
+
+        if day_assignment:
+            # Check if an active assignment already exists (should not happen for a new loan)
+            existing = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
+            if not existing:
+                new_assignment = ClientAssignment(
+                    loan_id=loan.id,
+                    officer_id=day_assignment.user_id,
+                    assignment_type='day_based',
+                    assigned_by=None,        # system generated
+                    is_active=True
+                )
+                db.session.add(new_assignment)
+                db.session.commit()
+        else:
+            # Optional: log a warning – no officer assigned to this weekday
+            current_app.logger.warning(
+                f"No officer assigned to weekday {weekday} for loan {loan.id}"
+            )
 
         log_audit('loan_approved', 'loan', loan.id, {
             'client': loan.client.full_name if loan.client else '?',
@@ -364,7 +388,7 @@ def approve_application(loan_id):
         db.session.rollback()
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
+    
 # ---------------------------------------------------------------------------
 # Reject application (unchanged)
 # ---------------------------------------------------------------------------

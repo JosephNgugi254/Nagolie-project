@@ -11,6 +11,9 @@ from app.utils.decorators import role_required
 
 loans_bp = Blueprint('loans', __name__)
 
+from flask import current_app   # Add this at the top if not already imported
+from app.models import DayAssignment, ClientAssignment   # Ensure these are imported
+
 @loans_bp.route('/<int:loan_id>/approve', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
@@ -28,7 +31,7 @@ def approve_loan(loan_id):
     loan.status = 'active'
     loan.disbursement_date = datetime.utcnow()
     
-    # FIX: Initialize tracking fields if not set
+    # Initialize tracking fields if not set
     if loan.current_principal is None:
         loan.current_principal = loan.principal_amount
     if loan.principal_paid is None:
@@ -40,19 +43,44 @@ def approve_loan(loan_id):
     loan.interest_rate = Decimal('4.5') if loan.repayment_plan == 'daily' else Decimal('30.0')
     loan.interest_type = 'simple' if loan.repayment_plan == 'daily' else 'compound'
 
-    # Create disbursement transaction - FIXED: Ensure status is set to completed
+    # Create disbursement transaction
     transaction = Transaction(
         loan_id=loan.id,
         transaction_type='disbursement',
         amount=loan.principal_amount,
         payment_method='cash',
         notes='Loan approved and disbursed',
-        status='completed',  # Explicitly set status
-        created_at=datetime.utcnow()  # Explicitly set creation time
+        status='completed',
+        created_at=datetime.utcnow()
     )
     
     db.session.add(transaction)
     db.session.commit()
+
+    # ========== NEW: Auto-assign to officer for the disbursement day ==========
+    from app.models import DayAssignment, ClientAssignment   # already imported at top
+
+    weekday = loan.disbursement_date.weekday()  # Monday=0, Sunday=6
+    day_assignment = DayAssignment.query.filter_by(day_of_week=weekday).first()
+
+    if day_assignment:
+        # Check if an active assignment already exists (should not happen for a new loan)
+        existing = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
+        if not existing:
+            new_assignment = ClientAssignment(
+                loan_id=loan.id,
+                officer_id=day_assignment.user_id,
+                assignment_type='day_based',
+                assigned_by=None,        # system generated
+                is_active=True
+            )
+            db.session.add(new_assignment)
+            db.session.commit()
+    else:
+        # Optional: log a warning – no officer assigned to this weekday
+        current_app.logger.warning(
+            f"No officer assigned to weekday {weekday} for loan {loan.id}"
+        )
     
     log_audit('loan_approved', 'loan', loan.id, {
         'client': loan.client.full_name,

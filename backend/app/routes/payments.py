@@ -11,7 +11,6 @@ from app.services.ledger import record_ledger_entry
 
 payments_bp = Blueprint('payments', __name__)
 
-
 def compute_overdue(loan, today=None):
     """
     Returns (overdue_days, overdue_weeks) for an active loan.
@@ -42,7 +41,6 @@ def compute_overdue(loan, today=None):
         # Weeks overdue = max(0, week_number - 2)
         overdue_weeks = max(0, week_number - 2)
         return 0, overdue_weeks
-
 
 def compute_historical_unpaid_interest(loan, as_of_date):
     """
@@ -78,7 +76,6 @@ def compute_historical_unpaid_interest(loan, as_of_date):
         # This will be improved later.
         from app.routes.payments import _get_current_period_interest
         return _get_current_period_interest(loan)
-
 
 # ---------------------------------------------------------------------------
 # Core interest-accrual engine
@@ -523,7 +520,6 @@ def process_cash_payment():
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-
 # ---------------------------------------------------------------------------
 # Manual M-Pesa payment endpoint
 # ---------------------------------------------------------------------------
@@ -597,7 +593,6 @@ def process_mpesa_manual():
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-
 # ---------------------------------------------------------------------------
 # STK Push endpoint (unchanged logic)
 # ---------------------------------------------------------------------------
@@ -667,7 +662,6 @@ def stk_push():
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': 'Internal server error'}), 500
-
 
 # ---------------------------------------------------------------------------
 # M-Pesa callback (unchanged)
@@ -743,7 +737,6 @@ def mpesa_callback():
         db.session.rollback()
         return jsonify({'ResultCode': 1, 'ResultDesc': 'Failed'}), 500
 
-
 # ---------------------------------------------------------------------------
 # Status endpoints
 # ---------------------------------------------------------------------------
@@ -755,7 +748,6 @@ def get_payment_status(payment_id):
     if not p:
         return jsonify({'error': 'Not found'}), 404
     return jsonify(p.to_dict()), 200
-
 
 @payments_bp.route('/mpesa/check-status', methods=['POST'])
 @jwt_required()
