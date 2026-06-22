@@ -16,11 +16,7 @@ from app.services.ledger import record_ledger_entry
 from app.routes.payments import compute_overdue
 from flask_cors import cross_origin
 
-
-
 recovery_bp = Blueprint('recovery', __name__)
-
-
 
 def get_week_number(disbursement_date):
     """Week 1 = first 7 days, Week 2 = days 7-14, etc."""
@@ -36,6 +32,7 @@ def get_week_number(disbursement_date):
 
 @recovery_bp.route('', methods=['GET'])
 @jwt_required()
+@cross_origin(origins=["http://localhost:5173", "https://www.nagolie.com", "https://nagolie.com"]) 
 @role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
