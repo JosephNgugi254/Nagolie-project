@@ -340,21 +340,27 @@ def _apply_payment(loan, payment_type, payment_amount, notes, method='Cash'):
         # ---------- WEEKLY compound interest ----------
         else:
             current_period = _get_current_period_key(loan)
-            current_period_interest = _get_current_period_interest(loan)
-
+            # Compute raw weekly interest (30% of current principal)
+            raw_interest = (loan.current_principal * Decimal('0.30')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            # Subtract any prepaid amount for this period (if any)
             if loan.interest_prepaid_period == current_period:
                 already_paid = loan.interest_prepaid_amount or Decimal('0')
-                remaining_period_interest = max(Decimal('0'), current_period_interest - already_paid)
-                if remaining_period_interest <= Decimal('0.01'):
-                    return (
-                        f'Interest for this week has already been paid '
-                        f'(KSh {float(already_paid):,.2f}). '
-                        f'Next interest payment available after the week ends.',
-                        400
-                    )
-                max_payable = remaining_period_interest
+                max_payable = max(Decimal('0'), raw_interest - already_paid)
             else:
-                max_payable = current_period_interest
+                max_payable = raw_interest
+
+            # Check if already fully paid (tolerance 0.01)
+            if max_payable <= Decimal('0.01'):
+                # Show prepaid amount only if it exists
+                prepaid_display = float(already_paid) if loan.interest_prepaid_period == current_period else 0
+                return (
+                    f'Interest for this week has already been paid '
+                    f'(KSh {prepaid_display:,.2f}). '
+                    f'Next interest payment available after the week ends.',
+                    400
+                )
             period_label = 'week'
 
         # Validate payment amount
