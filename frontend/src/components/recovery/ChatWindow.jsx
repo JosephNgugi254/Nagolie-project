@@ -4,6 +4,7 @@ import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import EmojiPicker from 'emoji-picker-react';
 import { useCall } from '../../context/CallContext';
+import GroupCallModal from '../call/GroupCallModal';
 
 // ------------------------------------------------------------
 // WaveformAudioPlayer – fixed time display + blue logic
@@ -316,16 +317,16 @@ function ForwardModal({ isOpen, onClose, message, onForward }) {
 }
 
 // ------------------------------------------------------------
-// MessageBubble – updated to detect call logs
+// MessageBubble – updated to detect call logs and render replies
 // ------------------------------------------------------------
 const MessageBubble = memo(({
   msg, isOwn, user, onEdit, onCopy, onForward, onDelete, onDownloadFile,
   editingMessageId, editContent, setEditContent, saveEdit, setEditingMessageId,
   openMenuId, setOpenMenuId, menuRef, handleTouchStart, handleTouchEnd,
-  renderStatus, fmtTime, markRead,
+  renderStatus, fmtTime, markRead, onReply, onScrollToMessage,
 }) => {
   // Detect call log messages
-  const isCallLogMessage = msg.content && /^[📞📹] (Voice|Video) call · \d+:\d{2}$/.test(msg.content);
+  const isCallLogMessage = msg.is_call_log === true;
 
   // If it's a call log, render as system message
   if (isCallLogMessage) {
@@ -361,6 +362,33 @@ const MessageBubble = memo(({
     onDownloadFile(msg.attachment_url, msg.attachment_name, msg.attachment_type);
   };
 
+  // Render reply quote if present
+  const renderReplyQuote = () => {
+    if (!msg.reply_to) return null;
+    const replied = msg.reply_to;
+    const senderName = replied.sender || 'User';
+    let contentPreview = replied.content;
+    if (replied.attachment_type?.startsWith('image/')) {
+      contentPreview = '📷 Photo';
+    } else if (replied.attachment_type?.startsWith('audio/')) {
+      contentPreview = '🎤 Voice message';
+    } else if (replied.attachment_url && !replied.attachment_type?.startsWith('image/') && !replied.attachment_type?.startsWith('audio/')) {
+      contentPreview = `📎 ${replied.attachment_name || 'File'}`;
+    }
+    return (
+      <div
+        className="reply-quote"
+        onClick={(e) => {
+          e.stopPropagation();
+          onScrollToMessage(replied.id);
+        }}
+      >
+        <div className="reply-quote-sender">{senderName}</div>
+        <div className="reply-quote-content">{contentPreview}</div>
+      </div>
+    );
+  };
+
   return (
     <div
       className={`chat-message ${msg.sender_id === user.id ? 'received' : 'sent'}`}
@@ -381,6 +409,7 @@ const MessageBubble = memo(({
             </div>
           ) : (
             <>
+              {renderReplyQuote()}
               {msg.content}
               {msg.attachment_url && msg.attachment_type?.startsWith('image/') && (
                 <div className="message-attachment mt-1 position-relative">
@@ -431,6 +460,7 @@ const MessageBubble = memo(({
               onClick={e => { e.stopPropagation(); setOpenMenuId(openMenuId === msg.id ? null : msg.id); }} />
             {openMenuId === msg.id && (
               <div className="message-actions-menu" ref={menuRef}>
+                <button onClick={() => onReply(msg)}><i className="fas fa-reply" /> Reply</button>
                 {!msg.attachment_url && <button onClick={() => onEdit(msg)}><i className="fas fa-edit" /> Edit</button>}
                 <button onClick={() => onCopy(msg)}><i className="fas fa-copy" /> Copy</button>
                 <button onClick={() => onForward(msg)}><i className="fas fa-share" /> Forward</button>
@@ -445,11 +475,18 @@ const MessageBubble = memo(({
 });
 
 // ------------------------------------------------------------
-// Main ChatWindow (unchanged except for MessageBubble)
+// Main ChatWindow – with reply-to and call log integration
 // ------------------------------------------------------------
 function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
   // ---------- CALL INTEGRATION ----------
   const { startCall, activeCall, endCall, isMinimized, setIsMinimized } = useCall();
+
+  const [showGroupModal, setShowGroupModal] = useState(false);
+
+  const handleStartGroupCall = (participantIds) => {
+    startCall(null, 'voice', true, participantIds);
+    setShowGroupModal(false);
+  };
 
   const handleStartCall = (type) => {
     if (!onlineUsers.has(user.id)) {
@@ -486,6 +523,9 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
 
   const pendingTempIds = useRef(new Map());
 
+  // Reply-to state
+  const [replyTo, setReplyTo] = useState(null); // { id, content, sender, attachment_type, ... }
+
   const [openMenuId, setOpenMenuId]               = useState(null);
   const [editingMessageId, setEditingMessageId]   = useState(null);
   const [editContent, setEditContent]             = useState('');
@@ -505,6 +545,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   const dragState = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
   const windowRef = useRef(null);
 
+  // Helper to get current user ID
   const getCurrentUserId = () => {
     const ud = JSON.parse(localStorage.getItem('user') || '{}');
     if (ud.id) return ud.id;
@@ -518,6 +559,27 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   const fmtTime = (d)   => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const fmtDur  = (sec) => { const m = Math.floor(sec / 60), s = sec % 60; return `${m}:${s < 10 ? '0' : ''}${s}`; };
 
+  // Format call log for display
+  const formatCallLog = (log) => {
+    const emoji = log.call_type === 'video' ? '📹' : '📞';
+    const typeLabel = log.call_type === 'video' ? 'Video' : 'Voice';
+    let statusText = '';
+    const duration = log.duration_seconds || 0;
+    const durStr = duration > 0 ? ` · ${fmtDur(duration)}` : '';
+    switch (log.status) {
+      case 'missed': statusText = 'Missed'; break;
+      case 'declined': statusText = 'Declined'; break;
+      case 'cancelled': statusText = 'Cancelled'; break;
+      case 'answered': statusText = ''; break; // just show the call
+      default: statusText = '';
+    }
+    let result = `${emoji} ${typeLabel} call`;
+    if (statusText) result += ` ${statusText}`;
+    if (durStr) result += durStr;
+    return result;
+  };
+
+  // ---------- Resize handling ----------
   useEffect(() => {
     if (!windowRef.current) return;
     const fn = () => { if (windowRef.current) windowRef.current.style.height = `${window.visualViewport?.height || window.innerHeight}px`; };
@@ -525,6 +587,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     return () => window.visualViewport?.removeEventListener('resize', fn);
   }, []);
 
+  // ---------- Socket & message fetching ----------
   useEffect(() => {
     const socket = globalSocket;
     if (!socket) return;
@@ -549,11 +612,11 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           if (tempIdx !== -1) {
             pendingTempIds.current.delete(prev[tempIdx].id);
             const updated = [...prev];
-            updated[tempIdx] = m;
+            updated[tempIdx] = { ...m, is_call_log: false };
             return updated;
           }
         }
-        return [...prev, m];
+        return [...prev, { ...m, is_call_log: false }];
       });
 
       if (m.sender_id === user.id && m.status !== 'read') markRead(m.id);
@@ -575,7 +638,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           if (prev.some(msg => msg.id === realMsg.id)) {
             return prev.map(m => m.id === realMsg.id ? { ...m, status: realMsg.status } : m);
           }
-          return prev.map(m => m.id === tempId ? { ...realMsg } : m);
+          return prev.map(m => m.id === tempId ? { ...realMsg, is_call_log: false } : m);
         });
       }
       scrollToBottom();
@@ -598,6 +661,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     };
   }, [globalSocket, user.id]);
 
+  // Mark message as read
   const markRead = async (id) => {
     try {
       if (socketRef.current && socketConnected) socketRef.current.emit('mark_read', { message_ids: [id] });
@@ -606,11 +670,35 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     } catch {}
   };
 
+  // Fetch conversation (now returns { type, data } array)
   const fetchMessages = async () => {
     try {
       const res = await recoveryAPI.getConversation(user.id);
-      setMessages(res.data);
-      const unread = res.data.filter(m => !m.read && m.sender_id === user.id);
+      // res.data is an array of { type: 'message'|'call_log', data: {...} }
+      const combined = res.data || [];
+      const transformed = combined.map(item => {
+        if (item.type === 'call_log') {
+          const log = item.data;
+          return {
+            id: `call-${log.id}`,
+            sender_id: log.caller_id,
+            recipient_id: log.callee_id,
+            content: formatCallLog(log),
+            created_at: log.started_at,
+            is_call_log: true,
+            status: 'read', // call logs are always "read"
+            // keep original data for potential future use
+            _callLog: log,
+          };
+        } else {
+          // regular message
+          return { ...item.data, is_call_log: false };
+        }
+      });
+      setMessages(transformed);
+
+      // Mark unread messages from the other user as read
+      const unread = transformed.filter(m => !m.is_call_log && !m.read && m.sender_id === user.id);
       if (unread.length) {
         if (socketRef.current && socketConnected) socketRef.current.emit('mark_read', { message_ids: unread.map(m => m.id) });
         onNewMessage();
@@ -627,12 +715,33 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     }
   };
 
+  // Scroll to bottom
   const scrollToBottom = () => {
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
     setShowScrollButton(false);
     setNewMessageCount(0);
   };
 
+  // Scroll to a specific message by ID
+  const scrollToMessage = (messageId) => {
+    // Find the index of the message in the groupedMessages array
+    const index = groupedMessages.findIndex(g => g.type === 'message' && g.message.id === messageId);
+    if (index !== -1 && virtuosoRef.current) {
+      virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+      // Highlight the message after scroll
+      setTimeout(() => {
+        const el = document.querySelector(`[data-msg-id="${messageId}"]`);
+        if (el) {
+          el.classList.add('highlight-reply');
+          setTimeout(() => el.classList.remove('highlight-reply'), 2000);
+        }
+      }, 300);
+    } else {
+      showToast.info('Message not found in current view');
+    }
+  };
+
+  // Send message with optional reply
   const sendMessage = async () => {
     const content = newMessage, files = attachments;
     if (!content?.trim() && !files.length) return;
@@ -643,13 +752,31 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
 
     pendingTempIds.current.set(tempId, true);
 
-    setMessages(prev => [...prev, {
-      id: tempId, sender_id: cid, recipient_id: user.id,
-      content, status: 'sending', created_at: new Date().toISOString(), attachment_url: null,
-    }]);
+    // Create temporary message object
+    const tempMsg = {
+      id: tempId,
+      sender_id: cid,
+      recipient_id: user.id,
+      content,
+      status: 'sending',
+      created_at: new Date().toISOString(),
+      attachment_url: null,
+      is_call_log: false,
+      reply_to: replyTo ? {
+        id: replyTo.id,
+        sender: replyTo.sender,
+        content: replyTo.content,
+        attachment_type: replyTo.attachment_type,
+        attachment_name: replyTo.attachment_name,
+      } : null,
+    };
+
+    setMessages(prev => [...prev, tempMsg]);
     scrollToBottom();
     setNewMessage('');
     setAttachments([]);
+    const currentReply = replyTo;
+    setReplyTo(null);
 
     try {
       let aUrl = null, aType = null, aName = null;
@@ -667,14 +794,25 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           setMessages(prev => prev.filter(m => m.id !== tempId));
         }, 15000);
         socketRef.current.emit('send_message', {
-          recipient_id: user.id, content,
-          attachment_url: aUrl, attachment_type: aType, attachment_name: aName,
+          recipient_id: user.id,
+          content,
+          attachment_url: aUrl,
+          attachment_type: aType,
+          attachment_name: aName,
           temp_id: tempId,
+          reply_to_id: currentReply?.id || null,
         });
       } else {
-        const res = await recoveryAPI.sendMessage(user.id, content, aUrl, aType, aName);
+        const res = await recoveryAPI.sendMessage(
+          user.id,
+          content,
+          aUrl,
+          aType,
+          aName,
+          currentReply?.id || null
+        );
         pendingTempIds.current.delete(tempId);
-        setMessages(prev => prev.map(m => m.id === tempId ? { ...res.data, status: 'sent' } : m));
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...res.data, is_call_log: false } : m));
         setSending(false);
       }
     } catch (err) {
@@ -685,6 +823,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     }
   };
 
+  // ----- Voice recording functions (unchanged) -----
   const getBestMime = () => {
     for (const t of ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4','']) {
       if (!t || MediaRecorder.isTypeSupported(t)) return t;
@@ -762,6 +901,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
       id: tempId, sender_id: cid, recipient_id: user.id,
       content: '🎤 Voice message', status: 'sending',
       created_at: new Date().toISOString(), attachment_url: null,
+      is_call_log: false,
     }]);
     scrollToBottom();
 
@@ -786,7 +926,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
       } else {
         const res = await recoveryAPI.sendMessage(user.id, '🎤 Voice message', aUrl, aType, aName);
         pendingTempIds.current.delete(tempId);
-        setMessages(prev => prev.map(m => m.id === tempId ? { ...res.data, status: 'sent' } : m));
+        setMessages(prev => prev.map(m => m.id === tempId ? { ...res.data, is_call_log: false } : m));
         setSending(false);
       }
     } catch {
@@ -799,6 +939,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
 
   const cancelVoice = () => { setShowVoiceConfirm(false); setRecordedBlob(null); };
 
+  // Download file (unchanged)
   const downloadFile = async (url, name, mime) => {
     try {
       let full = url;
@@ -817,6 +958,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     } catch (e) { showToast.error(`Download failed: ${e.message}`); }
   };
 
+  // Message actions
   const handleEdit  = (msg) => { setEditingMessageId(msg.id); setEditContent(msg.content); setOpenMenuId(null); };
   const saveEdit    = async (id) => {
     if (!editContent.trim()) return;
@@ -850,6 +992,23 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     setForwardMessage(null);
   };
 
+  // Reply handler
+  const handleReply = (msg) => {
+    const senderName = msg.sender_id === getCurrentUserId() ? 'You' : (msg.sender || user.username);
+    setReplyTo({
+      id: msg.id,
+      sender: senderName,
+      content: msg.content,
+      attachment_type: msg.attachment_type,
+      attachment_name: msg.attachment_name,
+    });
+    setOpenMenuId(null);
+    // Focus the input
+    const input = document.querySelector('.chat-window-input input');
+    if (input) input.focus();
+  };
+
+  // Click outside menu
   useEffect(() => {
     const fn = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenuId(null); };
     document.addEventListener('click', fn);
@@ -859,6 +1018,34 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
   const handleTouchStart = (id) => { longPressTimer.current = setTimeout(() => setOpenMenuId(id), 500); };
   const handleTouchEnd   = ()   => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
 
+  // Touch swipe to reply (mobile)
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const touchMsgId = useRef(null);
+
+  const onTouchStart = (e, msgId) => {
+    const touch = e.touches[0];
+    touchStartX.current = touch.clientX;
+    touchStartY.current = touch.clientY;
+    touchMsgId.current = msgId;
+  };
+
+  const onTouchEnd = (e) => {
+    if (touchMsgId.current === null) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartX.current;
+    const dy = touch.clientY - touchStartY.current;
+    if (Math.abs(dx) > 40 && Math.abs(dy) < 30 && dx > 0) {
+      // Swipe right -> reply
+      const msg = messages.find(m => m.id === touchMsgId.current);
+      if (msg && !msg.is_call_log) {
+        handleReply(msg);
+      }
+    }
+    touchMsgId.current = null;
+  };
+
+  // Render status icons
   const renderStatus = (msg) => {
     if (msg.sender_id !== getCurrentUserId()) return null;
     const s = { fontSize: '0.7rem' };
@@ -871,18 +1058,20 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     }
   };
 
+  // Auto-mark read for received messages (unchanged)
   useEffect(() => {
     if (loading || !messages.length) return;
     const timer = setTimeout(() => {
       document.querySelectorAll('.chat-message.received').forEach(el => {
         const mid = parseInt(el.dataset.msgId);
         const msg = messages.find(m => m.id === mid);
-        if (msg && msg.sender_id === user.id && msg.status !== 'read') markRead(mid);
+        if (msg && msg.sender_id === user.id && msg.status !== 'read' && !msg.is_call_log) markRead(mid);
       });
     }, 200);
     return () => clearTimeout(timer);
   }, [loading, messages.length, user.id]);
 
+  // Group messages by date (including call logs)
   const groupedMessages = useMemo(() => {
     const groups = [], today = new Date(), yest = new Date(today);
     yest.setDate(yest.getDate() - 1);
@@ -898,6 +1087,7 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
     return groups;
   }, [messages]);
 
+  // Render item for Virtuoso
   const renderItem = useCallback((index, group) => {
     if (group.type === 'date') {
       return <div key={`date-${group.label}`} className="chat-date-separator">{group.label}</div>;
@@ -915,10 +1105,13 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
         openMenuId={openMenuId} setOpenMenuId={setOpenMenuId} menuRef={menuRef}
         handleTouchStart={handleTouchStart} handleTouchEnd={handleTouchEnd}
         renderStatus={renderStatus} fmtTime={fmtTime} markRead={markRead}
+        onReply={handleReply}
+        onScrollToMessage={scrollToMessage}
       />
     );
-  }, [user, editingMessageId, editContent, openMenuId]);
+  }, [user, editingMessageId, editContent, openMenuId, messages]);
 
+  // Drag window (desktop)
   const handleMouseDown = (e) => {
     if (e.target.closest('.chat-window-header-actions')) return;
     const r = windowRef.current.getBoundingClientRect();
@@ -965,6 +1158,13 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           >
             <i className="fas fa-video" />
           </button>
+          <button
+            className="btn btn-sm btn-outline-light me-1"
+            onClick={() => setShowGroupModal(true)}
+            title="Group Call"
+          >
+            <i className="fas fa-users" />
+          </button>
           <button className="btn-close btn-close-white" onClick={onClose} />
         </div>
       </div>
@@ -995,6 +1195,22 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           {newMessageCount > 0 && <span className="badge bg-white text-dark rounded-pill">{newMessageCount}</span>}
           New messages
         </button>
+      )}
+
+      {/* Reply Preview */}
+      {replyTo && (
+        <div className="reply-preview">
+          <div className="reply-preview-content">
+            <span className="reply-preview-sender">Replying to {replyTo.sender}</span>
+            <span className="reply-preview-text">
+              {replyTo.attachment_type?.startsWith('image/') ? '📷 Photo' :
+               replyTo.attachment_type?.startsWith('audio/') ? '🎤 Voice message' :
+               replyTo.attachment_url ? `📎 ${replyTo.attachment_name || 'File'}` :
+               replyTo.content}
+            </span>
+          </div>
+          <button className="reply-preview-close" onClick={() => setReplyTo(null)}>×</button>
+        </div>
       )}
 
       {/* Input bar */}
@@ -1089,6 +1305,13 @@ function ChatWindow({ user, onClose, onNewMessage, style, globalSocket, onlineUs
           </div>
         </div>
       )}
+
+      <GroupCallModal
+        isOpen={showGroupModal}
+        onClose={() => setShowGroupModal(false)}
+        onStartGroupCall={handleStartGroupCall}
+        onlineUsers={onlineUsers}
+      />
     </div>
   );
 }

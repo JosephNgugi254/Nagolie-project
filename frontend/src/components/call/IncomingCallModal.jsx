@@ -1,7 +1,17 @@
-// components/call/IncomingCallModal.jsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
-const IncomingCallModal = ({ call, onAnswer, onDecline }) => {
+const IncomingCallModal = ({ call, onAnswer, onDecline, onToggleRingtone }) => {
+  const [isMuted, setIsMuted] = useState(false);
+
+  useEffect(() => {
+    // Ringtone is handled by CallContext; this component only UI
+  }, []);
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    onToggleRingtone && onToggleRingtone();
+  };
+
   if (!call) return null;
 
   return (
@@ -18,6 +28,9 @@ const IncomingCallModal = ({ call, onAnswer, onDecline }) => {
           </button>
           <button className="btn-answer" onClick={onAnswer}>
             <i className="fas fa-phone" />
+          </button>
+          <button className="btn-mute" onClick={toggleMute} style={{ background: 'transparent', border: 'none' }}>
+            <i className={`fas fa-volume-${isMuted ? 'mute' : 'up'}`} style={{ fontSize: '1.5rem', color: 'white' }} />
           </button>
         </div>
       </div>

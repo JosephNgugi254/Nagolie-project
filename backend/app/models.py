@@ -633,6 +633,9 @@ class PrivateMessage(db.Model):
     attachment_url = db.Column(db.String(500), nullable=True)
     attachment_type = db.Column(db.String(255), nullable=True)
     attachment_name = db.Column(db.String(255), nullable=True)
+
+    reply_to_id = db.Column(db.Integer, db.ForeignKey('private_messages.id'), nullable=True)
+    reply_to = db.relationship('PrivateMessage', remote_side=[id], backref='replies')
     
     # Relationships (unchanged)
     sender = db.relationship('User', foreign_keys=[sender_id], back_populates='sent_messages')
@@ -884,8 +887,6 @@ class SalaryTransaction(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'created_by': self.created_by,
         }
-    
-# models.py
 
 class CallLog(db.Model):
     __tablename__ = 'call_logs'

@@ -125,13 +125,17 @@ def _record_accrual(loan, amount, notes, event_date, save=True):
         loan.last_accrual_recorded = event_date
 
 def _accrue_daily(loan, today, last_date, save=True):
+    """Accrue daily interest (simple) and compound weekly (capitalise) on a daily plan loan.
+       Only fully elapsed days are accrued. Weekly compounding runs the day after the 7‑day block ends.
+    """
     if not loan.disbursement_date:
         return loan
+
     disb = loan.disbursement_date.date()
     if not loan.last_compounding_date:
         loan.last_compounding_date = loan.disbursement_date
 
-    # ---------- Day-zero interest: add immediately if not already added ----------
+    # ---------- Day‑zero interest: add once on disbursement day ----------
     # This covers both new loans and renewals where last_interest_payment_date == disbursement_date
     if loan.accrued_interest == 0 and loan.last_interest_payment_date is not None:
         if loan.last_interest_payment_date.date() <= disb:
@@ -146,10 +150,10 @@ def _accrue_daily(loan, today, last_date, save=True):
                 event_date=datetime.combine(disb, datetime.min.time()),
                 save=save
             )
-            # Mark this day as accrued so we don't add it again
+            # Mark that we've already added day‑0 interest
             loan.last_interest_payment_date = datetime.combine(disb, datetime.min.time())
 
-    # ---------- Accrue interest for fully completed days ----------
+    # ---------- Daily accrual for fully completed days ----------
     # Only days strictly before today (i.e., fully elapsed) are considered.
     last_dt = loan.last_interest_payment_date.date()
     first_accrual_date = last_dt + timedelta(days=1)          # first day not yet accrued
@@ -174,43 +178,56 @@ def _accrue_daily(loan, today, last_date, save=True):
             )
             loan.last_interest_payment_date = datetime.combine(accrual_date, datetime.min.time())
 
-    # ---------- Weekly compounding (unchanged) ----------
-    last_compound = loan.last_compounding_date.date()
-    weeks_passed = (today - last_compound).days // 7
-    if weeks_passed > 0:
-        for w in range(weeks_passed):
-            week_start_date = last_compound + timedelta(days=w*7)
-            week_end_date = week_start_date + timedelta(days=6)
-            week_interest = (loan.current_principal * Decimal('0.045') * 7).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
+    # ---------- Weekly compounding (only after a full week has passed) ----------
+    # Use last_compounding_date as the start of the current week block.
+    # Compound when a complete 7‑day block has elapsed, i.e.,
+    # when (last_compounding_date + 7 days) < today.
+    while (loan.last_compounding_date + timedelta(days=7)) < today:
+        # The week block is from last_compounding_date to last_compounding_date+6 days.
+        week_start = loan.last_compounding_date.date()
+        week_end = week_start + timedelta(days=6)
+
+        # Compute the period key matching the prepayment key for this week.
+        days_since_disbursement = (week_start - loan.disbursement_date.date()).days
+        week_num = days_since_disbursement // 7
+        period_key = f"{loan.disbursement_date.date().isoformat()}-W{week_num}"
+
+        week_interest = (loan.current_principal * Decimal('0.045') * 7).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        prepaid = Decimal('0')
+        if loan.interest_prepaid_period == period_key:
+            prepaid = loan.interest_prepaid_amount or Decimal('0')
+
+        net_to_capitalise = max(Decimal('0'), week_interest - prepaid)
+        if net_to_capitalise > 0:
+            loan.current_principal += net_to_capitalise
+            loan.accrued_interest -= net_to_capitalise
+            _record_accrual(
+                loan=loan,
+                amount=net_to_capitalise,
+                notes=f'Weekly compounding (daily plan) – net capitalised: {net_to_capitalise:.2f}',
+                event_date=datetime.combine(week_end + timedelta(days=1), datetime.min.time()),
+                save=save
             )
-            period_key = f"{week_start_date.isoformat()}-W{w}"
-            prepaid = Decimal('0')
-            if loan.interest_prepaid_period == period_key:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-            net_to_capitalise = max(Decimal('0'), week_interest - prepaid)
-            if net_to_capitalise > 0:
-                loan.current_principal += net_to_capitalise
-                loan.accrued_interest -= net_to_capitalise
-                _record_accrual(
-                    loan=loan,
-                    amount=net_to_capitalise,
-                    notes=f'Weekly compounding (daily plan) – net capitalised: {net_to_capitalise:.2f}',
-                    event_date=datetime.combine(week_end_date + timedelta(days=1), datetime.min.time()),
-                    save=save
-                )
-            if loan.interest_prepaid_period == period_key:
-                loan.interest_prepaid_period = None
-                loan.interest_prepaid_amount = Decimal('0')
-        loan.last_compounding_date += timedelta(days=weeks_passed * 7)
+
+        # Clear any prepaid amount for this period (even if excess)
+        if loan.interest_prepaid_period == period_key:
+            loan.interest_prepaid_period = None
+            loan.interest_prepaid_amount = Decimal('0')
+
+        # Move last_compounding_date forward by exactly one week
+        loan.last_compounding_date += timedelta(days=7)
 
     # ---------- Final balance ----------
     unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
     loan.balance = loan.current_principal + unpaid
+
     if loan.current_principal <= Decimal('0.01') and unpaid <= Decimal('0.01'):
         loan.status = 'completed'
         loan.current_principal = Decimal('0')
         loan.balance = Decimal('0')
+
     return loan
 
 def _get_second_sunday(disbursement_date):
@@ -228,27 +245,30 @@ def _accrue_weekly(loan, today, last_date, save=True):
     if not loan.disbursement_date:
         return loan
     disb = loan.disbursement_date.date()
+    # Start from the first due date (disbursement + 7 days)
     first_due = disb + timedelta(days=7)
     current_due = loan.due_date.date() if loan.due_date else first_due
-    if today <= current_due:
-        loan.balance = loan.current_principal
-        return loan
 
-    weeks_to_process = (today - current_due).days // 7 + 1
-    for _ in range(weeks_to_process):
-        if today <= current_due:
-            break
-        period_key = _get_current_period_key(loan)
+    # Process each full week that has ended
+    while current_due < today:
+        # The week that ended is from (current_due - 6) to current_due
+        week_start = current_due - timedelta(days=6)   # first day of that week
+        days_since_disbursement = (week_start - disb).days
+        week_num = days_since_disbursement // 7        # 0-based week number
+        period_key = f"{disb.isoformat()}-W{week_num}"
+
         week_interest = (loan.current_principal * Decimal('0.30')).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
         prepaid = Decimal('0')
         if loan.interest_prepaid_period == period_key:
             prepaid = loan.interest_prepaid_amount or Decimal('0')
+
         net_to_capitalise = max(Decimal('0'), week_interest - prepaid)
         if net_to_capitalise > 0:
             loan.current_principal += net_to_capitalise
             loan.accrued_interest += net_to_capitalise
+            # Record ledger entry for transparency
             _record_accrual(
                 loan=loan,
                 amount=net_to_capitalise,
@@ -256,14 +276,20 @@ def _accrue_weekly(loan, today, last_date, save=True):
                 event_date=datetime.combine(current_due + timedelta(days=1), datetime.min.time()),
                 save=save
             )
+
+        # Clear prepaid for this period (regardless of excess)
         if loan.interest_prepaid_period == period_key:
             loan.interest_prepaid_period = None
             loan.interest_prepaid_amount = Decimal('0')
+
+        # Move to next week's due date
         current_due += timedelta(days=7)
 
+    # Update loan due_date to the next pending due date
     loan.due_date = datetime.combine(current_due, datetime.min.time())
     loan.last_interest_payment_date = datetime.combine(today, datetime.min.time())
     loan.balance = loan.current_principal
+
     if loan.current_principal <= Decimal('0.01'):
         loan.status = 'completed'
         loan.current_principal = Decimal('0')

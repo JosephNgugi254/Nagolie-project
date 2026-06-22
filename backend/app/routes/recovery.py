@@ -343,12 +343,34 @@ def get_users_for_messaging():
 @recovery_bp.route('/messages/conversation/<int:other_user_id>', methods=['GET'])
 @jwt_required()
 def get_conversation(other_user_id):
-    uid  = int(get_jwt_identity())
+    user_id = int(get_jwt_identity())
+    # Get private messages
     msgs = PrivateMessage.query.filter(
-        ((PrivateMessage.sender_id == uid) & (PrivateMessage.recipient_id == other_user_id)) |
-        ((PrivateMessage.sender_id == other_user_id) & (PrivateMessage.recipient_id == uid))
+        ((PrivateMessage.sender_id == user_id) & (PrivateMessage.recipient_id == other_user_id)) |
+        ((PrivateMessage.sender_id == other_user_id) & (PrivateMessage.recipient_id == user_id))
     ).order_by(PrivateMessage.created_at).all()
-    return jsonify([m.to_dict() for m in msgs]), 200
+    
+    # Get call logs between these two users
+    calls = CallLog.query.filter(
+        ((CallLog.caller_id == user_id) & (CallLog.callee_id == other_user_id)) |
+        ((CallLog.caller_id == other_user_id) & (CallLog.callee_id == user_id))
+    ).order_by(CallLog.started_at).all()
+    
+    # Convert to a unified list with a 'type' field
+    timeline = []
+    for msg in msgs:
+        timeline.append({
+            'type': 'message',
+            'data': msg.to_dict()
+        })
+    for call in calls:
+        timeline.append({
+            'type': 'call_log',
+            'data': call.to_dict()
+        })
+    # Sort by timestamp
+    timeline.sort(key=lambda x: x['data']['created_at'] if x['type'] == 'message' else x['data']['started_at'])
+    return jsonify(timeline), 200
 
 
 @recovery_bp.route('/messages/unread-count-by-user', methods=['GET'])

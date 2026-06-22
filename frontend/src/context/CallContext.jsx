@@ -60,6 +60,17 @@ export const CallProvider = ({ children }) => {
       });
   };
 
+  const toggleRingtone = () => {
+    if (ringtoneAudio.current) {
+      if (ringtoneAudio.current.muted) {
+        ringtoneAudio.current.muted = false;
+        ringtoneAudio.current.play().catch(() => {});
+      } else {
+        ringtoneAudio.current.muted = true;
+      }
+    }
+  };
+
   const stopRingtone = () => {
     if (ringtoneAudio.current) {
       ringtoneAudio.current.pause();
@@ -482,6 +493,7 @@ export const CallProvider = ({ children }) => {
     callDuration,
     isCallConnected,
     startCall,
+    toggleRingtone,
     answerCall,
     endCall,
     addParticipant,

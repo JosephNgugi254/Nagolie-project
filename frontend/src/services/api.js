@@ -223,11 +223,15 @@ export const recoveryAPI = {
   // Messages
   getUnreadCount: () => api.get('/recovery/messages/unread-count'),
   getUnreadCountByUser: () => api.get('/recovery/messages/unread-count-by-user'),
-  sendMessage: (recipientId, content, attachmentUrl = null, attachmentType = null, attachmentName = null) =>
+  sendMessage: (recipientId, content, attachmentUrl = null, attachmentType = null, attachmentName = null, replyToId = null) =>
     api.post('/recovery/messages/send', {
-      recipient_id: recipientId, content,
-      attachment_url: attachmentUrl, attachment_type: attachmentType, attachment_name: attachmentName
-    }),
+      recipient_id: recipientId,
+      content,
+      attachment_url: attachmentUrl,
+      attachment_type: attachmentType,
+      attachment_name: attachmentName,
+      reply_to_id: replyToId,
+  }),
   uploadMessageAttachment: (formData) =>
     api.post('/recovery/messages/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   getConversation: (otherUserId) => api.get(`/recovery/messages/conversation/${otherUserId}`),

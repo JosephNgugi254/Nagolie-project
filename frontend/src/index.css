@@ -3960,3 +3960,90 @@ section {
   width: 100%;
   font-style: italic;
 }
+
+/* Reply preview above input */
+.reply-preview {
+  background: #f0f0f0;
+  border-left: 3px solid #34b7f1;
+  padding: 6px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  margin: 0 4px 4px 4px;
+}
+.reply-preview-sender {
+  font-weight: 600;
+  color: #075e54;
+  margin-right: 6px;
+}
+.reply-preview-text {
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+}
+.reply-preview-close {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #999;
+  padding: 0 6px;
+}
+.reply-preview-close:hover {
+  color: #333;
+}
+
+/* Reply quote inside message bubble */
+.reply-quote {
+  background: rgba(0,0,0,0.05);
+  border-left: 3px solid #34b7f1;
+  padding: 4px 10px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.reply-quote:hover {
+  background: rgba(0,0,0,0.08);
+}
+.reply-quote-sender {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #075e54;
+}
+.reply-quote-content {
+  font-size: 0.85rem;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Highlight animation when scrolling to replied message */
+.highlight-reply {
+  animation: highlightFade 2s ease;
+}
+@keyframes highlightFade {
+  0% { background-color: #fff3cd; }
+  100% { background-color: transparent; }
+}
+
+/* Incoming call modal mute button */
+.btn-mute {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-mute:hover {
+  background: rgba(255,255,255,0.2);
+}
