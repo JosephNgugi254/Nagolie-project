@@ -47,6 +47,8 @@ def seed():
             {'key': 'investor-section', 'label': 'Investor Section', 'icon': 'fa-lock', 'path': '/recovery/investors', 'order': 110},
             {'key': 'loan-reports', 'label': 'Loan Reports', 'icon': 'fa-file-alt', 'path': '/loan-reports', 'order': 75},
             {'key': 'salaries', 'label': 'Salaries', 'icon': 'fa-wallet', 'path': '/admin/salaries', 'order': 95},
+            {'key': 'financial-reports', 'label': 'Financial Reports', 'icon': 'fa-chart-pie', 'path': '/admin/financial-reports', 'order': 75},
+            {'key': 'petty-cash', 'label': 'Petty Cash', 'icon': 'fa-wallet', 'path': '/recovery/petty-cash', 'order': 35},
         ]
 
         for item in menu_items_data:
@@ -60,18 +62,18 @@ def seed():
         #    For simplicity, we reuse the same keys. HR manager will be created later via API.
         roles_data = {
             'admin': ['overview', 'clients', 'transactions', 'payment-stats', 'gallery',
-                      'company-gallery', 'applications', 'report-management','loan-reports', 'utilities',
+                      'company-gallery', 'applications', 'report-management','loan-reports', 'financial-reports', 'utilities',
                       'investors','user-management', 'settings'],
             'director': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
-                         'transactions', 'gallery', 'investors', 'report-management','loan-reports', 
-                         'salaries' , 'utilities', 'settings'],
+                         'transactions', 'gallery', 'investors', 'report-management','loan-reports',
+                         'financial-reports', 'petty-cash','salaries' , 'utilities', 'settings'],
             'secretary': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
-                          'transactions', 'reports', 'utilities', 'settings'],
+                          'transactions', 'reports','petty-cash', 'utilities', 'settings'],
             'client_relations_officer': ['overview', 'recovery', 'inbox', 'applications',
                              'payment-stats', 'transactions', 'reports', 'utilities', 'settings'],
             'accountant': ['recovery', 'reports', 'inbox', 'utilities', 'settings'],
             'valuer': ['recovery', 'reports', 'inbox','utilities', 'settings'],
-            'head_of_it': ['recovery', 'inbox','loan-reports', 'settings', 'utilities'],
+            'head_of_it': ['recovery', 'inbox','loan-reports', 'financial-reports', 'settings', 'utilities'],
             'deputy_director': ['recovery', 'reports', 'inbox', 'settings', 'utilities'],
             'hr_manager': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
                    'transactions', 'gallery', 'report-management','loan-reports','salaries', 'utilities', 'settings'],

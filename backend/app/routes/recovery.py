@@ -505,14 +505,20 @@ def claim_ownership(loan_id):
         loan.status = 'claimed'
         loan.balance = 0
         loan.amount_paid = loan.total_amount
+        # Explicitly set updated_at (though onupdate should handle it)
+        loan.updated_at = datetime.utcnow()
 
-        db.session.add(Transaction(
-            loan_id=loan.id, transaction_type='claim', amount=0,
-            payment_method='claim', notes='Claimed overdue'
-        ))
-        db.session.commit()
-        txn = Transaction(...)   # existing
-        db.session.commit()
+        # Create a transaction record
+        txn = Transaction(
+            loan_id=loan.id,
+            transaction_type='claim',
+            amount=0,
+            payment_method='claim',
+            notes='Claimed overdue'
+        )
+        db.session.add(txn)
+        db.session.commit()  # commit to get txn.id
+
         record_ledger_entry(
             loan=loan,
             event_type='claimed',
@@ -526,8 +532,7 @@ def claim_ownership(loan_id):
         return jsonify({'success': True, 'message': f'Claimed {lv.livestock_type}'}), 200
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-    
+        return jsonify({'error': str(e)}), 500    
 
 @recovery_bp.route('/loan/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()

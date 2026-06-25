@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from app import db
-from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, ReportComment, FlaggedLoan, Role, MenuItem, RoleMenuItem
+from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, ReportComment, FlaggedLoan, Role, MenuItem, RoleMenuItem, PettyCashExpense, PettyCashFunding
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy import func
@@ -15,9 +15,11 @@ import secrets
 import string
 from app.services.ledger import record_ledger_entry   # NEW
 from app.routes.payments import compute_overdue
-from flask_cors import cross_origin
 from flask import current_app
 from app.routes.payments import recalculate_loan, _loan_summary, _get_current_period_key, _get_current_period_interest
+from werkzeug.utils import secure_filename
+import os
+import cloudinary.uploader
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -2441,3 +2443,33 @@ def update_user_branch(user_id):
     user.default_branch = branch
     db.session.commit()
     return jsonify({'success': True, 'branch': branch}), 200
+
+@admin_bp.route('/upload', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+def upload_file():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Optional: limit file size
+        # if len(file.read()) > 5 * 1024 * 1024:  # 5 MB
+        #     return jsonify({'error': 'File too large'}), 400
+        # file.seek(0)
+
+        upload_result = cloudinary.uploader.upload(
+            file,
+            folder='petty_cash_attachments',
+            resource_type='auto'
+        )
+        return jsonify({'url': upload_result.get('secure_url')}), 200
+
+    except Exception as e:
+        # Log the full error
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
-import { adminAPI, paymentAPI, userAPI } from "../services/api"
+import { adminAPI, paymentAPI, userAPI, financialAPI } from "../services/api"
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
 import { startRegistration } from '@simplewebauthn/browser';
 import AdminSidebar from "../components/admin/AdminSidebar"
@@ -29,6 +29,8 @@ import ReportManagement from "../components/admin/ReportManagement";
 import UserManagement from '../components/admin/UserManagement';
 import LoanReports from '../components/loan-reports/LoanReports';
 import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
+import FinancialReports from '../components/financial/FinancialReports';
+import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
 
 
 function AdminPanel() {
@@ -1403,13 +1405,18 @@ const handleInvestorPasswordSubmit = (e) => {
     } else if (path.includes("/admin/report-management")) {
       section = "report-management"; 
     } else if (path.includes("/admin/loan-reports")) {
-      section = "loan-reports";  
+      section = "loan-reports"; 
+    } else if (path.includes("/admin/financial-reports")) {
+      section = "financial-reports"; 
+    } else if (path.includes("/admin/petty-cash")) {
+      section = "petty-cash";
     } else if (path.includes("/admin/user-management")) {
       section = "user-management";  
     } else if (path.includes("/admin/utilities")) {  
       section = "utilities";
     } else if (path.includes("/admin/investors")) {
       section = "investors";
+      
 
       // Check authentication for investor section
       if (isInvestorSectionAuthenticated) { // REMOVED: && investorSessionExpires
@@ -1856,6 +1863,16 @@ useEffect(() => {
     // Close sidebar on mobile when any section is clicked
     setSidebarOpen(false);
 
+    if (section === 'financial-reports') {
+      setActiveSection('financial-reports');
+      navigate('/admin/financial-reports');
+      return;
+    }
+    if (section === 'petty-cash') {
+      setActiveSection('petty-cash');
+      navigate('/admin/petty-cash');
+      return;
+    }
     if (section === 'reports') {
       setActiveSection('reports');
       navigate('/admin/reports');
@@ -4105,6 +4122,12 @@ Thank you for choosing us.`;
 
             {/* Loan Reports Section for director and admin */}
             {activeSection === 'loan-reports' && <UnifiedReportsTabs />}
+
+            {/* Financial Reports */}
+            {activeSection === 'financial-reports' && <FinancialReports />}
+
+            {/* Petty Cash */}
+            {activeSection === 'petty-cash' && <PettyCashManagement />}
 
             {/* User Management Section */}
             {activeSection === 'user-management' && <UserManagement />}

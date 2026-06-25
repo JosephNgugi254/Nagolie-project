@@ -339,4 +339,44 @@ export const salaryAPI = {
   getStaffReportData: (userId, month) => api.get(`/salary/staff-report/${userId}?month=${month}`),
 };
 
+export const financialAPI = {
+  // Petty Cash
+  fundPettyCash: (data) => api.post('/financial/petty-cash/fund', data),
+  addPettyCashExpense: (data) => api.post('/financial/petty-cash/expense', data),
+  getPettyCashTransactions: () => api.get('/financial/petty-cash/transactions'),
+  getPettyCashBalance: () => api.get('/financial/petty-cash/balance'),
+  getPettyCashReport: (start, end) => api.get(`/financial/petty-cash/report?start_date=${start}&end_date=${end}`),
+
+  // Reports
+  getLoanReport: (params) => {
+  return api.get('/financial/loan-report', { params });
+  },
+  getCompanyReport: (params) => {
+    return api.get('/financial/company-report', { params });
+  },
+  getRevenueAnalysis: () => api.get('/financial/revenue-analysis'),
+  getClaimsAnalysis: () => api.get('/financial/claims-analysis'),
+  getWaivedAnalysis: () => api.get('/financial/waived-analysis'),
+  getWeeklyReport: () => api.get('/financial/weekly-report'),
+  getMonthlyReport: (year, month) => api.get(`/financial/monthly-report?year=${year}&month=${month}`),
+  getDashboardSummary: () => api.get('/financial/dashboard-summary'),
+  getInsights: () => api.get('/financial/insights'),
+
+  // parameterized report
+  getLoanReport: (startDate, endDate) => {
+    let url = '/financial/loan-report';
+    if (startDate && endDate) {
+      url += `?start_date=${startDate}&end_date=${endDate}`;
+    }
+    return api.get(url);
+  },
+  getCompanyReport: (startDate, endDate) => {
+    let url = '/financial/company-report';
+    if (startDate && endDate) {
+      url += `?start_date=${startDate}&end_date=${endDate}`;
+    }
+    return api.get(url);
+  },
+};
+
 export default api;

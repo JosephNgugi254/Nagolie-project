@@ -4047,3 +4047,64 @@ section {
 .btn-mute:hover {
   background: rgba(255,255,255,0.2);
 }
+
+.financial-reports .nav-tabs .nav-link {
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
+}
+
+@media (max-width: 768px) {
+  .financial-reports .row.g-3 {
+    --bs-gutter-y: 0.5rem;
+  }
+  .financial-reports .col-6 {
+    flex: 0 0 50%;
+    max-width: 50%;
+  }
+  .financial-reports .btn-group {
+    flex-wrap: wrap;
+  }
+  .financial-reports .btn-group .btn {
+    flex: 1 0 auto;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+  }
+  .financial-reports .card-title {
+    font-size: 1rem;
+  }
+  .financial-reports .card-subtitle {
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .financial-reports .col-6 {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+  .financial-reports .d-flex.gap-2 {
+    flex-direction: column;
+  }
+  .financial-reports .d-flex.gap-2 .btn {
+    width: 100%;
+  }
+}
+
+.financial-reports .chart-wrapper {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+  .financial-reports .chart-wrapper {
+    max-width: 100%;
+    height: 280px;
+  }
+}
+
+@media (max-width: 576px) {
+  .financial-reports .chart-wrapper {
+    height: 220px;
+  }
+}

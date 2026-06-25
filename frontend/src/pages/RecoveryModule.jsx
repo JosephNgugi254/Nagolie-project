@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { recoveryAPI } from '../services/api';
 import { userAPI } from '../services/api';
 import { adminAPI } from '../services/api';
+import { financialAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
 import { io } from 'socket.io-client';
@@ -48,6 +49,8 @@ import LoanReports from '../components/loan-reports/LoanReports';
 import SalaryManagement from '../components/director/SalaryManagement';
 import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
 import { useSocket } from '../context/SocketContext';
+import FinancialReports from '../components/financial/FinancialReports';
+import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
 
 
 
@@ -2599,6 +2602,13 @@ function RecoveryModule() {
                   {/* LOAN REPORTS SECTION */}
                   {directorSection === 'loan-reports' &&<UnifiedReportsTabs />}
 
+                  {/* FINANCIAL REPORTS */}
+                  {directorSection === 'financial-reports' && <FinancialReports />}
+
+                  {/* PETTY CASH */}
+                  {directorSection === 'petty-cash' && <PettyCashManagement />}
+
+                  {/* SALARY SECTION */}
                   {directorSection === 'salaries' && (
                     <SalaryManagement />
                   )}
@@ -2610,6 +2620,7 @@ function RecoveryModule() {
                   {showImageModal && selectedImage && (
                     <Modal isOpen={showImageModal} onClose={() => { setShowImageModal(false); setSelectedImage(null); }} title="Livestock Photo" size="lg"><div className="text-center"><img src={selectedImage} alt="Livestock" className="img-fluid rounded" style={{ maxHeight:'70vh' }} /></div></Modal>
                   )}
+
                   {showAddLivestockModal && (
                     <Modal isOpen={showAddLivestockModal} onClose={() => setShowAddLivestockModal(false)} title="Add Livestock to Gallery" size="lg">
                       <form onSubmit={async (e) => { e.preventDefault(); const fd = new FormData(e.target); await handleAddLivestock({ type: fd.get('type'), count: parseInt(fd.get('count')), price: parseFloat(fd.get('price')), description: fd.get('description') || 'Available for purchase', location: fd.get('location') || 'Isinya, Kajiado', images: selectedImages }); setSelectedImages([]); }}>
@@ -2638,6 +2649,7 @@ function RecoveryModule() {
                   )}
             
                   {showShareLinkModal && <ShareLinkModal isOpen={showShareLinkModal} onClose={() => setShowShareLinkModal(false)} shareLinkData={shareLinkData} />}
+                  
                   {showViewInvestorModal && selectedInvestor && (
                     <Modal isOpen={showViewInvestorModal} onClose={() => { setShowViewInvestorModal(false); setSelectedInvestor(null); }} title="Investor Details" size="lg">
                       <div className="row">
@@ -3511,6 +3523,12 @@ function RecoveryModule() {
 
                     {/* Loan Reports Section for director and admin */}
                     {directorSection === 'loan-reports' && <UnifiedReportsTabs />}
+
+                    {/* Financial Reports */}
+                    {directorSection === 'financial-reports' && <FinancialReports />}
+
+                    {/* Petty Cash */}
+                    {directorSection === 'petty-cash' && <PettyCashManagement />}
           
                     {/* Valuer Reports Section */}
                     {directorSection === 'reports' && <ValuerPanel />}

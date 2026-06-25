@@ -12,7 +12,7 @@ const COMPANY_INFO = {
   address: 'Target - Isinya, Kajiado County, Kenya',
   phone1: '+254 721 451 707',
   phone2: '+254 763 003 182',
-  email: 'nagolieenterprises@gmail.com',
+  email: 'nagolieenterprisesltd@gmail.com',
   hours: 'Everyday: 8:00 AM - 6:00 PM',
   poBox: 'P.O BOX 359-01100',
   logoUrl: '/logo.png',
@@ -98,7 +98,8 @@ const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
     receipt: 'RECEIPT',
     statement: 'STATEMENT',
     agreement: 'AGREEMENT',
-    investor: 'INVESTMENT AGREEMENT'
+    investor: 'INVESTMENT AGREEMENT',
+    report: 'REPORT'
   };
   const docType = DOC_LABELS[type] || 'DOCUMENT';
   
@@ -320,8 +321,9 @@ const getTransactionReference = (transaction) => {
 };
 
 export const addFooter = (doc, yPos) => {
-  if (yPos > 270) return;
-  const footerY = Math.min(yPos + 20, 270);
+  const pageHeight = doc.internal.pageSize.height;
+  const footerY = Math.min(yPos + 10, pageHeight - 10);
+  if (footerY > pageHeight - 15) return; // prevent overflow
   doc.setTextColor(...COLORS.textLight);
   doc.setFontSize(8);
   doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`, 20, footerY);
@@ -1057,8 +1059,8 @@ export const generateLoanAgreementPDF = async (application) => {
         "",
         { checkbox: true, plan: 'daily', label: "Daily Plan:" },
         "The loan is repayable with an interest of 4.5% per day. Interest shall be charged daily for a maximum",
-        "period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid",
-        "accrue. The Recipient must then either:",
+        "period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
+        "The Recipient must then either:",
         "  (a) repay the outstanding loan balance in full, or",
         "  (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
@@ -1524,15 +1526,15 @@ export const generateManualLoanAgreementPDF = async () => {
         "due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
         "Interest shall be charged on a weekly basis for a",
         "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
-        "accrue. The Recipient must then either:",
+        "The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         { checkbox: true, label: "Daily Plan:" },
         "",
         "The loan is repayable with an interest of 4.5% per day. Interest shall be",
-        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid, no",
-        "further interest will accrue. The Recipient must then either:",
+        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
+        "The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
@@ -2615,8 +2617,8 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
         "due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
         "Interest shall be charged on a weekly basis for a",
-        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid",
-        "accrue. The Recipient must then either:",
+        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
+        "The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
@@ -7565,7 +7567,7 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
   }
 };
 
-// ========== SALARY REPORT PDF (Branded, matching all company documents) ==========
+// salary report generator
 export const generateSalaryReportPDF = async (data) => {
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = 210;
@@ -7787,3 +7789,102 @@ export const generateManualOathOfSecrecyPDF = async () => {
     throw error;
   }
 };
+
+// ========== FINANCIAL REPORT PDF ==========
+export const generateFinancialReportPDF = async (reportData, periodLabel, chartImageData, type = 'loan', preview = false) => {
+  const doc = new jsPDF();
+  addOptimizedWatermark(doc, 'report');
+  let yPos = await addHeader(doc, 15);
+
+  // Title
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  const title = type === 'loan' ? 'LOAN FINANCIAL REPORT' : 'COMPANY FINANCIAL REPORT';
+  doc.text(title, 105, yPos, { align: 'center' });
+  yPos += 8;
+  yPos = addDivider(doc, yPos);
+  yPos += 6;
+
+  // Period
+  doc.setFontSize(10);
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Period: ${periodLabel}`, 105, yPos, { align: 'center' });
+  yPos += 10;
+
+  // Summary table
+  let rows = [];
+  if (type === 'loan') {
+    rows = [
+      ['Total Money Lent', formatCurrency(reportData.total_money_lent)],
+      ['Principal Collected', formatCurrency(reportData.principal_collected)],
+      ['Interest Collected', formatCurrency(reportData.interest_collected)],
+      ['Outstanding Principal', formatCurrency(reportData.outstanding_principal)],
+      ['Outstanding Interest', formatCurrency(reportData.outstanding_interest)],
+      ['Loan Recovery Rate', `${reportData.loan_recovery_rate.toFixed(2)}%`],
+      ['Total Claimed Amount', formatCurrency(reportData.total_claimed_amount)],
+      ['Total Recovered Value', formatCurrency(reportData.total_recovered_value)],
+      ['Claims Profit/Loss', formatCurrency(reportData.claims_profit_loss)],
+      ['Total Waived Amount', formatCurrency(reportData.total_waived_amount)],
+    ];
+  } else {
+    rows = [
+      ['Total Money In', formatCurrency(reportData.money_in.total)],
+      ['Total Money Out', formatCurrency(reportData.money_out.total)],
+      ['Revenue (In - Out)', formatCurrency(reportData.revenue)],
+    ];
+  }
+
+  autoTable(doc, {
+    startY: yPos,
+    head: [['Metric', 'Value']],
+    body: rows,
+    theme: 'striped',
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: COLORS.primaryBlue, textColor: 255 },
+  });
+
+  // Get the Y position after the table
+  const tableEndY = doc.lastAutoTable.finalY + 5;
+
+  // Chart image
+  let finalY = tableEndY;
+  if (chartImageData) {
+    const pageHeight = doc.internal.pageSize.height;
+    // Reserve 30mm for footer at the bottom
+    const maxAvailableHeight = pageHeight - tableEndY - 30;
+    const imgWidth = 170;
+    let imgHeight = (chartImageData.height / chartImageData.width) * imgWidth;
+
+    // If chart is too tall, scale it down to fit
+    if (imgHeight > maxAvailableHeight) {
+      const ratio = maxAvailableHeight / imgHeight;
+      imgHeight = maxAvailableHeight;
+      const scaledWidth = imgWidth * ratio;
+      doc.addImage(chartImageData.data, 'PNG', (210 - scaledWidth) / 2, tableEndY, scaledWidth, imgHeight);
+      finalY = tableEndY + imgHeight;
+    } else {
+      doc.addImage(chartImageData.data, 'PNG', 20, tableEndY, imgWidth, imgHeight);
+      finalY = tableEndY + imgHeight;
+    }
+  }
+
+  // Add footer at the bottom of the page
+  // Ensure footer is placed at least 15mm from the bottom
+  const pageHeight = doc.internal.pageSize.height;
+  const footerY = Math.min(finalY + 10, pageHeight - 15);
+  addFooter(doc, footerY);
+
+  // Add page numbers
+  addPageNumbers(doc, 'page %d');
+
+  const fileName = `Financial_Report_${type}_${periodLabel.replace(/\s/g, '_')}.pdf`;
+
+  if (preview) {
+    return doc.output('blob');
+  } else {
+    doc.save(fileName);
+  }
+};
+
+export { formatCurrency };

@@ -10,7 +10,6 @@ class UserLoginSchema(Schema):
     username = fields.Str(required=True)
     password = fields.Str(required=True)
 
-
 class ChangePasswordSchema(Schema):
     current_password = fields.Str(required=True)
     new_password = fields.Str(required=True, validate=lambda x: len(x) >= 6)

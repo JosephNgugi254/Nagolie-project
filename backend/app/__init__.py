@@ -38,14 +38,15 @@ def create_app(config_class=Config):
     import os  
     frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
     CORS(app,
-     origins=[
-         frontend_url,
-         "http://localhost:5173",
-         "https://nagolie-frontend.onrender.com"
-     ],
-     supports_credentials=True,
-     allow_headers=["Content-Type", "Authorization", "Accept"],
-     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+         origins=[
+             "http://localhost:5173",
+             "https://nagolie-frontend.onrender.com",
+             "https://www.nagolie.com",
+             "https://nagolie.com"
+         ],
+         supports_credentials=True,
+         allow_headers=["Content-Type", "Authorization", "Accept"],
+         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     )
     
     limiter.init_app(app)
@@ -72,6 +73,7 @@ def create_app(config_class=Config):
     from app.routes.recovery import recovery_bp
     from app.routes.biometric import biometric_bp
     from app.routes.salary import salary_bp
+    from app.routes.financial import financial_bp
 
 
     app.register_blueprint(biometric_bp)
@@ -85,7 +87,7 @@ def create_app(config_class=Config):
     app.register_blueprint(company_gallery_bp, url_prefix='/api/company-gallery')
     app.register_blueprint(recovery_bp, url_prefix='/api/recovery')
     app.register_blueprint(salary_bp, url_prefix='/api/salary')
-
+    app.register_blueprint(financial_bp)
     app.register_blueprint(test_bp, url_prefix='/api/test')
 
 

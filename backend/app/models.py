@@ -194,6 +194,10 @@ class Loan(db.Model):
     last_compounding_date = db.Column(db.DateTime, nullable=True)
 
 
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+
     # relationships
     investor = db.relationship('Investor', backref='loans', lazy=True)   
     livestock = db.relationship('Livestock', backref='loan', lazy='joined')
@@ -797,7 +801,6 @@ class RoleMenuItem(db.Model):
     role = db.relationship('Role', back_populates='menu_items')
     menu_item = db.relationship('MenuItem', back_populates='role_assignments')
 
-
 # ========== SALARY ADVANCE & MANAGEMENT ==========
 
 class StaffSalarySetting(db.Model):
@@ -821,7 +824,6 @@ class StaffSalarySetting(db.Model):
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
-
 
 class SalaryAdvanceRequest(db.Model):
     __tablename__ = 'salary_advance_requests'
@@ -853,7 +855,6 @@ class SalaryAdvanceRequest(db.Model):
             'payment_method': self.payment_method,
             'month': self.month,
         }
-
 
 class SalaryTransaction(db.Model):
     __tablename__ = 'salary_transactions'
@@ -924,4 +925,55 @@ class CallLog(db.Model):
             'is_group': self.is_group,
             'participants': self.group_participants,
             'message_id': self.message_id,
+        }
+    
+class PettyCashFunding(db.Model):
+    __tablename__ = 'petty_cash_fundings'
+    id = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    funded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    funded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    funder = db.relationship('User', foreign_keys=[funded_by])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'amount': float(self.amount),
+            'funded_by': self.funded_by,
+            'funded_by_name': self.funder.username if self.funder else None,
+            'funded_at': self.funded_at.isoformat(),
+            'notes': self.notes,
+            'type': 'funding'
+        }
+
+class PettyCashExpense(db.Model):
+    __tablename__ = 'petty_cash_expenses'
+    id = db.Column(db.Integer, primary_key=True)
+    description = db.Column(db.String(255), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
+    recorded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    notes = db.Column(db.Text)
+    attachments = db.Column(db.JSON, default=[])  # list of Cloudinary URLs or file paths
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    recorder = db.relationship('User', foreign_keys=[recorded_by])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'description': self.description,
+            'amount': float(self.amount),
+            'date': self.date.isoformat(),
+            'recorded_by': self.recorded_by,
+            'recorded_by_name': self.recorder.username if self.recorder else None,
+            'notes': self.notes,
+            'attachments': self.attachments or [],
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat(),
+            'type': 'expense'
         }
