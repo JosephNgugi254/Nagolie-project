@@ -29,7 +29,7 @@ function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
 • Total balance: KES ${(client?.current_principal + client?.accrued_interest)?.toLocaleString()}
 Please make your payment to avoid additional charges.
 
-Paybill: 247247, Account: 651259
+Paybill: 247247, Account: 262636
 Thank you.`;
 
   const defaultDeadlineMessage = (() => {
@@ -38,7 +38,7 @@ Thank you.`;
     const dueDateStr = dueDate ? dueDate.toLocaleDateString('en-KE') : 'the due date';
     return `Hello ${name}, your loan is approaching the 14‑day deadline (${dueDateStr}). You are expected to clear the total outstanding balance of KES ${totalBalance.toLocaleString()} by that date. Please visit our office to sign a compulsory loan renewal agreement if you will not have completed the balance, failure to which recovery will take place.
 
-Make your payment via Paybill: 247247, Account: 651259. Thank you.`;
+Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
   })();
 
   const defaultOverdueMessage = (() => {
@@ -47,7 +47,7 @@ Make your payment via Paybill: 247247, Account: 651259. Thank you.`;
     const dueDateStr = dueDate ? dueDate.toLocaleDateString('en-KE') : 'the due date';
     return `Hello ${name}, your loan has passed the 14‑day deadline (${dueDateStr}). As per the agreement, you must either clear the balance of KES ${totalBalance.toLocaleString()} in full OR visit our office immediately to sign a compulsory loan renewal agreement. Failure to do so will lead to recovery of the collateral.
 
-Make your payment via Paybill: 247247, Account: 651259. Thank you.`;
+Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
   })();
 
   const handleSend = async () => {

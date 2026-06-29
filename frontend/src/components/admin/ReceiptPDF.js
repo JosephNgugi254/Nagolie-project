@@ -4867,9 +4867,9 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   doc.setTextColor(...COLORS.textDark);
   doc.text('Paybill No: 247247', 22, yPos);
   yPos += 5;
-  doc.text('Account No: 651259', 22, yPos);
+  doc.text('Account No: 262636', 22, yPos);
   yPos += 5;
-  doc.text('Account Name: NAGOLIE ENTERPRISES', 22, yPos);
+  doc.text('Account Name: NAGOLIE ENTERPRISES LTD', 22, yPos);
 
   addFooter(doc, yPos + 15);
   addPageNumbers(doc, 'page %d');
@@ -5875,9 +5875,9 @@ export const generateInvoicePDF = async (data, preview = false) => {
   doc.setTextColor(...COLORS.textDark);
   doc.text('Paybill No: 247247', 20, yPos);
   yPos += 5;
-  doc.text('Account No: 651259', 20, yPos);
+  doc.text('Account No: 262636', 20, yPos);
   yPos += 5;
-  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+  doc.text('Account Name: NAGOLIE ENTERPRISES LTD', 20, yPos);
 
   addFooter(doc, yPos + 20);
 
@@ -6013,9 +6013,9 @@ export const generateDeliveryNotePDF = async (data, preview = false) => {
   doc.setTextColor(...COLORS.textDark);
   doc.text('Paybill No: 247247', 20, yPos);
   yPos += 5;
-  doc.text('Account No: 651259', 20, yPos);
+  doc.text('Account No: 262636', 20, yPos);
   yPos += 5;
-  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+  doc.text('Account Name: NAGOLIE ENTERPRISES LTD', 20, yPos);
   yPos = 10;
 
   // Signature section – ensure enough space
@@ -6168,9 +6168,9 @@ export const generateManualInvoicePDF = async () => {
   doc.setTextColor(...COLORS.textDark);
   doc.text('Paybill No: 247247', 20, yPos);
   yPos += 5;
-  doc.text('Account No: 651259', 20, yPos);
+  doc.text('Account No: 262636', 20, yPos);
   yPos += 5;
-  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+  doc.text('Account Name: NAGOLIE ENTERPRISES LTD', 20, yPos);
 
   addFooter(doc, yPos + 20);
   const fileName = `Manual_Invoice_${new Date().toISOString().split('T')[0]}.pdf`;
@@ -6272,9 +6272,9 @@ export const generateManualDeliveryNotePDF = async () => {
   doc.setTextColor(...COLORS.textDark);
   doc.text('Paybill No: 247247', 20, yPos);
   yPos += 5;
-  doc.text('Account No: 651259', 20, yPos);
+  doc.text('Account No: 262636', 20, yPos);
   yPos += 5;
-  doc.text('Account Name: NAGOLIE ENTERPRISES', 20, yPos);
+  doc.text('Account Name: NAGOLIE ENTERPRISES LTD', 20, yPos);
 
   // Delivery confirmation section
   yPos += 15;

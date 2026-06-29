@@ -2262,7 +2262,7 @@ Please make your payment to avoid additional charges.
 
 Make your payment via:
 Paybill: 247247
-Account: 651259
+Account: 262636
 
 Thank you for choosing us.`;
 

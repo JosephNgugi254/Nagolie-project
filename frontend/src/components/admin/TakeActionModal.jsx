@@ -29,14 +29,14 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
     const name = client?.client_name || client?.name;
     const totalBalance = client?.balance || 0;
     const dueDateStr = dueDate ? dueDate.toLocaleDateString('en-KE') : 'the due date';
-    return `Hello ${name}, your loan is approaching the 14‑day deadline (${dueDateStr}). You are expected to clear the total outstanding balance of KES ${totalBalance.toLocaleString()} by that date. Please visit our office to sign a compulsory loan renewal agreement if you will not have completed the balance, failure to which recovery will take place. Make your payment via Paybill: 247247, Account: 651259. Thank you.`;
+    return `Hello ${name}, your loan is approaching the 14‑day deadline (${dueDateStr}). You are expected to clear the total outstanding balance of KES ${totalBalance.toLocaleString()} by that date. Please visit our office to sign a compulsory loan renewal agreement if you will not have completed the balance, failure to which recovery will take place. Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
   })();
 
   const defaultOverdueMessage = (() => {
     const name = client?.client_name || client?.name;
     const totalBalance = client?.balance || 0;
     const dueDateStr = dueDate ? dueDate.toLocaleDateString('en-KE') : 'the due date';
-    return `Hello ${name}, your loan has passed the 14‑day deadline (${dueDateStr}). As per the agreement, you must either clear the balance of KES ${totalBalance.toLocaleString()} in full OR visit our office immediately to sign a compulsory loan renewal agreement. Failure to do so will lead to recovery of the collateral. Make your payment via Paybill: 247247, Account: 651259. Thank you.`;
+    return `Hello ${name}, your loan has passed the 14‑day deadline (${dueDateStr}). As per the agreement, you must either clear the balance of KES ${totalBalance.toLocaleString()} in full OR visit our office immediately to sign a compulsory loan renewal agreement. Failure to do so will lead to recovery of the collateral. Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
   })();
 
   const handleSend = async () => {
