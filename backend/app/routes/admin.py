@@ -952,7 +952,9 @@ def process_topup(loan_id):
     """
     Process a loan top‑up or principal adjustment.
     - Top‑up: adds extra amount to current principal, keeps all interest state.
-    - Adjustment: sets principal to a new value, preserves existing interest state.
+    - Adjustment: sets principal to a new value, clears prepaid markers,
+      computes the correct current‑period interest on the new principal,
+      and sets last_interest_payment_date to now so no retroactive interest is added.
     """
     try:
         data = request.json
@@ -966,36 +968,57 @@ def process_topup(loan_id):
             return jsonify({'error': 'Loan is not active'}), 400
 
         old_principal = loan.current_principal
-        delta = Decimal('0')
         txn_type = None
         txn_amt = None
         txn_notes = ''
 
         if topup_amount > 0:
             # --- TOP‑UP: add extra amount, keep all interest state ---
-            delta = topup_amount
-            loan.current_principal += delta
-            loan.balance = loan.current_principal   # will be corrected by recalc
+            loan.current_principal += topup_amount
+            loan.balance = loan.current_principal
             txn_type = 'topup'
             txn_amt = topup_amount
             txn_notes = f'Top-up of {format_currency(topup_amount)}'
 
         elif adjustment_amount > 0:
-            # --- ADJUSTMENT: set principal to new total amount ---
-            # CRITICAL: Do NOT reset interest, prepaid markers, or last_interest_payment_date.
-            # We keep the existing interest state intact – the loan has already accrued
-            # interest up to today, and we only change the principal going forward.
+            # --- ADJUSTMENT: set new principal and compute period interest ---
             loan.current_principal = adjustment_amount
-            loan.balance = adjustment_amount
+
+            # Clear prepaid markers
+            loan.interest_prepaid_period = None
+            loan.interest_prepaid_amount = Decimal('0')
+
+            # Compute the current period interest based on the new principal
+            if loan.repayment_plan == 'daily' and loan.interest_rate > 0:
+                period_interest = (loan.current_principal * Decimal('0.045')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+            else:
+                # Weekly or any other plan (30% per week)
+                period_interest = (loan.current_principal * Decimal('0.30')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+
+            # Set accrued_interest to this period's interest
+            loan.accrued_interest = period_interest
+
+            # Set balance = principal + current period interest
+            loan.balance = loan.current_principal + period_interest
+
+            # Set last_interest_payment_date to now – recalc will not add more interest for today
+            loan.last_interest_payment_date = datetime.utcnow()
+
+            # Reset compounding date for daily loans (if present)
+            loan.last_compounding_date = None
+
             txn_type = 'adjustment'
-            txn_amt = adjustment_amount - old_principal   # can be positive or negative
+            txn_amt = adjustment_amount - old_principal
             txn_notes = f'Adjustment from {format_currency(old_principal)} → {format_currency(adjustment_amount)}'
 
         else:
             return jsonify({'error': 'Invalid amount'}), 400
 
-        # Recalculate the loan – this will correctly accrue interest for the current period
-        # based on the new principal, while preserving past accrued interest.
+        # Recalculate the loan – no new interest will be added because last_interest_payment_date is now
         loan = recalculate_loan(loan)
 
         # Append any user notes
@@ -1038,7 +1061,7 @@ def process_topup(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-        
+            
 @admin_bp.route('/approved-loans', methods=['GET'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])

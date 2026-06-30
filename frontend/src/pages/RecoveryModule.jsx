@@ -837,6 +837,7 @@ function RecoveryModule() {
       current_principal: loan.current_principal || loan.principal_amount || 0,
       repayment_plan: loan.repayment_plan,
       interest_rate: loan.interest_rate, 
+      unpaidInterest: loan.accrued_interest || 0,
     };
     setSelectedClient(clientForTopup);
     setTopupAmount("");
@@ -1013,7 +1014,6 @@ function RecoveryModule() {
       return;
     }
 
-    // Get the correct current principal
     const oldPrincipal = selectedClient.current_principal || selectedClient.principal_amount || selectedClient.borrowedAmount || 0;
 
     let amount = 0;
@@ -1057,12 +1057,16 @@ function RecoveryModule() {
         setTopupReference("");
         setTopupNotes("");
 
-        await Promise.all([
-          fetchDirectorClients(),
-          fetchDirectorTransactions(),
-          fetchDirectorDashboard(),
-          fetchData()
-        ]);
+        // Refresh data based on user role
+        const refreshPromises = [fetchData()];
+
+        // Only call admin endpoints if the user has the required roles
+        const adminRoles = ['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'];
+        if (adminRoles.includes(userRole)) {
+          refreshPromises.push(fetchDirectorClients(), fetchDirectorTransactions(), fetchDirectorDashboard());
+        }
+
+        await Promise.all(refreshPromises);
       }
     } catch (error) {
       const errorMsg = error.response?.data?.error || error.message;
@@ -2730,6 +2734,7 @@ function RecoveryModule() {
                     </Modal>
                   )}
             
+                  {/* Top-up/Adjustment Modal */}
                   {showTopupModal && selectedClient && (
                     <Modal
                       isOpen={showTopupModal}
@@ -2756,25 +2761,28 @@ function RecoveryModule() {
                       </div>
                     
                       <div className="mb-3">
-                        <label className="form-label">Current Loan Amount</label>
+                        <label className="form-label">Current Principal</label>
                         <input
                           type="text"
                           className="form-control"
-                          value={fmt(selectedClient.current_principal || selectedClient.principal_amount || 0)}
+                          value={fmt(selectedClient.current_principal || selectedClient.currentPrincipal || 0)}
                           readOnly
                         />
                       </div>
                     
-                      <div className="mb-3">
-                        <label className="form-label">Current Total to Pay</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          value={fmt(selectedClient.balance || 0)}
-                          readOnly
-                        />
-                      </div>
-                    
+                      {/* Current Unpaid Interest – shown only for top‑up mode */}
+                      {isTopupMode && (
+                        <div className="mb-3">
+                          <label className="form-label">Current Unpaid Interest</label>
+                          <input
+                            type="text"
+                            className="form-control text-danger fw-bold"
+                            value={fmt(selectedClient.unpaidInterest || selectedClient.unpaid_interest || 0)}
+                            readOnly
+                          />
+                        </div>
+                      )}
+
                       <div className="mb-3">
                         <div className="form-check form-check-inline">
                           <input
@@ -2823,7 +2831,7 @@ function RecoveryModule() {
                       ) : (
                         <div className="mb-3">
                           <label htmlFor="adjustmentAmount" className="form-label">
-                            New Loan Amount (KSh) <span className="text-danger">*</span>
+                            New Principal Amount (KSh) <span className="text-danger">*</span>
                           </label>
                           <input
                             type="number"
@@ -2832,40 +2840,48 @@ function RecoveryModule() {
                             value={adjustmentAmount}
                             onChange={(e) => setAdjustmentAmount(e.target.value)}
                             min="1"
-                            placeholder="Enter new loan amount"
+                            placeholder="Enter new principal amount"
                             required
                           />
                         </div>
                       )}
-            
-                      {(topupAmount > 0 || adjustmentAmount > 0) && (
-                        <div className="alert alert-info">
-                          <h6>Calculation Preview:</h6>
-                          <p><strong>New Loan Amount:</strong> {formatCurrency(
-                            isTopupMode 
-                              ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
-                              : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
-                          )}</p>
-                          <p><strong>New Total to Pay:</strong> {formatCurrency(
-                            (() => {
-                              const newPrincipal = isTopupMode
-                                ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
-                                : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0);
-                              const plan = selectedClient?.repayment_plan;
-                              if (plan === 'daily') {
-                                // Immediate daily interest on the new principal
-                                const dailyRate = 0.045;
-                                return newPrincipal + (newPrincipal * dailyRate);
-                              } else {
-                                // Weekly loan – one week’s interest
-                                const weeklyRate = 0.30;
-                                return newPrincipal + (newPrincipal * weeklyRate);
-                              }
-                            })()
-                          )} <small>(including estimated interest)</small></p>
-                        </div>
-                      )}
-            
+
+                      {/* Dynamic Preview */}
+                      {(topupAmount > 0 || adjustmentAmount > 0) && (() => {
+                        const currentPrincipal = Number(selectedClient.current_principal || selectedClient.currentPrincipal || 0);
+                        const plan = selectedClient.repayment_plan || 'weekly';
+                        const interestRate = plan === 'daily' ? 0.045 : 0.30;
+                        const newPrincipal = isTopupMode
+                          ? currentPrincipal + parseFloat(topupAmount || 0)
+                          : parseFloat(adjustmentAmount || 0);
+                        const periodInterest = newPrincipal * interestRate;
+                      
+                        // ✅ For adjustment: no previous unpaid interest (backend resets it)
+                        const currentUnpaidInterest = isTopupMode
+                          ? Number(selectedClient.unpaidInterest || selectedClient.unpaid_interest || 0)
+                          : 0;
+                      
+                        const totalBalance = newPrincipal + currentUnpaidInterest + periodInterest;
+                      
+                        return (
+                          <div className="alert alert-info">
+                            <h6>Calculation Preview:</h6>
+                            <p><strong>New Principal:</strong> {fmt(newPrincipal)}</p>
+                            {isTopupMode && (
+                              <p><strong>Current Unpaid Interest (before top‑up):</strong> {fmt(currentUnpaidInterest)}</p>
+                            )}
+                            <p><strong>New Period Interest ({plan === 'daily' ? '4.5% daily' : '30% weekly'}):</strong> {fmt(periodInterest)}</p>
+                            <p><strong>New Total Balance:</strong> {fmt(totalBalance)}</p>
+                            {!isTopupMode && (
+                              <p className="text-muted small">
+                                <i className="fas fa-info-circle me-1"></i>
+                                Adjustment resets all prior interest – only the new period interest applies.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       <div className="mb-3">
                         <label htmlFor="topupMethod" className="form-label">
                           Disbursement Method <span className="text-danger">*</span>
@@ -2899,7 +2915,7 @@ function RecoveryModule() {
                           />
                         </div>
                       )}
-            
+
                       <div className="mb-3">
                         <label htmlFor="topupNotes" className="form-label">
                           Notes
@@ -2914,9 +2930,12 @@ function RecoveryModule() {
                         />
                       </div>
                     
+                      {/* Dynamic warning message */}
                       <div className="alert alert-warning">
                         <i className="fas fa-exclamation-triangle me-2"></i>
-                        This action will {isTopupMode ? 'increase' : 'modify'} the loan principal and recalculate the total amount with 30% interest.
+                        This action will {isTopupMode ? 'increase' : 'modify'} the loan principal to <strong>{fmt(isTopupMode ? (Number(selectedClient.current_principal || 0) + parseFloat(topupAmount || 0)) : parseFloat(adjustmentAmount || 0))}</strong>.
+                        The {selectedClient.repayment_plan === 'daily' ? 'daily (4.5% per day)' : 'weekly (30% per week)'} interest will be recalculated on the new principal.
+                        {!isTopupMode && ' Prepaid interest markers will be reset.'}
                       </div>
                     
                       <div className="d-flex gap-2">
@@ -4008,221 +4027,237 @@ function RecoveryModule() {
         />
       )}
 
+      {/* Top-up/Adjustment Modal */}
       {showTopupModal && selectedClient && (
-      <Modal
-        isOpen={showTopupModal}
-        onClose={() => {
-          setShowTopupModal(false);
-          setSelectedClient(null);
-          setTopupAmount("");
-          setAdjustmentAmount("");
-          setTopupMethod("cash");
-          setTopupReference("");
-          setTopupNotes("");
-        }}
-        title={isTopupMode ? "Loan Top-up" : "Loan Adjustment"}
-        size="md"
-      >
-        <div className="mb-3">
-          <label className="form-label">Client Name</label>
-          <input
-            type="text"
-            className="form-control"
-            value={selectedClient.name || 'N/A'}
-            readOnly
-          />
-        </div>
-      
-        <div className="mb-3">
-          <label className="form-label">Current Loan Amount</label>
-          <input
-            type="text"
-            className="form-control"
-            value={fmt(selectedClient.current_principal || selectedClient.principal_amount || 0)}
-            readOnly
-          />
-        </div>
-      
-        <div className="mb-3">
-          <label className="form-label">Current Total to Pay</label>
-          <input
-            type="text"
-            className="form-control"
-            value={fmt(((selectedClient.current_principal || selectedClient.principal_amount || 0)) * 1.3)}
-            readOnly
-          />
-        </div>
-      
-        <div className="mb-3">
-          <div className="form-check form-check-inline">
-            <input
-              className="form-check-input"
-              type="radio"
-              name="topupMode"
-              id="topupMode"
-              checked={isTopupMode}
-              onChange={() => setIsTopupMode(true)}
-            />
-            <label className="form-check-label" htmlFor="topupMode">
-              Top-up Loan
-            </label>
-          </div>
-          <div className="form-check form-check-inline">
-            <input
-              className="form-check-input"
-              type="radio"
-              name="adjustmentMode"
-              id="adjustmentMode"
-              checked={!isTopupMode}
-              onChange={() => setIsTopupMode(false)}
-            />
-            <label className="form-check-label" htmlFor="adjustmentMode">
-              Adjust Loan
-            </label>
-          </div>
-        </div>
-      
-        {isTopupMode ? (
+        <Modal
+          isOpen={showTopupModal}
+          onClose={() => {
+            setShowTopupModal(false);
+            setSelectedClient(null);
+            setTopupAmount("");
+            setAdjustmentAmount("");
+            setTopupMethod("cash");
+            setTopupReference("");
+            setTopupNotes("");
+          }}
+          title={isTopupMode ? "Loan Top-up" : "Loan Adjustment"}
+          size="md"
+        >
           <div className="mb-3">
-            <label htmlFor="topupAmount" className="form-label">
-              Top-up Amount (KSh) <span className="text-danger">*</span>
-            </label>
-            <input
-              type="number"
-              className="form-control"
-              id="topupAmount"
-              value={topupAmount}
-              onChange={(e) => setTopupAmount(e.target.value)}
-              min="1"
-              placeholder="Enter top-up amount"
-              required
-            />
-          </div>
-        ) : (
-          <div className="mb-3">
-            <label htmlFor="adjustmentAmount" className="form-label">
-              New Loan Amount (KSh) <span className="text-danger">*</span>
-            </label>
-            <input
-              type="number"
-              className="form-control"
-              id="adjustmentAmount"
-              value={adjustmentAmount}
-              onChange={(e) => setAdjustmentAmount(e.target.value)}
-              min="1"
-              placeholder="Enter new loan amount"
-              required
-            />
-          </div>
-        )}
-
-        {(topupAmount > 0 || adjustmentAmount > 0) && (
-          <div className="alert alert-info">
-            <h6>Calculation Preview:</h6>
-            <p><strong>New Loan Amount:</strong> {fmt(
-              isTopupMode
-                ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
-                : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
-            )}</p>
-            <p><strong>New Total to Pay:</strong> {fmt(
-              (() => {
-                const newPrincipal = isTopupMode
-                  ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
-                  : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0);
-                const plan = selectedClient?.repayment_plan;
-                if (plan === 'daily') {
-                  const dailyRate = 0.045;
-                  const days = 14; // typical duration – adjust if needed
-                  return newPrincipal + (newPrincipal * dailyRate * days);
-                } else {
-                  const weeklyRate = 0.30;
-                  return newPrincipal + (newPrincipal * weeklyRate);
-                }
-              })()
-            )} <small>(including estimated interest)</small></p>
-          </div>
-        )}
-
-        <div className="mb-3">
-          <label htmlFor="topupMethod" className="form-label">
-            Disbursement Method <span className="text-danger">*</span>
-          </label>
-          <select
-            className="form-control"
-            id="topupMethod"
-            value={topupMethod}
-            onChange={(e) => setTopupMethod(e.target.value)}
-            required
-          >
-            <option value="cash">Cash</option>
-            <option value="mpesa">M-Pesa</option>
-          </select>
-        </div>
-      
-        {topupMethod === 'mpesa' && (
-          <div className="mb-3">
-            <label htmlFor="topupReference" className="form-label">
-              M-Pesa Reference Code <span className="text-danger">*</span>
-            </label>
+            <label className="form-label">Client Name</label>
             <input
               type="text"
               className="form-control"
-              id="topupReference"
-              value={topupReference}
-              onChange={(e) => setTopupReference(e.target.value)}
-              placeholder="Enter M-Pesa reference (e.g., RB64AX25B1)"
-              style={{ textTransform: 'uppercase' }}
-              required
+              value={selectedClient.name || 'N/A'}
+              readOnly
             />
           </div>
-        )}
-
-        <div className="mb-3">
-          <label htmlFor="topupNotes" className="form-label">
-            Notes
-          </label>
-          <textarea
-            className="form-control"
-            id="topupNotes"
-            value={topupNotes}
-            onChange={(e) => setTopupNotes(e.target.value)}
-            placeholder="Additional notes about this top-up or adjustment"
-            rows="3"
-          />
-        </div>
+        
+          <div className="mb-3">
+            <label className="form-label">Current Principal</label>
+            <input
+              type="text"
+              className="form-control"
+              value={fmt(selectedClient.current_principal || selectedClient.currentPrincipal || 0)}
+              readOnly
+            />
+          </div>
+        
+          {/* Current Unpaid Interest – shown only for top‑up mode */}
+          {isTopupMode && (
+            <div className="mb-3">
+              <label className="form-label">Current Unpaid Interest</label>
+              <input
+                type="text"
+                className="form-control text-danger fw-bold"
+                value={fmt(selectedClient.unpaidInterest || selectedClient.unpaid_interest || 0)}
+                readOnly
+              />
+            </div>
+          )}
+        
+          <div className="mb-3">
+            <div className="form-check form-check-inline">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="topupMode"
+                id="topupMode"
+                checked={isTopupMode}
+                onChange={() => setIsTopupMode(true)}
+              />
+              <label className="form-check-label" htmlFor="topupMode">
+                Top-up Loan
+              </label>
+            </div>
+            <div className="form-check form-check-inline">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="adjustmentMode"
+                id="adjustmentMode"
+                checked={!isTopupMode}
+                onChange={() => setIsTopupMode(false)}
+              />
+              <label className="form-check-label" htmlFor="adjustmentMode">
+                Adjust Loan
+              </label>
+            </div>
+          </div>
+        
+          {isTopupMode ? (
+            <div className="mb-3">
+              <label htmlFor="topupAmount" className="form-label">
+                Top-up Amount (KSh) <span className="text-danger">*</span>
+              </label>
+              <input
+                type="number"
+                className="form-control"
+                id="topupAmount"
+                value={topupAmount}
+                onChange={(e) => setTopupAmount(e.target.value)}
+                min="1"
+                placeholder="Enter top-up amount"
+                required
+              />
+            </div>
+          ) : (
+            <div className="mb-3">
+              <label htmlFor="adjustmentAmount" className="form-label">
+                New Principal Amount (KSh) <span className="text-danger">*</span>
+              </label>
+              <input
+                type="number"
+                className="form-control"
+                id="adjustmentAmount"
+                value={adjustmentAmount}
+                onChange={(e) => setAdjustmentAmount(e.target.value)}
+                min="1"
+                placeholder="Enter new principal amount"
+                required
+              />
+            </div>
+          )}
       
-        <div className="alert alert-warning">
-          <i className="fas fa-exclamation-triangle me-2"></i>
-          This action will {isTopupMode ? 'increase' : 'modify'} the loan principal and recalculate the total amount with 30% interest.
-        </div>
+          {/* Dynamic Preview */}
+          {(topupAmount > 0 || adjustmentAmount > 0) && (() => {
+            const currentPrincipal = Number(selectedClient.current_principal || selectedClient.currentPrincipal || 0);
+            const plan = selectedClient.repayment_plan || 'weekly';
+            const interestRate = plan === 'daily' ? 0.045 : 0.30;
+            const newPrincipal = isTopupMode
+              ? currentPrincipal + parseFloat(topupAmount || 0)
+              : parseFloat(adjustmentAmount || 0);
+            const periodInterest = newPrincipal * interestRate;
+          
+            // ✅ For adjustment: no previous unpaid interest (backend resets it)
+            const currentUnpaidInterest = isTopupMode
+              ? Number(selectedClient.unpaidInterest || selectedClient.unpaid_interest || 0)
+              : 0;
+          
+            const totalBalance = newPrincipal + currentUnpaidInterest + periodInterest;
+          
+            return (
+              <div className="alert alert-info">
+                <h6>Calculation Preview:</h6>
+                <p><strong>New Principal:</strong> {fmt(newPrincipal)}</p>
+                {isTopupMode && (
+                  <p><strong>Current Unpaid Interest (before top‑up):</strong> {fmt(currentUnpaidInterest)}</p>
+                )}
+                <p><strong>New Period Interest ({plan === 'daily' ? '4.5% daily' : '30% weekly'}):</strong> {fmt(periodInterest)}</p>
+                <p><strong>New Total Balance:</strong> {fmt(totalBalance)}</p>
+                {!isTopupMode && (
+                  <p className="text-muted small">
+                    <i className="fas fa-info-circle me-1"></i>
+                    Adjustment resets all prior interest – only the new period interest applies.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
       
-        <div className="d-flex gap-2">
-          <button
-            type="button"
-            className="btn btn-warning"
-            onClick={handleTopup}
-            disabled={(isTopupMode && !topupAmount) || (!isTopupMode && !adjustmentAmount)}
-          >
-            <i className="fas fa-edit me-2"></i>
-            Process {isTopupMode ? 'Top-up' : 'Adjustment'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => {
-              setShowTopupModal(false);
-              setSelectedClient(null);
-              setTopupAmount("");
-              setAdjustmentAmount("");
-              setTopupMethod("cash");
-              setTopupReference("");
-              setTopupNotes("");
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </Modal>
+          <div className="mb-3">
+            <label htmlFor="topupMethod" className="form-label">
+              Disbursement Method <span className="text-danger">*</span>
+            </label>
+            <select
+              className="form-control"
+              id="topupMethod"
+              value={topupMethod}
+              onChange={(e) => setTopupMethod(e.target.value)}
+              required
+            >
+              <option value="cash">Cash</option>
+              <option value="mpesa">M-Pesa</option>
+            </select>
+          </div>
+        
+          {topupMethod === 'mpesa' && (
+            <div className="mb-3">
+              <label htmlFor="topupReference" className="form-label">
+                M-Pesa Reference Code <span className="text-danger">*</span>
+              </label>
+              <input
+                type="text"
+                className="form-control"
+                id="topupReference"
+                value={topupReference}
+                onChange={(e) => setTopupReference(e.target.value)}
+                placeholder="Enter M-Pesa reference (e.g., RB64AX25B1)"
+                style={{ textTransform: 'uppercase' }}
+                required
+              />
+            </div>
+          )}
+      
+          <div className="mb-3">
+            <label htmlFor="topupNotes" className="form-label">
+              Notes
+            </label>
+            <textarea
+              className="form-control"
+              id="topupNotes"
+              value={topupNotes}
+              onChange={(e) => setTopupNotes(e.target.value)}
+              placeholder="Additional notes about this top-up or adjustment"
+              rows="3"
+            />
+          </div>
+        
+          {/* Dynamic warning message */}
+          <div className="alert alert-warning">
+            <i className="fas fa-exclamation-triangle me-2"></i>
+            This action will {isTopupMode ? 'increase' : 'modify'} the loan principal to <strong>{fmt(isTopupMode ? (Number(selectedClient.current_principal || 0) + parseFloat(topupAmount || 0)) : parseFloat(adjustmentAmount || 0))}</strong>.
+            The {selectedClient.repayment_plan === 'daily' ? 'daily (4.5% per day)' : 'weekly (30% per week)'} interest will be recalculated on the new principal.
+            {!isTopupMode && ' Prepaid interest markers will be reset.'}
+          </div>
+        
+          <div className="d-flex gap-2">
+            <button
+              type="button"
+              className="btn btn-warning"
+              onClick={handleTopup}
+              disabled={(isTopupMode && !topupAmount) || (!isTopupMode && !adjustmentAmount)}
+            >
+              <i className="fas fa-edit me-2"></i>
+              Process {isTopupMode ? 'Top-up' : 'Adjustment'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowTopupModal(false);
+                setSelectedClient(null);
+                setTopupAmount("");
+                setAdjustmentAmount("");
+                setTopupMethod("cash");
+                setTopupReference("");
+                setTopupNotes("");
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </Modal>
       )}
 
       <ConfirmationDialog
