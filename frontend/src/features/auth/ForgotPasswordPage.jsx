@@ -139,7 +139,7 @@ function ForgotPasswordPage() {
                   }}
                 ></button>
                 
-                <img src="/logo.png" alt="Nagolie" height="50" style={{borderRadius:5}} className="mb-3" />
+                <img src="/nagolie-logo.png" alt="Nagolie" height="50" style={{borderRadius:5}} className="mb-3" />
                 <h4 className="mb-0">Reset Your Password</h4>
                 <p className="mb-0 mt-2" style={{color:"#000000ff"}}>
                   {emailSent ? "Check your email" : "Enter your email to reset password"}

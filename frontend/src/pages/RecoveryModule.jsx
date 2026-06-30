@@ -52,17 +52,12 @@ import { useSocket } from '../context/SocketContext';
 import FinancialReports from '../components/financial/FinancialReports';
 import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
 
-
-
 // import { CallProvider, useCall } from '../context/CallContext';
 // import IncomingCallModal from '../components/call/IncomingCallModal';
 // import CallScreen from '../components/call/CallScreen';
 // import FloatingCallWidget from '../components/call/FloatingCallWidget';
 // import AddParticipantModal from '../components/call/AddParticipantModal';
 // import CallUI from '../components/call/CallUI';
-
-
-
 
 const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MAX_CHAT_WINDOWS = 4;
@@ -840,6 +835,8 @@ function RecoveryModule() {
       name: loan.name,           // Already present
       borrowedAmount: loan.current_principal || loan.principal_amount || 0, // For consistency
       current_principal: loan.current_principal || loan.principal_amount || 0,
+      repayment_plan: loan.repayment_plan,
+      interest_rate: loan.interest_rate, 
     };
     setSelectedClient(clientForTopup);
     setTopupAmount("");
@@ -1608,7 +1605,7 @@ function RecoveryModule() {
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/logo.png" alt="Nagolie" height="30" className="me-2" onError={(e) => e.target.style.display='none'} />
+            <img src="/nagolie-logo.png" alt="Nagolie" height="30" style={{borderRadius:5}} className="me-2" onError={(e) => e.target.style.display='none'} />
             <span className="d-none d-lg-inline">Nagolie Recovery Module</span>
             <span className="d-lg-none">Recovery</span>
           </a>
@@ -2773,7 +2770,7 @@ function RecoveryModule() {
                         <input
                           type="text"
                           className="form-control"
-                          value={fmt(((selectedClient.current_principal || selectedClient.principal_amount || 0)) * 1.3)}
+                          value={fmt(selectedClient.balance || 0)}
                           readOnly
                         />
                       </div>
@@ -2844,17 +2841,28 @@ function RecoveryModule() {
                       {(topupAmount > 0 || adjustmentAmount > 0) && (
                         <div className="alert alert-info">
                           <h6>Calculation Preview:</h6>
-                          <p><strong>New Loan Amount:</strong> {fmt(
-                            isTopupMode
-                              ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
-                              : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
+                          <p><strong>New Loan Amount:</strong> {formatCurrency(
+                            isTopupMode 
+                              ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
+                              : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
                           )}</p>
-                          <p><strong>New Total to Pay:</strong> {fmt(
-                            (isTopupMode
-                              ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
-                              : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
-                            ) * 1.3
-                          )} <small>(including 30% interest)</small></p>
+                          <p><strong>New Total to Pay:</strong> {formatCurrency(
+                            (() => {
+                              const newPrincipal = isTopupMode
+                                ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
+                                : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0);
+                              const plan = selectedClient?.repayment_plan;
+                              if (plan === 'daily') {
+                                // Immediate daily interest on the new principal
+                                const dailyRate = 0.045;
+                                return newPrincipal + (newPrincipal * dailyRate);
+                              } else {
+                                // Weekly loan – one week’s interest
+                                const weeklyRate = 0.30;
+                                return newPrincipal + (newPrincipal * weeklyRate);
+                              }
+                            })()
+                          )} <small>(including estimated interest)</small></p>
                         </div>
                       )}
             
@@ -4117,11 +4125,21 @@ function RecoveryModule() {
                 : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
             )}</p>
             <p><strong>New Total to Pay:</strong> {fmt(
-              (isTopupMode
-                ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
-                : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0)
-              ) * 1.3
-            )} <small>(including 30% interest)</small></p>
+              (() => {
+                const newPrincipal = isTopupMode
+                  ? (selectedClient.current_principal || selectedClient.principal_amount || 0) + parseFloat(topupAmount || 0)
+                  : parseFloat(adjustmentAmount || selectedClient.current_principal || selectedClient.principal_amount || 0);
+                const plan = selectedClient?.repayment_plan;
+                if (plan === 'daily') {
+                  const dailyRate = 0.045;
+                  const days = 14; // typical duration – adjust if needed
+                  return newPrincipal + (newPrincipal * dailyRate * days);
+                } else {
+                  const weeklyRate = 0.30;
+                  return newPrincipal + (newPrincipal * weeklyRate);
+                }
+              })()
+            )} <small>(including estimated interest)</small></p>
           </div>
         )}
 

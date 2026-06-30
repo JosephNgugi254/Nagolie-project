@@ -433,7 +433,7 @@ function InvestorPanel() {
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/logo.png" alt="Nagolie Enterprises Ltd" height="30" className="me-2" />
+            <img src="/nagolie-logo.png" alt="Nagolie Enterprises Ltd" height="30" style={{borderRadius:5}} className="me-2" />
             <span>Investor Dashboard</span>
           </a>
 

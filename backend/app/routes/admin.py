@@ -947,19 +947,24 @@ def claim_ownership():
 
 @admin_bp.route('/loans/<int:loan_id>/topup', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director','secretary','head_of_it', 'client_relations_officer', 'hr_manager'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'client_relations_officer', 'hr_manager'])
 def process_topup(loan_id):
+    """
+    Process a loan top‑up or principal adjustment.
+    - Top‑up: adds extra amount to current principal, keeps all interest state.
+    - Adjustment: sets principal to a new value, preserves existing interest state.
+    """
     try:
-        data             = request.json
-        topup_amount     = Decimal(str(data.get('topup_amount', 0)))
+        data = request.json
+        topup_amount = Decimal(str(data.get('topup_amount', 0)))
         adjustment_amount = Decimal(str(data.get('adjustment_amount', 0)))
+
         loan = db.session.get(Loan, loan_id)
         if not loan:
-            return jsonify({'error': 'Not found'}), 404
+            return jsonify({'error': 'Loan not found'}), 404
         if loan.status != 'active':
-            return jsonify({'error': 'Not active'}), 400
+            return jsonify({'error': 'Loan is not active'}), 400
 
-        # Use current principal as the baseline
         old_principal = loan.current_principal
         delta = Decimal('0')
         txn_type = None
@@ -967,33 +972,37 @@ def process_topup(loan_id):
         txn_notes = ''
 
         if topup_amount > 0:
-            # TOP-UP: add extra amount to current principal only
+            # --- TOP‑UP: add extra amount, keep all interest state ---
             delta = topup_amount
             loan.current_principal += delta
-            loan.balance = loan.current_principal   # will be updated by recalc
+            loan.balance = loan.current_principal   # will be corrected by recalc
             txn_type = 'topup'
             txn_amt = topup_amount
             txn_notes = f'Top-up of {format_currency(topup_amount)}'
 
         elif adjustment_amount > 0:
-            # ADJUSTMENT: set current principal to the new total amount
-            delta = adjustment_amount - loan.current_principal
+            # --- ADJUSTMENT: set principal to new total amount ---
+            # CRITICAL: Do NOT reset interest, prepaid markers, or last_interest_payment_date.
+            # We keep the existing interest state intact – the loan has already accrued
+            # interest up to today, and we only change the principal going forward.
             loan.current_principal = adjustment_amount
             loan.balance = adjustment_amount
             txn_type = 'adjustment'
-            txn_amt = delta   # positive or negative delta
+            txn_amt = adjustment_amount - old_principal   # can be positive or negative
             txn_notes = f'Adjustment from {format_currency(old_principal)} → {format_currency(adjustment_amount)}'
 
         else:
             return jsonify({'error': 'Invalid amount'}), 400
 
-        # Recalculate loan to apply correct interest based on new principal
+        # Recalculate the loan – this will correctly accrue interest for the current period
+        # based on the new principal, while preserving past accrued interest.
         loan = recalculate_loan(loan)
 
         # Append any user notes
         if data.get('notes'):
             txn_notes += f'. {data["notes"]}'
 
+        # Create transaction record
         txn = Transaction(
             loan_id=loan.id,
             transaction_type=txn_type,
@@ -1006,6 +1015,7 @@ def process_topup(loan_id):
         db.session.add(txn)
         db.session.commit()
 
+        # Record ledger entry
         record_ledger_entry(
             loan=loan,
             event_type='adjustment',
@@ -1017,12 +1027,18 @@ def process_topup(loan_id):
         )
         db.session.commit()
 
-        return jsonify({'success': True, 'loan': loan.to_dict()}), 200
+        return jsonify({
+            'success': True,
+            'message': f'Loan {txn_type} processed successfully',
+            'loan': loan.to_dict()
+        }), 200
 
     except Exception as e:
         db.session.rollback()
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
+        
 @admin_bp.route('/approved-loans', methods=['GET'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
@@ -1828,7 +1844,6 @@ def get_single_livestock(livestock_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
 # ---------------------------------------------------------------------------
 # Loan statement endpoints (new)
 # ---------------------------------------------------------------------------
@@ -1910,7 +1925,6 @@ def get_consolidated_statement(loan_id):
         })
     return jsonify(result), 200
 
-
 # ------------------- Report Management -------------------
 
 @admin_bp.route('/day-assignments', methods=['GET'])
@@ -1930,7 +1944,6 @@ def get_day_assignments():
             'days': assigned_days
         })
     return jsonify(result), 200
-
 
 @admin_bp.route('/day-assignments', methods=['POST'])
 @jwt_required()
@@ -1958,7 +1971,6 @@ def update_day_assignments():
     # Rebuild all day-based client assignments
     refresh_day_assignments()
     return jsonify({'success': True}), 200
-
 
 @admin_bp.route('/client-assignments', methods=['GET'])
 @cross_origin(origins=allowed_origins, supports_credentials=True)

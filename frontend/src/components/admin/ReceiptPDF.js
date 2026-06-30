@@ -15,7 +15,7 @@ const COMPANY_INFO = {
   email: 'nagolieenterprisesltd@gmail.com',
   hours: 'Everyday: 8:00 AM - 6:00 PM',
   poBox: 'P.O BOX 359-01100',
-  logoUrl: '/logo.png',
+  logoUrl: '/nagolie-logo-without-bg.png',
 };
 
 // Colors from your :root (converted to RGB for jsPDF)
@@ -160,14 +160,14 @@ export const getLogoBase64 = async (url) => {
 };
 
 // Common header function for all PDFs
-export const addHeader = async (doc, yStart = 15) => {
+export const addHeader = async (doc, yStart = 20) => {
   const logoBase64 = await getLogoBase64(COMPANY_INFO.logoUrl);
   let yPos = yStart;
   
   // Header with logo and company info side by side
   if (logoBase64) {
     // Add logo with proper dimensions (maintain aspect ratio)
-    doc.addImage(logoBase64, 'PNG', 20, yPos, 25, 25);
+    doc.addImage(logoBase64, 'PNG', 20, yPos-4.5, 38, 38);
   }
   
   // Company info aligned to the right of logo

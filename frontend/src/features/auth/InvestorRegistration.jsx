@@ -141,7 +141,7 @@ function InvestorRegistration() {
           <div className="col-md-6 col-lg-5">
             <div className="card shadow-lg border-0">
               <div className="card-header bg-primary text-white text-center py-4">
-                <img src="/logo.png" alt="Nagolie" height="50" className="mb-3" />
+                <img src="/nagolie-logo.png" alt="Nagolie" height="50" style={{borderRadius:5}} className="mb-3" />
                 <h3 className="mb-0">Complete Investor Registration</h3>
                 <p className="mb-0 mt-2">Create your investor account</p>
               </div>

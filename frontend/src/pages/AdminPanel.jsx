@@ -2649,7 +2649,7 @@ Thank you for choosing us.`;
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/logo.png" alt="Nagolie Enterprises Ltd" height="30" className="me-2" />
+            <img src="/nagolie-logo.png" alt="Nagolie Enterprises Ltd" height="30" style={{borderRadius:5}} className="me-2" />
             <span>Admin Dashboard</span>
           </a>
 
@@ -5158,7 +5158,7 @@ Thank you for choosing us.`;
             <input 
               type="text" 
               className="form-control" 
-              value={formatCurrency(selectedClient.borrowedAmount ? selectedClient.borrowedAmount * 1.3 : 0)} 
+              value={formatCurrency(selectedClient.balance || 0)} 
               readOnly 
             />
           </div>
@@ -5236,11 +5236,22 @@ Thank you for choosing us.`;
                   : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
               )}</p>
               <p><strong>New Total to Pay:</strong> {formatCurrency(
-                (isTopupMode 
-                  ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
-                  : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0)
-                ) * 1.3
-              )} <small>(including 30% interest)</small></p>
+                (() => {
+                  const newPrincipal = isTopupMode
+                    ? (selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0) + parseFloat(topupAmount || 0)
+                    : parseFloat(adjustmentAmount || selectedClient.currentPrincipal || selectedClient.borrowedAmount || 0);
+                  const plan = selectedClient?.repayment_plan;
+                  if (plan === 'daily') {
+                    // Immediate daily interest on the new principal
+                    const dailyRate = 0.045;
+                    return newPrincipal + (newPrincipal * dailyRate);
+                  } else {
+                    // Weekly loan – one week’s interest
+                    const weeklyRate = 0.30;
+                    return newPrincipal + (newPrincipal * weeklyRate);
+                  }
+                })()
+              )} <small>(including estimated interest)</small></p>
             </div>
           )}
 

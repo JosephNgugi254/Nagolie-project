@@ -13,7 +13,7 @@ const COMPANY_INFO = {
   email: 'nagolieenterprises@gmail.com',
   hours: 'Everyday: 8:00 AM - 6:00 PM',
   poBox: 'P.O BOX 359-01100',
-  logoUrl: '/logo.png'
+  logoUrl: '/nagolie-logo-without-bg.png'
 };
 
 function ShareLinkModal({ isOpen, onClose, shareLinkData }) {

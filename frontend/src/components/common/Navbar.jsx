@@ -41,8 +41,8 @@ function Navbar() {
     <nav className="navbar navbar-expand-lg navbar-light bg-white fixed-top shadow-sm">
       <div className="container">
         <Link className="navbar-brand d-flex align-items-center" to="/">
-          <img src="/logo.png" alt="Nagolie Enterprises Ltd" height="40" style={{borderRadius:5}} className="me-2" />
-          <span className="brand-text">Nagolie Enterprises Ltd</span>
+          <img src="/nagolie-logo-without-bg.png" alt="Nagolie Enterprises Ltd" height="50" style={{borderRadius:5}} className="me-2" />
+          <span className="brand-text">Nagolie Enteprises Ltd</span>
         </Link>
         <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
           <span className="navbar-toggler-icon"></span>
@@ -58,7 +58,7 @@ function Navbar() {
                   if (location.pathname === "/") {
                     handleNavLinkClick("home", e) // Updated to use new function
                   }
-                }}
+                }} 
               >
                 Home
               </Link>

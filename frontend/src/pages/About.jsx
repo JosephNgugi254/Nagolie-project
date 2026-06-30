@@ -300,7 +300,7 @@ function About() {
             >
               <div className="about-image">
                 <img
-                  src="/logo.png"
+                  src="/nagolie-logo-without-bg.png"
                   alt="Nagolie Enterprises Ltd Logo"
                   className="img-fluid rounded shadow"
                   width="500"

@@ -218,12 +218,12 @@ section {
 
 /* Navbar Styles */
 .navbar {
-  padding: 1rem 0;
+  padding: 0.7rem 0;
   transition: all 0.3s ease;
 }
 
 .brand-text {
-  font-weight: 700;
+  font-weight: 600;
   font-size: 1.5rem;
   color: var(--primary-blue);
 }
@@ -233,7 +233,7 @@ section {
   font-weight: 500;
   color: var(--text-dark) !important;
   transition: color 0.3s ease;
-  padding: 0.5rem 1rem !important;
+  padding: 0.5rem 0.8rem !important;
 }
 
 .nav-link:hover {
