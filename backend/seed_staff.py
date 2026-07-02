@@ -9,7 +9,7 @@ def seed_staff():
     with app.app_context():
         staff_data = [
             {
-                'username': 'director',
+                'username': 'Director',
                 'first_name': 'Shadrack',
                 'last_name': 'Kesumet',
                 'phone': '254721451707',
