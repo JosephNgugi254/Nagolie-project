@@ -455,7 +455,7 @@ function Home() {
                 >
                   Transform your livestock into financial opportunities, powered by value chain insights,
                   productivity and real asset value. Quick, secure, reliable and trusted
-                  services in Isinya, Kajiado County.
+                  services in Isinya, Kajiado County and Beyond.
                 </motion.p>
                 <div className="hero-buttons">
                   <a href="#loan-application" className="btn btn-primary btn-lg me-3">
