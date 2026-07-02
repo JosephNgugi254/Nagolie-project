@@ -1306,7 +1306,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    doc.text('CONFIRMED BY:', 20, yPos);
+    doc.text('FOR NAGOLIE:', 20, yPos);
     yPos += 8;
 
     const colW = 190 / 3;
@@ -1855,11 +1855,11 @@ export const generateManualLoanAgreementPDF = async () => {
 
     yPos = thumbBoxY + thumbH + 18;
 
-    // CONFIRMED BY section
+    // FOR NAGOLIE section
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    doc.text('CONFIRMED BY:', 20, yPos);
+    doc.text('FOR NAGOLIE:', 20, yPos);
     yPos += 8;
 
     const colW = 190 / 3;
@@ -3971,7 +3971,7 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     const rightX = 20 + 95;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('CONFIRMED BY:', 20, yPos);
+    doc.text('FOR NAGOLIE:', 20, yPos);
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');
@@ -4161,7 +4161,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     const rightX = 20 + 95;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('CONFIRMED BY:', 20, yPos);
+    doc.text('FOR NAGOLIE:', 20, yPos);
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');
@@ -5045,7 +5045,7 @@ export const generateLoanWaiverAgreementAutoPDF = async (loanData, newPrincipal,
     const rightX = 20 + 95;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('CONFIRMED BY:', 20, yPos);
+    doc.text('FOR NAGOLIE:', 20, yPos);
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');
@@ -5251,7 +5251,7 @@ export const generateManualLoanWaiverAgreementPDF = async () => {
     const rightX = 20 + 95;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('CONFIRMED BY:', 20, yPos);
+    doc.text('FOR NAGOLIE:', 20, yPos);
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');

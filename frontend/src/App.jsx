@@ -17,6 +17,7 @@ import CompanyGallery from "./pages/CompanyGallery";
 import RecoveryModule from './pages/RecoveryModule';
 import ForgotPasswordPage from "./features/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./features/auth/ResetPasswordPage";
+import StaffProfile from './pages/StaffProfile';
 import "./index.css";
 
 function App() {
@@ -41,6 +42,7 @@ function App() {
                 <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/company-gallery" element={<CompanyGallery />} />
                 <Route path="/recovery" element={<RecoveryModule />} />
+                <Route path="/staff/:staffNumber" element={<StaffProfile />} />
               </Routes>
             </Router>
           </CallProvider>

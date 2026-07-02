@@ -117,7 +117,7 @@ function About() {
     },
     {
       name: "George Marite",
-      role: "Senior Livestock Valuer",
+      role: "Senior Livestock Valuer & Recovery Officer",
       bio: "Expert in livestock valuation and local market dynamics, ensuring accurate assessments and fair purchase terms for all clients.",
       image: "/george1.jpeg",
       whatsapp: "https://wa.me/254703994290",
@@ -129,7 +129,7 @@ function About() {
       bio: "Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises Ltd.",
       image: "/Glado.png",
       whatsapp: "https://wa.me/0727635515",
-      email: ""
+      email: "sakinoigladys@gmail.com"
     },
     {
       name: "Ann Ndura",
@@ -161,8 +161,8 @@ function About() {
       role: "Human Resource Manager",
       bio: "Responsible for overseeing recruitment, staff welfare, and organizational development to ensure efficient and motivated workforce operations at Nagolie Enterprises Ltd.",
       image: "./Terry.png",
-      whatsapp: "https://wa.me/",
-      email: ""
+      whatsapp: "https://wa.me/24717167762",
+      email: "terrykintei02@gmail.com"
     },
     {
       name: "Tait Lesiamon",
@@ -182,11 +182,11 @@ function About() {
     },
     {
       name: "Robert Kalama",
-      role: "Livestock Valuer",
+      role: "Livestock Valuer & Recovery Officer",
       bio: "Livestock Valuer leading our Emarti branch providing accurate and fair assessments for loans and purchases.",
       image: "/kalama-valuer-emarti.jpeg",
       whatsapp: "https://wa.me/+254711744388",
-      email: ""
+      email: "robertkalama505@gmail.com"
     }
   ]
 

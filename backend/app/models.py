@@ -21,6 +21,11 @@ class User(db.Model):
     webauthn_sign_count = db.Column(db.Integer, default=0)
     webauthn_transports = db.Column(db.JSON, nullable=True)  # stores list of strings
 
+    first_name  = db.Column(db.String(80), nullable=True)
+    last_name   = db.Column(db.String(80), nullable=True)
+    phone       = db.Column(db.String(20), nullable=True)
+    national_id = db.Column(db.String(20), nullable=True, unique=True)
+
     default_branch = db.Column(db.String(20), default='all')  # 'all', 'isinya', 'emarti'
 
     role_obj = db.relationship('Role', back_populates='users', foreign_keys=[role_id])
@@ -63,6 +68,36 @@ class User(db.Model):
             'webauthn_credential_id': self.webauthn_credential_id,
             'webauthn_enabled': bool(self.webauthn_credential_id),
         }
+
+class Staff(db.Model):
+    __tablename__ = 'staff'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
+    staff_number = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    department = db.Column(db.String(100))
+    position = db.Column(db.String(100))
+    employment_status = db.Column(db.String(20), default='Active')
+    date_joined = db.Column(db.Date, default=datetime.utcnow().date)
+    photo_url = db.Column(db.String(255), nullable=True)
+
+    user = db.relationship('User', backref='staff_profile', uselist=False)
+
+    def to_dict(self, public=True):
+        data = {
+            'staff_number': self.staff_number,
+            'full_name': f"{self.user.first_name} {self.user.last_name}" if self.user else None,
+            'department': self.department,
+            'position': self.position,
+            'employment_status': self.employment_status,
+            'date_joined': self.date_joined.isoformat(),
+            'photo_url': self.photo_url,
+        }
+        if not public:
+            data['email'] = self.user.email
+            data['phone'] = self.user.phone
+            data['national_id'] = self.user.national_id
+        return data
     
 class WebauthnChallenge(db.Model):
     __tablename__ = 'webauthn_challenges'

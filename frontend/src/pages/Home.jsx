@@ -909,7 +909,7 @@ function Home() {
                 <div className="contact-item mb-3">
                   <i className="fas fa-envelope me-3"></i>
                   <a href="mailto:nagolieenterprises@gmail.com" className="text-white text-decoration-none">
-                    nagolieenterprises@gmail.com
+                    nagolieenterprisesltd@gmail.com
                   </a>
                 </div>
                 <div className="contact-item mb-3">
