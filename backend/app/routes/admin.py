@@ -1474,11 +1474,20 @@ def renew_loan(loan_id):
             new_repayment_plan = loan.repayment_plan  # fallback to original
 
         now = datetime.utcnow()
-        # Eligibility check (still required)
+        today = now.date()  # <--- FIX: use date for comparison
+
+        # ---------- FIX: eligibility check ----------
         disburse = loan.disbursement_date or loan.created_at
         days_since = (now - disburse).days
-        if days_since < 14 and loan.due_date > now:
-            return jsonify({'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'}), 400
+
+        # Allow renewal if:
+        #   - loan is at least 14 days old, OR
+        #   - due date is today or in the past (i.e., overdue or due today)
+        if days_since < 14 and loan.due_date and loan.due_date > today:
+            return jsonify({
+                'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'
+            }), 400
+        # --------------------------------------------
 
         # Mark old loan as renewed
         loan.status = 'renewed'
