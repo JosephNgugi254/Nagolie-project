@@ -1474,16 +1474,19 @@ def renew_loan(loan_id):
             new_repayment_plan = loan.repayment_plan  # fallback to original
 
         now = datetime.utcnow()
-        today = now.date()  # <--- FIX: use date for comparison
+        today = now.date()  # <--- SAFETY: use date for comparison
 
-        # ---------- FIX: eligibility check ----------
+        # ---------- ELIGIBILITY CHECK (with safety) ----------
         disburse = loan.disbursement_date or loan.created_at
         days_since = (now - disburse).days
 
+        # Convert due_date to date if it's a datetime (safety)
+        due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
+
         # Allow renewal if:
         #   - loan is at least 14 days old, OR
-        #   - due date is today or in the past (i.e., overdue or due today)
-        if days_since < 14 and loan.due_date and loan.due_date > today:
+        #   - due date is today or in the past (overdue or due today)
+        if days_since < 14 and due_date and due_date > today:
             return jsonify({
                 'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'
             }), 400
@@ -1594,7 +1597,7 @@ def renew_loan(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
+    
 # ---------------------------------------------------------------------------
 # Loan waiver (with ledger entries, parent/root linking, and original plan storage)
 # ---------------------------------------------------------------------------

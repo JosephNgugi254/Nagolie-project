@@ -545,7 +545,7 @@ def renew_loan_recovery(loan_id):
 
         data = request.get_json() or {}
         new_principal = data.get('new_principal')
-        new_repayment_plan = data.get('new_repayment_plan')   # <-- READ FROM REQUEST
+        new_repayment_plan = data.get('new_repayment_plan')
 
         loan = db.session.get(Loan, loan_id)
         if not loan:
@@ -573,11 +573,23 @@ def renew_loan_recovery(loan_id):
             new_repayment_plan = loan.repayment_plan   # fallback
 
         now = datetime.utcnow()
-        # Eligibility check
+        today = now.date()  # <--- SAFETY: use date for comparison
+
+        # ---------- ELIGIBILITY CHECK (with safety) ----------
         disburse = loan.disbursement_date or loan.created_at
         days_since = (now - disburse).days
-        if days_since < 14 and loan.due_date > now:
-            return jsonify({'error': 'Loan is not yet eligible for renewal'}), 400
+
+        # Convert due_date to date if it's a datetime (safety)
+        due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
+
+        # Allow renewal if:
+        #   - loan is at least 14 days old, OR
+        #   - due date is today or in the past (overdue or due today)
+        if days_since < 14 and due_date and due_date > today:
+            return jsonify({
+                'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'
+            }), 400
+        # --------------------------------------------
 
         # Mark old loan as renewed
         loan.status = 'renewed'
@@ -604,7 +616,7 @@ def renew_loan_recovery(loan_id):
             balance=new_principal,
             interest_rate=interest_rate,
             interest_type=interest_type,
-            repayment_plan=new_repayment_plan,          # <-- USE THE NEW PLAN
+            repayment_plan=new_repayment_plan,
             funding_source=loan.funding_source,
             investor_id=loan.investor_id,
             disbursement_date=now,
@@ -677,7 +689,7 @@ def renew_loan_recovery(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-        
+            
 @recovery_bp.route('/loan/<int:loan_id>/transactions', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])
