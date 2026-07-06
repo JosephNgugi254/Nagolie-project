@@ -37,7 +37,7 @@ def seed_staff():
                 'phone': '254703994290',
                 'national_id': '34061030',
                 'role': 'valuer',
-                'department': 'Valuation',
+                'department': 'Valuation & Recovery',
                 'position': 'Senior Livestock Valuer & Recovery Officer',
                 'email': 'georgemarite@gmail.com'
             },
@@ -81,7 +81,7 @@ def seed_staff():
                 'phone': '254711744388',
                 'national_id': '40340890',   
                 'role': 'valuer',
-                'department': 'Valuation',
+                'department': 'Valuation & Recovery',
                 'position': 'Livestock Valuer & Recovery Officer(Emarti)',
                 'email': 'robertkalama505@gmail.com'
             }
