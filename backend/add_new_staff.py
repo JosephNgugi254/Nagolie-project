@@ -28,7 +28,7 @@ def generate_codes_for_staff(staff_number):
     os.makedirs('barcodes', exist_ok=True)
 
     # QR Code
-    qr_url = f"https://nagolie.com/staff/{staff_number}"  # change domain if needed
+    qr_url = f"http://nagolie.com/staff/{staff_number}"   
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(qr_url)
     qr.make(fit=True)
