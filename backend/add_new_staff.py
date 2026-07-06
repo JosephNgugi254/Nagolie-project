@@ -125,7 +125,7 @@ if __name__ == '__main__':
             'last_name': 'Kintei',
             'phone': '+254717167762',
             'national_id': '39490625',
-            'email': 'terrykintei02@gmail.com',
+            'email': 'terrykintei@gmail.com',
             'role': 'hr_manager',
             'department': 'Human Resource',
             'position': 'Human Resource Manager'
