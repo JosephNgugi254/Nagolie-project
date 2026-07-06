@@ -16,6 +16,8 @@ const staffImages = {
   'NAG-EMP-0005': '/ann-ndura.png',           // Ann Ndura
   'NAG-EMP-0006': '/lucy-nyambura.png',       // Lucy Nyambura
   'NAG-EMP-0007': '/kalama-valuer-emarti.jpeg', // Robert Kalama
+  'NAG-EMP-0008': '/Terry.png',   // Terry Kintei
+  'NAG-EMP-0009': '/Joshua.png',  // Joshua Partapipi
 };
 
 // Custom "Joined" display per staff number

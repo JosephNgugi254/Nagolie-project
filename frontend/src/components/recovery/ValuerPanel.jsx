@@ -1,13 +1,13 @@
 // components/recovery/ValuerPanel.jsx
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { recoveryAPI } from '../../services/api';
+import { recoveryAPI, adminAPI } from '../../services/api';  // <-- added adminAPI
 import { showToast } from '../common/Toast';
 import Modal from '../common/Modal';
 import ConfirmationDialog from '../common/ConfirmationDialog';
-import { generateValuerReportFromData } from '../admin/ReceiptPDF';
+import { generateValuerReportFromData, generateLoanInvoicePDF } from '../admin/ReceiptPDF';  // <-- added generateLoanInvoicePDF
 
-const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
+const ValuerPanel = ({ editable = true }) => {
   const { user } = useAuth();
 
   const [flaggedClients, setFlaggedClients] = useState([]);
@@ -86,7 +86,7 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
 
   // Auto‑save valuer notes – only when editable
   const autoSaveNotes = (loanId, value) => {
-    if (!editable) return;   // <-- no saving when read‑only
+    if (!editable) return;
 
     if (noteTimeout.current[loanId]) clearTimeout(noteTimeout.current[loanId]);
     noteTimeout.current[loanId] = setTimeout(async () => {
@@ -104,7 +104,7 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
   };
 
   const handleResolveClick = (loanId) => {
-    if (!editable) return;   // <-- no resolve in read‑only mode
+    if (!editable) return;
     setResolveLoanId(loanId);
     setShowResolveModal(true);
   };
@@ -128,6 +128,26 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
     const reportDate = new Date().toLocaleDateString('en-GB');
     await generateValuerReportFromData(filteredClients, reportDate, user?.username || 'Valuer', download);
   };
+
+  // ---------- NEW: Download Invoice (exactly as in RecoveryModule) ----------
+  const handleDownloadInvoice = async (client) => {
+    try {
+      // 1. Fetch the most current loan data (including period_interest_prepaid)
+      const loanResponse = await adminAPI.getLoan(client.loan_id);
+      const freshLoan = loanResponse.data;
+
+      // 2. Get transactions for the invoice
+      const txnResponse = await recoveryAPI.getLoanTransactions(client.loan_id);
+
+      // 3. Generate invoice with fresh data
+      await generateLoanInvoicePDF(freshLoan, txnResponse.data || []);
+      showToast.success('Invoice downloaded');
+    } catch (error) {
+      console.error('Invoice error:', error);
+      showToast.error('Failed to generate invoice');
+    }
+  };
+  // -----------------------------------------------------------------
 
   // Branch filter logic
   const filterByBranch = (clients) => {
@@ -235,7 +255,7 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
                       <i className="fas fa-comment"></i> Comments
                     </button>
                     <button
-                      className="btn btn-sm btn-info me-1"
+                      className="btn btn-sm btn-secondary me-1"
                       onClick={() => {
                         setSelectedLoanDetails(client);
                         setShowLoanDetailsModal(true);
@@ -244,7 +264,15 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
                     >
                       <i className="fas fa-eye"></i> View Details
                     </button>
-                    {editable && (   // <-- only show Resolve button if editable
+                    {/* NEW: Download Invoice button */}
+                    <button
+                      className="btn btn-sm btn-info me-1"
+                      onClick={() => handleDownloadInvoice(client)}
+                      title="Download Invoice"
+                    >
+                      <i className="fas fa-file-invoice"></i>
+                    </button>
+                    {editable && (
                       <button
                         className="btn btn-sm btn-warning"
                         onClick={() => handleResolveClick(client.loan_id)}
@@ -268,7 +296,7 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
         </table>
       </div>
 
-      {/* ---------- Comments Modal ---------- */}
+      {/* Comments Modal (unchanged) */}
       <Modal
         isOpen={showCommentsModal}
         onClose={() => setShowCommentsModal(false)}
@@ -283,7 +311,6 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
               <p><strong>Loan ID:</strong> {selectedClient.loan_id}</p>
             </div>
 
-            {/* Valuer Notes – show only when editable */}
             {editable && (
               <div className="mb-3">
                 <label className="form-label fw-bold">Valuer Recovery Notes (auto‑saved)</label>
@@ -344,7 +371,7 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
         )}
       </Modal>
 
-      {/* ---------- Loan Details Modal ---------- */}
+      {/* Loan Details Modal (unchanged) */}
       {showLoanDetailsModal && selectedLoanDetails && (
         <Modal
           isOpen={showLoanDetailsModal}
@@ -378,7 +405,6 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
             </div>
           </div>
 
-          {/* Livestock Photos */}
           {selectedLoanDetails.photos && selectedLoanDetails.photos.length > 0 && (
             <div className="mt-3">
               <h6>Livestock Photos</h6>
@@ -407,7 +433,7 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
         </Modal>
       )}
 
-      {/* ---------- Image Zoom Modal ---------- */}
+      {/* Image Zoom Modal (unchanged) */}
       {showImageModal && selectedImage && (
         <Modal
           isOpen={showImageModal}
@@ -427,7 +453,7 @@ const ValuerPanel = ({ editable = true }) => {   // <-- NEW prop
         </Modal>
       )}
 
-      {/* ---------- Resolve Confirmation Modal (only if editable) ---------- */}
+      {/* Resolve Confirmation Modal (unchanged) */}
       {editable && (
         <ConfirmationDialog
           isOpen={showResolveModal}
