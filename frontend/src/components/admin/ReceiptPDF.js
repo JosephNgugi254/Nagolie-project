@@ -1341,11 +1341,12 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    doc.text('Shadrack Kesumet', col1, confY);
+    doc.text('____________________', col1, confY);
+    yPos += 5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Director', col1, confY + 5);
-    doc.text('Sign: ___________________', col1, confY + 12);
+    doc.text('Role: _________________________', col1, confY + 5);
+    doc.text('Sign: _________________________', col1, confY + 12);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
@@ -1898,11 +1899,12 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
-    doc.text('Shadrack Kesumet', col1, confY);
+    doc.text('____________________', col1, confY);
+    yPos += 5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Director', col1, confY + 5);
-    doc.text('Sign: ___________________', col1, confY + 12);
+    doc.text('Role: _________________________', col1, confY + 5);
+    doc.text('Sign: _________________________', col1, confY + 12);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
@@ -4002,10 +4004,10 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Shadrack Kesumet', leftX, yPos);
+    doc.text('________________________', leftX, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text('Director', leftX, yPos + 5);
-    doc.text('Sign: ___________________', leftX, yPos + 10);
+    doc.text('Role: ___________________', leftX, yPos + 5);
+    doc.text('Sign: ___________________', leftX, yPos + 9);
 
     doc.setFont('helvetica', 'bold');
     doc.text('Name: _________________________', rightX, yPos);
@@ -4192,9 +4194,9 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Shadrack Kesumet', leftX, yPos);
+    doc.text('________________________', leftX, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text('Director', leftX, yPos + 5);
+    doc.text('Role: ___________________', leftX, yPos + 5);
     doc.text('Sign: ___________________', leftX, yPos + 9);
 
     doc.setFont('helvetica', 'bold');
@@ -5076,9 +5078,9 @@ export const generateLoanWaiverAgreementAutoPDF = async (loanData, newPrincipal,
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Shadrack Kesumet', leftX, yPos);
+    doc.text('________________________', leftX, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text('Director', leftX, yPos + 5);
+    doc.text('Role: ___________________', leftX, yPos + 5);
     doc.text('Sign: ___________________', leftX, yPos + 10);
 
     doc.setFont('helvetica', 'bold');
@@ -5282,9 +5284,9 @@ export const generateManualLoanWaiverAgreementPDF = async () => {
     yPos += 6;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Shadrack Kesumet', leftX, yPos);
+    doc.text('________________________', leftX, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text('Director', leftX, yPos + 5);
+    doc.text('Role: ___________________', leftX, yPos + 5);
     doc.text('Sign: ___________________', leftX, yPos + 10);
 
     doc.setFont('helvetica', 'bold');
