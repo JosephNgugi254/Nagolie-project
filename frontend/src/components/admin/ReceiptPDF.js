@@ -232,21 +232,39 @@ const writeStyledLine = (doc, parts, x, y, fontSize = 10) => {
   let currentX = x;
   const originalFontSize = doc.internal.getFontSize();
   const originalFont = doc.getFont();
-  
+
   parts.forEach(part => {
-    doc.setFont('helvetica', part.style);
-    doc.setFontSize(fontSize);
-    const text = part.text;
-    doc.text(text, currentX, y);
-    currentX += doc.getTextWidth(text);
+    const isSuperscript = part.superscript === true;
+    const fs = isSuperscript ? fontSize * 0.6 : fontSize;  // 60% of base
+    const yOffset = isSuperscript ? -2.5 : 0;              // raise up
+
+    doc.setFont('helvetica', part.style || 'normal');
+    doc.setFontSize(fs);
+    doc.text(part.text, currentX, y + yOffset);
+    currentX += doc.getTextWidth(part.text);
   });
-  
+
   // Restore original font
   doc.setFont(originalFont.fontName, originalFont.fontStyle);
   doc.setFontSize(originalFontSize);
 };
 
-// Helper Functions
+// Helper: ordinal suffix for day numbers
+const getOrdinal = (day) => {
+  if (day > 3 && day < 21) return day + 'th';
+  switch (day % 10) {
+    case 1: return day + 'st';
+    case 2: return day + 'nd';
+    case 3: return day + 'rd';
+    default: return day + 'th';
+  }
+};
+
+// Helper: full month name
+const getMonthName = (date) => {
+  return date.toLocaleString('en-GB', { month: 'long' });
+};
+
 const formatTransactionType = (type, paymentType) => {
   if (!type) return 'N/A';
   const typeLower = type.toLowerCase();
@@ -793,7 +811,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
-    yPos += 8;
+    yPos += 3;
 
     yPos = addDivider(doc, yPos);
 
@@ -812,16 +830,23 @@ export const generateLoanAgreementPDF = async (application) => {
 
     // Agreement Body (Top Section)
     doc.setFontSize(11.5);
+    const dayOfMonth = agreementDate.getDate();
+    const ordinalDay = getOrdinal(dayOfMonth);
+    const monthName = getMonthName(agreementDate);
+    const year = agreementDate.getFullYear();
+
     const firstLineParts = [
       { text: "I ", style: 'normal' },
       { text: `${application.name || '___________________'}`, style: 'bold' },
       { text: " of ID NO: ", style: 'normal' },
       { text: `${application.idNumber || '___________________'}`, style: 'bold' },
+      { text: " and Phone No: ", style: 'normal' },
+      { text: `${application.phone || application.phoneNumber || '___________________'}`, style: 'bold' },
       { text: " on this ", style: 'normal' },
-      { text: "________", style: 'bold' },
-      { text: " (day) ", style: 'normal' },
-      { text: "________", style: 'bold' },
-      { text: ` (month) (Year) 20${agreementDate.getFullYear().toString().slice(-2)}`, style: 'normal' }
+      { text: `${ordinalDay}`, style: 'bold' },
+      { text: " day of ", style: 'normal' },
+      { text: `${monthName}`, style: 'bold' },
+      { text: ` ${year}`, style: 'bold' }
     ];
     writeStyledLine(doc, firstLineParts, 20, yPos, 11.5);
     yPos += 5;
@@ -1394,12 +1419,14 @@ export const generateManualLoanAgreementPDF = async () => {
       { text: "I ", style: 'normal' },
       { text: "________________", style: 'bold' },
       { text: " of ID NO: ", style: 'normal' },
-      { text: "______________", style: 'bold' },
+      { text: "________", style: 'bold' },
+      { text: " and Phone No: ", style: 'normal' },
+      { text: "___________", style: 'bold' },
       { text: " on this ", style: 'normal' },
-      { text: "_____", style: 'bold' },
-      { text: " (day) ", style: 'normal' },
-      { text: "_____", style: 'bold' },
-      { text: " (month) (Year) 2026", style: 'normal' }
+      { text: "___", style: 'bold' },
+      { text: " day of ", style: 'normal' },
+      { text: "______", style: 'bold' },
+      { text: " 20___", style: 'normal' }
     ];
     writeStyledLine(doc, firstLineParts, 20, yPos, 11.5);
     yPos += 5;
