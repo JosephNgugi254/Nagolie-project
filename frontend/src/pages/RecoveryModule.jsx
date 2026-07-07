@@ -616,8 +616,9 @@ function RecoveryModule() {
     if (pendingDate) {
       filtered = filtered.filter(app => {
         if (!app.date) return false;
-        const d = new Date(app.date).toISOString().split('T')[0];
-        return d === pendingDate;
+        const dateObj = new Date(app.date);
+        if (isNaN(dateObj.getTime())) return false;
+        return dateObj.toISOString().split('T')[0] === pendingDate;
       });
     }
     return filtered;
@@ -637,8 +638,9 @@ function RecoveryModule() {
     if (approvedDate) {
       filtered = filtered.filter(loan => {
         if (!loan.date) return false;
-        const d = new Date(loan.date).toISOString().split('T')[0];
-        return d === approvedDate;
+        const dateObj = new Date(loan.date);
+        if (isNaN(dateObj.getTime())) return false;
+        return dateObj.toISOString().split('T')[0] === approvedDate;
       });
     }
     return filtered;
@@ -660,16 +662,27 @@ function RecoveryModule() {
 
   const filterInvestorTransactions = () => {
     let filtered = [...investorTransactions];
+    
+    // search filter
     if (investorTransactionSearch) {
       const term = investorTransactionSearch.toLowerCase();
-      filtered = filtered.filter(t => t.investor_name?.toLowerCase().includes(term));
+      filtered = filtered.filter(t =>
+        t.investor_name?.toLowerCase().includes(term)
+      );
     }
+
+    // date filter – safer parsing
     if (investorTransactionDate) {
       filtered = filtered.filter(t => {
-        const d = new Date(t.date || t.return_date || t.created_at).toISOString().split('T')[0];
-        return d === investorTransactionDate;
+        const dateString = t.date || t.return_date || t.created_at;
+        if (!dateString) return false;
+        const dateObj = new Date(dateString);
+        if (isNaN(dateObj.getTime())) return false;   // ✅ invalid date check
+        const transDate = dateObj.toISOString().split('T')[0];
+        return transDate === investorTransactionDate;
       });
     }
+
     return filtered;
   };
 
@@ -1357,7 +1370,9 @@ function RecoveryModule() {
     if (dateFilter) {
       filtered = filtered.filter(loan => {
         if (!loan.disbursement_date) return false;
-        return new Date(loan.disbursement_date).toISOString().split('T')[0] === dateFilter;
+        const dateObj = new Date(loan.disbursement_date);
+        if (isNaN(dateObj.getTime())) return false;   // ✅ invalid date check
+        return dateObj.toISOString().split('T')[0] === dateFilter;
       });
     }
     filtered.sort((a, b) => {
@@ -2189,9 +2204,13 @@ function RecoveryModule() {
                           ) : (() => {
                             const filtered = transactions.filter(t => {
                               if (transactionSearch && !t.clientName?.toLowerCase().includes(transactionSearch.toLowerCase())) return false;
-                              if (transactionDate) { 
-                                const d = new Date(t.createdAt || t.date || t.created_at).toISOString().split('T')[0]; 
-                                if (d !== transactionDate) return false; 
+                              if (transactionDate) {
+                                const dateString = t.createdAt || t.date || t.created_at;
+                                if (!dateString) return false;
+                                const dateObj = new Date(dateString);
+                                if (isNaN(dateObj.getTime())) return false;   // ✅ invalid date check
+                                const d = dateObj.toISOString().split('T')[0];
+                                if (d !== transactionDate) return false;
                               }
                               return true;
                             });

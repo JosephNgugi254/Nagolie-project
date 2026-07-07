@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { adminAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import ConfirmationDialog from '../common/ConfirmationDialog';
-import Modal from '../common/Modal';   // your existing Modal component
+import Modal from '../common/Modal';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -10,6 +10,7 @@ const ReportManagement = () => {
   const [users, setUsers] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false); // only for manual refresh
   const [selectedUser, setSelectedUser] = useState(null);
   const [draggedClient, setDraggedClient] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -19,22 +20,22 @@ const ReportManagement = () => {
   const [showOfficerSelectModal, setShowOfficerSelectModal] = useState(false);
   const [selectedLoanForReassign, setSelectedLoanForReassign] = useState(null);
   const [selectedOfficerId, setSelectedOfficerId] = useState(null);
+  const [valuers, setValuers] = useState([]);
 
-  useEffect(() => {
-    fetchDayAssignments();
-    fetchClientAssignments();
-  }, []);
+  const isRefreshingRef = useRef(false);
+  const pollTimer = useRef(null);
 
-  const fetchDayAssignments = async () => {
+  // ---------- data fetching (memoized) ----------
+  const fetchDayAssignments = useCallback(async () => {
     try {
       const res = await adminAPI.getDayAssignments();
       setUsers(res.data);
     } catch (error) {
       showToast.error('Failed to load day assignments');
     }
-  };
+  }, []);
 
-  const fetchClientAssignments = async () => {
+  const fetchClientAssignments = useCallback(async () => {
     setLoading(true);
     try {
       const res = await adminAPI.getClientAssignments();
@@ -44,27 +45,75 @@ const ReportManagement = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
+  // combined refresh – silent mode for polling, visible mode for manual
+  const refreshData = useCallback(async (silent = false) => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+
+    if (!silent) {
+      setRefreshing(true);
+    }
+
+    try {
+      await Promise.all([fetchDayAssignments(), fetchClientAssignments()]);
+    } catch (error) {
+      // errors are already handled inside each function
+    } finally {
+      isRefreshingRef.current = false;
+      if (!silent) {
+        setRefreshing(false);
+      }
+    }
+  }, [fetchDayAssignments, fetchClientAssignments]);
+
+  // initial load & polling (silent auto‑refresh every 30s)
+  useEffect(() => {
+    // initial load with visible spinner
+    refreshData(false);
+
+    // start silent polling
+    pollTimer.current = setInterval(() => {
+      refreshData(true); // silent
+    }, 30000);
+
+    return () => {
+      if (pollTimer.current) clearInterval(pollTimer.current);
+    };
+  }, [refreshData]);
+
+  // ---------- Valuer branch assignments ----------
+  const fetchValuers = useCallback(async () => {
+    try {
+      const res = await adminAPI.getOfficers();
+      setValuers(res.data.filter(u => u.role === 'valuer'));
+    } catch (error) {
+      showToast.error('Failed to load valuers');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchValuers();
+  }, [fetchValuers]);
+
+  // ---------- Other handlers (all use refreshData) ----------
   const updateDayAssignment = async (userId, days) => {
     try {
       await adminAPI.updateDayAssignment(userId, days);
       showToast.success('Day assignments updated');
-      fetchDayAssignments();
-      fetchClientAssignments();
+      refreshData(false); // manual refresh with spinner
     } catch (error) {
       showToast.error('Failed to update assignments');
     }
   };
 
   const handleDayToggle = (user, dayIdx) => {
-    // Check if the day is already assigned to another officer
     const alreadyTaken = users.some(u => u.id !== user.id && (u.days || []).includes(dayIdx));
     if (alreadyTaken) {
       showToast.warning(`Day ${DAYS[dayIdx]} is already assigned to another officer. You cannot assign it to multiple officers.`);
       return;
     }
-  
     const currentDays = user.days || [];
     let newDays;
     if (currentDays.includes(dayIdx)) {
@@ -79,13 +128,13 @@ const ReportManagement = () => {
     try {
       await adminAPI.reassignClient(loanId, newOfficerId, reason);
       showToast.success('Client reassigned');
-      fetchClientAssignments();
+      refreshData(false);
     } catch (error) {
       showToast.error('Reassignment failed');
     }
   };
 
-  // Drag & drop handlers
+  // drag & drop handlers
   const onDragStart = (e, client, fromOfficerId) => {
     e.dataTransfer.setData('text/plain', JSON.stringify({ client, fromOfficerId }));
     e.dataTransfer.effectAllowed = 'move';
@@ -122,7 +171,7 @@ const ReportManagement = () => {
 
   const onDragOver = (e) => e.preventDefault();
 
-  // Button‑based reassign: show officer selection modal
+  // button reassign
   const openOfficerSelectModal = (loanId, clientName) => {
     setSelectedLoanForReassign({ loanId, clientName });
     setSelectedOfficerId(null);
@@ -155,7 +204,7 @@ const ReportManagement = () => {
       await adminAPI.applySuggestions(suggestions);
       showToast.success('Balanced distribution applied');
       setShowSuggestionModal(false);
-      fetchClientAssignments();
+      refreshData(false);
     } catch (error) {
       showToast.error('Failed to apply suggestions');
     }
@@ -165,40 +214,21 @@ const ReportManagement = () => {
     try {
       await adminAPI.resetDayAssignments();
       showToast.success('Reset to day-based assignments');
-      fetchClientAssignments();
+      refreshData(false);
     } catch (error) {
       showToast.error('Failed to reset assignments');
     }
   };
 
-  // In ReportManagement.jsx, add a new state and fetch valuers
-const [valuers, setValuers] = useState([]);
-const [updatingBranch, setUpdatingBranch] = useState({});
-
-useEffect(() => {
-  fetchValuers();
-}, []);
-
-const fetchValuers = async () => {
-  try {
-    const res = await adminAPI.getOfficers(); // already fetches all officers
-    setValuers(res.data.filter(u => u.role === 'valuer'));
-  } catch (error) {
-    showToast.error('Failed to load valuers');
-  }
-};
-
-const handleBranchChange = async (userId, branch) => {
-  try {
-    await adminAPI.updateUserBranch(userId, branch);
-    showToast.success('Branch updated');
-    fetchValuers();
-  } catch (error) {
-    showToast.error('Failed to update branch');
-  }
-};
-
-  
+  const handleBranchChange = async (userId, branch) => {
+    try {
+      await adminAPI.updateUserBranch(userId, branch);
+      showToast.success('Branch updated');
+      fetchValuers();
+    } catch (error) {
+      showToast.error('Failed to update branch');
+    }
+  };
 
   const totals = assignments.reduce((acc, off) => ({
     principal: acc.principal + off.total_principal,
@@ -211,16 +241,22 @@ const handleBranchChange = async (userId, branch) => {
   return (
     <div className="content-section">
       <style>{`
-        .draggable-client {
-          cursor: grab;
-        }
-        .draggable-client:active {
-          cursor: grabbing;
-        }
+        .draggable-client { cursor: grab; }
+        .draggable-client:active { cursor: grabbing; }
       `}</style>
+
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2>Report Management</h2>
         <div>
+          {/* Manual refresh button – visible spinner */}
+          <button
+            className="btn btn-info me-2"
+            onClick={() => refreshData(false)}
+            disabled={refreshing}
+          >
+            <i className={`fas fa-sync-alt ${refreshing ? 'fa-spin' : ''}`}></i>
+            {refreshing ? ' Refreshing...' : ' Refresh'}
+          </button>
           <button className="btn btn-secondary me-2" onClick={resetToDayBased}>
             <i className="fas fa-undo me-2"></i>Reset to Day-Based
           </button>
@@ -296,14 +332,14 @@ const handleBranchChange = async (userId, branch) => {
                         <div>
                           <strong>{client.client_name}</strong><br />
                           <small>Principal: {formatCurrency(client.current_principal)}</small><br />
-                          <small>  Interest: {client.interest_rate === 0 ? 'waived' : formatCurrency(client.unpaid_interest)}</small><br />                          <small>Balance: {formatCurrency(client.total_balance)}</small>
+                          <small>Interest: {client.interest_rate === 0 ? 'waived' : formatCurrency(client.unpaid_interest)}</small><br />
+                          <small>Balance: {formatCurrency(client.total_balance)}</small>
                         </div>
                         <button
                           className="btn btn-sm btn-outline-primary"
-                          title='Reassign Client'
+                          title="Reassign Client"
                           onClick={() => openOfficerSelectModal(client.loan_id, client.client_name)}
                         >
-                        
                           <i className="fas fa-exchange-alt"></i>
                         </button>
                       </div>
@@ -323,7 +359,7 @@ const handleBranchChange = async (userId, branch) => {
 
       <div className="card mt-3 bg-info text-white">
         <div className="card-body">
-          <h6>Overal Totals</h6>
+          <h6>Overall Totals</h6>
           <div className="row">
             <div className="col">Principal: {formatCurrency(totals.principal)}</div>
             <div className="col">Interest: {formatCurrency(totals.interest)}</div>
@@ -332,7 +368,7 @@ const handleBranchChange = async (userId, branch) => {
         </div>
       </div>
 
-        {/*VALUER BRANCH ASSIGNMENT SECTION  */}
+      {/* Valuer Branch Assignment Section */}
       <div className="card mb-4 mt-5">
         <div className="card-header bg-primary text-white">
           <h5 className="mb-0 text-white">Valuer Branch Assignments</h5>
@@ -373,8 +409,8 @@ const handleBranchChange = async (userId, branch) => {
           <small className="text-muted">Set the default branch for each valuer. This will be used to filter flagged clients automatically.</small>
         </div>
       </div>
-              
-      {/* Drag‑and‑drop confirmation dialog */}
+
+      {/* Modals */}
       <ConfirmationDialog
         isOpen={showConfirm}
         onClose={() => setShowConfirm(false)}
@@ -386,7 +422,6 @@ const handleBranchChange = async (userId, branch) => {
         confirmText="Reassign"
       />
 
-      {/* Officer selection modal (for button reassign) */}
       <Modal
         isOpen={showOfficerSelectModal}
         onClose={() => setShowOfficerSelectModal(false)}
@@ -416,7 +451,6 @@ const handleBranchChange = async (userId, branch) => {
         </div>
       </Modal>
 
-      {/* Suggestion Modal */}
       {showSuggestionModal && suggestions && (
         <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
           <div className="modal-dialog modal-dialog-centered modal-lg">
