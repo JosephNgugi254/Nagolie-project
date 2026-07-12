@@ -75,8 +75,9 @@ def create_app(config_class=Config):
     from app.routes.salary import salary_bp
     from app.routes.financial import financial_bp
     from app.routes.staff import staff_bp
+    from app.routes.company_profile import company_profile_bp
 
-
+    app.register_blueprint(test_bp, url_prefix='/api/test')
     app.register_blueprint(biometric_bp)
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(loans_bp, url_prefix='/api/loans')
@@ -90,8 +91,7 @@ def create_app(config_class=Config):
     app.register_blueprint(salary_bp, url_prefix='/api/salary')
     app.register_blueprint(financial_bp)
     app.register_blueprint(staff_bp)
-    app.register_blueprint(test_bp, url_prefix='/api/test')
-
+    app.register_blueprint(company_profile_bp, url_prefix='/api/company-profile')
 
     @app.before_request
     def before_request():

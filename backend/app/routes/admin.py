@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from app import db
-from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, ReportComment, FlaggedLoan, Role, MenuItem, RoleMenuItem, PettyCashExpense, PettyCashFunding
+from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, ReportComment, FlaggedLoan, Role, MenuItem, RoleMenuItem, PettyCashExpense, PettyCashFunding , MessageAttachment
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy import func
@@ -20,6 +20,8 @@ from app.routes.payments import recalculate_loan, _loan_summary, _get_current_pe
 from werkzeug.utils import secure_filename
 import os
 import cloudinary.uploader
+from flask import url_for, send_file
+import io
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -648,7 +650,6 @@ def get_payment_stats():
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-
 # ---------------------------------------------------------------------------
 # Livestock (unchanged)
 # ---------------------------------------------------------------------------
@@ -1093,7 +1094,6 @@ def get_approved_loans():
         } for l in loans]), 200
     except Exception as e:
         return jsonify({'error': 'Failed to load approved loans'}), 500
-
 
 # ---------------------------------------------------------------------------
 # Investor routes (unchanged)
@@ -2491,6 +2491,19 @@ def update_user_branch(user_id):
     db.session.commit()
     return jsonify({'success': True, 'branch': branch}), 200
 
+@admin_bp.route('/attachment/<int:attachment_id>', methods=['GET'])
+@cross_origin(origins=allowed_origins, supports_credentials=True)
+@jwt_required()
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
+def get_attachment(attachment_id):
+    att = MessageAttachment.query.get_or_404(attachment_id)
+    return send_file(
+        io.BytesIO(att.file_data),
+        mimetype=att.mime_type,
+        as_attachment=True,
+        download_name=att.filename
+    )
+
 @admin_bp.route('/upload', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'client_relations_officer'])
@@ -2500,23 +2513,40 @@ def upload_file():
             return jsonify({'error': 'No file provided'}), 400
 
         file = request.files['file']
+        original_name = request.form.get('originalName', file.filename)
+
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
 
-        # Optional: limit file size
-        # if len(file.read()) > 5 * 1024 * 1024:  # 5 MB
-        #     return jsonify({'error': 'File too large'}), 400
-        # file.seek(0)
-
-        upload_result = cloudinary.uploader.upload(
-            file,
-            folder='petty_cash_attachments',
-            resource_type='auto'
-        )
-        return jsonify({'url': upload_result.get('secure_url')}), 200
+        # Check if it's an image
+        if file.mimetype and file.mimetype.startswith('image/'):
+            # Upload to Cloudinary
+            upload_result = cloudinary.uploader.upload(
+                file,
+                folder='petty_cash_attachments',
+                resource_type='image'
+            )
+            return jsonify({
+                'url': upload_result.get('secure_url'),
+                'name': original_name
+            }), 200
+        else:
+            # Store non‑image in database
+            attachment = MessageAttachment(
+                filename=original_name,
+                mime_type=file.mimetype or 'application/octet-stream',
+                file_data=file.read()
+            )
+            db.session.add(attachment)
+            db.session.commit()
+            # Build absolute URL (you may use url_for with _external=True)
+            url = url_for('admin.get_attachment', attachment_id=attachment.id, _external=True)
+            return jsonify({
+                'url': url,
+                'name': original_name
+            }), 200
 
     except Exception as e:
-        # Log the full error
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

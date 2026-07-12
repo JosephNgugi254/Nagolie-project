@@ -1012,3 +1012,35 @@ class PettyCashExpense(db.Model):
             'updated_at': self.updated_at.isoformat(),
             'type': 'expense'
         }
+
+class CompanyDocument(db.Model):
+    __tablename__ = 'company_documents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)          # user‑given name
+    category = db.Column(db.String(50), nullable=False)       # e.g. 'policy', 'financial', 'certificate'
+    file_url = db.Column(db.String(500), nullable=False)      # Cloudinary URL or DB attachment URL
+    file_type = db.Column(db.String(50))                      # 'image' or 'file'
+    public_id = db.Column(db.String(200), nullable=True)      # for Cloudinary deletion
+    attachment_id = db.Column(db.Integer, db.ForeignKey('message_attachments.id'), nullable=True)  # for DB‑stored files
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    uploader = db.relationship('User', foreign_keys=[uploaded_by])
+    attachment = db.relationship('MessageAttachment', foreign_keys=[attachment_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'category': self.category,
+            'file_url': self.file_url,
+            'file_type': self.file_type,
+            'description': self.description,
+            'uploaded_by': self.uploaded_by,
+            'uploaded_by_name': self.uploader.username if self.uploader else None,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat(),
+        }

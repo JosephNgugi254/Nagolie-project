@@ -797,7 +797,7 @@ export const generateTransactionReceipt = async (transaction) => {
   }
 };
 
-// Generate Professional Loan Agreement PDF
+// Generate Professional Loan Agreement PDF (UPDATED)
 export const generateLoanAgreementPDF = async (application) => {
   try {
     const doc = new jsPDF();
@@ -1020,16 +1020,15 @@ export const generateLoanAgreementPDF = async (application) => {
       // 1. Agreement Overview
       [
         { text: "1. Agreement Overview", heading: true },
-        "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises Ltd (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
+        "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and Nagolie Enterprises Ltd (\"Company\")",
+        "The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
-        " with the Recipient maintaining physical custody.",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,with the Recipient maintaining physical custody.",
+        " ",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
         "- Ensure the livestock are kept in good health",
@@ -1037,20 +1036,18 @@ export const generateLoanAgreementPDF = async (application) => {
         "- Allow Company representatives access to inspect the livestock at reasonable times",
         "",
         { text: "2.1. Absolute Right of Claim Upon Default:", subheading: true },
-        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the",
-        " collateral livestock without further notice.",
+        "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the collateral livestock without further notice.",
         "This right extends to claiming the livestock:",
         "- In the presence OR absence of the Recipient",
         "- In the presence OR absence of the Next of Kin or any family members",
         "- Without requirement for additional consent or permission from any party",
         "",
         { text: "2.2. Immediate Action for Recovery:", subheading: true },
-        "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections",
-        "  of the Recipient, Next of Kin, or any related parties.",
-        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate",
-        "  action to secure the Company's property and recover losses without legal impediment.",
+        "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections of the Recipient, Next of Kin, or any related parties.",
+        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate action to secure the Company's property and recover losses without legal impediment.",
         "",
         { text: "2.3. Consent to Recovery in the Event of Default", subheading: true },
+        "",
         [
           { text: "I, ", style: 'normal' },
           { text: application.name || "___________________", style: 'bold' },
@@ -1059,42 +1056,39 @@ export const generateLoanAgreementPDF = async (application) => {
           { text: " acknowledge that I have read and fully understood the terms of this", style: 'normal' }
         ],
         "Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
-        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd  and its authorized",
-        "agents may immediately take possession of the collateral livestock without the need for a court order, further",
-        "notice, or additional consent from any party. I hereby waive all rights to legally obstruct or delay such",
-        "recovery. This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the",
-        "fullest extent permitted under the laws of Kenya.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents may immediately take possession of the collateral livestock without the need for a court order, further notice, or additional consent from any party.",
+        "I hereby waive all rights to legally obstruct or delay such recovery.",
+        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest extent permitted under the laws of Kenya.",
         "",
         { text: `Signature: ___________________          Date: ${today}`, boldDark: true, fontSize: 11 },
         { thumbprintBox: true }
       ],
-      // 3. Repayment Terms and Interest
+      // 3. Repayment Terms and Interest (UPDATED to match manual version)
       [
         { text: "3. Repayment Terms and Interest", heading: true },
         "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
         "(please tick one plan below):",
         "",
         { checkbox: true, plan: 'weekly', label: "Weekly Plan:" },
-        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30%",
-        "(negotiable) of the disbursed funds. Interest shall be charged on a weekly basis for a maximum period",
-        "of two (2) weeks. After two (2) weeks, if the loan is not fully repaid",
-        "The Recipient must then either:",
-        "  (a) repay the outstanding loan balance in full, or",
-        "  (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        "",
+        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30% (negotiable) of the disbursed funds.",
+        "The weekly interest rate of thirty percent (30%) constitutes a comprehensive charge inclusive of all ancillary costs related to the loan,including but not limited to processing fees,valuation costs, and veterinary care expenses where applicable.",
+        "Such charges are applied to facilitate due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
+        "Interest shall be charged on a weekly basis for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,The Recipient must then either:",
+        " (a) repay the outstanding loan balance in full, or ",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         { checkbox: true, plan: 'daily', label: "Daily Plan:" },
-        "The loan is repayable with an interest of 4.5% per day. Interest shall be charged daily for a maximum",
-        "period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
+        "",
+        "The loan is repayable with an interest of 4.5% per day. Interest shall be charged daily for a maximum period of two (2) weeks. At the end of every seven (7) days, any unpaid accrued interest shall be added to the outstanding principal balance and shall thereafter attract interest in the following week. After two (2) weeks, if the loan is not fully repaid,",
         "The Recipient must then either:",
-        "  (a) repay the outstanding loan balance in full, or",
-        "  (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
+        " (a) repay the outstanding loan balance in full, or",
+        " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         { interestPlaceholder: true },
-        "",        
         "A loan shall only be deemed fully repaid and settled upon payment in full of the entire outstanding principal",
         "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
         "interest alone, shall not constitute settlement or discharge of the loan obligation.",
-        "",
         "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises Ltd may at their",
         "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
@@ -1113,9 +1107,7 @@ export const generateLoanAgreementPDF = async (application) => {
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
-        "",
-        "In addition to standard valuation, each livestock asset shall be classified according to its economic production ",
-        "role within the agricultural value chain.",
+        "In addition to standard valuation, each livestock asset shall be classified according to its economic production role within the agricultural value chain.",
         { classificationStatement: true },
         "",
         { text: "5.1 Value Chain Integration and Utilization", subheading: true },
@@ -1124,18 +1116,15 @@ export const generateLoanAgreementPDF = async (application) => {
         "  • Monitor the productivity of the collateral livestock",
         "  • Provide advisory or support services to enhance value generation",
         "  • Utilize classification insights to optimize asset value in the event of recovery, resale, or risk management",
-        "The Recipient acknowledges that livestock classification may influence the loan amounts, risk evaluation and ",
-        "recovery strategy in the event of default.",
+        "The Recipient acknowledges that livestock classification may influence the loan amounts, risk evaluation and recovery strategy in the event of default.",
         ""
       ],
       // 6. Default and Remedies
       [
         { text: "6. Default and Remedies", heading: true },
-        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
-        "  Nagolie Enterprises Ltd to:",
+        "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a",
-        "   renewal agreement",
+        "- Take immediate possession of the livestock in holding for 48 hrs to allow the Recipient to repay or sign a renewal agreement",
         "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48hr holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest on overdue amounts at the prevailing market rate",
@@ -1144,16 +1133,14 @@ export const generateLoanAgreementPDF = async (application) => {
       // 7. Governing Law
       [
         { text: "7. Governing Law", heading: true },
-        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
-        "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
+        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
       // 8. Entire Agreement
       [
         { text: "8. Entire Agreement", heading: true },
-        "This document constitutes the entire agreement between the parties and supersedes all prior discussions,",
-        " negotiations, and agreements. No modification of this agreement shall be effective unless in writing and",
-        " signed by both parties.",
+        "This document constitutes the entire agreement between the parties and supersedes all prior discussions, negotiations, and agreements.",
+        "No modification of this agreement shall be effective unless in writing and  signed by both parties.",
         ""
       ]
     ];
@@ -1182,8 +1169,8 @@ export const generateLoanAgreementPDF = async (application) => {
     }
 
     // ========== ADD SIGNATURE LINE AT BOTTOM OF PAGE 2 ==========
-    // Ensure there is enough space; place it at y = 270 (near page bottom)
-    const signatureY = Math.min(yPos + 15, 280);
+    // Pushed up slightly to avoid overlapping page number
+    const signatureY = Math.min(yPos + 10, 287);  // adjusted offset and max
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
@@ -1492,15 +1479,13 @@ export const generateManualLoanAgreementPDF = async () => {
       [
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
-        " Nagolie Enterprises Ltd (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured",
-        "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
+        "Nagolie Enterprises Ltd (\"Company\"). The Recipient acknowledges receipt of a loan from Nagolie Enterprises Ltd, secured by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
       // 2. Ownership Transfer and Custody
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
-        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
-        " with the Recipient maintaining physical custody.",
+        "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd, with the Recipient maintaining physical custody.",
         "The Recipient agrees to:",
         "- Provide proper care and maintenance for the livestock",
         "- Ensure the livestock are kept in good health",
@@ -1509,19 +1494,18 @@ export const generateManualLoanAgreementPDF = async () => {
         "",
         { text: "2.1. Absolute Right of Claim Upon Default:", subheading: true },
         "In the event of default, the Company reserves the absolute right to claim, take possession of, and remove the",
-        " collateral livestock without further notice.",
+        "collateral livestock without further notice.",
         "This right extends to claiming the livestock:",
         "- In the presence OR absence of the Recipient",
         "- In the presence OR absence of the Next of Kin or any family members",
         "- Without requirement for additional consent or permission from any party",
         "",
         { text: "2.2. Immediate Action for Recovery:", subheading: true },
-        "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections",
-        "  of the Recipient, Next of Kin, or any related parties.",
-        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate",
-        "  action to secure the Company's property and recover losses without legal impediment.",
+        "The Company shall not be delayed or hindered in its recovery efforts by the unavailability, resistance, or objections of the Recipient, Next of Kin, or any related parties.",
+        "The Company's representatives, including livestock valuers and security personnel, are authorized to take immediate action to secure the Company's property and recover losses without legal impediment.",
         "",
         { text: "2.3. Consent to Recovery in the Event of Default", subheading: true },
+        "",
         [
           { text: "I, ", style: 'normal' },
           { text: "___________________", style: 'bold' },
@@ -1530,11 +1514,9 @@ export const generateManualLoanAgreementPDF = async () => {
           { text: " acknowledge that I have read and fully understood the ", style: 'normal' }
         ],
         "terms of this Agreement, particularly the rights of Nagolie Enterprises Ltd to recover the collateral livestock upon default.",
-        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents",
-        "may immediately take possession of the collateral livestock without the need for a court order, further notice,",
-        "or additional consent from any party. I hereby waive all rights to legally obstruct or delay such recovery",
-        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest extent",
-        "permitted under the laws of Kenya.",
+        "I voluntarily and irrevocably consent that in the event of default, Nagolie Enterprises Ltd and its authorized agents may immediately take possession of the collateral livestock without the need for a court order, further notice, or additional consent from any party.",
+        "I hereby waive all rights to legally obstruct or delay such recovery.",
+        "This consent is freely given, binding on my heirs, successors, and assigns, and enforceable to the fullest extent permitted under the laws of Kenya.",
         "",
         { text: "Signature: ___________________          Date: ___________________", boldDark: true, fontSize: 11 },
         { thumbprintBox: true }
@@ -1547,31 +1529,25 @@ export const generateManualLoanAgreementPDF = async () => {
         "",
         { checkbox: true, label: "Weekly Plan:" },
         "",
-        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30% (negotiable)",
-        "of the disbursed funds. The weekly interest rate of thirty percent (30%) constitutes a comprehensive charge",
-        "inclusive of all ancillary costs related to the loan, including but not limited to processing fees,",
-        "valuation costs, and veterinary care expenses where applicable. Such charges are applied to facilitate",
-        "due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
-        "Interest shall be charged on a weekly basis for a",
-        "maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
-        "The Recipient must then either:",
+        "The loan is repayable within seven (7) days from the date of disbursement with an interest of 30% (negotiable) of the disbursed funds.",
+        "The weekly interest rate of thirty percent (30%) constitutes a comprehensive charge inclusive of all ancillary costs related to the loan,including but not limited to processing fees,valuation costs, and veterinary care expenses where applicable.",
+        "Such charges are applied to facilitate due diligence, risk management, and ongoing asset maintenance during the tenure of the loan.",
+        "Interest shall be charged on a weekly basis for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or ",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         { checkbox: true, label: "Daily Plan:" },
         "",
         "The loan is repayable with an interest of 4.5% per day. Interest shall be",
-        "charged daily for a maximum period of two (2) weeks. After two (2) weeks, if the loan is not fully repaid,",
+        "charged daily for a maximum period of two (2) weeks. At the end of every seven (7) days, any unpaid accrued interest shall be added to the outstanding principal balance and shall thereafter attract interest in the following week. After two (2) weeks, if the loan is not fully repaid,",
         "The Recipient must then either:",
         " (a) repay the outstanding loan balance in full, or",
         " (b) sign a compulsory Loan Renewal Agreement with the Company to extend the repayment period.",
         "",
         "The interest for this loan is Ksh________",
-        "",
         "A loan shall only be deemed fully repaid and settled upon payment in full of the entire outstanding principal",
         "amount together with all accrued interest and any applicable charges. Partial payments, including payment of",
         "interest alone, shall not constitute settlement or discharge of the loan obligation.",
-        "",
         "Recognizing the circumstances of local communities, the Director of Nagolie Enterprises Ltd may at their",
         "discretion grant an extension of the repayment period after consultation with the Recipient. Any extension",
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
@@ -1590,9 +1566,7 @@ export const generateManualLoanAgreementPDF = async () => {
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
-        "",
-        "In addition to standard valuation, each livestock asset shall be classified according to its economic production ",
-        "role within the agricultural value chain.",
+        "In addition to standard valuation, each livestock asset shall be classified according to its economic production role within the agricultural value chain.",
         "The collateral for this loan is categorized under the [ _________________ ] category.",
         "",
         { text: "5.1 Value Chain Integration and Utilization", subheading: true },
@@ -1611,8 +1585,7 @@ export const generateManualLoanAgreementPDF = async () => {
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
         "  Nagolie Enterprises Ltd to:",
         "- Charge compounded interest on the outstanding amount after every seven (7) days until full repayment",
-        "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a",
-        "   renewal agreement",
+        "- Take immediate possession of the livestock in holding for 48 hrs(2 days) to allow the Recipient to repay or sign a renewal agreement",
         "- Sell the livestock to recover the outstanding loan amount if payment is not made within the 48 hrs(2 days) holding period",
         "- Initiate legal proceedings for recovery of any remaining balance",
         "- Charge interest of 4.5% daily on overdue amounts",
@@ -1621,8 +1594,7 @@ export const generateManualLoanAgreementPDF = async () => {
       // 7. Governing Law
       [
         { text: "7. Governing Law", heading: true },
-        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
-        "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
+        "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
       // 8. Entire Agreement
@@ -1732,7 +1704,7 @@ export const generateManualLoanAgreementPDF = async () => {
     }
 
     // ========== ADD CLIENT SIGNATURE LINE AT BOTTOM OF PAGE 2 ==========
-    const signatureY = Math.min(yPos + 15, 294);
+    const signatureY = Math.min(yPos + 10, 286);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);

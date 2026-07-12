@@ -51,6 +51,7 @@ import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
 import { useSocket } from '../context/SocketContext';
 import FinancialReports from '../components/financial/FinancialReports';
 import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
+import CompanyProfile from '../components/admin/CompanyProfile';
 
 // import { CallProvider, useCall } from '../context/CallContext';
 // import IncomingCallModal from '../components/call/IncomingCallModal';
@@ -2632,6 +2633,9 @@ function RecoveryModule() {
                   {directorSection === 'salaries' && (
                     <SalaryManagement />
                   )}
+
+                  {/* COMPANY PROFILE */}
+                  {directorSection === 'recovery-company-profile' && <CompanyProfile />}
             
                   {showApprovalModal && applicationToApprove && (
                     <LoanApprovalModal isOpen={showApprovalModal} onClose={() => setShowApprovalModal(false)} onApprove={(loanId, fundingData) => handleApplicationAction(loanId, 'approve', fundingData)} application={applicationToApprove} investors={investors} loading={approvingLoan} />

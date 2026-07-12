@@ -49,6 +49,7 @@ def seed():
             {'key': 'salaries', 'label': 'Salaries', 'icon': 'fa-wallet', 'path': '/admin/salaries', 'order': 95},
             {'key': 'financial-reports', 'label': 'Financial Reports', 'icon': 'fa-chart-pie', 'path': '/admin/financial-reports', 'order': 75},
             {'key': 'petty-cash', 'label': 'Petty Cash', 'icon': 'fa-wallet', 'path': '/recovery/petty-cash', 'order': 35},
+            {'key': 'company-profile', 'label': 'Company Profile', 'icon': 'fa-building', 'path': '/admin/company-profile', 'order': 57}, 
         ]
 
         for item in menu_items_data:
@@ -63,10 +64,10 @@ def seed():
         roles_data = {
             'admin': ['overview', 'clients', 'transactions', 'payment-stats', 'gallery',
                       'company-gallery', 'applications', 'report-management','loan-reports', 'financial-reports', 'utilities',
-                      'investors','user-management', 'settings'],
+                      'investors','user-management', 'company-profile', 'settings'],
             'director': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
                          'transactions', 'gallery', 'investors', 'report-management','loan-reports',
-                         'financial-reports', 'petty-cash','salaries' , 'utilities', 'settings'],
+                         'financial-reports', 'petty-cash','salaries' , 'company-profile', 'utilities', 'settings'],
             'secretary': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
                           'transactions', 'reports','petty-cash', 'utilities', 'settings'],
             'client_relations_officer': ['overview', 'recovery', 'inbox', 'applications',

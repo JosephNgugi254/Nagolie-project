@@ -31,6 +31,7 @@ import LoanReports from '../components/loan-reports/LoanReports';
 import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
 import FinancialReports from '../components/financial/FinancialReports';
 import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
+import CompanyProfile from '../components/admin/CompanyProfile';
 
 
 function AdminPanel() {
@@ -743,6 +744,38 @@ const handleInvestorPasswordSubmit = (e) => {
     }
   }, [navigate]);
 
+  const fetchPaymentStats = useCallback(async () => {
+    setPaymentStatsLoading(true)
+    try {
+      console.log("Fetching payment stats...")
+      const response = await adminAPI.getPaymentStats()
+      console.log("Payment stats response:", response.data)
+      setPaymentStats(response.data || {
+        payment_stats: [],
+        total_principal_collected: 0,
+        currently_lent: 0,
+        available_for_lending: 0,
+        revenue_collected: 0 
+      })
+    } catch (error) {
+      console.error("Failed to fetch payment stats:", error)
+      if (error.response?.status === 401) {
+        navigate("/admin/login")
+        return
+      }
+      setPaymentStats({
+        payment_stats: [],
+        total_principal_collected: 0,
+        currently_lent: 0,
+        available_for_lending: 0,
+        revenue_collected: 0 
+      })
+      showToast.error("Failed to load payment statistics")
+    } finally {
+      setPaymentStatsLoading(false)
+    }
+  }, [navigate])
+
   const handleGenerateShareLink = async (investor) => {
     console.log("Generating share link for investor:", investor)
     
@@ -1387,60 +1420,61 @@ const handleInvestorPasswordSubmit = (e) => {
   }, [isAuthenticated, userRole, authLoading, navigate, location]);
 
   //use effect for section selection in admin panel
-  useEffect(() => {
-    const path = location.pathname;
-    let section = "overview";
-    if (path.includes("/admin/clients")) {
-      section = "clients";
-    } else if (path.includes("/admin/transactions")) {
-      section = "transactions";
-    } else if (path.includes("/admin/gallery")) {
-      section = "gallery";
-    } else if (path.includes("/admin/company-gallery")) {
-      section = "company-gallery";
-    } else if (path.includes("/admin/applications")) {
-      section = "applications";
-    } else if (path.includes("/admin/payment-stats")) {
-      section = "payment-stats";
-    } else if (path.includes("/admin/report-management")) {
-      section = "report-management"; 
-    } else if (path.includes("/admin/loan-reports")) {
-      section = "loan-reports"; 
-    } else if (path.includes("/admin/financial-reports")) {
-      section = "financial-reports"; 
-    } else if (path.includes("/admin/petty-cash")) {
-      section = "petty-cash";
-    } else if (path.includes("/admin/user-management")) {
-      section = "user-management";  
-    } else if (path.includes("/admin/utilities")) {  
-      section = "utilities";
-    } else if (path.includes("/admin/investors")) {
-      section = "investors";
-      
+useEffect(() => {
+  const path = location.pathname;
+  let section = "overview";
 
-      // Check authentication for investor section
-      if (isInvestorSectionAuthenticated) { // REMOVED: && investorSessionExpires
-        // Session is still valid, proceed
-        setActiveSection(section);
-        fetchInvestors();
-      } else {
-        // Not authenticated, show PIN modal
-        setShowInvestorLoginModal(true);
-        setActiveSection("overview"); // Fallback to overview
-        navigate("/admin");
-      }
-      return; // Don't set active section here
-    }
-
-    setActiveSection(section);
-
-    // Fetch data for the detected section
-    if (section === "payment-stats") {
-      fetchPaymentStats();
-    } else if (section === "investors") { 
+  if (path.includes("/admin/clients")) {
+    section = "clients";
+  } else if (path.includes("/admin/transactions")) {
+    section = "transactions";
+  } else if (path.includes("/admin/gallery")) {
+    section = "gallery";
+  } else if (path.includes("/admin/company-gallery")) {
+    section = "company-gallery";
+  } else if (path.includes("/admin/applications")) {
+    section = "applications";
+  } else if (path.includes("/admin/payment-stats")) {
+    section = "payment-stats";
+  } else if (path.includes("/admin/report-management")) {
+    section = "report-management";
+  } else if (path.includes("/admin/loan-reports")) {
+    section = "loan-reports";
+  } else if (path.includes("/admin/financial-reports")) {
+    section = "financial-reports";
+  } else if (path.includes("/admin/petty-cash")) {
+    section = "petty-cash";
+  } else if (path.includes("/admin/user-management")) {
+    section = "user-management";
+  } else if (path.includes("/admin/utilities")) {
+    section = "utilities";
+  } else if (path.includes("/admin/investors")) {
+    section = "investors";
+    // ---- Investor‑specific logic (stays inside this block) ----
+    if (isInvestorSectionAuthenticated) {
+      setActiveSection(section);
       fetchInvestors();
+    } else {
+      setShowInvestorLoginModal(true);
+      setActiveSection("overview");
+      navigate("/admin");
     }
-  }, [location.pathname, isInvestorSectionAuthenticated]); 
+    return; // ⬅️ Prevents the generic `setActiveSection` below
+  } else if (path.includes("/admin/company-profile")) {
+    section = "company-profile";
+  }
+
+  // For all other sections (no special logic)
+  setActiveSection(section);
+
+  // Fetch data for sections that need it
+  if (section === "payment-stats") {
+    fetchPaymentStats();
+  } else if (section === "investors") {
+    fetchInvestors();
+  }
+}, [location.pathname, isInvestorSectionAuthenticated, fetchInvestors, fetchPaymentStats, navigate]);
+
 
   const generateTemporaryPassword = (name) => {
   if (!name || name.trim().length === 0) return '';
@@ -1788,37 +1822,6 @@ useEffect(() => {
     }
   }, [navigate])
 
-  const fetchPaymentStats = useCallback(async () => {
-    setPaymentStatsLoading(true)
-    try {
-      console.log("Fetching payment stats...")
-      const response = await adminAPI.getPaymentStats()
-      console.log("Payment stats response:", response.data)
-      setPaymentStats(response.data || {
-        payment_stats: [],
-        total_principal_collected: 0,
-        currently_lent: 0,
-        available_for_lending: 0,
-        revenue_collected: 0 
-      })
-    } catch (error) {
-      console.error("Failed to fetch payment stats:", error)
-      if (error.response?.status === 401) {
-        navigate("/admin/login")
-        return
-      }
-      setPaymentStats({
-        payment_stats: [],
-        total_principal_collected: 0,
-        currently_lent: 0,
-        available_for_lending: 0,
-        revenue_collected: 0 
-      })
-      showToast.error("Failed to load payment statistics")
-    } finally {
-      setPaymentStatsLoading(false)
-    }
-  }, [navigate])
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat("en-US", {
@@ -1862,6 +1865,12 @@ useEffect(() => {
   const handleSectionChange = (section) => {
     // Close sidebar on mobile when any section is clicked
     setSidebarOpen(false);
+
+    if (section === 'company-profile') {
+      setActiveSection('company-profile');
+      navigate('/admin/company-profile');
+      return;
+    }
 
     if (section === 'financial-reports') {
       setActiveSection('financial-reports');
@@ -4131,6 +4140,9 @@ Thank you for choosing us.`;
 
             {/* User Management Section */}
             {activeSection === 'user-management' && <UserManagement />}
+
+            {/* Company Profile Section */}
+            {activeSection === 'company-profile' && <CompanyProfile />}
           </div>
         </div>
       </div>
