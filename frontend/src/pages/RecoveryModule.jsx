@@ -2635,7 +2635,7 @@ function RecoveryModule() {
                   )}
 
                   {/* COMPANY PROFILE */}
-                  {directorSection === 'recovery-company-profile' && <CompanyProfile />}
+                  {directorSection === 'company-profile' && <CompanyProfile />}
             
                   {showApprovalModal && applicationToApprove && (
                     <LoanApprovalModal isOpen={showApprovalModal} onClose={() => setShowApprovalModal(false)} onApprove={(loanId, fundingData) => handleApplicationAction(loanId, 'approve', fundingData)} application={applicationToApprove} investors={investors} loading={approvingLoan} />
