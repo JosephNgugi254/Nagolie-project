@@ -23,6 +23,7 @@ def list_documents():
     return jsonify([d.to_dict() for d in docs]), 200
 
 # ─── UPLOAD a document ───
+# ─── UPLOAD a document ───
 @company_profile_bp.route('/documents', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director'])
@@ -47,7 +48,7 @@ def upload_document():
 
         # Determine if it's an image
         if file.mimetype and file.mimetype.startswith('image/'):
-            # Upload to Cloudinary
+            # Upload to Cloudinary – keep full HTTPS URL
             upload_result = cloudinary.uploader.upload(
                 file,
                 folder='company_documents',
@@ -66,7 +67,8 @@ def upload_document():
             db.session.add(attachment)
             db.session.flush()  # get attachment.id
             attachment_id = attachment.id
-            file_url = url_for('company_profile.get_attachment', attachment_id=attachment.id, _external=True)
+            # ✅ STORE RELATIVE PATH (without /api prefix)
+            file_url = f"/company-profile/attachment/{attachment_id}"
             file_type = 'file'
 
         doc = CompanyDocument(
@@ -88,7 +90,7 @@ def upload_document():
         db.session.rollback()
         print(f"Upload error: {e}")
         return jsonify({'error': str(e)}), 500
-
+    
 # ─── DELETE a document ───
 @company_profile_bp.route('/documents/<int:doc_id>', methods=['DELETE'])
 @jwt_required()
