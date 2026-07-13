@@ -18,6 +18,34 @@ const CompanyProfile = () => {
   });
   const [selectedFile, setSelectedFile] = useState(null);
 
+  const getRelativePath = (url) => {
+    if (!url) return url;
+    // Cloudinary URLs are public – keep full
+    if (url.includes('cloudinary.com')) return url; 
+
+    // If it's an absolute URL (e.g., http://...), extract the path
+    if (url.startsWith('http')) {
+      try {
+        const parsed = new URL(url);
+        let path = parsed.pathname; // e.g., "/api/company-profile/attachment/56"
+        // Remove leading /api because api base already includes /api
+        if (path.startsWith('/api/')) {
+          path = path.slice(4);
+        }
+        return path;
+      } catch {
+        return url;
+      }
+    } 
+
+    // If it's already a relative path, strip /api if present
+    if (url.startsWith('/api/')) {
+      return url.slice(4);
+    }
+    // Assume it's a correct relative path (e.g., /company-profile/...)
+    return url;
+  };
+
   // API base URL (same as used elsewhere)
   const API_BASE = import.meta.env.VITE_API_BASE_URL || 
     (window.location.hostname === 'localhost' 
@@ -101,16 +129,10 @@ const CompanyProfile = () => {
 
   // Download: fetch with auth and trigger download
   const handleDownload = async (url, name) => {
-    try {
-      const fullUrl = getFullUrl(url);
-      const token = localStorage.getItem('token');
-      const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(fullUrl, { headers });
-      if (!response.ok) throw new Error('Download failed');
+  try {
+    // Cloudinary – public, no auth needed
+    if (url.includes('cloudinary.com')) {
+      const response = await fetch(url);
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -120,41 +142,47 @@ const CompanyProfile = () => {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(blobUrl);
-    } catch (error) {
-      console.error('Download error:', error);
-      showToast.error('Failed to download document');
+      return;
     }
-  };
 
-  // View: fetch with auth and open in new tab (Cloudinary URLs are public)
-  const handleView = async (url) => {
-    try {
-      // Only Cloudinary URLs are public – open directly
-      if (url.includes('cloudinary.com')) {
-        window.open(url, '_blank');
-        return;
-      }
+    const relativePath = getRelativePath(url);
+    const response = await api.get(relativePath, { responseType: 'blob' });
+    // Get the correct MIME type from response headers
+    const contentType = response.headers['content-type'] || 'application/octet-stream';
+    const blob = new Blob([response.data], { type: contentType });
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = name || 'document';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (error) {
+    console.error('Download error:', error);
+    showToast.error('Failed to download document');
+  }
+};
 
-      // For all other URLs, fetch with auth token
-      const fullUrl = getFullUrl(url);
-      const token = localStorage.getItem('token');
-      const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(fullUrl, { headers });
-      if (!response.ok) throw new Error('Failed to fetch document');
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      window.open(blobUrl, '_blank');
-      // Revoke the URL after a delay to allow the new tab to load
-      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
-    } catch (error) {
-      console.error('View error:', error);
-      showToast.error('Failed to open document');
+const handleView = async (url) => {
+  try {
+    if (url.includes('cloudinary.com')) {
+      window.open(url, '_blank');
+      return;
     }
-  };
+
+    const relativePath = getRelativePath(url);
+    const response = await api.get(relativePath, { responseType: 'blob' });
+    const contentType = response.headers['content-type'] || 'application/octet-stream';
+    const blob = new Blob([response.data], { type: contentType });
+    const blobUrl = window.URL.createObjectURL(blob);
+    window.open(blobUrl, '_blank');
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+  } catch (error) {
+    console.error('View error:', error);
+    showToast.error('Failed to open document');
+  }
+};
 
   const filteredDocs = activeCategory === 'all'
     ? documents
