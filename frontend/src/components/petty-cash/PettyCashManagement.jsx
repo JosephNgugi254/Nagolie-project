@@ -25,6 +25,9 @@ const PettyCashManagement = () => {
   const [showAttachmentModal, setShowAttachmentModal] = useState(false);
   const [viewingAttachments, setViewingAttachments] = useState([]);
 
+  const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+  const [isSubmittingFund, setIsSubmittingFund] = useState(false);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -47,10 +50,12 @@ const PettyCashManagement = () => {
 
   const handleExpenseSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmittingExpense) return;
     if (!expenseData.description || !expenseData.amount || parseFloat(expenseData.amount) <= 0) {
       showToast.error('Please fill in description and positive amount');
       return;
     }
+    setIsSubmittingExpense(true);   // <-- start loading
     try {
       await financialAPI.addPettyCashExpense({
         description: expenseData.description,
@@ -65,6 +70,8 @@ const PettyCashManagement = () => {
       fetchData();
     } catch (error) {
       showToast.error(error.response?.data?.error || 'Failed to record expense');
+    } finally {
+      setIsSubmittingExpense(false); // <-- stop loading
     }
   };
 
@@ -74,6 +81,7 @@ const PettyCashManagement = () => {
       showToast.error('Please enter a positive amount');
       return;
     }
+    setIsSubmittingFund(true);
     try {
       await financialAPI.fundPettyCash({
         amount: parseFloat(fundData.amount),
@@ -85,6 +93,8 @@ const PettyCashManagement = () => {
       fetchData();
     } catch (error) {
       showToast.error(error.response?.data?.error || 'Failed to fund');
+    } finally {
+      setIsSubmittingFund(false);
     }
   };
 
@@ -354,7 +364,20 @@ const PettyCashManagement = () => {
           </div>
           <div className="d-flex justify-content-end gap-2">
             <button type="button" className="btn btn-secondary" onClick={() => setShowExpenseModal(false)}>Cancel</button>
-            <button type="submit" className="btn btn-success">Record Expense</button>
+            <button 
+              type="submit" 
+              className="btn btn-success" 
+              disabled={fileUploading || isSubmittingExpense}
+            >
+              {isSubmittingExpense ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Recording...
+                </>
+              ) : (
+                'Record Expense'
+              )}
+            </button>
           </div>
         </form>
       </Modal>
@@ -374,7 +397,20 @@ const PettyCashManagement = () => {
           </div>
           <div className="d-flex justify-content-end gap-2">
             <button type="button" className="btn btn-secondary" onClick={() => setShowFundModal(false)}>Cancel</button>
-            <button type="submit" className="btn btn-primary">Fund</button>
+            <button 
+              type="submit" 
+              className="btn btn-primary" 
+              disabled={isSubmittingFund}
+            >
+              {isSubmittingFund ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Funding...
+                </>
+              ) : (
+                'Fund'
+              )}
+            </button>
           </div>
         </form>
       </Modal>
