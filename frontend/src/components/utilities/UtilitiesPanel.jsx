@@ -17,7 +17,8 @@ import {
   generateClientRelationsOfficerContractPDF,
   generatePromissoryNote,
   generateManualPromissoryNotePDF,
-  generateManualOathOfSecrecyPDF
+  generateManualOathOfSecrecyPDF,
+   generateManualValuationReportPDF, 
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
 import { useAuth } from '../../context/AuthContext';
@@ -307,9 +308,31 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                   <div className="card h-100 border-success">
                     <div className="card-body text-center">
                       <i className="fas fa-file-alt fa-3x text-success mb-3"></i>
-                      <h5>Valuer Report Form</h5>
+                      <h5>Valuer Recovery Report Form</h5>
                       <p className="text-muted">Valuer Report for Loan recoveries</p>
                       <button className="btn btn-success" onClick={generateValuerReportPDF}>
+                        <i className="fas fa-download me-2"></i>Download PDF
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="col-md-6 col-lg-4">
+                  <div className="card h-100 border-primary">
+                    <div className="card-body text-center">
+                      <i className="fas fa-clipboard-list fa-3x text-primary mb-3"></i>
+                      <h5>Valuation Report Manual</h5>
+                      <p className="text-muted">Manual valuation report form for livestock valuation</p>
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={async () => {
+                          try {
+                            await generateManualValuationReportPDF();
+                            showToast.success('Valuation report downloaded!');
+                          } catch (error) {
+                            showToast.error('Failed to generate valuation report');
+                          }
+                        }}
+                      >
                         <i className="fas fa-download me-2"></i>Download PDF
                       </button>
                     </div>

@@ -6906,7 +6906,7 @@ export const generateBlankReportPDF = async () => {
   doc.save(fileName);
 };
 
-// ========== VALUER REPORT FORM (MANUAL FILL) – WITH DATE COLUMN & ADJUSTED WIDTHS ==========
+// ========== VALUER RECOVERY REPORT FORM (MANUAL FILL) – WITH DATE COLUMN & ADJUSTED WIDTHS ==========
 export const generateValuerReportPDF = async () => {
   const doc = new jsPDF({
     unit: 'mm',
@@ -7885,6 +7885,176 @@ export const generateFinancialReportPDF = async (reportData, periodLabel, chartI
     return doc.output('blob');
   } else {
     doc.save(fileName);
+  }
+};
+
+// ========== MANUAL VALUATION REPORT PDF ==========
+export const generateManualValuationReportPDF = async () => {
+  try {
+    const doc = new jsPDF();
+    
+    // Add watermark
+    addOptimizedWatermark(doc, 'report');
+    
+    // Add company header (letterhead)
+    let yPos = await addHeader(doc, 15);
+    
+    // Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VALUATION REPORT', 105, yPos, { align: 'center' });
+    yPos += 10;
+    
+    yPos = addDivider(doc, yPos);
+    yPos += 6;
+    
+    // Date field
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('Date:', 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_____________________________', 40, yPos);
+    yPos += 12;
+    
+    // Ruled lines for writing (12 lines to fill the page)
+    const lineSpacing = 7;
+    const startY = yPos;
+    const totalLines = 12;
+    
+    for (let i = 0; i < totalLines; i++) {
+      const currentY = startY + (i * lineSpacing);
+      if (currentY > 240) break;
+      
+      // Draw ruled line (dotted light gray)
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.3);
+      doc.setLineDashPattern([2, 2]);
+      doc.line(20, currentY, 190, currentY);
+      doc.setLineDashPattern([]); // Reset
+    }
+    
+    yPos = startY + (totalLines * lineSpacing) + 12;
+    
+    // Reset yPos if it goes beyond page
+    if (yPos > 260) {
+      yPos = 250;
+    }
+    
+    // ---- Helper functions for thumbprint & checkboxes ----
+    const drawThumbprintBox = (x, y, width = 40, height = 35) => {
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, width, height, 2, 2);
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.text('THUMB PRINT', x + width / 2, y + height / 2, { align: 'center' });
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+    };
+
+    const drawRtLtCheckboxes = (x, y) => {
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x + 8, y, 4, 4);
+      doc.text('R.T', x + 13, y + 3.5);
+      doc.rect(x + 30, y, 4, 4);
+      doc.text('L.T', x + 35, y + 3.5);
+    };
+    
+    // ---- CLIENT section (LEFT) and FOR NAGOLIE section (RIGHT) side by side ----
+    const leftColX = 20;
+    const rightColX = 115; // 20 + 95 = 115 (split page roughly in half)
+    
+    // Client section (left)
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('CLIENT:', leftColX, yPos);
+    yPos += 8;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: _____________________________', leftColX + 5, yPos);
+    yPos += 8;
+    doc.text('Signature: _____________________________', leftColX + 5, yPos);
+    yPos += 8;
+    doc.text('Date: _____________________________', leftColX + 5, yPos);
+    yPos += 14;
+    
+    // FOR NAGOLIE section (right)
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('FOR NAGOLIE:', rightColX, yPos - 38);
+    yPos -= 30;
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('Name: _____________________________', rightColX + 5, yPos);
+    yPos += 8;
+    doc.text('Role: ______________________________', rightColX + 5, yPos);
+    yPos += 10;
+    doc.text('Signature: __________________________', rightColX + 5, yPos);
+    yPos += 8;
+    doc.text('Date: _____________________________', rightColX + 5, yPos);
+    yPos += 14;
+    
+    // ---- Thumbprint Box (LEFT) and Stamp Box (RIGHT) - SWAPPED POSITIONS ----
+    const boxWidth = 60;
+    const boxHeight = 35;
+    const leftBoxX = 20;                  // thumbprint on left (was stamp)
+    const rightBoxX = 210 - 20 - boxWidth; // stamp on right (was thumbprint)
+    const boxesY = yPos;
+    
+    // Thumbprint box (LEFT)
+    drawThumbprintBox(leftBoxX, boxesY, boxWidth - 20, boxHeight);
+    // Place checkboxes centered below the thumbprint box
+    const checkY = boxesY + boxHeight + 4;
+    const groupWidth = 50 + 5 + 20;
+    const checkX = leftBoxX + (boxWidth / 2) - (groupWidth / 2);
+    drawRtLtCheckboxes(checkX, checkY);
+    
+    // Stamp box (RIGHT) – load manual stamp image
+    let stampBase64 = null;
+    try {
+      stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');
+    } catch (error) {
+      console.warn('Failed to load stamp image:', error);
+    }
+    
+    if (stampBase64) {
+      doc.addImage(stampBase64, 'PNG', rightBoxX, boxesY, boxWidth, boxHeight);
+    } else {
+      // Fallback to drawn box
+      doc.setDrawColor(230, 235, 245);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(rightBoxX, boxesY, boxWidth, boxHeight, 2, 2);
+      const stampCenterX = rightBoxX + boxWidth / 2;
+      const stampCenterY = boxesY + boxHeight / 2;
+      doc.setTextColor(230, 235, 240);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
+      doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
+    }
+    
+    // Advance yPos past the boxes (plus checkboxes)
+    yPos = checkY + 12;
+    
+    // Footer
+    addFooter(doc, yPos + 10);
+    
+    // Save PDF
+    const fileName = `Valuation_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+    
+  } catch (error) {
+    console.error('Error generating manual valuation report:', error);
+    throw error;
   }
 };
 
