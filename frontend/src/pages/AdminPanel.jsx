@@ -18,7 +18,7 @@ import Toast, { showToast } from "../components/common/Toast"
 import { generateTransactionReceipt, generateClientStatement,generateLoanAgreementPDF,generateInvestorAgreementPDF,
  generateInvestorStatementPDF, generateInvestorTransactionReceipt, generateManualLoanAgreementPDF,
  generateProposalPDF,generateNextOfKinConsentPDF, generateManualNextOfKinConsentPDF,
- generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF, generateManualValuationReportPDF, 
+ generateLoanRenewalAgreementAutoPDF, generateManualLoanRenewalAgreementPDF, generateManualRecoveryReportPDF, 
  generateLoanWaiverAgreementAutoPDF, generateOfficerReportPDF ,generatePromissoryNote, generateManualPromissoryNotePDF } from "../components/admin/ReceiptPDF";
 import ShareLinkModal from "../components/admin/ShareLinkModal"
 import LoanApprovalModal from "../components/admin/LoanApprovalModal"

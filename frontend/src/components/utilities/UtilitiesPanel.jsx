@@ -18,7 +18,7 @@ import {
   generatePromissoryNote,
   generateManualPromissoryNotePDF,
   generateManualOathOfSecrecyPDF,
-   generateManualValuationReportPDF, 
+   generateManualRecoveryReportPDF, 
 } from '../admin/ReceiptPDF';
 import { generateSecretaryContractPDF } from '../admin/ReceiptPDF';
 import { useAuth } from '../../context/AuthContext';
@@ -320,16 +320,16 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                   <div className="card h-100 border-primary">
                     <div className="card-body text-center">
                       <i className="fas fa-clipboard-list fa-3x text-primary mb-3"></i>
-                      <h5>Valuation Report Manual</h5>
-                      <p className="text-muted">Manual valuation report form for livestock valuation</p>
+                      <h5>Recovery Report Form</h5>
+                      <p className="text-muted">Recovery report form for livestock recovery reports</p>
                       <button 
                         className="btn btn-primary" 
                         onClick={async () => {
                           try {
-                            await generateManualValuationReportPDF();
-                            showToast.success('Valuation report downloaded!');
+                            await generateManualRecoveryReportPDF();
+                            showToast.success('Recovery report downloaded!');
                           } catch (error) {
-                            showToast.error('Failed to generate valuation report');
+                            showToast.error('Failed to generate manual recovery report form');
                           }
                         }}
                       >

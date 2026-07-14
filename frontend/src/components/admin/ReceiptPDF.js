@@ -7888,8 +7888,8 @@ export const generateFinancialReportPDF = async (reportData, periodLabel, chartI
   }
 };
 
-// ========== MANUAL VALUATION REPORT PDF ==========
-export const generateManualValuationReportPDF = async () => {
+// ========== MANUAL RECOVERY REPORT PDF ==========
+export const generateManualRecoveryReportPDF = async () => {
   try {
     const doc = new jsPDF();
     
@@ -7903,7 +7903,7 @@ export const generateManualValuationReportPDF = async () => {
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
-    doc.text('VALUATION REPORT', 105, yPos, { align: 'center' });
+    doc.text('RECOVERY REPORT', 105, yPos, { align: 'center' });
     yPos += 10;
     
     yPos = addDivider(doc, yPos);
@@ -8003,57 +8003,15 @@ export const generateManualValuationReportPDF = async () => {
     doc.text('Date: _____________________________', rightColX + 5, yPos);
     yPos += 14;
     
-    // ---- Thumbprint Box (LEFT) and Stamp Box (RIGHT) - SWAPPED POSITIONS ----
-    const boxWidth = 60;
-    const boxHeight = 35;
-    const leftBoxX = 20;                  // thumbprint on left (was stamp)
-    const rightBoxX = 210 - 20 - boxWidth; // stamp on right (was thumbprint)
-    const boxesY = yPos;
-    
-    // Thumbprint box (LEFT)
-    drawThumbprintBox(leftBoxX, boxesY, boxWidth - 20, boxHeight);
-    // Place checkboxes centered below the thumbprint box
-    const checkY = boxesY + boxHeight + 4;
-    const groupWidth = 50 + 5 + 20;
-    const checkX = leftBoxX + (boxWidth / 2) - (groupWidth / 2);
-    drawRtLtCheckboxes(checkX, checkY);
-    
-    // Stamp box (RIGHT) – load manual stamp image
-    let stampBase64 = null;
-    try {
-      stampBase64 = await getLogoBase64('/nagolie-stamp-manual.png');
-    } catch (error) {
-      console.warn('Failed to load stamp image:', error);
-    }
-    
-    if (stampBase64) {
-      doc.addImage(stampBase64, 'PNG', rightBoxX, boxesY, boxWidth, boxHeight);
-    } else {
-      // Fallback to drawn box
-      doc.setDrawColor(230, 235, 245);
-      doc.setLineWidth(0.3);
-      doc.roundedRect(rightBoxX, boxesY, boxWidth, boxHeight, 2, 2);
-      const stampCenterX = rightBoxX + boxWidth / 2;
-      const stampCenterY = boxesY + boxHeight / 2;
-      doc.setTextColor(230, 235, 240);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'italic');
-      doc.text('OFFICIAL COMPANY STAMP', stampCenterX, stampCenterY - 3, { align: 'center' });
-      doc.text('(To be affixed here)', stampCenterX, stampCenterY + 3, { align: 'center' });
-    }
-    
-    // Advance yPos past the boxes (plus checkboxes)
-    yPos = checkY + 12;
-    
     // Footer
     addFooter(doc, yPos + 10);
     
     // Save PDF
-    const fileName = `Valuation_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+    const fileName = `Recovery_Report_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
     
   } catch (error) {
-    console.error('Error generating manual valuation report:', error);
+    console.error('Error generating manual recovery report:', error);
     throw error;
   }
 };

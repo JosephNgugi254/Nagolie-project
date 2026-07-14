@@ -21,7 +21,7 @@ import {
  generateManualNextOfKinConsentPDF,
  generateLoanRenewalAgreementAutoPDF,
  generateManualLoanRenewalAgreementPDF,
- generateManualValuationReportPDF, 
+ generateManualRecoveryReportPDF, 
  generateLoanWaiverAgreementAutoPDF } from "../components/admin/ReceiptPDF";
 import RecoverySidebar from '../components/recovery/RecoverySidebar';
 import Toast, { showToast } from '../components/common/Toast';
