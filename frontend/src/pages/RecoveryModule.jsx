@@ -87,10 +87,10 @@ function RecoveryModule() {
     });
   };
 
-  // socket states
-  // const [socket, setSocket] = useState(null);
-  // const [onlineUsers, setOnlineUsers] = useState(new Set());
-  // const socketRef = useRef(null);
+  // Livestock gallery filters
+  const [livestockSearch, setLivestockSearch] = useState("");
+  const [livestockTypeFilter, setLivestockTypeFilter] = useState("all");
+  const [livestockStatusFilter, setLivestockStatusFilter] = useState("all");
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL ||
     (window.location.hostname === 'localhost'
@@ -2293,27 +2293,219 @@ function RecoveryModule() {
                   {/* LIVESTOCK GALLERY SECTION */}
                   {directorSection === 'gallery' && (
                     <div id="gallery-section" className="content-section">
-                      <div className="d-flex justify-content-between align-items-center mb-4"><h2>Livestock Gallery Management</h2><button className="btn btn-primary" onClick={() => setShowAddLivestockModal(true)}><i className="fas fa-plus me-1"></i>Add Livestock</button></div>
-                      {livestockLoading ? <div className="text-center py-5"><div className="spinner-border text-primary"></div></div> :
-                        <div className="row">{livestock.map(item => (
-                          <div key={item.id} className="col-md-6 col-lg-4 mb-4">
-                            <div className="card h-100">
-                              <ImageCarousel images={item.images} title={item.title} />
-                              <div className="card-body">
-                                <h5 className="card-title">{item.title}</h5>
-                                <p className="card-text">{item.description}</p>
-                                <div className="d-flex justify-content-between align-items-center mb-2"><span className="h6 text-primary">{fmt(item.price)}</span><span className="badge bg-warning">{item.availableInfo}</span></div>
-                                {item.ownership_type === 'investor' && item.investor_name && (<small className="text-muted mb-2"><i className="fas fa-user-tie me-1"></i>Owned by Investor: {item.investor_name}</small>)}
-                                {item.ownership_type === 'company' && !item.isAdminAdded && (<small className="text-muted mb-2"><i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral (Company Owned)</small>)}
-                                {item.isAdminAdded && (<small className="text-muted mb-2"><i className="fas fa-user-tie me-1"></i>Admin Added</small>)}
-                                <div className="mt-auto">
-                                  <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEditLivestock(item)}><i className="fas fa-edit"></i> Edit</button>
-                                  <button className="btn btn-sm btn-outline-info me-2" onClick={() => openShareModal(item)}><i className="fas fa-share-alt"></i> Share</button>
-                                  <button className="btn btn-sm btn-outline-danger" onClick={() => confirmDeleteLivestock(item.id)}><i className="fas fa-trash"></i> Delete</button>
+                      <div className="d-flex justify-content-between align-items-center mb-4">
+                        <h2>Livestock Gallery Management</h2>
+                        <button className="btn btn-primary" onClick={() => setShowAddLivestockModal(true)}>
+                          <i className="fas fa-plus me-1"></i>Add Livestock
+                        </button>
+                      </div>
+                  
+                      {/* Search and Filter Section */}
+                      <div className="row g-3 mb-4">
+                        <div className="col-12 col-md-4 col-lg-3">
+                          <label className="form-label small text-muted mb-1">Search</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="Search by name, phone, ID..." 
+                            value={livestockSearch}
+                            onChange={(e) => setLivestockSearch(e.target.value)}
+                          />
+                        </div>
+                        <div className="col-12 col-md-4 col-lg-3">
+                          <label className="form-label small text-muted mb-1">Livestock Type</label>
+                          <select 
+                            className="form-select" 
+                            value={livestockTypeFilter}
+                            onChange={(e) => setLivestockTypeFilter(e.target.value)}
+                          >
+                            <option value="all">All Types</option>
+                            <option value="cattle">Cattle</option>
+                            <option value="goats">Goats</option>
+                            <option value="sheep">Sheep</option>
+                            <option value="poultry">Poultry</option>
+                          </select>
+                        </div>
+                        <div className="col-12 col-md-4 col-lg-3">
+                          <label className="form-label small text-muted mb-1">Status</label>
+                          <select 
+                            className="form-select" 
+                            value={livestockStatusFilter}
+                            onChange={(e) => setLivestockStatusFilter(e.target.value)}
+                          >
+                            <option value="all">All Status</option>
+                            <option value="available">Available</option>
+                            <option value="claimed">Claimed</option>
+                            <option value="collateral">Collateral</option>
+                            <option value="admin_added">Admin Added</option>
+                          </select>
+                        </div>
+                        <div className="col-12 col-md-4 col-lg-3 d-flex align-items-end">
+                          {(livestockSearch || livestockTypeFilter !== 'all' || livestockStatusFilter !== 'all') && (
+                            <button 
+                              className="btn btn-outline-danger w-100"
+                              onClick={() => {
+                                setLivestockSearch('');
+                                setLivestockTypeFilter('all');
+                                setLivestockStatusFilter('all');
+                              }}
+                            >
+                              <i className="fas fa-times me-1"></i> Clear Filters
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                        
+                      {livestockLoading ? (
+                        <div className="text-center py-5">
+                          <div className="spinner-border text-primary" role="status">
+                            <span className="visually-hidden">Loading livestock...</span>
+                          </div>
+                          <p className="mt-2">Loading livestock data...</p>
+                        </div>
+                      ) : (
+                        <>
+                          {(() => {
+                            // Filter livestock based on search and filters
+                            const filteredLivestock = livestock.filter(item => {
+                              // Search filter (name, phone, ID)
+                              if (livestockSearch) {
+                                const searchTerm = livestockSearch.toLowerCase();
+                                const searchableFields = [
+                                  item.title?.toLowerCase() || '',
+                                  item.description?.toLowerCase() || '',
+                                  item.type?.toLowerCase() || '',
+                                  item.location?.toLowerCase() || '',
+                                  item.investor_name?.toLowerCase() || '',
+                                  item.isAdminAdded ? 'admin' : '',
+                                  item.is_claimed ? 'claimed' : '',
+                                ];
+                                if (!searchableFields.some(field => field.includes(searchTerm))) {
+                                  return false;
+                                }
+                              }
+                            
+                              // Livestock type filter
+                              if (livestockTypeFilter !== 'all') {
+                                if (item.type?.toLowerCase() !== livestockTypeFilter.toLowerCase()) {
+                                  return false;
+                                }
+                              }
+                            
+                              // Status filter
+                              if (livestockStatusFilter !== 'all') {
+                                switch(livestockStatusFilter) {
+                                  case 'available':
+                                    if (item.isAdminAdded !== true && item.is_claimed !== false && item.ownership_type !== 'company') {
+                                      return false;
+                                    }
+                                    break;
+                                  case 'claimed':
+                                    if (!item.is_claimed) return false;
+                                    break;
+                                  case 'collateral':
+                                    if (item.ownership_type !== 'company' || item.isAdminAdded || item.is_claimed) {
+                                      return false;
+                                    }
+                                    break;
+                                  case 'admin_added':
+                                    if (!item.isAdminAdded) return false;
+                                    break;
+                                  default:
+                                    break;
+                                }
+                              }
+                            
+                              return true;
+                            });
+                          
+                            return filteredLivestock.length === 0 ? (
+                              <div className="card">
+                                <div className="card-body text-center py-5">
+                                  <i className="fas fa-search fa-3x text-muted mb-3"></i>
+                                  <h5 className="text-muted">No Livestock Found</h5>
+                                  <p className="text-muted">
+                                    {livestock.length === 0 
+                                      ? "No livestock in the gallery yet." 
+                                      : "No livestock match your search or filter criteria."}
+                                  </p>
+                                  {(livestockSearch || livestockTypeFilter !== 'all' || livestockStatusFilter !== 'all') && (
+                                    <button 
+                                      className="btn btn-outline-primary mt-2"
+                                      onClick={() => {
+                                        setLivestockSearch('');
+                                        setLivestockTypeFilter('all');
+                                        setLivestockStatusFilter('all');
+                                      }}
+                                    >
+                                      <i className="fas fa-undo me-1"></i> Clear Filters
+                                    </button>
+                                  )}
                                 </div>
                               </div>
-                            </div>
-                          </div>))}</div>}
+                            ) : (
+                              <div className="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4" id="adminGallery">
+                                {filteredLivestock.map((item) => (
+                                  <div key={item.id} className="col" data-livestock-id={item.id}>
+                                    <div className="card gallery-card h-100">
+                                      <ImageCarousel images={item.images} title={item.title} />
+                                      <div className="card-body d-flex flex-column">
+                                        <h5 className="card-title">{item.title}</h5>
+                                        <p className="card-text flex-grow-1">{item.description}</p>
+                                        <div className="d-flex justify-content-between align-items-center mb-2">
+                                          <span className="h6 text-primary">{fmt(item.price)}</span>
+                                          <span className={`badge ${
+                                            item.daysRemaining > 1 ? 'bg-warning' : 
+                                            item.daysRemaining === 1 ? 'bg-info' : 
+                                            'bg-success'
+                                          }`}>
+                                            {item.availableInfo}
+                                          </span>
+                                        </div>
+                                        {item.ownership_type === 'investor' && item.investor_name && (
+                                          <small className="text-muted mb-2">
+                                            <i className="fas fa-user-tie me-1"></i>Owned by Investor: {item.investor_name}
+                                          </small>
+                                        )}
+                                        {item.ownership_type === 'company' && !item.isAdminAdded && (
+                                          <small className="text-muted mb-2">
+                                            <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral (Company Owned)
+                                          </small>
+                                        )}
+                                        {item.isAdminAdded && (
+                                          <small className="text-muted mb-2">
+                                            <i className="fas fa-user-tie me-1"></i>Admin Added
+                                          </small>
+                                        )}
+                                        <div className="mt-auto">
+                                          <button 
+                                            className="btn btn-sm btn-outline-primary me-2"
+                                            onClick={() => handleEditLivestock(item)}
+                                          >
+                                            <i className="fas fa-edit"></i> Edit
+                                          </button>
+                                          <button 
+                                            className="btn btn-sm btn-outline-info me-2"
+                                            onClick={() => openShareModal(item)}
+                                          >
+                                            <i className="fas fa-share-alt"></i> Share
+                                          </button>
+                                          <button 
+                                            className="btn btn-sm btn-outline-danger"
+                                            onClick={() => confirmDeleteLivestock(item.id)}
+                                          >
+                                            <i className="fas fa-trash"></i> Delete
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
                     </div>
                   )}
             

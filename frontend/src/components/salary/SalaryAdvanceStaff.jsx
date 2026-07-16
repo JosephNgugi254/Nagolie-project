@@ -2,6 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { showToast } from '../common/Toast';
 import { salaryAPI } from '../../services/api';
 
+// Helper: format month from "YYYY-MM" to "Month/YYYY"
+const formatMonthDisplay = (monthStr) => {
+  if (!monthStr) return '';
+  const [year, month] = monthStr.split('-');
+  const date = new Date(year, month - 1);
+  return date.toLocaleString('default', { month: 'long' }) + '/' + year;
+};
+
 const SalaryAdvanceStaff = ({ user }) => {
   const [stats, setStats] = useState(null);
   const [amount, setAmount] = useState('');
@@ -31,7 +39,6 @@ const SalaryAdvanceStaff = ({ user }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Remove commas and trim whitespace
     const rawAmount = amount.replace(/,/g, '').trim();
     const numericAmount = parseFloat(rawAmount);
 
@@ -68,7 +75,7 @@ const SalaryAdvanceStaff = ({ user }) => {
         <div className="col-md-6">
           <div className="card shadow-sm">
             <div className="card-body">
-              <h6 className="card-subtitle mb-2 text-muted">Current Month: {month}</h6>
+              <h6 className="card-subtitle mb-2 text-muted">Current Month: {formatMonthDisplay(month)}</h6>
               {stats ? (
                 <>
                   <p><strong>Total Salary:</strong> KES {stats.total_salary.toFixed(2)}</p>
@@ -123,7 +130,9 @@ const SalaryAdvanceStaff = ({ user }) => {
           </div>
         </div>
       </div>
-      {stats && stats.transactions.length > 0 && (
+
+      {/* Transaction History – all transactions with formatted month */}
+      {stats && stats.transactions && stats.transactions.length > 0 && (
         <div className="card shadow-sm">
           <div className="card-header bg-light">
             <h6 className="mb-0">Transaction History</h6>
@@ -134,6 +143,7 @@ const SalaryAdvanceStaff = ({ user }) => {
                 <thead>
                   <tr>
                     <th>Date</th>
+                    <th>Month</th>
                     <th>Type</th>
                     <th>Amount</th>
                     <th>Reference</th>
@@ -145,7 +155,10 @@ const SalaryAdvanceStaff = ({ user }) => {
                   {stats.transactions.map(t => (
                     <tr key={t.id}>
                       <td>{new Date(t.created_at).toLocaleDateString()}</td>
-                      <td><span className="badge bg-info">{t.transaction_type}</span></td>
+                      <td>{formatMonthDisplay(t.month)}</td>
+                      <td><span className={`badge ${t.transaction_type === 'advance' ? 'bg-info' : 'bg-primary'}`}>
+                        {t.transaction_type === 'advance' ? 'Advance' : 'Salary Payment'}
+                      </span></td>
                       <td>KES {t.amount.toFixed(2)}</td>
                       <td>{t.reference || 'N/A'}</td>
                       <td>{t.payment_method || 'N/A'}</td>

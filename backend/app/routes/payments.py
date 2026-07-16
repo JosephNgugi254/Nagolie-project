@@ -138,12 +138,9 @@ def _accrue_daily(loan, today, last_date, save=True):
 
     while current_date <= today:
         # 1. Check if compounding should happen at the start of this day
-        # Compounding occurs on the day after the due date, and then every 7 days.
         first_compounding = due_date + timedelta(days=1)   # day after due date
         if current_date >= first_compounding and (current_date - first_compounding).days % 7 == 0:
             # --- Perform compounding ---
-            # Determine the period key (the week that just ended)
-            # The week ends on the day before compounding, i.e., current_date - 1
             week_end = current_date - timedelta(days=1)
             days_since_disbursement = (week_end - disb).days
             week_num = days_since_disbursement // 7
@@ -190,7 +187,7 @@ def _accrue_daily(loan, today, last_date, save=True):
                 save=save
             )
 
-        # Advance last_interest_payment_date to this day (whether or not interest was added)
+        # Advance last_interest_payment_date to this day
         loan.last_interest_payment_date = datetime.combine(current_date, datetime.min.time())
 
         current_date += timedelta(days=1)
@@ -199,10 +196,18 @@ def _accrue_daily(loan, today, last_date, save=True):
     unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
     loan.balance = loan.current_principal + unpaid
 
+    # -----------------------------------------------------------------
+    # NEW: Check for full repayment and DELETE livestock
+    # -----------------------------------------------------------------
     if loan.current_principal <= Decimal('0.01') and unpaid <= Decimal('0.01'):
         loan.status = 'completed'
         loan.current_principal = Decimal('0')
         loan.balance = Decimal('0')
+        # Delete associated livestock
+        if loan.livestock:
+            livestock = loan.livestock
+            loan.livestock_id = None
+            db.session.delete(livestock)
 
     return loan
 
@@ -285,10 +290,19 @@ def _accrue_weekly(loan, today, last_date, save=True):
     # Balance = principal only (accrued_interest is zero after compounding)
     loan.balance = loan.current_principal
 
+    # -----------------------------------------------------------------
+    # NEW: Check for full repayment and DELETE livestock
+    # -----------------------------------------------------------------
     if loan.current_principal <= Decimal('0.01'):
         loan.status = 'completed'
         loan.current_principal = Decimal('0')
         loan.balance = Decimal('0')
+        # Delete associated livestock
+        if loan.livestock:
+            livestock = loan.livestock
+            loan.livestock_id = None
+            db.session.delete(livestock)
+            # If you want to log this, you can do it here
 
     return loan
 
@@ -385,15 +399,12 @@ def _apply_payment(loan, payment_type, payment_amount, notes, method='Cash'):
         if loan.current_principal < Decimal('0'):
             loan.current_principal = Decimal('0')
         loan.amount_paid += payment_amount
-        # Principal reduction does NOT clear the prepaid interest marker —
-        # the client already paid interest for this week; we honour that.
         notes_text = notes or f'{method} principal payment of KSh {float(payment_amount):,.2f}'
 
     else:
         return ("Invalid payment_type. Must be 'principal' or 'interest'", 400)
 
     return notes_text
-
 
 # ---------------------------------------------------------------------------
 # Loan summary  (unchanged)

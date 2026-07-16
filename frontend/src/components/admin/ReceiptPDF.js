@@ -7568,148 +7568,6 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
   }
 };
 
-// salary report generator
-export const generateSalaryReportPDF = async (data) => {
-  const doc = new jsPDF('p', 'mm', 'a4');
-  const pageWidth = 210;
-  const margin = 14;
-
-  // Add watermark (like all other documents)
-  addOptimizedWatermark(doc, 'statement'); // 'statement' gives a nice watermark
-
-  // Add company header (logo, name, address, etc.)
-  let y = await addHeader(doc, 15); // y position after header
-
-  // Title
-  doc.setFontSize(18);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('SALARY REPORT', pageWidth / 2, y, { align: 'center' });
-  y += 8;
-  y = addDivider(doc, y); // blue divider line
-
-  // Report generation date
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...COLORS.textLight);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, y, { align: 'center' });
-  y += 10;
-
-  // Staff Info
-  doc.setFontSize(12);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...COLORS.textDark);
-  doc.text(`Staff: ${data.user}`, margin, y);
-  y += 6;
-  doc.text(`Role: ${data.role}`, margin, y);
-  y += 6;
-  doc.text(`Month: ${data.month}`, margin, y);
-  y += 10;
-
-  // --- Summary Table ---
-  const summaryRows = [
-    ['Total Salary', `${data.total_salary.toFixed(2)}`],
-    ['Total Advances', `${data.total_advances.toFixed(2)}`],
-    ['Salary Payments', `${data.total_salary_paid.toFixed(2)}`],
-    ['Total Paid', `${data.total_paid.toFixed(2)}`],
-    ['Remaining Balance', `${data.balance.toFixed(2)}`],
-  ];
-
-  autoTable(doc, {
-    startY: y,
-    head: [['Item', 'Amount (KES)']],
-    body: summaryRows,
-    theme: 'grid',
-    styles: { fontSize: 10, cellPadding: 3 },
-    headStyles: { fillColor: COLORS.primaryBlue, textColor: 255, fontStyle: 'bold' },
-    footStyles: { fillColor: [240, 240, 240], textColor: 33 },
-    didDrawPage: (tableData) => {
-      // Add page numbers (handled globally)
-    }
-  });
-
-  // Get Y after summary table
-  y = doc.lastAutoTable.finalY + 10;
-
-  // --- Transaction Details ---
-  if (data.advances.length > 0 || data.salary_payments.length > 0) {
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...COLORS.primaryBlue);
-    doc.text('Transaction Details', margin, y);
-    y += 8;
-
-    // Advances
-    if (data.advances.length > 0) {
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...COLORS.textDark);
-      doc.text('Advances', margin, y);
-      y += 4;
-
-      const advanceRows = data.advances.map(a => [
-        new Date(a.date).toLocaleDateString(),
-        a.amount.toFixed(2),
-        a.payment_method || 'N/A',
-        a.reference || '-'
-      ]);
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Date', 'Amount (KES)', 'Method', 'Reference']],
-        body: advanceRows,
-        theme: 'striped',
-        styles: { fontSize: 9, cellPadding: 2 },
-        headStyles: { fillColor: [40, 167, 69], textColor: 255, fontStyle: 'bold' },
-      });
-
-      y = doc.lastAutoTable.finalY + 8;
-    }
-
-    // Salary Payments
-    if (data.salary_payments.length > 0) {
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(...COLORS.textDark);
-      doc.text('Salary Payments', margin, y);
-      y += 4;
-
-      const paymentRows = data.salary_payments.map(p => [
-        new Date(p.date).toLocaleDateString(),
-        p.amount.toFixed(2),
-        p.payment_method || 'N/A',
-        p.reference || '-'
-      ]);
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Date', 'Amount (KES)', 'Method', 'Reference']],
-        body: paymentRows,
-        theme: 'striped',
-        styles: { fontSize: 9, cellPadding: 2 },
-        headStyles: { fillColor: [0, 123, 255], textColor: 255, fontStyle: 'bold' },
-      });
-
-      y = doc.lastAutoTable.finalY + 8;
-    }
-  } else {
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(...COLORS.textLight);
-    doc.text('No transactions recorded for this month.', margin, y);
-    y += 8;
-  }
-
-  // Add footer (generated on, thank you message)
-  addFooter(doc, y + 10);
-
-  // Add page numbers
-  addPageNumbers(doc, 'page %d');
-
-  // Save the PDF
-  doc.save(`salary_report_${data.user}_${data.month}.pdf`);
-};
-
 // ========== OATH OF SECRECY (MANUAL) – WITH FULL LETTERHEAD ==========
 export const generateManualOathOfSecrecyPDF = async () => {
   try {
@@ -8014,6 +7872,209 @@ export const generateManualRecoveryReportPDF = async () => {
     console.error('Error generating manual recovery report:', error);
     throw error;
   }
+};
+
+
+/// Helper: format month from "YYYY-MM" to "Month/YYYY"
+const formatMonthDisplay = (monthStr) => {
+  if (!monthStr) return '';
+  const [year, month] = monthStr.split('-');
+  const date = new Date(year, month - 1);
+  return date.toLocaleString('default', { month: 'long' }) + '/' + year;
+};
+
+// Generate Salary Transaction Receipt (for advance or salary payment)
+export const generateSalaryTransactionReceipt = async (transaction) => {
+  try {
+    const doc = new jsPDF();
+    addOptimizedWatermark(doc, 'receipt');
+    let yPos = await addHeader(doc);
+
+    // Title
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SALARY TRANSACTION RECEIPT', 105, yPos, { align: 'center' });
+    yPos += 8;
+    yPos = addDivider(doc, yPos);
+
+    doc.setFontSize(10);
+    const method = (transaction.payment_method || '').toLowerCase();
+    const details = [
+      { label: 'Transaction ID:', value: String(transaction.id || 'N/A') },
+      { label: 'Date:', value: transaction.created_at ? new Date(transaction.created_at).toLocaleDateString('en-GB') : 'N/A' },
+      { label: 'Staff:', value: transaction.username || 'N/A' },
+      { label: 'Month:', value: transaction.month ? formatMonthDisplay(transaction.month) : 'N/A' },
+      { label: 'Type:', value: transaction.transaction_type === 'advance' ? 'Advance Payment' : 'Salary Payment' },
+      { label: 'Amount:', value: `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+      { label: 'Payment Method:', value: transaction.payment_method ? transaction.payment_method.toUpperCase() : 'N/A' },
+      { label: 'Reference:', value: transaction.reference || 'N/A' },
+      { label: 'Notes:', value: transaction.notes || '' },
+    ];
+
+    details.forEach(({ label, value }) => {
+      // Label: always dark
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'bold');
+      doc.text(label, 25, yPos);
+      
+      // Value: choose color based on method
+      doc.setFont('helvetica', 'normal');
+      let color = COLORS.textDark;
+      // If it's the Payment Method or Reference line and method is mpesa, use green
+      if ((label === 'Payment Method:' || label === 'Reference:') && method === 'mpesa') {
+        color = COLORS.green;
+      }
+      doc.setTextColor(...color);
+      doc.text(String(value), 70, yPos);
+      yPos += 8;
+    });
+
+    addFooter(doc, yPos + 10);
+    addPageNumbers(doc, 'page %d');
+
+    const fileName = `Salary_Receipt_${transaction.id || Date.now()}.pdf`;
+    doc.save(fileName);
+  } catch (error) {
+    console.error('Error generating salary transaction receipt:', error);
+    throw error;
+  }
+};
+
+// salary report generator
+export const generateSalaryReportPDF = async (data) => {
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = 210;
+  const margin = 14;
+
+  addOptimizedWatermark(doc, 'statement');
+  let y = await addHeader(doc, 15);
+
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('SALARY REPORT', pageWidth / 2, y, { align: 'center' });
+  y += 8;
+  y = addDivider(doc, y);
+
+  // Report generation date – en-GB format
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.textLight);
+  const now = new Date();
+  const genDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const genTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  doc.text(`Generated: ${genDate} at ${genTime}`, pageWidth / 2, y, { align: 'center' });
+  y += 10;
+
+  // Staff Info
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(`Staff: ${data.user}`, margin, y);
+  y += 6;
+  doc.text(`Role: ${data.role}`, margin, y);
+  y += 6;
+  // Month display – use formatMonthDisplay helper
+  const monthDisplay = formatMonthDisplay(data.month);
+  doc.text(`Month: ${monthDisplay}`, margin, y);
+  y += 10;
+
+  // --- Summary Table ---
+  const summaryRows = [
+    ['Total Salary', `${data.total_salary.toFixed(2)}`],
+    ['Total Advances', `${data.total_advances.toFixed(2)}`],
+    ['Salary Payments', `${data.total_salary_paid.toFixed(2)}`],
+    ['Total Paid', `${data.total_paid.toFixed(2)}`],
+    ['Remaining Balance', `${data.balance.toFixed(2)}`],
+  ];
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Item', 'Amount (KES)']],
+    body: summaryRows,
+    theme: 'grid',
+    styles: { fontSize: 10, cellPadding: 3 },
+    headStyles: { fillColor: COLORS.primaryBlue, textColor: 255, fontStyle: 'bold' },
+    footStyles: { fillColor: [240, 240, 240], textColor: 33 },
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+
+  // --- Transaction Details ---
+  if (data.advances.length > 0 || data.salary_payments.length > 0) {
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('Transaction Details', margin, y);
+    y += 8;
+
+    // Advances
+    if (data.advances.length > 0) {
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.textDark);
+      doc.text('Advances', margin, y);
+      y += 4;
+
+      const advanceRows = data.advances.map(a => [
+        new Date(a.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        a.amount.toFixed(2),
+        a.payment_method || 'N/A',
+        a.reference || '-'
+      ]);
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Date', 'Amount (KES)', 'Method', 'Reference']],
+        body: advanceRows,
+        theme: 'striped',
+        styles: { fontSize: 9, cellPadding: 2 },
+        headStyles: { fillColor: [40, 167, 69], textColor: 255, fontStyle: 'bold' },
+      });
+
+      y = doc.lastAutoTable.finalY + 8;
+    }
+
+    // Salary Payments
+    if (data.salary_payments.length > 0) {
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.textDark);
+      doc.text('Salary Payments', margin, y);
+      y += 4;
+
+      const paymentRows = data.salary_payments.map(p => [
+        new Date(p.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        p.amount.toFixed(2),
+        p.payment_method || 'N/A',
+        p.reference || '-'
+      ]);
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Date', 'Amount (KES)', 'Method', 'Reference']],
+        body: paymentRows,
+        theme: 'striped',
+        styles: { fontSize: 9, cellPadding: 2 },
+        headStyles: { fillColor: [0, 123, 255], textColor: 255, fontStyle: 'bold' },
+      });
+
+      y = doc.lastAutoTable.finalY + 8;
+    }
+  } else {
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(...COLORS.textLight);
+    doc.text('No transactions recorded for this month.', margin, y);
+    y += 8;
+  }
+
+  addFooter(doc, y + 10);
+  addPageNumbers(doc, 'page %d');
+
+  const fileName = `salary_report_${data.user}_${data.month}.pdf`;
+  doc.save(fileName);
 };
 
 export { formatCurrency };

@@ -323,6 +323,8 @@ export const salaryAPI = {
   getStaffSettings: (month) => api.get(`/salary/staff-settings?month=${month}`),
   setStaffSalary: (userId, month, salaryAmount) => api.post('/salary/staff-settings', { user_id: userId, month, salary_amount: salaryAmount }),
 
+  getSalaryTransactions: (params) => api.get('/salary/transactions', { params }),
+
   // Advance Requests
   getAdvanceRequests: () => api.get('/salary/advance-requests'),
   createAdvanceRequest: (amount, note, month) => api.post('/salary/advance-requests', { amount, note, month }),

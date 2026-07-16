@@ -61,6 +61,12 @@ function AdminPanel() {
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [showUsernameCurrentPass, setShowUsernameCurrentPass] = useState(false);
 
+
+  // Livestock gallery filters
+const [livestockSearch, setLivestockSearch] = useState("");
+const [livestockTypeFilter, setLivestockTypeFilter] = useState("all");
+const [livestockStatusFilter, setLivestockStatusFilter] = useState("all");
+
   const handleUsernameChange = async (e) => {
     e.preventDefault();
     setUsernameLoading(true);
@@ -1625,34 +1631,38 @@ useEffect(() => {
   }, [navigate])  
 
   const fetchLivestock = useCallback(async (page = 1, append = false) => {
-  setLivestockLoading(true);
-  try {
-    console.log(`Fetching livestock page ${page}...`);
-    const response = await adminAPI.getLivestock(page, 10);
-    console.log("Livestock response:", response.data);
+    setLivestockLoading(true);
+    try {
+      console.log(`Fetching livestock page ${page}...`);
+      const response = await adminAPI.getLivestock(page, 10);
+      console.log("Livestock response:", response.data);
 
-    const { items, total, pages, current_page } = response.data;
-    setLivestockTotalPages(pages);
-    setLivestockHasMore(current_page < pages);
+      const { items, total, pages, current_page } = response.data;
+      setLivestockTotalPages(pages);
+      setLivestockHasMore(current_page < pages);
 
-    if (append) {
-      setLivestock(prev => [...prev, ...items]);
-    } else {
-      setLivestock(items);
+      if (append) {
+        // Prevent duplicates by checking existing IDs
+        setLivestock(prev => {
+          const existingIds = new Set(prev.map(item => item.id));
+          const newItems = items.filter(item => !existingIds.has(item.id));
+          return [...prev, ...newItems];
+        });
+      } else {
+        setLivestock(items);
+      }
+    } catch (error) {
+      console.error("Failed to fetch livestock:", error);
+      if (error.response?.status === 401) {
+        navigate("/admin/login");
+        return;
+      }
+      setLivestock([]);
+      showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message));
+    } finally {
+      setLivestockLoading(false);
     }
-  } catch (error) {
-    console.error("Failed to fetch livestock:", error);
-    if (error.response?.status === 401) {
-      navigate("/admin/login");
-      return;
-    }
-    setLivestock([]);
-    // Always show error toast when fetch fails
-    showToast.error("Failed to load livestock data: " + (error.response?.data?.error || error.message));
-  } finally {
-    setLivestockLoading(false);
-  }
-}, [navigate]); 
+  }, [navigate]);
 
 // Infinite scroll for admin gallery
 useEffect(() => {
@@ -1681,7 +1691,6 @@ useEffect(() => {
   const livestockId = params.get('livestock');
   if (!livestockId) return;
 
-  // Wait a bit for the gallery to render
   const timer = setTimeout(() => {
     const highlightAndOpen = async () => {
       let item = livestock.find(l => l.id.toString() === livestockId);
@@ -1691,7 +1700,12 @@ useEffect(() => {
           const data = await res.json();
           if (data.item) {
             item = data.item;
-            setLivestock(prev => [...prev, item]);
+            // Check if item already exists before adding
+            setLivestock(prev => {
+              const exists = prev.some(l => l.id === item.id);
+              if (exists) return prev;
+              return [...prev, item];
+            });
           } else {
             showToast.error('Livestock not found');
             return;
@@ -1720,7 +1734,6 @@ useEffect(() => {
 
   return () => clearTimeout(timer);
 }, [activeSection, livestock]);
-
 
 // Livestock gallery section use effect
   useEffect(() => {
@@ -3108,112 +3121,236 @@ Thank you for choosing us.`;
             )}
 
             {/* Livestock Gallery Section */}
-            {activeSection === "gallery" && (
-              <div id="gallery-section" className="content-section">
-                <div className="d-flex justify-content-between align-items-center mb-4">
-                  <h2>Livestock Gallery Management</h2>
-                  <button className="btn btn-primary" onClick={() => setShowAddLivestockModal(true)}>
-                    <i className="fas fa-plus me-1"></i>Add Livestock
-                  </button>
-                </div>
+{activeSection === "gallery" && (
+  <div id="gallery-section" className="content-section">
+    <div className="d-flex justify-content-between align-items-center mb-4">
+      <h2>Livestock Gallery Management</h2>
+      <button className="btn btn-primary" onClick={() => setShowAddLivestockModal(true)}>
+        <i className="fas fa-plus me-1"></i>Add Livestock
+      </button>
+    </div>
 
-                {livestockLoading && livestock.length === 0 ? (
-                  <div className="text-center py-5">
-                    <div className="spinner-border text-primary" role="status">
-                      <span className="visually-hidden">Loading livestock...</span>
-                    </div>
-                    <p className="mt-2">Loading livestock data...</p>
-                  </div>
-                ) : (
-                  <>
-                    {livestock.length === 0 ? (
-                      <div className="card">
-                        <div className="card-body text-center py-5">
-                          <i className="fas fa-images fa-3x text-muted mb-3"></i>
-                          <h5 className="text-muted">No Livestock in Gallery</h5>
-                          <p className="text-muted">Get started by adding livestock to your gallery.</p>
-                          <button className="btn btn-primary mt-3" onClick={() => setShowAddLivestockModal(true)}>
-                            <i className="fas fa-plus me-2"></i>Add Your First Livestock
+    {/* Search and Filter Section */}
+    <div className="row g-3 mb-4">
+      <div className="col-12 col-md-4 col-lg-3">
+        <label className="form-label small text-muted mb-1">Search</label>
+        <input 
+          type="text" 
+          className="form-control" 
+          placeholder="Search by name, phone, ID..." 
+          value={livestockSearch}
+          onChange={(e) => setLivestockSearch(e.target.value)}
+        />
+      </div>
+      <div className="col-12 col-md-4 col-lg-3">
+        <label className="form-label small text-muted mb-1">Livestock Type</label>
+        <select 
+          className="form-select" 
+          value={livestockTypeFilter}
+          onChange={(e) => setLivestockTypeFilter(e.target.value)}
+        >
+          <option value="all">All Types</option>
+          <option value="cattle">Cattle</option>
+          <option value="goats">Goats</option>
+          <option value="sheep">Sheep</option>
+          <option value="poultry">Poultry</option>
+        </select>
+      </div>
+      <div className="col-12 col-md-4 col-lg-3">
+        <label className="form-label small text-muted mb-1">Status</label>
+        <select 
+          className="form-select" 
+          value={livestockStatusFilter}
+          onChange={(e) => setLivestockStatusFilter(e.target.value)}
+        >
+          <option value="all">All Status</option>
+          <option value="available">Available</option>
+          <option value="claimed">Claimed</option>
+          <option value="collateral">Collateral</option>
+          <option value="admin_added">Admin Added</option>
+        </select>
+      </div>
+      <div className="col-12 col-md-4 col-lg-3 d-flex align-items-end">
+        {(livestockSearch || livestockTypeFilter !== 'all' || livestockStatusFilter !== 'all') && (
+          <button 
+            className="btn btn-outline-danger w-100"
+            onClick={() => {
+              setLivestockSearch('');
+              setLivestockTypeFilter('all');
+              setLivestockStatusFilter('all');
+            }}
+          >
+            <i className="fas fa-times me-1"></i> Clear Filters
+          </button>
+        )}
+      </div>
+    </div>
+
+    {livestockLoading && livestock.length === 0 ? (
+      <div className="text-center py-5">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading livestock...</span>
+        </div>
+        <p className="mt-2">Loading livestock data...</p>
+      </div>
+    ) : (
+      <>
+        {(() => {
+          // Filter livestock based on search and filters
+          const filteredLivestock = livestock.filter(item => {
+            // Search filter (name, phone, ID)
+            if (livestockSearch) {
+              const searchTerm = livestockSearch.toLowerCase();
+              const searchableFields = [
+                item.title?.toLowerCase() || '',
+                item.description?.toLowerCase() || '',
+                item.type?.toLowerCase() || '',
+                item.location?.toLowerCase() || '',
+                item.investor_name?.toLowerCase() || '',
+                item.isAdminAdded ? 'admin' : '',
+                item.is_claimed ? 'claimed' : '',
+              ];
+              if (!searchableFields.some(field => field.includes(searchTerm))) {
+                return false;
+              }
+            }
+
+            // Livestock type filter
+            if (livestockTypeFilter !== 'all') {
+              if (item.type?.toLowerCase() !== livestockTypeFilter.toLowerCase()) {
+                return false;
+              }
+            }
+
+            // Status filter
+            if (livestockStatusFilter !== 'all') {
+              switch(livestockStatusFilter) {
+                case 'available':
+                  if (item.isAdminAdded !== true && item.is_claimed !== false && item.ownership_type !== 'company') {
+                    return false;
+                  }
+                  break;
+                case 'claimed':
+                  if (!item.is_claimed) return false;
+                  break;
+                case 'collateral':
+                  if (item.ownership_type !== 'company' || item.isAdminAdded || item.is_claimed) {
+                    return false;
+                  }
+                  break;
+                case 'admin_added':
+                  if (!item.isAdminAdded) return false;
+                  break;
+                default:
+                  break;
+              }
+            }
+
+            return true;
+          });
+
+          return filteredLivestock.length === 0 ? (
+            <div className="card">
+              <div className="card-body text-center py-5">
+                <i className="fas fa-search fa-3x text-muted mb-3"></i>
+                <h5 className="text-muted">No Livestock Found</h5>
+                <p className="text-muted">
+                  {livestock.length === 0 
+                    ? "No livestock in the gallery yet." 
+                    : "No livestock match your search or filter criteria."}
+                </p>
+                {(livestockSearch || livestockTypeFilter !== 'all' || livestockStatusFilter !== 'all') && (
+                  <button 
+                    className="btn btn-outline-primary mt-2"
+                    onClick={() => {
+                      setLivestockSearch('');
+                      setLivestockTypeFilter('all');
+                      setLivestockStatusFilter('all');
+                    }}
+                  >
+                    <i className="fas fa-undo me-1"></i> Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4" id="adminGallery">
+                {filteredLivestock.map((item) => (
+                  <div key={item.id} className="col" data-livestock-id={item.id}>
+                    <div className="card gallery-card h-100">
+                      <ImageCarousel images={item.images} title={item.title} />
+                      <div className="card-body d-flex flex-column">
+                        <h5 className="card-title">{item.title}</h5>
+                        <p className="card-text flex-grow-1">{item.description}</p>
+                        <div className="d-flex justify-content-between align-items-center mb-2">
+                          <span className="h6 text-primary">{formatCurrency(item.price)}</span>
+                          <span className={`badge ${
+                            item.daysRemaining > 1 ? 'bg-warning' : 
+                            item.daysRemaining === 1 ? 'bg-info' : 
+                            'bg-success'
+                          }`}>
+                            {item.availableInfo}
+                          </span>
+                        </div>
+                        {item.ownership_type === 'investor' && item.investor_name && (
+                          <small className="text-muted mb-2">
+                            <i className="fas fa-user-tie me-1"></i>Owned by Investor: {item.investor_name}
+                          </small>
+                        )}
+                        {item.ownership_type === 'company' && !item.isAdminAdded && (
+                          <small className="text-muted mb-2">
+                            <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral (Company Owned)
+                          </small>
+                        )}
+                        {item.isAdminAdded && (
+                          <small className="text-muted mb-2">
+                            <i className="fas fa-user-tie me-1"></i>Admin Added
+                          </small>
+                        )}
+                        <div className="mt-auto">
+                          <button 
+                            className="btn btn-sm btn-outline-primary me-2"
+                            onClick={() => handleEditLivestock(item)}
+                          >
+                            <i className="fas fa-edit"></i> Edit
+                          </button>
+                          <button 
+                            className="btn btn-sm btn-outline-info me-2"
+                            onClick={() => openShareModal(item)}
+                          >
+                            <i className="fas fa-share-alt"></i> Share
+                          </button>
+                          <button 
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={() => confirmDeleteLivestock(item.id)}
+                          >
+                            <i className="fas fa-trash"></i> Delete
                           </button>
                         </div>
                       </div>
-                    ) : (
-                      <>
-                        <div className="row" id="adminGallery">
-                          {livestock.map((item) => (
-                            <div key={item.id} className="col-md-6 col-lg-4 gallery-item mb-4" data-livestock-id={item.id}>
-                              <div className="card gallery-card h-100">
-                                <ImageCarousel images={item.images} title={item.title} />
-                                <div className="card-body d-flex flex-column">
-                                  <h5 className="card-title">{item.title}</h5>
-                                  <p className="card-text flex-grow-1">{item.description}</p>
-                                  <div className="d-flex justify-content-between align-items-center mb-2">
-                                    <span className="h6 text-primary">{formatCurrency(item.price)}</span>
-                                    <span className={`badge ${
-                                      item.daysRemaining > 1 ? 'bg-warning' : 
-                                      item.daysRemaining === 1 ? 'bg-info' : 
-                                      'bg-success'
-                                    }`}>
-                                      {item.availableInfo}
-                                    </span>
-                                  </div>
-                                  {item.ownership_type === 'investor' && item.investor_name && (
-                                    <small className="text-muted mb-2">
-                                      <i className="fas fa-user-tie me-1"></i>Owned by Investor: {item.investor_name}
-                                    </small>
-                                  )}
-                                  {item.ownership_type === 'company' && !item.isAdminAdded && (
-                                    <small className="text-muted mb-2">
-                                      <i className="fas fa-hand-holding-usd me-1"></i>Loan Collateral (Company Owned)
-                                    </small>
-                                  )}
-                                  {item.isAdminAdded && (
-                                    <small className="text-muted mb-2">
-                                      <i className="fas fa-user-tie me-1"></i>Admin Added
-                                    </small>
-                                  )}
-                                  <div className="mt-auto">
-                                    <button 
-                                      className="btn btn-sm btn-outline-primary me-2"
-                                      onClick={() => handleEditLivestock(item)}
-                                    >
-                                      <i className="fas fa-edit"></i> Edit
-                                    </button>
-                                    <button 
-                                      className="btn btn-sm btn-outline-info me-2"
-                                      onClick={() => openShareModal(item)}
-                                    >
-                                      <i className="fas fa-share-alt"></i> Share
-                                    </button>
-                                    <button 
-                                      className="btn btn-sm btn-outline-danger"
-                                      onClick={() => confirmDeleteLivestock(item.id)}
-                                    >
-                                      <i className="fas fa-trash"></i> Delete
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        
-                        {/* Infinite scroll sentinel */}
-                        {livestockHasMore && (
-                          <div ref={sentinelRef} className="text-center mt-4">
-                            {livestockLoading && (
-                              <div className="spinner-border text-primary" role="status">
-                                <span className="visually-hidden">Loading more...</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
+              
+              {/* Infinite scroll sentinel */}
+              {livestockHasMore && (
+                <div ref={sentinelRef} className="text-center mt-4">
+                  {livestockLoading && (
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Loading more...</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          );
+        })()}
+      </>
+    )}
+  </div>
+)}
 
             {/* Company gallery section */}
             {activeSection === "company-gallery" && (
@@ -5161,7 +5298,7 @@ Thank you for choosing us.`;
             <input
               type="text"
               className="form-control"
-              value={fmt(selectedClient.current_principal || selectedClient.currentPrincipal || 0)}
+              value={formatCurrency(selectedClient.current_principal || selectedClient.currentPrincipal || 0)}
               readOnly
             />
           </div>
@@ -5173,7 +5310,7 @@ Thank you for choosing us.`;
               <input
                 type="text"
                 className="form-control text-danger fw-bold"
-                value={fmt(selectedClient.unpaidInterest || selectedClient.unpaid_interest || 0)}
+                value={formatCurrency(selectedClient.unpaidInterest || selectedClient.unpaid_interest || 0)}
                 readOnly
               />
             </div>
@@ -5262,12 +5399,12 @@ Thank you for choosing us.`;
             return (
               <div className="alert alert-info">
                 <h6>Calculation Preview:</h6>
-                <p><strong>New Principal:</strong> {fmt(newPrincipal)}</p>
+                <p><strong>New Principal:</strong> {formatCurrency(newPrincipal)}</p>
                 {isTopupMode && (
-                  <p><strong>Current Unpaid Interest (before top‑up):</strong> {fmt(currentUnpaidInterest)}</p>
+                  <p><strong>Current Unpaid Interest (before top‑up):</strong> {formatCurrency(currentUnpaidInterest)}</p>
                 )}
-                <p><strong>New Period Interest ({plan === 'daily' ? '4.5% daily' : '30% weekly'}):</strong> {fmt(periodInterest)}</p>
-                <p><strong>New Total Balance:</strong> {fmt(totalBalance)}</p>
+                <p><strong>New Period Interest ({plan === 'daily' ? '4.5% daily' : '30% weekly'}):</strong> {formatCurrency(periodInterest)}</p>
+                <p><strong>New Total Balance:</strong> {formatCurrency(totalBalance)}</p>
                 {!isTopupMode && (
                   <p className="text-muted small">
                     <i className="fas fa-info-circle me-1"></i>
@@ -5329,7 +5466,7 @@ Thank you for choosing us.`;
           {/* Dynamic warning message */}
           <div className="alert alert-warning">
             <i className="fas fa-exclamation-triangle me-2"></i>
-            This action will {isTopupMode ? 'increase' : 'modify'} the loan principal to <strong>{fmt(isTopupMode ? (Number(selectedClient.current_principal || 0) + parseFloat(topupAmount || 0)) : parseFloat(adjustmentAmount || 0))}</strong>.
+            This action will {isTopupMode ? 'increase' : 'modify'} the loan principal to <strong>{formatCurrency(isTopupMode ? (Number(selectedClient.current_principal || 0) + parseFloat(topupAmount || 0)) : parseFloat(adjustmentAmount || 0))}</strong>.
             The {selectedClient.repayment_plan === 'daily' ? 'daily (4.5% per day)' : 'weekly (30% per week)'} interest will be recalculated on the new principal.
             {!isTopupMode && ' Prepaid interest markers will be reset.'}
           </div>

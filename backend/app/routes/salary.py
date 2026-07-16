@@ -343,13 +343,20 @@ def my_salary_stats():
             return jsonify({'error': 'Only staff can view their salary stats'}), 403
 
         month = request.args.get('month', get_current_month())
+
+        # Get salary setting for this month
         setting = StaffSalarySetting.query.filter_by(user_id=user_id, month=month).first()
         total_salary = Decimal(setting.salary_amount) if setting else Decimal('0')
 
-        transactions = SalaryTransaction.query.filter_by(user_id=user_id, month=month).all()
+        # All transactions for this user (no month filter)
+        all_transactions = SalaryTransaction.query.filter_by(user_id=user_id).order_by(SalaryTransaction.created_at.desc()).all()
+
+        # Month-specific transactions for stats
+        month_transactions = [t for t in all_transactions if t.month == month]
+
         total_advances = Decimal('0')
         total_paid = Decimal('0')
-        for txn in transactions:
+        for txn in month_transactions:
             if txn.transaction_type == 'advance':
                 total_advances += txn.amount
             total_paid += txn.amount
@@ -364,12 +371,11 @@ def my_salary_stats():
             'total_paid': float(total_paid),
             'balance': float(balance),
             'pending_requests': [{'id': r.id, 'amount': float(r.amount), 'note': r.note, 'requested_at': r.requested_at.isoformat()} for r in pending_requests],
-            'transactions': [t.to_dict() for t in transactions]
+            'transactions': [t.to_dict() for t in all_transactions]  # <- all transactions, not just month
         }), 200
     except Exception as e:
         logger.error(f"Error in my_salary_stats: {str(e)}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
-
 
 # ---------- Report data (director & hr_manager only) ----------
 @salary_bp.route('/staff-report/<int:user_id>', methods=['GET'])
@@ -407,4 +413,43 @@ def get_staff_report_data(user_id):
         return jsonify(data), 200
     except Exception as e:
         logger.error(f"Error in get_staff_report_data: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
+    
+@salary_bp.route('/transactions', methods=['GET'])
+@jwt_required()
+@role_required(['director', 'hr_manager'])
+def get_salary_transactions():
+    """
+    Get all salary transactions with optional filters.
+    Query params:
+        - user_id (int): filter by specific staff
+        - month (str): filter by month (YYYY-MM)
+        - start_date (str): filter by creation date >=
+        - end_date (str): filter by creation date <=
+        - search (str): search by staff username
+    """
+    try:
+        user_id = request.args.get('user_id', type=int)
+        month = request.args.get('month')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        search = request.args.get('search', '').strip()
+
+        query = SalaryTransaction.query.join(User, SalaryTransaction.user_id == User.id)
+
+        if user_id:
+            query = query.filter(SalaryTransaction.user_id == user_id)
+        if month:
+            query = query.filter(SalaryTransaction.month == month)
+        if start_date:
+            query = query.filter(SalaryTransaction.created_at >= start_date)
+        if end_date:
+            query = query.filter(SalaryTransaction.created_at <= end_date)
+        if search:
+            query = query.filter(User.username.ilike(f'%{search}%'))
+
+        transactions = query.order_by(SalaryTransaction.created_at.desc()).all()
+        return jsonify([t.to_dict() for t in transactions]), 200
+    except Exception as e:
+        logger.error(f"Error in get_salary_transactions: {str(e)}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500

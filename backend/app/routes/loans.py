@@ -202,6 +202,15 @@ def update_loan_status(loan_id):
         return jsonify({'error': 'Invalid status'}), 400
     
     loan.status = new_status
+
+    # ------------------------------------------------------------
+    # 🔥 UPDATED: If marked as completed, DELETE livestock permanently
+    # ------------------------------------------------------------
+    if new_status == 'completed' and loan.livestock:
+        livestock = loan.livestock
+        loan.livestock_id = None       # Remove foreign key reference
+        db.session.delete(livestock)   # Delete the record
+
     db.session.commit()
     
     log_audit('loan_status_updated', 'loan', loan.id, {'status': new_status})

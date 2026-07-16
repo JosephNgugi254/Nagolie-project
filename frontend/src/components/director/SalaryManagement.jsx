@@ -2,12 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { showToast } from '../common/Toast';
 import { salaryAPI } from '../../services/api';
 import Modal from '../common/Modal';
-import { generateSalaryReportPDF } from '../admin/ReceiptPDF';
+import { generateSalaryReportPDF, generateSalaryTransactionReceipt } from '../admin/ReceiptPDF';
+
+// Helper to format month to "Month/YYYY"
+const formatMonthDisplay = (monthStr) => {
+  if (!monthStr) return '';
+  const [year, month] = monthStr.split('-');
+  const date = new Date(year, month - 1);
+  return date.toLocaleString('default', { month: 'long' }) + '/' + year;
+};
 
 const SalaryManagement = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [staffList, setStaffList] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [month] = useState(new Date().toISOString().slice(0, 7));
   const [editingStaff, setEditingStaff] = useState(null);
@@ -18,13 +27,28 @@ const SalaryManagement = () => {
   const [paymentMethod, setPaymentMethod] = useState('mpesa');
   const [payNotes, setPayNotes] = useState('');
   const [processing, setProcessing] = useState(false);
-  const [directPayment, setDirectPayment] = useState({ userId: null, amount: '', reference: '', notes: '', method: 'cash' });
+
+  // State for Direct Payment Modal
+  const [showDirectPaymentModal, setShowDirectPaymentModal] = useState(false);
+  const [directPaymentData, setDirectPaymentData] = useState({
+    userId: null,
+    amount: '',
+    method: 'cash',
+    reference: '',
+    notes: ''
+  });
+  const [directPaymentProcessing, setDirectPaymentProcessing] = useState(false);
 
   // Rejection modal state
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectRequestId, setRejectRequestId] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
 
+  // Transactions tab filters
+  const [transactionSearch, setTransactionSearch] = useState('');
+  const [transactionDate, setTransactionDate] = useState('');
+
+  // Fetch staff and requests
   const fetchStaff = async () => {
     setLoading(true);
     try {
@@ -49,10 +73,32 @@ const SalaryManagement = () => {
     }
   };
 
+  const fetchTransactions = async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (transactionSearch) params.search = transactionSearch;
+      if (transactionDate) params.start_date = transactionDate;
+      const res = await salaryAPI.getSalaryTransactions(params);
+      setTransactions(res.data);
+    } catch (err) {
+      showToast.error('Failed to load transactions');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'staff') fetchStaff();
     else if (activeTab === 'requests') fetchRequests();
+    else if (activeTab === 'transactions') fetchTransactions();
   }, [activeTab, month]);
+
+  useEffect(() => {
+    if (activeTab === 'transactions') {
+      fetchTransactions();
+    }
+  }, [transactionSearch, transactionDate]);
 
   const handleSaveSalary = async () => {
     if (!editingStaff || parseFloat(salaryAmount) < 0) {
@@ -116,6 +162,8 @@ const SalaryManagement = () => {
       setMpesaRef('');
       setPayNotes('');
       fetchRequests();
+      // If transactions tab is active, refresh it
+      if (activeTab === 'transactions') fetchTransactions();
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Payment failed');
     } finally {
@@ -123,16 +171,29 @@ const SalaryManagement = () => {
     }
   };
 
+  // Direct Payment modal handlers
+  const openDirectPaymentModal = (userId = null) => {
+    setDirectPaymentData({
+      userId: userId,
+      amount: '',
+      method: 'cash',
+      reference: '',
+      notes: ''
+    });
+    setShowDirectPaymentModal(true);
+  };
+
   const handleRecordDirectPayment = async () => {
-    const { userId, amount, reference, notes, method } = directPayment;
+    const { userId, amount, method, reference, notes } = directPaymentData;
     if (!userId || !amount || parseFloat(amount) <= 0) {
-      showToast.error('Please fill all fields');
+      showToast.error('Please select staff and enter valid amount');
       return;
     }
     if (method === 'mpesa' && !reference.trim()) {
       showToast.error('M-Pesa reference required');
       return;
     }
+    setDirectPaymentProcessing(true);
     try {
       await salaryAPI.recordSalaryPayment(
         userId,
@@ -143,10 +204,15 @@ const SalaryManagement = () => {
         notes
       );
       showToast.success('Salary payment recorded');
-      setDirectPayment({ userId: null, amount: '', reference: '', notes: '', method: 'cash' });
+      setShowDirectPaymentModal(false);
+      setDirectPaymentData({ userId: null, amount: '', method: 'cash', reference: '', notes: '' });
       fetchStaff();
+      // If transactions tab is active, refresh it
+      if (activeTab === 'transactions') fetchTransactions();
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Failed to record payment');
+    } finally {
+      setDirectPaymentProcessing(false);
     }
   };
 
@@ -159,16 +225,30 @@ const SalaryManagement = () => {
     }
   };
 
+  // Download single transaction receipt
+  const handleDownloadTransactionReceipt = async (transaction) => {
+    try {
+      await generateSalaryTransactionReceipt(transaction);
+      showToast.success('Receipt downloaded');
+    } catch (err) {
+      showToast.error('Failed to generate receipt');
+    }
+  };
+
   // ---- Render staff tab ----
   const renderStaffTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h6>Staff Salaries for {month}</h6>
+        <h6>Staff Salaries for {formatMonthDisplay(month)}</h6>
         <div>
           <button className="btn btn-sm btn-outline-secondary me-2" onClick={fetchStaff}>
             <i className="fas fa-sync"></i> Refresh
           </button>
-          <button className="btn btn-sm btn-success" onClick={() => setDirectPayment({ ...directPayment, userId: staffList[0]?.user_id || null, amount: '' })} title='Process payment'>
+          <button
+            className="btn btn-sm btn-success"
+            onClick={() => openDirectPaymentModal(null)}
+            title="Quick Pay – record salary payment for any staff"
+          >
             <i className="fas fa-money-bill-wave"></i> Quick Pay
           </button>
         </div>
@@ -220,23 +300,21 @@ const SalaryManagement = () => {
                           setEditingStaff(s);
                           setSalaryAmount(s.salary_amount.toString());
                         }}
-                        title='Add or Edit salary amount'
+                        title="Add or Edit salary amount"
                       >
                         <i className="fas fa-edit"></i>
                       </button>
                       <button
                         className="btn btn-sm btn-outline-info me-1"
                         onClick={() => handleGenerateReport(s)}
-                        title='Generate Salary report'
+                        title="Generate Salary report"
                       >
                         <i className="fas fa-file-pdf"></i>
                       </button>
                       <button
                         className="btn btn-sm btn-outline-success"
-                        onClick={() => {
-                          setDirectPayment({ ...directPayment, userId: s.user_id, amount: '' });
-                        }}
-                        title='Process Salary Payment'
+                        onClick={() => openDirectPaymentModal(s.user_id)}
+                        title="Process Salary Payment"
                       >
                         <i className="fas fa-money-bill-wave"></i> Pay
                       </button>
@@ -248,59 +326,6 @@ const SalaryManagement = () => {
           </tbody>
         </table>
       </div>
-      {/* Direct Payment Form */}
-      {directPayment.userId && (
-        <div className="card mt-3">
-          <div className="card-body">
-            <h6>Record Direct Salary Payment</h6>
-            <div className="row g-2">
-              <div className="col-md-3">
-                <input
-                  type="number"
-                  className="form-control"
-                  placeholder="Amount"
-                  value={directPayment.amount}
-                  onChange={(e) => setDirectPayment({ ...directPayment, amount: e.target.value })}
-                />
-              </div>
-              <div className="col-md-2">
-                <select
-                  className="form-control"
-                  value={directPayment.method}
-                  onChange={(e) => setDirectPayment({ ...directPayment, method: e.target.value })}
-                >
-                  <option value="cash">Cash</option>
-                  <option value="mpesa">M-Pesa</option>
-                </select>
-              </div>
-              <div className="col-md-3">
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="Reference (if M-Pesa)"
-                  value={directPayment.reference}
-                  onChange={(e) => setDirectPayment({ ...directPayment, reference: e.target.value })}
-                />
-              </div>
-              <div className="col-md-2">
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="Notes"
-                  value={directPayment.notes}
-                  onChange={(e) => setDirectPayment({ ...directPayment, notes: e.target.value })}
-                />
-              </div>
-              <div className="col-md-2">
-                <button className="btn btn-primary w-100" onClick={handleRecordDirectPayment}>
-                  Record
-                </button>
-              </div>
-            </div>
-            <small className="text-muted">Payment will be deducted from this month's salary.</small>
-          </div>
-        </div>
-      )}
     </div>
   );
 
@@ -309,9 +334,7 @@ const SalaryManagement = () => {
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h6>Advance Requests</h6>
-        <button className="btn btn-sm btn-outline-secondary" onClick={fetchRequests}>
-          <i className="fas fa-sync"></i> Refresh
-        </button>
+        {/* Refresh button removed – data auto‑updates after actions */}
       </div>
       <div className="table-responsive">
         <table className="table table-hover">
@@ -330,7 +353,7 @@ const SalaryManagement = () => {
               <tr key={req.id}>
                 <td>{req.username}</td>
                 <td>KES {req.amount.toFixed(2)}</td>
-                <td>{req.month}</td>
+                <td>{formatMonthDisplay(req.month)}</td>
                 <td>
                   <span className={`badge bg-${req.status === 'pending' ? 'warning' : req.status === 'approved' ? 'info' : req.status === 'paid' ? 'success' : 'danger'}`}>
                     {req.status}
@@ -380,6 +403,81 @@ const SalaryManagement = () => {
     </div>
   );
 
+  // ---- Render transactions tab ----
+  const renderTransactionsTab = () => (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h6>All Salary Transactions</h6>
+        <div className="d-flex gap-2 align-items-center flex-wrap">
+          <input
+            type="text"
+            className="form-control form-control-sm"
+            placeholder="Search by staff name..."
+            value={transactionSearch}
+            onChange={(e) => setTransactionSearch(e.target.value)}
+            style={{ width: '200px' }}
+          />
+          <input
+            type="date"
+            className="form-control form-control-sm"
+            value={transactionDate}
+            onChange={(e) => setTransactionDate(e.target.value)}
+            style={{ width: '160px' }}
+          />
+          {/* Clear and Refresh buttons removed – auto‑refresh on filter changes and after actions */}
+        </div>
+      </div>
+      <div className="table-responsive">
+        <table className="table table-hover">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Staff</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Method</th>
+              <th>Reference</th>
+              <th>Notes</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan="8" className="text-center">Loading...</td></tr>
+            ) : transactions.length === 0 ? (
+              <tr><td colSpan="8" className="text-center text-muted">No transactions found</td></tr>
+            ) : (
+              transactions.map(t => (
+                <tr key={t.id}>
+                  <td>{new Date(t.created_at).toLocaleDateString()}</td>
+                  <td>{t.username || 'N/A'}</td>
+                  <td>
+                    <span className={`badge ${t.transaction_type === 'advance' ? 'bg-info' : 'bg-primary'}`}>
+                      {t.transaction_type === 'advance' ? 'Advance' : 'Salary Payment'}
+                    </span>
+                  </td>
+                  <td>KES {t.amount.toFixed(2)}</td>
+                  <td>{t.payment_method || 'N/A'}</td>
+                  <td>{t.reference || 'N/A'}</td>
+                  <td>{t.notes || ''}</td>
+                  <td>
+                    <button
+                      className="btn btn-sm btn-outline-info"
+                      onClick={() => handleDownloadTransactionReceipt(t)}
+                      title="Download Receipt"
+                    >
+                      <i className="fas fa-file-pdf"></i>
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
   return (
     <div className="salary-management">
       <h4 className="mb-3">Salary Management</h4>
@@ -394,12 +492,18 @@ const SalaryManagement = () => {
             Advance Requests
           </button>
         </li>
+        <li className="nav-item">
+          <button className={`nav-link ${activeTab === 'transactions' ? 'active' : ''}`} onClick={() => setActiveTab('transactions')}>
+            Transactions
+          </button>
+        </li>
       </ul>
 
       {activeTab === 'staff' && renderStaffTab()}
       {activeTab === 'requests' && renderRequestsTab()}
+      {activeTab === 'transactions' && renderTransactionsTab()}
 
-      {/* Payment Modal */}
+      {/* Payment Modal for Advance Request */}
       {showPayModal && selectedRequest && (
         <Modal isOpen={showPayModal} onClose={() => setShowPayModal(false)} title="Record Advance Payment">
           <div className="mb-3">
@@ -451,10 +555,103 @@ const SalaryManagement = () => {
             />
           </div>
           <div className="d-flex gap-2">
-            <button className="btn btn-danger" onClick={confirmReject} title='Reject request'> 
+            <button className="btn btn-danger" onClick={confirmReject} title="Reject request">
               Confirm Rejection
             </button>
             <button className="btn btn-secondary" onClick={() => setShowRejectModal(false)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Direct Salary Payment Modal */}
+      {showDirectPaymentModal && (
+        <Modal
+          isOpen={showDirectPaymentModal}
+          onClose={() => {
+            setShowDirectPaymentModal(false);
+            setDirectPaymentData({ userId: null, amount: '', method: 'cash', reference: '', notes: '' });
+          }}
+          title="Record Direct Salary Payment"
+          size="md"
+        >
+          <div className="mb-3">
+            <label className="form-label">Select Staff <span className="text-danger">*</span></label>
+            <select
+              className="form-control"
+              value={directPaymentData.userId || ''}
+              onChange={(e) => setDirectPaymentData({ ...directPaymentData, userId: parseInt(e.target.value) })}
+              required
+            >
+              <option value="">-- Choose Staff --</option>
+              {staffList.map(s => (
+                <option key={s.user_id} value={s.user_id}>{s.username} ({s.role})</option>
+              ))}
+            </select>
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Amount (KES) <span className="text-danger">*</span></label>
+            <input
+              type="number"
+              className="form-control"
+              placeholder="Enter amount"
+              value={directPaymentData.amount}
+              onChange={(e) => setDirectPaymentData({ ...directPaymentData, amount: e.target.value })}
+              min="1"
+              step="100"
+              required
+            />
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Payment Method <span className="text-danger">*</span></label>
+            <select
+              className="form-control"
+              value={directPaymentData.method}
+              onChange={(e) => setDirectPaymentData({ ...directPaymentData, method: e.target.value })}
+            >
+              <option value="cash">Cash</option>
+              <option value="mpesa">M-Pesa</option>
+            </select>
+          </div>
+          {directPaymentData.method === 'mpesa' && (
+            <div className="mb-3">
+              <label className="form-label">M-Pesa Reference <span className="text-danger">*</span></label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="e.g. RB64AX25B1"
+                value={directPaymentData.reference}
+                onChange={(e) => setDirectPaymentData({ ...directPaymentData, reference: e.target.value.toUpperCase() })}
+                required
+              />
+            </div>
+          )}
+          <div className="mb-3">
+            <label className="form-label">Notes</label>
+            <textarea
+              className="form-control"
+              rows="2"
+              placeholder="Optional notes"
+              value={directPaymentData.notes}
+              onChange={(e) => setDirectPaymentData({ ...directPaymentData, notes: e.target.value })}
+            />
+          </div>
+          <div className="d-flex gap-2">
+            <button
+              className="btn btn-primary"
+              onClick={handleRecordDirectPayment}
+              disabled={directPaymentProcessing}
+            >
+              {directPaymentProcessing ? 'Processing...' : 'Record Payment'}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setShowDirectPaymentModal(false);
+                setDirectPaymentData({ userId: null, amount: '', method: 'cash', reference: '', notes: '' });
+              }}
+            >
               Cancel
             </button>
           </div>
