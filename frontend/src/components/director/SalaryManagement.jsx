@@ -162,7 +162,6 @@ const SalaryManagement = () => {
       setMpesaRef('');
       setPayNotes('');
       fetchRequests();
-      // If transactions tab is active, refresh it
       if (activeTab === 'transactions') fetchTransactions();
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Payment failed');
@@ -173,6 +172,8 @@ const SalaryManagement = () => {
 
   // Direct Payment modal handlers
   const openDirectPaymentModal = (userId = null) => {
+    // userId = null means Quick Pay (staff selection enabled)
+    // userId = number means Pay from row (staff pre‑selected, no dropdown)
     setDirectPaymentData({
       userId: userId,
       amount: '',
@@ -207,7 +208,6 @@ const SalaryManagement = () => {
       setShowDirectPaymentModal(false);
       setDirectPaymentData({ userId: null, amount: '', method: 'cash', reference: '', notes: '' });
       fetchStaff();
-      // If transactions tab is active, refresh it
       if (activeTab === 'transactions') fetchTransactions();
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Failed to record payment');
@@ -246,7 +246,7 @@ const SalaryManagement = () => {
           </button>
           <button
             className="btn btn-sm btn-success"
-            onClick={() => openDirectPaymentModal(null)}
+            onClick={() => openDirectPaymentModal(null)}   // Quick Pay – no pre‑selected staff
             title="Quick Pay – record salary payment for any staff"
           >
             <i className="fas fa-money-bill-wave"></i> Quick Pay
@@ -313,7 +313,7 @@ const SalaryManagement = () => {
                       </button>
                       <button
                         className="btn btn-sm btn-outline-success"
-                        onClick={() => openDirectPaymentModal(s.user_id)}
+                        onClick={() => openDirectPaymentModal(s.user_id)}   // Pay for this specific staff
                         title="Process Salary Payment"
                       >
                         <i className="fas fa-money-bill-wave"></i> Pay
@@ -334,7 +334,7 @@ const SalaryManagement = () => {
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h6>Advance Requests</h6>
-        {/* Refresh button removed – data auto‑updates after actions */}
+        {/* Refresh removed – auto‑updates */}
       </div>
       <div className="table-responsive">
         <table className="table table-hover">
@@ -424,7 +424,6 @@ const SalaryManagement = () => {
             onChange={(e) => setTransactionDate(e.target.value)}
             style={{ width: '160px' }}
           />
-          {/* Clear and Refresh buttons removed – auto‑refresh on filter changes and after actions */}
         </div>
       </div>
       <div className="table-responsive">
@@ -565,7 +564,7 @@ const SalaryManagement = () => {
         </Modal>
       )}
 
-      {/* Direct Salary Payment Modal */}
+      {/* Direct Salary Payment Modal – conditional staff selection */}
       {showDirectPaymentModal && (
         <Modal
           isOpen={showDirectPaymentModal}
@@ -577,18 +576,33 @@ const SalaryManagement = () => {
           size="md"
         >
           <div className="mb-3">
-            <label className="form-label">Select Staff <span className="text-danger">*</span></label>
-            <select
-              className="form-control"
-              value={directPaymentData.userId || ''}
-              onChange={(e) => setDirectPaymentData({ ...directPaymentData, userId: parseInt(e.target.value) })}
-              required
-            >
-              <option value="">-- Choose Staff --</option>
-              {staffList.map(s => (
-                <option key={s.user_id} value={s.user_id}>{s.username} ({s.role})</option>
-              ))}
-            </select>
+            <label className="form-label">
+              {directPaymentData.userId ? 'Staff Name (pre-selected)' : 'Select Staff'}
+              <span className="text-danger">*</span>
+            </label>
+            {directPaymentData.userId ? (
+              // Staff is pre‑selected – show name as read‑only
+              <input
+                type="text"
+                className="form-control"
+                value={staffList.find(s => s.user_id === directPaymentData.userId)?.username || 'Unknown'}
+                readOnly
+                disabled
+              />
+            ) : (
+              // Quick Pay – show dropdown
+              <select
+                className="form-control"
+                value={directPaymentData.userId || ''}
+                onChange={(e) => setDirectPaymentData({ ...directPaymentData, userId: parseInt(e.target.value) })}
+                required
+              >
+                <option value="">-- Choose Staff --</option>
+                {staffList.map(s => (
+                  <option key={s.user_id} value={s.user_id}>{s.username} ({s.role})</option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="mb-3">
             <label className="form-label">Amount (KES) <span className="text-danger">*</span></label>
