@@ -1050,3 +1050,81 @@ def save_call_log():
         db.session.rollback()
         print(f"[CallLog Error] {e}")  # This will appear in your server logs
         return jsonify({'error': str(e)}), 500
+    
+# ---------- Bad Debt ----------
+
+@recovery_bp.route('/bad-debt', methods=['GET'])
+@jwt_required()
+@role_required(['director'])
+def get_bad_debt_loans():
+    """Return all loans with status 'bad_debt'."""
+    loans = Loan.query.filter_by(status='bad_debt').all()
+    result = []
+    for loan in loans:
+        loan = recalculate_loan(loan)
+        client = loan.client
+        livestock = loan.livestock
+        collateral = loan.collateral_text or (f"{livestock.count} {livestock.livestock_type}" if livestock else '')
+
+        # Unpaid interest (same logic as recovery)
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            current_period = _get_current_period_key(loan)
+            period_interest = _get_current_period_interest(loan)
+            if loan.interest_prepaid_period == current_period:
+                prepaid = loan.interest_prepaid_amount or Decimal('0')
+                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
+            else:
+                unpaid_interest = float(period_interest)
+        else:
+            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+
+        week_number = get_week_number(loan.disbursement_date)
+        due = loan.due_date.date() if loan.due_date else None
+        days_left = (due - datetime.utcnow().date()).days if due else 0
+
+        result.append({
+            'id': loan.id,
+            'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
+            'name': client.full_name if client else 'Unknown',
+            'collateral': collateral,
+            'location': client.location if client else '',
+            'id_number': client.id_number if client else '',
+            'contacts': client.phone_number if client else '',
+            'principal_amount': float(loan.principal_amount),
+            'current_principal': float(loan.current_principal),
+            'interest': 0.0,  # not used in table, we use accrual
+            'accrued_interest': unpaid_interest,
+            'week': week_number,
+            'days_left': days_left,
+            'repayment_plan': loan.repayment_plan,
+            'interest_rate': float(loan.interest_rate),
+        })
+    return jsonify(result), 200
+
+
+@recovery_bp.route('/loan/<int:loan_id>/mark-bad-debt', methods=['POST'])
+@jwt_required()
+@role_required(['director'])
+def mark_bad_debt(loan_id):
+    """Mark an active loan as bad debt (director only)."""
+    loan = db.session.get(Loan, loan_id)
+    if not loan or loan.status != 'active':
+        return jsonify({'error': 'Loan not found or not active'}), 404
+
+    loan.status = 'bad_debt'
+    db.session.commit()
+    return jsonify({'success': True}), 200
+
+
+@recovery_bp.route('/loan/<int:loan_id>/resolve-bad-debt', methods=['POST'])
+@jwt_required()
+@role_required(['director'])
+def resolve_bad_debt(loan_id):
+    """Move a loan back from bad debt to active (director only)."""
+    loan = db.session.get(Loan, loan_id)
+    if not loan or loan.status != 'bad_debt':
+        return jsonify({'error': 'Loan not found or not in bad debt status'}), 404
+
+    loan.status = 'active'
+    db.session.commit()
+    return jsonify({'success': True}), 200

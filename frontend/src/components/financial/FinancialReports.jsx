@@ -171,10 +171,8 @@ const FinancialReports = () => {
       );
 
       if (preview) {
-        // Open the blob in a new tab
         const url = URL.createObjectURL(result);
         window.open(url, '_blank');
-        // Revoke after a short delay to allow the tab to open
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         showToast.success('Report opened in new tab (preview)');
       } else {
@@ -190,17 +188,39 @@ const FinancialReports = () => {
     if (!loanData) return <div className="text-center">No data</div>;
     const data = loanData;
 
-    // For chart: we'll create a bar chart with key metrics
-    const chartLabels = ['Money Lent', 'Principal Collected', 'Interest Collected', 'Outstanding Principal', 'Outstanding Interest'];
+    // Expanded chart metrics: Money Lent, Principal Collected, Interest Collected,
+    // Outstanding Principal, Outstanding Interest, Total Claimed, Total Waived, Bad Debt
+    const chartLabels = [
+      'Money Lent',
+      'Principal Collected',
+      'Interest Collected',
+      'Outstanding Principal',
+      'Outstanding Interest',
+      'Total Claimed',
+      'Total Waived',
+      'Bad Debt'
+    ];
     const chartValues = [
       data.total_money_lent,
       data.principal_collected,
       data.interest_collected,
       data.outstanding_principal,
       data.outstanding_interest,
+      data.total_claimed_amount,
+      data.total_waived_amount,
+      data.total_bad_debt,
     ];
 
-    const chartColors = ['#1e40af', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+    const chartColors = [
+      '#1e40af', // money lent
+      '#10b981', // principal collected
+      '#f59e0b', // interest collected
+      '#ef4444', // outstanding principal
+      '#8b5cf6', // outstanding interest
+      '#ec4899', // total claimed
+      '#f97316', // total waived
+      '#6b7280'  // bad debt
+    ];
 
     let ChartComponent;
     let chartProps = {
@@ -342,7 +362,7 @@ const FinancialReports = () => {
           </div>
         </div>
 
-        {/* Claims & Waived */}
+        {/* Claims & Waived & Bad Debt */}
         <div className="row g-3 mb-4">
           <div className="col-6 col-md-3">
             <div className="card border-danger">
@@ -378,9 +398,17 @@ const FinancialReports = () => {
               </div>
             </div>
           </div>
+          <div className="col-6 col-md-3">
+            <div className="card border-danger">
+              <div className="card-body">
+                <h6 className="card-subtitle text-danger">Bad Debt</h6>
+                <h4 className="card-title">{formatCurrency(data.total_bad_debt)}</h4>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Chart */}
+        {/* Chart - now includes all 8 metrics */}
         <div className="card">
           <div className="card-body">
             <div className="chart-wrapper d-flex justify-content-center">

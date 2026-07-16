@@ -7685,6 +7685,7 @@ export const generateFinancialReportPDF = async (reportData, periodLabel, chartI
       ['Total Recovered Value', formatCurrency(reportData.total_recovered_value)],
       ['Claims Profit/Loss', formatCurrency(reportData.claims_profit_loss)],
       ['Total Waived Amount', formatCurrency(reportData.total_waived_amount)],
+      ['Total Bad Debt', formatCurrency(reportData.total_bad_debt)],   // ← NEW
     ];
   } else {
     rows = [

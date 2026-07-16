@@ -66,7 +66,7 @@ def seed():
                       'company-gallery', 'applications', 'report-management','loan-reports', 'financial-reports', 'utilities',
                       'investors','user-management', 'company-profile', 'settings'],
             'director': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
-                         'transactions', 'gallery', 'investors', 'report-management','loan-reports',
+                         'transactions', 'gallery', 'investors', 'report-management','loan-reports',  'bad-debt',
                          'financial-reports', 'petty-cash','salaries' , 'company-profile', 'utilities', 'settings'],
             'secretary': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
                           'transactions', 'reports','petty-cash', 'utilities', 'settings'],

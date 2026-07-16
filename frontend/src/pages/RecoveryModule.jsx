@@ -140,7 +140,6 @@ function RecoveryModule() {
   const [waiverAmount, setWaiverAmount] = useState(0);
   const [waiverDuration, setWaiverDuration] = useState(14);
   const [waiverProcessing, setWaiverProcessing] = useState(false);
-
   // ---------- Director dashboard data ----------
   const [dashboardData, setDashboardData] = useState({
     total_clients: 0, total_lent: 0, total_received: 0, total_revenue: 0,
@@ -235,8 +234,64 @@ function RecoveryModule() {
   const [flagLoanName, setFlagLoanName] = useState('');
 
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+  const [badDebtLoans, setBadDebtLoans] = useState([]);
+  const [showBadDebtConfirm, setShowBadDebtConfirm] = useState(false);
+  const [badDebtAction, setBadDebtAction] = useState(null); // 'mark' or 'resolve'
+  const [badDebtLoanId, setBadDebtLoanId] = useState(null);
+  const [badDebtLoanName, setBadDebtLoanName] = useState('');
 
-  // const [showAddParticipant, setShowAddParticipant] = useState(false);
+  const fetchBadDebtLoans = async () => {
+    try {
+      const res = await recoveryAPI.getBadDebtLoans();
+      setBadDebtLoans(res.data || []);
+    } catch (err) {
+      showToast.error('Failed to load bad debt loans');
+    }
+  };
+
+  const getDayOfWeek = (dateStr) => {
+    if (!dateStr) return 'N/A';
+    try {
+      return new Date(dateStr).toLocaleDateString('en-US', { weekday: 'long' });
+    } catch { return 'N/A'; }
+  };
+
+  const handleMarkBadDebt = (loanId, loanName) => {
+    setBadDebtAction('mark');
+    setBadDebtLoanId(loanId);
+    setBadDebtLoanName(loanName);
+    setShowBadDebtConfirm(true);
+  };
+
+  const handleResolveBadDebt = (loanId, loanName) => {
+    setBadDebtAction('resolve');
+    setBadDebtLoanId(loanId);
+    setBadDebtLoanName(loanName);
+    setShowBadDebtConfirm(true);
+  };
+
+  const confirmBadDebtAction = async () => {
+    if (!badDebtLoanId || !badDebtAction) return;
+    try {
+      if (badDebtAction === 'mark') {
+        await recoveryAPI.markBadDebt(badDebtLoanId);
+        showToast.success('Marked as bad debt');
+        fetchData(); // refresh recovery
+      } else {
+        await recoveryAPI.resolveBadDebt(badDebtLoanId);
+        showToast.success('Resolved bad debt');
+        fetchBadDebtLoans(); // refresh bad debt list
+        fetchData(); // refresh recovery
+      }
+    } catch (err) {
+      showToast.error(err.response?.data?.error || 'Action failed');
+    } finally {
+      setShowBadDebtConfirm(false);
+      setBadDebtAction(null);
+      setBadDebtLoanId(null);
+      setBadDebtLoanName('');
+    }
+  };
 
   
   const fetchPendingRequestsCount = async () => {
@@ -1530,6 +1585,8 @@ function RecoveryModule() {
     } else if (directorSection === 'investors' && isInvestorSectionAuthenticated) {
       fetchInvestors();
       fetchInvestorTransactions();
+    } else if (directorSection === 'bad-debt') {
+      fetchBadDebtLoans();
     }
 
     // Cleanup interval on unmount or when userRole changes
@@ -1849,6 +1906,15 @@ function RecoveryModule() {
                                               title="Flag as defaulter – moves to valuer"
                                             >
                                               <i className="fas fa-flag"></i>
+                                            </button>
+                                          )}
+                                          {userRole === 'director' && (
+                                            <button
+                                              className="btn btn-outline-danger btn-sm"
+                                              onClick={() => handleMarkBadDebt(loan.id, loan.name)}
+                                              title="Mark as Bad Debt"
+                                            >
+                                              <i className="fas fa-exclamation-triangle"></i>
                                             </button>
                                           )}
                                         </div></td>
@@ -2512,6 +2578,128 @@ function RecoveryModule() {
                   {/* COMPANY GALLERY SECTION */}
                   {directorSection === 'company-gallery' && (
                     <AdminCompanyGallery />
+                  )}
+
+                  {/* BAD DEBT SECTION */}
+                  {directorSection === 'bad-debt' && (
+                    <div id="bad-debt-section" className="content-section">
+                      <h2>Bad Debt Clients</h2>
+                      <p className="text-muted">Clients marked as bad debt are handled by the director. Resolve to move back to recovery.</p>
+                      {badDebtLoans.length === 0 ? (
+                        <div className="text-center py-5">
+                          <i className="fas fa-check-circle fa-3x text-success mb-3"></i>
+                          <h5>No bad debt clients</h5>
+                          <p className="text-muted">All clients are currently in the recovery module.</p>
+                        </div>
+                      ) : (
+                        <div className="card">
+                          <div className="card-body p-0">
+                            <div className="table-responsive">
+                              <table className="table table-hover mb-0">
+                                <thead className="table-light">
+                                  <tr>
+                                    <th>Name</th>
+                                    <th>Collateral</th>
+                                    <th>Location</th>
+                                    <th>ID Number</th>
+                                    <th>Contact</th>
+                                    <th>Borrowed Date</th>
+                                    <th>Day</th>
+                                    <th>Initial Principal</th>
+                                    <th>Current Principal</th>
+                                    <th>Accrued (Unpaid)</th>
+                                    <th>Week</th>
+                                    <th>Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {badDebtLoans.map(loan => {
+                                    const badge = getDaysBadge(loan);
+                                    return (
+                                      <tr key={loan.id}>
+                                        <td>
+                                          <div>{loan.name}</div>
+                                          <span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
+                                            {loan.interest_rate === 0 ? 'Waived' : (loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}
+                                          </span>
+                                          {badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}
+                                        </td>
+                                        <td>{loan.collateral}</td>
+                                        <td>{loan.location}</td>
+                                        <td>{loan.id_number}</td>
+                                        <td>{loan.contacts}</td>
+                                        <td>{fmtDate(loan.disbursement_date)}</td>
+                                        <td style={{ backgroundColor: '#fff3cd', color: '#856404' }}>
+                                          {getDayOfWeek(loan.disbursement_date)}
+                                        </td>
+                                        <td>{fmt(loan.principal_amount)}</td>
+                                        <td>{fmt(loan.current_principal)}</td>
+                                        <td className="text-danger fw-bold">{fmt(loan.accrued_interest)}</td>
+                                        <td>Week {loan.week}</td>
+                                        <td>
+                                          <div className="btn-group btn-group-sm">
+                                            <button className="btn btn-outline-primary" onClick={() => { setSelectedLoan(loan); setShowPaymentModal(true); }}><i className="fas fa-money-bill-wave"></i></button>
+                                            <button className="btn btn-outline-success" onClick={() => window.location.href = `tel:${loan.contacts}`}><i className="fas fa-phone"></i></button>
+                                            <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}><i className="fas fa-comment"></i></button>
+                                            <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}><i className="fas fa-bolt"></i></button>
+                                            <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}><i className="fas fa-file-invoice"></i></button>
+                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && loan.days_left <= 0 && (
+                                              <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}><i className="fas fa-sync-alt"></i></button>
+                                            )}
+                                            {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (
+                                              <button className="btn btn-outline-warning" onClick={() => openTopupModal(loan)}><i className="fas fa-edit"></i></button>
+                                            )}
+                                            {/* Resolve button – only director */}
+                                            {userRole === 'director' && (
+                                              <button
+                                                className="btn btn-outline-success btn-sm"
+                                                onClick={() => handleResolveBadDebt(loan.id, loan.name)}
+                                                title="Resolve Bad Debt"
+                                              >
+                                                <i className="fas fa-check-double"></i>
+                                              </button>
+                                            )}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                                <tfoot className="table-secondary fw-bold">
+                                  {(() => {
+                                    const totals = badDebtLoans.reduce(
+                                      (acc, loan) => ({
+                                        currentPrincipal: acc.currentPrincipal + (loan.current_principal || 0),
+                                        unpaidInterest: acc.unpaidInterest + (loan.accrued_interest || 0),
+                                        totalOwed: acc.totalOwed + (loan.current_principal || 0) + (loan.accrued_interest || 0),
+                                      }),
+                                      { currentPrincipal: 0, unpaidInterest: 0, totalOwed: 0 }
+                                    );
+                                    return (
+                                      <>
+                                        {/* Sub-totals row */}
+                                        <tr className="table-light">
+                                          <td colSpan="8" className="text-end">Subtotals</td>
+                                          <td>{fmt(totals.currentPrincipal)}</td>
+                                          <td className="text-danger">{fmt(totals.unpaidInterest)}</td>
+                                          <td></td>
+                                        </tr>
+                                        {/* Grand Total row */}
+                                        <tr className="table-light">
+                                          <td colSpan="9" className="text-end fw-bold">Grand Total (Principal + Interest)</td>
+                                          <td className="text-primary fw-bold">{fmt(totals.totalOwed)}</td>
+                                          <td colSpan="2"></td>
+                                        </tr>
+                                      </>
+                                    );
+                                  })()}
+                                </tfoot>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
             
                   {/* REPORT MANAGEMENT SECTION */}
@@ -4488,6 +4676,25 @@ function RecoveryModule() {
         message={`Are you sure you want to flag "${flagLoanName}" for valuer? Their records will be moved to the valuer's report.`}
         confirmText="Yes, Flag Client"
         confirmColor="danger"
+      />
+
+      <ConfirmationDialog
+        isOpen={showBadDebtConfirm}
+        onClose={() => {
+          setShowBadDebtConfirm(false);
+          setBadDebtAction(null);
+          setBadDebtLoanId(null);
+          setBadDebtLoanName('');
+        }}
+        onConfirm={confirmBadDebtAction}
+        title={`${badDebtAction === 'mark' ? 'Mark' : 'Resolve'} Bad Debt`}
+        message={
+          badDebtAction === 'mark'
+            ? `Are you sure you want to mark "${badDebtLoanName}" as bad debt? This will move them to the Bad Debt section.`
+            : `Are you sure you want to resolve "${badDebtLoanName}" from bad debt? This will move them back to the Recovery Module.`
+        }
+        confirmText={badDebtAction === 'mark' ? 'Yes, Mark' : 'Yes, Resolve'}
+        confirmColor={badDebtAction === 'mark' ? 'danger' : 'success'}
       />
       
 

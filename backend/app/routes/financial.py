@@ -215,7 +215,7 @@ def get_loan_financial_report():
     principal_collected = sum(t.amount for t in payments if t.payment_type == 'principal')
     interest_collected = sum(t.amount for t in payments if t.payment_type == 'interest')
 
-    # ---- Outstanding principal and interest (active loans as of end_date) ----
+    # ---- Outstanding principal and interest (active + bad_debt as of end_date) ----
     active_loans = Loan.query.filter(
         Loan.status == 'active',
         func.date(Loan.disbursement_date) <= end_date
@@ -225,6 +225,21 @@ def get_loan_financial_report():
         max(Decimal('0'), l.accrued_interest - l.interest_paid)
         for l in active_loans
     )
+
+    # ---- Bad Debt ----
+    bad_debt_loans = Loan.query.filter(
+        Loan.status == 'bad_debt',
+        func.date(Loan.disbursement_date) <= end_date
+    ).all()
+    bad_debt_principal = sum(l.current_principal for l in bad_debt_loans)
+    bad_debt_interest = sum(
+        max(Decimal('0'), l.accrued_interest - l.interest_paid)
+        for l in bad_debt_loans
+    )
+    total_bad_debt = bad_debt_principal + bad_debt_interest
+
+    outstanding_principal += bad_debt_principal
+    outstanding_interest += bad_debt_interest
 
     # ---- Claims ----
     claimed_loans = Loan.query.filter(
@@ -238,7 +253,6 @@ def get_loan_financial_report():
     )
 
     # ---- Waived ----
-    # Use waiver adjustment transactions to get the actual reduction amount
     waiver_transactions = Transaction.query.filter(
         Transaction.transaction_type == 'adjustment',
         Transaction.payment_method == 'waiver',
@@ -259,6 +273,7 @@ def get_loan_financial_report():
         'total_claimed_amount': float(total_claimed_amount),
         'total_recovered_value': float(total_recovered_value),
         'total_waived_amount': float(total_waived_amount),
+        'total_bad_debt': float(total_bad_debt),          # NEW
         'loan_revenue': float(revenue),
         'loan_recovery_rate': float(recovery_rate),
         'claims_profit_loss': float(total_recovered_value - total_claimed_amount),
@@ -446,18 +461,17 @@ def get_claims_analysis():
 @role_required(['director', 'head_of_it', 'admin'])
 def get_waived_analysis():
     """Analyze waived loans."""
-    # Use waiver adjustment transactions for accurate waived amount
     waiver_transactions = Transaction.query.filter(
         Transaction.transaction_type == 'adjustment',
         Transaction.payment_method == 'waiver'
     ).all()
     total_waived = sum(abs(t.amount) for t in waiver_transactions)
-    count = len(waiver_transactions)  # number of waiver transactions = number of waived loans
+    count = len(waiver_transactions)
 
     return jsonify({
         'total_waived_amount': float(total_waived),
         'number_of_waived_loans': count,
-        'waiver_trends': [],  # TODO: implement monthly trends
+        'waiver_trends': [],
         'waiver_impact_on_revenue': float(total_waived)
     }), 200
 
@@ -665,6 +679,15 @@ def get_financial_dashboard_summary():
         func.sum(Loan.accrued_interest - Loan.interest_paid)
     ).filter(Loan.status == 'active').scalar() or Decimal('0')
 
+    # ---- Bad Debt ----
+    bad_debt_loans = Loan.query.filter_by(status='bad_debt').all()
+    bad_debt_principal = sum(l.current_principal for l in bad_debt_loans)
+    bad_debt_interest = sum(
+        max(Decimal('0'), l.accrued_interest - l.interest_paid)
+        for l in bad_debt_loans
+    )
+    total_bad_debt = bad_debt_principal + bad_debt_interest
+
     recovery_rate = (total_principal_collected / total_lent * 100) if total_lent > 0 else 0
 
     total_revenue = total_interest_collected
@@ -692,14 +715,15 @@ def get_financial_dashboard_summary():
             'total_interest_collected': float(total_interest_collected),
             'outstanding_principal': float(outstanding_principal),
             'outstanding_interest': float(outstanding_interest),
-            'loan_recovery_rate': float(recovery_rate)
+            'loan_recovery_rate': float(recovery_rate),
+            'total_bad_debt': float(total_bad_debt)          # NEW
         },
         'company_metrics': {
             'total_revenue': float(total_revenue),
             'total_expenses': float(total_expenses),
             'total_petty_cash_expenses': float(db.session.query(func.sum(PettyCashExpense.amount)).scalar() or 0),
             'net_profit_loss': float(net_profit),
-            'claims_profit_loss': 0,  # will be computed elsewhere
+            'claims_profit_loss': 0,
             'total_waived_amount': float(total_waived)
         }
     }), 200
@@ -710,7 +734,6 @@ def get_financial_dashboard_summary():
 @role_required(['director', 'head_of_it', 'admin'])
 def get_financial_insights():
     """Generate automated financial insights."""
-    # These should be computed dynamically; for now keep static.
     return jsonify({
         'highest_expense_category': 'Salaries',
         'most_profitable_month': 'December 2025',

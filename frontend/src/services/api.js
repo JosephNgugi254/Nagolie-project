@@ -311,6 +311,11 @@ export const recoveryAPI = {
   getLoanReportComments: (loanId) => api.get(`/recovery/loan/${loanId}/report-comments`),
 
   saveCallLog: (data) => api.post('/recovery/calls', data),
+
+  // Bad Debt
+  getBadDebtLoans: () => api.get('/recovery/bad-debt'),
+  markBadDebt: (loanId) => api.post(`/recovery/loan/${loanId}/mark-bad-debt`),
+  resolveBadDebt: (loanId) => api.post(`/recovery/loan/${loanId}/resolve-bad-debt`)
 };
 
 export const userAPI = {
