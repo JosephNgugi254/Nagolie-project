@@ -3861,7 +3861,7 @@ function RecoveryModule() {
                                                 <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)} title="Download Invoice">
                                                   <i className="fas fa-file-invoice"></i>
                                                 </button>
-                                                {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && loan.days_left <= 0 && (
+                                                {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) &&  (
                                                   <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)} title="Renew or waive loan">
                                                     <i className="fas fa-sync-alt"></i>
                                                   </button>
