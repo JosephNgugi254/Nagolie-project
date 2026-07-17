@@ -1,3 +1,4 @@
+// frontend/src/components/utilities/LetterWriter.jsx
 import { useState, useEffect } from 'react';
 import { generateLetterPDF, downloadLetterPDF } from '../admin/ReceiptPDF';
 import { showToast } from '../common/Toast';
@@ -11,14 +12,13 @@ const LetterWriter = ({ userRole }) => {
   const [body, setBody] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
+  const [generatingType, setGeneratingType] = useState(null);
 
-  // Get user-specific draft key
   const getDraftKey = () => {
     const userId = user?.id || user?.username || 'anonymous';
     return `letterDraft_${userId}`;
   };
 
-  // Load draft from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(getDraftKey());
     if (saved) {
@@ -33,7 +33,6 @@ const LetterWriter = ({ userRole }) => {
     }
   }, [user]);
 
-  // Auto-save draft
   useEffect(() => {
     if (title || recipient || re || body) {
       const draft = { title, recipient, re, body, lastSaved: new Date().toISOString() };
@@ -104,6 +103,7 @@ const LetterWriter = ({ userRole }) => {
       showToast.error('Please provide a title and message body');
       return;
     }
+    setGeneratingType('preview');
     setIsGenerating(true);
     try {
       await generateLetterPDF({
@@ -119,6 +119,7 @@ const LetterWriter = ({ userRole }) => {
       showToast.error('Failed to generate letter preview');
     } finally {
       setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
 
@@ -127,6 +128,7 @@ const LetterWriter = ({ userRole }) => {
       showToast.error('Please provide a title and message body');
       return;
     }
+    setGeneratingType('download');
     setIsGenerating(true);
     try {
       await downloadLetterPDF({
@@ -143,8 +145,11 @@ const LetterWriter = ({ userRole }) => {
       showToast.error('Failed to download letter');
     } finally {
       setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
+
+  const isLoading = isGenerating;
 
   return (
     <div className="letter-writer">
@@ -157,6 +162,7 @@ const LetterWriter = ({ userRole }) => {
             placeholder="e.g., Appointment Letter, Termination Notice, etc."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            disabled={isLoading}
           />
         </div>
         <div className="col-md-6 mb-4">
@@ -167,6 +173,7 @@ const LetterWriter = ({ userRole }) => {
             placeholder="e.g., Nagolie Enterprises Ltd&#10;P.O. BOX 359-01100&#10;Kajiado&#10;Email: nagolieenterprises@gmail.com&#10;Tel: 0721451707 / 0763003182"
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
+            disabled={isLoading}
           />
           <small className="text-muted">Use line breaks for multi‑line addresses.</small>
         </div>
@@ -178,18 +185,19 @@ const LetterWriter = ({ userRole }) => {
             placeholder="e.g., Loan Renewal Notice"
             value={re}
             onChange={(e) => setRe(e.target.value)}
+            disabled={isLoading}
           />
         </div>
         <div className="col-md-12 mb-2">
           <label className="form-label fw-bold">Formatting</label>
           <div className="d-flex flex-wrap gap-2 mb-2">
-            <button type="button" className="btn btn-outline-secondary" onClick={() => insertFormat('bold')}>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => insertFormat('bold')} disabled={isLoading}>
               <i className="fas fa-bold"></i> Bold
             </button>
-            <button type="button" className="btn btn-outline-secondary" onClick={() => insertFormat('italic')}>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => insertFormat('italic')} disabled={isLoading}>
               <i className="fas fa-italic"></i> Italic
             </button>
-            <button type="button" className="btn btn-outline-secondary" onClick={() => insertFormat('underline')}>
+            <button type="button" className="btn btn-outline-secondary" onClick={() => insertFormat('underline')} disabled={isLoading}>
               <i className="fas fa-underline"></i> Underline
             </button>
           </div>
@@ -206,26 +214,31 @@ const LetterWriter = ({ userRole }) => {
             placeholder="Type your letter content here."
             value={body}
             onChange={(e) => setBody(e.target.value)}
+            disabled={isLoading}
           />
         </div>
         <div className="col-md-12 d-flex flex-wrap gap-2 justify-content-end">
           {hasDraft && (
-            <button className="btn btn-outline-info" onClick={loadDraft}>
+            <button className="btn btn-outline-info" onClick={loadDraft} disabled={isLoading}>
               <i className="fas fa-undo me-2"></i>Load Draft
             </button>
           )}
-          <button className="btn btn-secondary" onClick={clearDraft}>
+          <button className="btn btn-secondary" onClick={clearDraft} disabled={isLoading}>
             <i className="fas fa-trash me-2"></i>Clear Draft
           </button>
-          <button className="btn btn-primary" onClick={handleGeneratePreview} disabled={isGenerating}>
-            {isGenerating ? (
-              <><span className="spinner-border spinner-border-sm me-2"></span>Generating...</>
+          <button className="btn btn-primary" onClick={handleGeneratePreview} disabled={isLoading}>
+            {isLoading && generatingType === 'preview' ? (
+              <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
             ) : (
               <><i className="fas fa-eye me-2"></i>Generate & Preview PDF</>
             )}
           </button>
-          <button className="btn btn-success" onClick={handleDownload} disabled={isGenerating}>
-            <i className="fas fa-download me-2"></i>Download PDF
+          <button className="btn btn-success" onClick={handleDownload} disabled={isLoading}>
+            {isLoading && generatingType === 'download' ? (
+              <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Downloading...</>
+            ) : (
+              <><i className="fas fa-download me-2"></i>Download PDF</>
+            )}
           </button>
         </div>
       </div>

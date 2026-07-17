@@ -365,6 +365,7 @@ const AdminCompanyGallery = () => {
         <Modal
           isOpen={showUploadModal}
           onClose={() => {
+            if (uploading) return;
             setShowUploadModal(false);
             setSelectedImages([]);
             setUploadTitle("");
@@ -383,6 +384,7 @@ const AdminCompanyGallery = () => {
                   value={uploadCategory}
                   onChange={(e) => setUploadCategory(e.target.value)}
                   required
+                  disabled={uploading}
                 >
                   {categories.map(cat => (
                     <option key={cat} value={cat}>
@@ -399,6 +401,7 @@ const AdminCompanyGallery = () => {
                   value={uploadTitle}
                   onChange={(e) => setUploadTitle(e.target.value)}
                   required
+                  disabled={uploading}
                 />
               </div>
             </div>
@@ -410,6 +413,7 @@ const AdminCompanyGallery = () => {
                 rows="2"
                 value={uploadDescription}
                 onChange={(e) => setUploadDescription(e.target.value)}
+                disabled={uploading}
               />
             </div>
 
@@ -420,6 +424,7 @@ const AdminCompanyGallery = () => {
                 className="form-control"
                 value={uploadDate}
                 onChange={(e) => setUploadDate(e.target.value)}
+                disabled={uploading}
               />
             </div>
 
@@ -428,9 +433,9 @@ const AdminCompanyGallery = () => {
               <div
                 {...getRootProps()}
                 className={`dropzone p-4 border rounded text-center ${isDragActive ? 'border-primary bg-light' : ''}`}
-                style={{ cursor: 'pointer', borderStyle: 'dashed' }}
+                style={{ cursor: uploading ? 'not-allowed' : 'pointer', borderStyle: 'dashed', opacity: uploading ? 0.6 : 1 }}
               >
-                <input {...getInputProps()} />
+                <input {...getInputProps()} disabled={uploading} />
                 {isDragActive ? (
                   <p>Drop the images here ...</p>
                 ) : (
@@ -456,6 +461,7 @@ const AdminCompanyGallery = () => {
                           className="btn btn-danger btn-sm position-absolute top-0 end-0"
                           onClick={() => removeImage(idx)}
                           style={{ transform: "translate(50%, -50%)" }}
+                          disabled={uploading}
                         >
                           <i className="fas fa-times"></i>
                         </button>
@@ -466,42 +472,44 @@ const AdminCompanyGallery = () => {
               )}
             </div>
 
+            {uploading && (
+              <div className="mb-3">
+                <label className="form-label">Upload Progress</label>
+                <div className="progress">
+                  <div 
+                    className="progress-bar progress-bar-striped progress-bar-animated" 
+                    role="progressbar" 
+                    style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                    aria-valuenow={(uploadProgress.current / uploadProgress.total) * 100} 
+                    aria-valuemin="0" 
+                    aria-valuemax="100"
+                  >
+                    {uploadProgress.current}/{uploadProgress.total}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="d-flex gap-2">
               <button
                 type="submit"
                 className="btn btn-primary"
                 disabled={uploading}
-                style={{ position: 'relative', overflow: 'hidden' }}
               >
-                {uploading && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      height: '100%',
-                      width: `${(uploadProgress.current / uploadProgress.total) * 100}%`,
-                      backgroundColor: '#28a745',
-                      transition: 'width 0.3s ease',
-                      zIndex: 1,
-                    }}
-                  />
+                {uploading ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />
+                    Uploading {uploadProgress.current}/{uploadProgress.total}...
+                  </>
+                ) : (
+                  'Upload'
                 )}
-                <span style={{ position: 'relative', zIndex: 2, color: '#fff' }}>
-                  {uploading ? (
-                    <>
-                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />
-                      Uploading {uploadProgress.current}/{uploadProgress.total}...
-                    </>
-                  ) : (
-                    'Upload'
-                  )}
-                </span>
               </button>
               <button
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => {
+                  if (uploading) return;
                   setShowUploadModal(false);
                   setSelectedImages([]);
                   setUploadTitle("");
@@ -515,7 +523,7 @@ const AdminCompanyGallery = () => {
             </div>
           </form>
         </Modal>
-      )}
+    )}
 
       {/* Edit Modal */}
       {showEditModal && editingImage && (

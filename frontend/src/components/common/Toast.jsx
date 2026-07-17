@@ -11,6 +11,7 @@ export const showToast = {
 function Toast() {
   return (
     <ToastContainer
+      limit={5}
       position="top-center"
       autoClose={5000}
       hideProgressBar={false}
@@ -21,13 +22,11 @@ function Toast() {
       draggable
       pauseOnHover
       theme="light"
-      // Ensure these props are set for close button functionality
       closeButton={true}
       enableMultiContainer={false}
       style={{
         zIndex: 9999,
       }}
-      // Remove custom className overrides that might interfere with functionality
     />
   );
 }

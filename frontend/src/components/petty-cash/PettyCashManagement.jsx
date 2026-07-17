@@ -55,7 +55,7 @@ const PettyCashManagement = () => {
       showToast.error('Please fill in description and positive amount');
       return;
     }
-    setIsSubmittingExpense(true);   // <-- start loading
+    setIsSubmittingExpense(true);   
     try {
       await financialAPI.addPettyCashExpense({
         description: expenseData.description,
@@ -363,7 +363,17 @@ const PettyCashManagement = () => {
             )}
           </div>
           <div className="d-flex justify-content-end gap-2">
-            <button type="button" className="btn btn-secondary" onClick={() => setShowExpenseModal(false)}>Cancel</button>
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={() => {
+                if (isSubmittingExpense) return;
+                setShowExpenseModal(false);
+              }}
+              disabled={isSubmittingExpense}
+            >
+              Cancel
+            </button>
             <button 
               type="submit" 
               className="btn btn-success" 
@@ -396,7 +406,17 @@ const PettyCashManagement = () => {
               onChange={e => setFundData({ ...fundData, notes: e.target.value })} />
           </div>
           <div className="d-flex justify-content-end gap-2">
-            <button type="button" className="btn btn-secondary" onClick={() => setShowFundModal(false)}>Cancel</button>
+            <button 
+              type="button" 
+              className="btn btn-secondary" 
+              onClick={() => {
+                if (isSubmittingFund) return;
+                setShowFundModal(false);
+              }}
+              disabled={isSubmittingFund}
+            >
+              Cancel
+            </button>
             <button 
               type="submit" 
               className="btn btn-primary" 

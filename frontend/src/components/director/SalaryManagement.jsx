@@ -1,10 +1,10 @@
+// frontend/src/components/director/SalaryManagement.jsx
 import React, { useState, useEffect } from 'react';
 import { showToast } from '../common/Toast';
 import { salaryAPI } from '../../services/api';
 import Modal from '../common/Modal';
 import { generateSalaryReportPDF, generateSalaryTransactionReceipt } from '../admin/ReceiptPDF';
 
-// Helper to format month to "Month/YYYY"
 const formatMonthDisplay = (monthStr) => {
   if (!monthStr) return '';
   const [year, month] = monthStr.split('-');
@@ -28,7 +28,6 @@ const SalaryManagement = () => {
   const [payNotes, setPayNotes] = useState('');
   const [processing, setProcessing] = useState(false);
 
-  // State for Direct Payment Modal
   const [showDirectPaymentModal, setShowDirectPaymentModal] = useState(false);
   const [directPaymentData, setDirectPaymentData] = useState({
     userId: null,
@@ -39,16 +38,16 @@ const SalaryManagement = () => {
   });
   const [directPaymentProcessing, setDirectPaymentProcessing] = useState(false);
 
-  // Rejection modal state
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectRequestId, setRejectRequestId] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [rejectProcessing, setRejectProcessing] = useState(false);
 
-  // Transactions tab filters
   const [transactionSearch, setTransactionSearch] = useState('');
   const [transactionDate, setTransactionDate] = useState('');
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [generatingReceipt, setGeneratingReceipt] = useState(false);
 
-  // Fetch staff and requests
   const fetchStaff = async () => {
     setLoading(true);
     try {
@@ -105,6 +104,7 @@ const SalaryManagement = () => {
       showToast.error('Invalid salary amount');
       return;
     }
+    setLoading(true);
     try {
       await salaryAPI.setStaffSalary(editingStaff.user_id, month, parseFloat(salaryAmount));
       showToast.success('Salary updated');
@@ -112,16 +112,21 @@ const SalaryManagement = () => {
       fetchStaff();
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Failed to update salary');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleProcessRequest = async (requestId, action, reason = '') => {
+    setProcessing(true);
     try {
       await salaryAPI.processAdvanceRequest(requestId, action, reason);
       showToast.success(`Request ${action}ed`);
       fetchRequests();
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Processing failed');
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -136,10 +141,15 @@ const SalaryManagement = () => {
       showToast.error('Please provide a reason for rejection');
       return;
     }
-    await handleProcessRequest(rejectRequestId, 'reject', rejectReason);
-    setShowRejectModal(false);
-    setRejectRequestId(null);
-    setRejectReason('');
+    setRejectProcessing(true);
+    try {
+      await handleProcessRequest(rejectRequestId, 'reject', rejectReason);
+      setShowRejectModal(false);
+      setRejectRequestId(null);
+      setRejectReason('');
+    } finally {
+      setRejectProcessing(false);
+    }
   };
 
   const handlePayRequest = async () => {
@@ -170,10 +180,7 @@ const SalaryManagement = () => {
     }
   };
 
-  // Direct Payment modal handlers
   const openDirectPaymentModal = (userId = null) => {
-    // userId = null means Quick Pay (staff selection enabled)
-    // userId = number means Pay from row (staff pre‑selected, no dropdown)
     setDirectPaymentData({
       userId: userId,
       amount: '',
@@ -217,37 +224,41 @@ const SalaryManagement = () => {
   };
 
   const handleGenerateReport = async (user) => {
+    setGeneratingReport(true);
     try {
       const res = await salaryAPI.getStaffReportData(user.user_id, month);
       generateSalaryReportPDF(res.data);
     } catch (err) {
       showToast.error('Failed to generate report');
+    } finally {
+      setGeneratingReport(false);
     }
   };
 
-  // Download single transaction receipt
   const handleDownloadTransactionReceipt = async (transaction) => {
+    setGeneratingReceipt(true);
     try {
       await generateSalaryTransactionReceipt(transaction);
       showToast.success('Receipt downloaded');
     } catch (err) {
       showToast.error('Failed to generate receipt');
+    } finally {
+      setGeneratingReceipt(false);
     }
   };
 
-  // ---- Render staff tab ----
   const renderStaffTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h6>Staff Salaries for {formatMonthDisplay(month)}</h6>
         <div>
-          <button className="btn btn-sm btn-outline-secondary me-2" onClick={fetchStaff}>
-            <i className="fas fa-sync"></i> Refresh
+          <button className="btn btn-sm btn-outline-secondary me-2" onClick={fetchStaff} disabled={loading}>
+            <i className={`fas fa-sync ${loading ? 'fa-spin' : ''}`}></i> {loading ? 'Loading...' : 'Refresh'}
           </button>
           <button
             className="btn btn-sm btn-success"
-            onClick={() => openDirectPaymentModal(null)}   // Quick Pay – no pre‑selected staff
-            title="Quick Pay – record salary payment for any staff"
+            onClick={() => openDirectPaymentModal(null)}
+            disabled={loading}
           >
             <i className="fas fa-money-bill-wave"></i> Quick Pay
           </button>
@@ -277,6 +288,7 @@ const SalaryManagement = () => {
                       onChange={(e) => setSalaryAmount(e.target.value)}
                       min="0"
                       step="100"
+                      disabled={loading}
                     />
                   ) : (
                     `KES ${s.salary_amount.toFixed(2)}`
@@ -285,10 +297,10 @@ const SalaryManagement = () => {
                 <td>
                   {editingStaff?.user_id === s.user_id ? (
                     <>
-                      <button className="btn btn-sm btn-success me-1" onClick={handleSaveSalary}>
+                      <button className="btn btn-sm btn-success me-1" onClick={handleSaveSalary} disabled={loading}>
                         <i className="fas fa-check"></i>
                       </button>
-                      <button className="btn btn-sm btn-secondary" onClick={() => setEditingStaff(null)}>
+                      <button className="btn btn-sm btn-secondary" onClick={() => setEditingStaff(null)} disabled={loading}>
                         <i className="fas fa-times"></i>
                       </button>
                     </>
@@ -300,21 +312,25 @@ const SalaryManagement = () => {
                           setEditingStaff(s);
                           setSalaryAmount(s.salary_amount.toString());
                         }}
-                        title="Add or Edit salary amount"
+                        disabled={loading}
                       >
                         <i className="fas fa-edit"></i>
                       </button>
                       <button
                         className="btn btn-sm btn-outline-info me-1"
                         onClick={() => handleGenerateReport(s)}
-                        title="Generate Salary report"
+                        disabled={loading || generatingReport}
                       >
-                        <i className="fas fa-file-pdf"></i>
+                        {generatingReport ? (
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        ) : (
+                          <i className="fas fa-file-pdf"></i>
+                        )}
                       </button>
                       <button
                         className="btn btn-sm btn-outline-success"
-                        onClick={() => openDirectPaymentModal(s.user_id)}   // Pay for this specific staff
-                        title="Process Salary Payment"
+                        onClick={() => openDirectPaymentModal(s.user_id)}
+                        disabled={loading}
                       >
                         <i className="fas fa-money-bill-wave"></i> Pay
                       </button>
@@ -329,12 +345,13 @@ const SalaryManagement = () => {
     </div>
   );
 
-  // ---- Render requests tab ----
   const renderRequestsTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
         <h6>Advance Requests</h6>
-        {/* Refresh removed – auto‑updates */}
+        <button className="btn btn-sm btn-outline-secondary" onClick={fetchRequests} disabled={loading}>
+          <i className={`fas fa-sync ${loading ? 'fa-spin' : ''}`}></i> {loading ? 'Loading...' : 'Refresh'}
+        </button>
       </div>
       <div className="table-responsive">
         <table className="table table-hover">
@@ -366,12 +383,14 @@ const SalaryManagement = () => {
                       <button
                         className="btn btn-sm btn-success me-1"
                         onClick={() => handleProcessRequest(req.id, 'approve')}
+                        disabled={processing}
                       >
-                        Approve
+                        {processing ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> : 'Approve'}
                       </button>
                       <button
                         className="btn btn-sm btn-danger"
                         onClick={() => openRejectModal(req.id)}
+                        disabled={processing}
                       >
                         Reject
                       </button>
@@ -387,6 +406,7 @@ const SalaryManagement = () => {
                         setPaymentMethod('mpesa');
                         setPayNotes('');
                       }}
+                      disabled={processing}
                     >
                       <i className="fas fa-money-bill-wave"></i> Pay
                     </button>
@@ -403,7 +423,6 @@ const SalaryManagement = () => {
     </div>
   );
 
-  // ---- Render transactions tab ----
   const renderTransactionsTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -416,6 +435,7 @@ const SalaryManagement = () => {
             value={transactionSearch}
             onChange={(e) => setTransactionSearch(e.target.value)}
             style={{ width: '200px' }}
+            disabled={loading}
           />
           <input
             type="date"
@@ -423,7 +443,11 @@ const SalaryManagement = () => {
             value={transactionDate}
             onChange={(e) => setTransactionDate(e.target.value)}
             style={{ width: '160px' }}
+            disabled={loading}
           />
+          <button className="btn btn-sm btn-outline-secondary" onClick={fetchTransactions} disabled={loading}>
+            <i className={`fas fa-sync ${loading ? 'fa-spin' : ''}`}></i>
+          </button>
         </div>
       </div>
       <div className="table-responsive">
@@ -442,7 +466,7 @@ const SalaryManagement = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="8" className="text-center">Loading...</td></tr>
+              <tr><td colSpan="8" className="text-center"><div className="spinner-border spinner-border-sm" role="status"></div></td></tr>
             ) : transactions.length === 0 ? (
               <tr><td colSpan="8" className="text-center text-muted">No transactions found</td></tr>
             ) : (
@@ -463,9 +487,13 @@ const SalaryManagement = () => {
                     <button
                       className="btn btn-sm btn-outline-info"
                       onClick={() => handleDownloadTransactionReceipt(t)}
-                      title="Download Receipt"
+                      disabled={generatingReceipt}
                     >
-                      <i className="fas fa-file-pdf"></i>
+                      {generatingReceipt ? (
+                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                      ) : (
+                        <i className="fas fa-file-pdf"></i>
+                      )}
                     </button>
                   </td>
                 </tr>
@@ -504,14 +532,14 @@ const SalaryManagement = () => {
 
       {/* Payment Modal for Advance Request */}
       {showPayModal && selectedRequest && (
-        <Modal isOpen={showPayModal} onClose={() => setShowPayModal(false)} title="Record Advance Payment">
+        <Modal isOpen={showPayModal} onClose={() => { if (!processing) setShowPayModal(false); }} title="Record Advance Payment">
           <div className="mb-3">
             <label className="form-label">Staff: {selectedRequest.username}</label>
             <input type="text" className="form-control" value={`KES ${selectedRequest.amount.toFixed(2)}`} readOnly />
           </div>
           <div className="mb-3">
             <label className="form-label">Payment Method</label>
-            <select className="form-control" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+            <select className="form-control" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} disabled={processing}>
               <option value="mpesa">M-Pesa</option>
               <option value="cash">Cash</option>
             </select>
@@ -526,22 +554,23 @@ const SalaryManagement = () => {
                 onChange={(e) => setMpesaRef(e.target.value.toUpperCase())}
                 placeholder="e.g. RB64AX25B1"
                 required
+                disabled={processing}
               />
             </div>
           )}
           <div className="mb-3">
             <label className="form-label">Notes</label>
-            <textarea className="form-control" rows="2" value={payNotes} onChange={(e) => setPayNotes(e.target.value)} />
+            <textarea className="form-control" rows="2" value={payNotes} onChange={(e) => setPayNotes(e.target.value)} disabled={processing} />
           </div>
           <button className="btn btn-primary" onClick={handlePayRequest} disabled={processing}>
-            {processing ? 'Processing...' : 'Confirm Payment'}
+            {processing ? <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Processing...</> : 'Confirm Payment'}
           </button>
         </Modal>
       )}
 
       {/* Rejection Modal */}
       {showRejectModal && (
-        <Modal isOpen={showRejectModal} onClose={() => setShowRejectModal(false)} title="Reject Advance Request">
+        <Modal isOpen={showRejectModal} onClose={() => { if (!rejectProcessing) setShowRejectModal(false); }} title="Reject Advance Request">
           <div className="mb-3">
             <label className="form-label">Reason for Rejection <span className="text-danger">*</span></label>
             <textarea
@@ -551,24 +580,26 @@ const SalaryManagement = () => {
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Please provide a reason for rejecting this request..."
               required
+              disabled={rejectProcessing}
             />
           </div>
           <div className="d-flex gap-2">
-            <button className="btn btn-danger" onClick={confirmReject} title="Reject request">
-              Confirm Rejection
+            <button className="btn btn-danger" onClick={confirmReject} disabled={rejectProcessing}>
+              {rejectProcessing ? <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Rejecting...</> : 'Confirm Rejection'}
             </button>
-            <button className="btn btn-secondary" onClick={() => setShowRejectModal(false)}>
+            <button className="btn btn-secondary" onClick={() => setShowRejectModal(false)} disabled={rejectProcessing}>
               Cancel
             </button>
           </div>
         </Modal>
       )}
 
-      {/* Direct Salary Payment Modal – conditional staff selection */}
+      {/* Direct Salary Payment Modal */}
       {showDirectPaymentModal && (
         <Modal
           isOpen={showDirectPaymentModal}
           onClose={() => {
+            if (directPaymentProcessing) return;
             setShowDirectPaymentModal(false);
             setDirectPaymentData({ userId: null, amount: '', method: 'cash', reference: '', notes: '' });
           }}
@@ -581,7 +612,6 @@ const SalaryManagement = () => {
               <span className="text-danger">*</span>
             </label>
             {directPaymentData.userId ? (
-              // Staff is pre‑selected – show name as read‑only
               <input
                 type="text"
                 className="form-control"
@@ -590,12 +620,12 @@ const SalaryManagement = () => {
                 disabled
               />
             ) : (
-              // Quick Pay – show dropdown
               <select
                 className="form-control"
                 value={directPaymentData.userId || ''}
                 onChange={(e) => setDirectPaymentData({ ...directPaymentData, userId: parseInt(e.target.value) })}
                 required
+                disabled={directPaymentProcessing}
               >
                 <option value="">-- Choose Staff --</option>
                 {staffList.map(s => (
@@ -615,6 +645,7 @@ const SalaryManagement = () => {
               min="1"
               step="100"
               required
+              disabled={directPaymentProcessing}
             />
           </div>
           <div className="mb-3">
@@ -623,6 +654,7 @@ const SalaryManagement = () => {
               className="form-control"
               value={directPaymentData.method}
               onChange={(e) => setDirectPaymentData({ ...directPaymentData, method: e.target.value })}
+              disabled={directPaymentProcessing}
             >
               <option value="cash">Cash</option>
               <option value="mpesa">M-Pesa</option>
@@ -638,6 +670,7 @@ const SalaryManagement = () => {
                 value={directPaymentData.reference}
                 onChange={(e) => setDirectPaymentData({ ...directPaymentData, reference: e.target.value.toUpperCase() })}
                 required
+                disabled={directPaymentProcessing}
               />
             </div>
           )}
@@ -649,6 +682,7 @@ const SalaryManagement = () => {
               placeholder="Optional notes"
               value={directPaymentData.notes}
               onChange={(e) => setDirectPaymentData({ ...directPaymentData, notes: e.target.value })}
+              disabled={directPaymentProcessing}
             />
           </div>
           <div className="d-flex gap-2">
@@ -657,14 +691,16 @@ const SalaryManagement = () => {
               onClick={handleRecordDirectPayment}
               disabled={directPaymentProcessing}
             >
-              {directPaymentProcessing ? 'Processing...' : 'Record Payment'}
+              {directPaymentProcessing ? <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Processing...</> : 'Record Payment'}
             </button>
             <button
               className="btn btn-secondary"
               onClick={() => {
+                if (directPaymentProcessing) return;
                 setShowDirectPaymentModal(false);
                 setDirectPaymentData({ userId: null, amount: '', method: 'cash', reference: '', notes: '' });
               }}
+              disabled={directPaymentProcessing}
             >
               Cancel
             </button>

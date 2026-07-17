@@ -61,11 +61,16 @@ function AdminPanel() {
   const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [showUsernameCurrentPass, setShowUsernameCurrentPass] = useState(false);
 
+  //add investor 
+  const [creatingInvestor, setCreatingInvestor] = useState(false);
+  const [updatingInvestor, setUpdatingInvestor] = useState(false);
+  const [processingReturn, setProcessingReturn] = useState(false);
+  const [topupProcessing, setTopupProcessing] = useState(false);
 
   // Livestock gallery filters
-const [livestockSearch, setLivestockSearch] = useState("");
-const [livestockTypeFilter, setLivestockTypeFilter] = useState("all");
-const [livestockStatusFilter, setLivestockStatusFilter] = useState("all");
+  const [livestockSearch, setLivestockSearch] = useState("");
+  const [livestockTypeFilter, setLivestockTypeFilter] = useState("all");
+  const [livestockStatusFilter, setLivestockStatusFilter] = useState("all");
 
   const handleUsernameChange = async (e) => {
     e.preventDefault();
@@ -5272,6 +5277,7 @@ Thank you for choosing us.`;
         <Modal
           isOpen={showTopupModal}
           onClose={() => {
+            if (topupProcessing) return;
             setShowTopupModal(false);
             setSelectedClient(null);
             setTopupAmount("");
@@ -5325,6 +5331,7 @@ Thank you for choosing us.`;
                 id="topupMode"
                 checked={isTopupMode}
                 onChange={() => setIsTopupMode(true)}
+                disabled={topupProcessing}
               />
               <label className="form-check-label" htmlFor="topupMode">
                 Top-up Loan
@@ -5338,6 +5345,7 @@ Thank you for choosing us.`;
                 id="adjustmentMode"
                 checked={!isTopupMode}
                 onChange={() => setIsTopupMode(false)}
+                disabled={topupProcessing}
               />
               <label className="form-check-label" htmlFor="adjustmentMode">
                 Adjust Loan
@@ -5359,6 +5367,7 @@ Thank you for choosing us.`;
                 min="1"
                 placeholder="Enter top-up amount"
                 required
+                disabled={topupProcessing}
               />
             </div>
           ) : (
@@ -5375,10 +5384,11 @@ Thank you for choosing us.`;
                 min="1"
                 placeholder="Enter new principal amount"
                 required
+                disabled={topupProcessing}
               />
             </div>
           )}
-      
+
           {/* Dynamic Preview */}
           {(topupAmount > 0 || adjustmentAmount > 0) && (() => {
             const currentPrincipal = Number(selectedClient.current_principal || selectedClient.currentPrincipal || 0);
@@ -5414,7 +5424,7 @@ Thank you for choosing us.`;
               </div>
             );
           })()}
-      
+
           <div className="mb-3">
             <label htmlFor="topupMethod" className="form-label">
               Disbursement Method <span className="text-danger">*</span>
@@ -5425,6 +5435,7 @@ Thank you for choosing us.`;
               value={topupMethod}
               onChange={(e) => setTopupMethod(e.target.value)}
               required
+              disabled={topupProcessing}
             >
               <option value="cash">Cash</option>
               <option value="mpesa">M-Pesa</option>
@@ -5445,10 +5456,11 @@ Thank you for choosing us.`;
                 placeholder="Enter M-Pesa reference (e.g., RB64AX25B1)"
                 style={{ textTransform: 'uppercase' }}
                 required
+                disabled={topupProcessing}
               />
             </div>
           )}
-      
+
           <div className="mb-3">
             <label htmlFor="topupNotes" className="form-label">
               Notes
@@ -5460,6 +5472,7 @@ Thank you for choosing us.`;
               onChange={(e) => setTopupNotes(e.target.value)}
               placeholder="Additional notes about this top-up or adjustment"
               rows="3"
+              disabled={topupProcessing}
             />
           </div>
         
@@ -5476,15 +5489,25 @@ Thank you for choosing us.`;
               type="button"
               className="btn btn-warning"
               onClick={handleTopup}
-              disabled={(isTopupMode && !topupAmount) || (!isTopupMode && !adjustmentAmount)}
+              disabled={topupProcessing || (isTopupMode && !topupAmount) || (!isTopupMode && !adjustmentAmount)}
             >
-              <i className="fas fa-edit me-2"></i>
-              Process {isTopupMode ? 'Top-up' : 'Adjustment'}
+              {topupProcessing ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-edit me-2"></i>
+                  Process {isTopupMode ? 'Top-up' : 'Adjustment'}
+                </>
+              )}
             </button>
             <button
               type="button"
               className="btn btn-secondary"
               onClick={() => {
+                if (topupProcessing) return;
                 setShowTopupModal(false);
                 setSelectedClient(null);
                 setTopupAmount("");
@@ -5493,6 +5516,7 @@ Thank you for choosing us.`;
                 setTopupReference("");
                 setTopupNotes("");
               }}
+              disabled={topupProcessing}
             >
               Cancel
             </button>
@@ -5777,6 +5801,7 @@ Thank you for choosing us.`;
         <Modal
           isOpen={showAddInvestorModal}
           onClose={() => {
+            if (creatingInvestor) return;
             setShowAddInvestorModal(false)
             setNewInvestor({
               name: "",
@@ -5791,30 +5816,27 @@ Thank you for choosing us.`;
         >
           <form onSubmit={async (e) => {
             e.preventDefault()
+            
+            // Auto-generate temporary password based on name
+            const tempPassword = generateTemporaryPassword(newInvestor.name);
+            if (!tempPassword) {
+              showToast.error("Please enter investor name to generate password")
+              return
+            }
+            
+            // Prepare investor data with auto-generated password
+            const investorData = {
+              name: newInvestor.name,
+              phone: newInvestor.phone,
+              id_number: newInvestor.id_number,
+              email: newInvestor.email || "",
+              investment_amount: parseFloat(newInvestor.investment_amount),
+              temporary_password: tempPassword
+            }
+            
+            setCreatingInvestor(true)
             try {
-              // Auto-generate temporary password based on name
-              const tempPassword = generateTemporaryPassword(newInvestor.name);
-
-              if (!tempPassword) {
-                showToast.error("Please enter investor name to generate password")
-                return
-              }
-            
-              // Prepare investor data with auto-generated password
-              const investorData = {
-                name: newInvestor.name,
-                phone: newInvestor.phone,
-                id_number: newInvestor.id_number,
-                email: newInvestor.email || "",
-                investment_amount: parseFloat(newInvestor.investment_amount),
-                temporary_password: tempPassword
-              }
-            
-              console.log("Sending investor data:", investorData)
-            
               const response = await adminAPI.createInvestor(investorData)
-              console.log("Create investor response:", response.data)
-
               if (response.data.success) {
                 showToast.success("Investor created successfully!")
                 setShowAddInvestorModal(false)
@@ -5825,10 +5847,10 @@ Thank you for choosing us.`;
                   email: "",
                   investment_amount: "",
                 })
-
+                
                 // Refresh investors list
                 await fetchInvestors()
-
+                
                 // Auto-show the share link modal
                 if (response.data.account_creation_link) {
                   setShareLinkData({
@@ -5844,6 +5866,8 @@ Thank you for choosing us.`;
             } catch (error) {
               console.error("Error creating investor:", error)
               showToast.error(error.response?.data?.error || "Failed to create investor")
+            } finally {
+              setCreatingInvestor(false)
             }
           }}>
             <div className="mb-3">
@@ -5859,6 +5883,7 @@ Thank you for choosing us.`;
                 required
                 placeholder="John Doe"
                 autoFocus
+                disabled={creatingInvestor}
               />
             </div>
             <div className="mb-3">
@@ -5870,6 +5895,7 @@ Thank you for choosing us.`;
                 onChange={(e) => setNewInvestor({...newInvestor, phone: e.target.value})}
                 required
                 placeholder="07XXXXXXXX"
+                disabled={creatingInvestor}
               />
             </div>
             <div className="mb-3">
@@ -5881,6 +5907,7 @@ Thank you for choosing us.`;
                 onChange={(e) => setNewInvestor({...newInvestor, id_number: e.target.value})}
                 required
                 placeholder="12345678"
+                disabled={creatingInvestor}
               />
             </div>
             <div className="mb-3">
@@ -5891,6 +5918,7 @@ Thank you for choosing us.`;
                 value={newInvestor.email || ""}
                 onChange={(e) => setNewInvestor({...newInvestor, email: e.target.value})}
                 placeholder="john@example.com"
+                disabled={creatingInvestor}
               />
               <small className="text-muted">Optional - for account recovery</small>
             </div>
@@ -5904,9 +5932,10 @@ Thank you for choosing us.`;
                 min="1000"
                 required
                 placeholder="10000"
+                disabled={creatingInvestor}
               />
             </div>
-              
+            
             {/* Auto-generated temporary password display */}
             <div className="mb-4">
               <label className="form-label">Temporary Password (Auto-generated)</label>
@@ -5930,6 +5959,7 @@ Thank you for choosing us.`;
                     navigator.clipboard.writeText(tempPass);
                     showToast.success("Temporary password copied to clipboard!");
                   }}
+                  disabled={creatingInvestor}
                 >
                   <i className="fas fa-copy"></i>
                 </button>
@@ -5945,13 +5975,25 @@ Thank you for choosing us.`;
             </div>
                 
             <div className="d-flex gap-2">
-              <button type="submit" className="btn btn-primary">
-                Create Investor Account
+              <button 
+                type="submit" 
+                className="btn btn-primary"
+                disabled={creatingInvestor}
+              >
+                {creatingInvestor ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Creating...
+                  </>
+                ) : (
+                  "Create Investor Account"
+                )}
               </button>
               <button 
                 type="button" 
                 className="btn btn-secondary" 
                 onClick={() => {
+                  if (creatingInvestor) return;
                   setShowAddInvestorModal(false)
                   setNewInvestor({
                     name: "",
@@ -5961,6 +6003,7 @@ Thank you for choosing us.`;
                     investment_amount: "",
                   })
                 }}
+                disabled={creatingInvestor}
               >
                 Cancel
               </button>
@@ -6078,11 +6121,12 @@ Thank you for choosing us.`;
 
       {/* Edit Investor Modal */}
       {showEditInvestorModal && editingInvestor && (
-          <Modal
-            isOpen={showEditInvestorModal}
-            onClose={() => {
-              setShowEditInvestorModal(false);
-              setEditingInvestor(null); 
+        <Modal
+          isOpen={showEditInvestorModal}
+          onClose={() => {
+            if (updatingInvestor) return;
+            setShowEditInvestorModal(false);
+            setEditingInvestor(null); 
           }}
           title="Edit Investor"
           size="md"
@@ -6095,6 +6139,7 @@ Thank you for choosing us.`;
               value={updatedInvestor.name}
               onChange={(e) => setUpdatedInvestor({...updatedInvestor, name: e.target.value})}
               required
+              disabled={updatingInvestor}
             />
           </div>
           <div className="mb-3">
@@ -6105,6 +6150,7 @@ Thank you for choosing us.`;
               value={updatedInvestor.phone}
               onChange={(e) => setUpdatedInvestor({...updatedInvestor, phone: e.target.value})}
               required
+              disabled={updatingInvestor}
             />
           </div>
           <div className="mb-3">
@@ -6114,6 +6160,7 @@ Thank you for choosing us.`;
               className="form-control"
               value={updatedInvestor.email}
               onChange={(e) => setUpdatedInvestor({...updatedInvestor, email: e.target.value})}
+              disabled={updatingInvestor}
             />
           </div>
           <div className="mb-3">
@@ -6135,6 +6182,7 @@ Thank you for choosing us.`;
               onChange={(e) => setUpdatedInvestor({...updatedInvestor, notes: e.target.value})}
               rows="3"
               placeholder="Additional notes about this investor"
+              disabled={updatingInvestor}
             />
           </div>
           <div className="alert alert-warning">
@@ -6145,15 +6193,25 @@ Thank you for choosing us.`;
             <button
               className="btn btn-primary"
               onClick={handleUpdateInvestor}
+              disabled={updatingInvestor}
             >
-              Update Investor
+              {updatingInvestor ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Updating...
+                </>
+              ) : (
+                "Update Investor"
+              )}
             </button>
             <button
               className="btn btn-secondary"
               onClick={() => {
+                if (updatingInvestor) return;
                 setShowEditInvestorModal(false)
                 setEditingInvestor(null)
               }}
+              disabled={updatingInvestor}
             >
               Cancel
             </button>
@@ -6215,6 +6273,7 @@ Thank you for choosing us.`;
         <Modal
           isOpen={showProcessReturnModal}
           onClose={() => {
+            if (processingReturn) return;
             setShowProcessReturnModal(false);
             setSelectedInvestorForReturn(null);
             setReturnAmount("");
@@ -6260,6 +6319,7 @@ Thank you for choosing us.`;
                 name="processMode"
                 checked={!isTopupAdjustmentMode}
                 onChange={() => setIsTopupAdjustmentMode(false)}
+                disabled={processingReturn}
               />
               <label className="form-check-label">Process Return</label>
             </div>
@@ -6270,6 +6330,7 @@ Thank you for choosing us.`;
                 name="processMode"
                 checked={isTopupAdjustmentMode}
                 onChange={() => setIsTopupAdjustmentMode(true)}
+                disabled={processingReturn}
               />
               <label className="form-check-label">Top Up / Adjust</label>
             </div>
@@ -6290,6 +6351,7 @@ Thank you for choosing us.`;
                   step="0.01"
                   required
                   placeholder={`Max: ${formatCurrency(maxReturnAmount)}`}
+                  disabled={processingReturn}
                 />
                 <small className="text-muted">
                   Maximum payable: {formatCurrency(maxReturnAmount)}
@@ -6347,6 +6409,7 @@ Thank you for choosing us.`;
                       }
                     }}
                     id="earlyWithdrawalCheck"
+                    disabled={processingReturn}
                   />
                   <label className="form-check-label" htmlFor="earlyWithdrawalCheck">
                     Early Withdrawal (15% fee applies - investor receives 85%)
@@ -6361,6 +6424,7 @@ Thank you for choosing us.`;
                   value={returnMethod}
                   onChange={(e) => setReturnMethod(e.target.value)}
                   required
+                  disabled={processingReturn}
                 >
                   <option value="mpesa">M-Pesa</option>
                   <option value="bank">Bank Transfer</option>
@@ -6379,6 +6443,7 @@ Thank you for choosing us.`;
                     required
                     placeholder="Enter M-Pesa reference"
                     style={{ textTransform: 'uppercase' }}
+                    disabled={processingReturn}
                   />
                 </div>
               )}
@@ -6391,6 +6456,7 @@ Thank you for choosing us.`;
                   onChange={(e) => setReturnNotes(e.target.value)}
                   rows="3"
                   placeholder="Additional notes about this return"
+                  disabled={processingReturn}
                 />
               </div>
             </>
@@ -6407,6 +6473,7 @@ Thank you for choosing us.`;
                     name="adjustmentType"
                     checked={adjustmentType === "topup"}
                     onChange={() => setAdjustmentType("topup")}
+                    disabled={processingReturn}
                   />
                   <label className="form-check-label">Top Up</label>
                 </div>
@@ -6417,6 +6484,7 @@ Thank you for choosing us.`;
                     name="adjustmentType"
                     checked={adjustmentType === "adjust"}
                     onChange={() => setAdjustmentType("adjust")}
+                    disabled={processingReturn}
                   />
                   <label className="form-check-label">Adjust</label>
                 </div>
@@ -6433,6 +6501,7 @@ Thank you for choosing us.`;
                     min="1"
                     required
                     placeholder="Enter amount to add"
+                    disabled={processingReturn}
                   />
                 </div>
               ) : (
@@ -6446,6 +6515,7 @@ Thank you for choosing us.`;
                     min="1"
                     required
                     placeholder="Enter new total investment amount"
+                    disabled={processingReturn}
                   />
                 </div>
               )}
@@ -6459,6 +6529,7 @@ Thank you for choosing us.`;
                       value={investorTopupMethod}
                       onChange={(e) => setInvestorTopupMethod(e.target.value)}
                       required
+                      disabled={processingReturn}
                     >
                       <option value="cash">Cash</option>
                       <option value="mpesa">M-Pesa</option>
@@ -6477,6 +6548,7 @@ Thank you for choosing us.`;
                         required
                         placeholder="Enter M-Pesa reference"
                         style={{ textTransform: 'uppercase' }}
+                        disabled={processingReturn}
                       />
                     </div>
                   )}
@@ -6491,6 +6563,7 @@ Thank you for choosing us.`;
                   onChange={(e) => setInvestorTopupNotes(e.target.value)}
                   rows="3"
                   placeholder="Additional notes"
+                  disabled={processingReturn}
                 />
               </div>
             </>
@@ -6509,16 +6582,28 @@ Thank you for choosing us.`;
             <button
               className="btn btn-primary"
               onClick={handleProcessAction}
+              disabled={processingReturn}
             >
-              {isTopupAdjustmentMode
-                ? adjustmentType === "topup"
-                  ? "Process Top Up"
-                  : "Adjust Investment"
-                : "Process Return"}
+              {processingReturn ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  Processing...
+                </>
+              ) : (
+                isTopupAdjustmentMode
+                  ? adjustmentType === "topup"
+                    ? "Process Top Up"
+                    : "Adjust Investment"
+                  : "Process Return"
+              )}
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => setShowProcessReturnModal(false)}
+              onClick={() => {
+                if (processingReturn) return;
+                setShowProcessReturnModal(false)
+              }}
+              disabled={processingReturn}
             >
               Cancel
             </button>

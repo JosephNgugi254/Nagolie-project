@@ -1,3 +1,4 @@
+// frontend/src/components/utilities/DeliveryNoteGenerator.jsx
 import { useState, useEffect } from 'react';
 import { generateDeliveryNotePDF } from '../admin/ReceiptPDF';
 import { showToast } from '../common/Toast';
@@ -16,14 +17,13 @@ const DeliveryNoteGenerator = () => {
   const [discountValue, setDiscountValue] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
+  const [generatingType, setGeneratingType] = useState(null);
 
-  // User-specific draft key
   const getDraftKey = () => {
     const userId = user?.id || user?.username || 'anonymous';
     return `deliveryDraft_${userId}`;
   };
 
-  // Auto-generate delivery number on mount
   useEffect(() => {
     const generateDeliveryNumber = () => {
       const now = new Date();
@@ -37,7 +37,6 @@ const DeliveryNoteGenerator = () => {
     setDeliveryNumber(generateDeliveryNumber());
   }, []);
 
-  // Load draft from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(getDraftKey());
     if (saved) {
@@ -54,7 +53,6 @@ const DeliveryNoteGenerator = () => {
     }
   }, [user]);
 
-  // Save draft on changes (auto-save)
   useEffect(() => {
     const hasData = clientName || clientEmail || items.some(i => i.description || i.quantity || i.unitPrice) || taxRate || discountValue;
     if (hasData) {
@@ -98,7 +96,6 @@ const DeliveryNoteGenerator = () => {
     }
   };
 
-  // Item logic (unchanged)
   const updateItem = (index, field, value) => {
     const newItems = [...items];
     newItems[index][field] = value;
@@ -154,6 +151,7 @@ const DeliveryNoteGenerator = () => {
       showToast.error('Add at least one line item');
       return;
     }
+    setGeneratingType('preview');
     setIsGenerating(true);
     try {
       await generateDeliveryNotePDF({
@@ -175,12 +173,13 @@ const DeliveryNoteGenerator = () => {
         taxRate,
         taxAmount: calculateTax(),
         total: calculateTotal(),
-      }, true); // preview = true
+      }, true);
     } catch (error) {
       console.error(error);
       showToast.error('Failed to generate preview');
     } finally {
       setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
 
@@ -193,6 +192,7 @@ const DeliveryNoteGenerator = () => {
       showToast.error('Add at least one line item');
       return;
     }
+    setGeneratingType('download');
     setIsGenerating(true);
     try {
       await generateDeliveryNotePDF({
@@ -221,10 +221,12 @@ const DeliveryNoteGenerator = () => {
       showToast.error('Failed to download delivery note');
     } finally {
       setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
 
-  // Render UI – includes Load Draft and Clear Draft buttons
+  const isLoading = isGenerating;
+
   return (
     <div className="delivery-note-generator">
       <div className="row mb-4">
@@ -236,6 +238,7 @@ const DeliveryNoteGenerator = () => {
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
             placeholder="Full name or company name"
+            disabled={isLoading}
           />
         </div>
         <div className="col-md-6">
@@ -246,6 +249,7 @@ const DeliveryNoteGenerator = () => {
             value={clientEmail}
             onChange={(e) => setClientEmail(e.target.value)}
             placeholder="client@example.com"
+            disabled={isLoading}
           />
         </div>
       </div>
@@ -258,6 +262,7 @@ const DeliveryNoteGenerator = () => {
             className="form-control"
             value={deliveryNumber}
             onChange={(e) => setDeliveryNumber(e.target.value)}
+            disabled={isLoading}
           />
         </div>
         <div className="col-md-6">
@@ -269,6 +274,7 @@ const DeliveryNoteGenerator = () => {
             onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
             min="0"
             step="0.1"
+            disabled={isLoading}
           />
         </div>
       </div>
@@ -282,6 +288,7 @@ const DeliveryNoteGenerator = () => {
               value={discountType}
               onChange={(e) => setDiscountType(e.target.value)}
               style={{ maxWidth: '120px' }}
+              disabled={isLoading}
             >
               <option value="percentage">%</option>
               <option value="fixed">KES</option>
@@ -293,12 +300,12 @@ const DeliveryNoteGenerator = () => {
               onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
               min="0"
               step={discountType === 'percentage' ? 0.1 : 1}
+              disabled={isLoading}
             />
           </div>
         </div>
       </div>
 
-      {/* Items Table */}
       <div className="table-responsive mb-4">
         <table className="table table-bordered">
           <thead className="table-light">
@@ -320,6 +327,7 @@ const DeliveryNoteGenerator = () => {
                     value={item.description}
                     onChange={(e) => updateItem(idx, 'description', e.target.value)}
                     placeholder="Item / product description"
+                    disabled={isLoading}
                   />
                 </td>
                 <td>
@@ -330,6 +338,7 @@ const DeliveryNoteGenerator = () => {
                     onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
                     min="0"
                     step="1"
+                    disabled={isLoading}
                   />
                 </td>
                 <td>
@@ -340,6 +349,7 @@ const DeliveryNoteGenerator = () => {
                     onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
                     min="0"
                     step="0.01"
+                    disabled={isLoading}
                   />
                 </td>
                 <td className="text-end fw-bold">
@@ -350,6 +360,7 @@ const DeliveryNoteGenerator = () => {
                     type="button"
                     className="btn btn-sm btn-outline-danger"
                     onClick={() => removeItem(idx)}
+                    disabled={isLoading}
                   >
                     <i className="fas fa-trash"></i>
                   </button>
@@ -403,28 +414,31 @@ const DeliveryNoteGenerator = () => {
         </table>
       </div>
 
-      {/* Action Buttons with Draft Support */}
       <div className="d-flex flex-wrap gap-2 justify-content-end">
-        <button type="button" className="btn btn-secondary" onClick={addItem}>
+        <button type="button" className="btn btn-secondary" onClick={addItem} disabled={isLoading}>
           <i className="fas fa-plus me-2"></i>Add Item
         </button>
         {hasDraft && (
-          <button type="button" className="btn btn-outline-info" onClick={loadDraft}>
+          <button type="button" className="btn btn-outline-info" onClick={loadDraft} disabled={isLoading}>
             <i className="fas fa-undo me-2"></i>Load Draft
           </button>
         )}
-        <button type="button" className="btn btn-outline-danger" onClick={clearDraft}>
+        <button type="button" className="btn btn-outline-danger" onClick={clearDraft} disabled={isLoading}>
           <i className="fas fa-trash me-2"></i>Clear Draft
         </button>
-        <button className="btn btn-primary" onClick={handlePreview} disabled={isGenerating}>
-          {isGenerating ? (
-            <><span className="spinner-border spinner-border-sm me-2"></span>Generating...</>
+        <button className="btn btn-primary" onClick={handlePreview} disabled={isLoading}>
+          {isLoading && generatingType === 'preview' ? (
+            <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
           ) : (
             <><i className="fas fa-eye me-2"></i>Preview Delivery</>
           )}
         </button>
-        <button className="btn btn-success" onClick={handleDownload} disabled={isGenerating}>
-          <i className="fas fa-download me-2"></i>Download Delivery PDF
+        <button className="btn btn-success" onClick={handleDownload} disabled={isLoading}>
+          {isLoading && generatingType === 'download' ? (
+            <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Downloading...</>
+          ) : (
+            <><i className="fas fa-download me-2"></i>Download Delivery PDF</>
+          )}
         </button>        
       </div>
     </div>

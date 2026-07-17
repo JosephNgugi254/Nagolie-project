@@ -1,4 +1,4 @@
-// components/utilities/DocumentGenerator.jsx
+// frontend/src/components/utilities/DocumentGenerator.jsx
 import { useState, useEffect, useRef } from 'react';
 import { showToast } from '../common/Toast';
 import html2canvas from 'html2canvas';
@@ -15,6 +15,7 @@ const DocumentGenerator = ({ userRole }) => {
   const [contentHtml, setContentHtml] = useState('');
   const [hasDraft, setHasDraft] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingType, setGeneratingType] = useState(null);
   const [isBoldActive, setIsBoldActive] = useState(false);
   const [isItalicActive, setIsItalicActive] = useState(false);
   const [isUnderlineActive, setIsUnderlineActive] = useState(false);
@@ -26,7 +27,6 @@ const DocumentGenerator = ({ userRole }) => {
     return `docDraft_${userId}`;
   };
 
-  // Load draft
   useEffect(() => {
     const saved = localStorage.getItem(getDraftKey());
     if (saved) {
@@ -39,7 +39,6 @@ const DocumentGenerator = ({ userRole }) => {
     }
   }, [userRole]);
 
-  // Auto-save draft
   useEffect(() => {
     if (title || contentHtml) {
       const draft = { title, contentHtml, lastSaved: new Date().toISOString() };
@@ -50,7 +49,6 @@ const DocumentGenerator = ({ userRole }) => {
     }
   }, [title, contentHtml, userRole]);
 
-  // Sync editor content when draft is loaded
   useEffect(() => {
     if (editorRef.current && !isInternalUpdate.current) {
       if (editorRef.current.innerHTML !== contentHtml) {
@@ -59,7 +57,6 @@ const DocumentGenerator = ({ userRole }) => {
     }
   }, [contentHtml]);
 
-  // Monitor active formatting states
   useEffect(() => {
     const updateFormatState = () => {
       if (!editorRef.current) return;
@@ -67,7 +64,6 @@ const DocumentGenerator = ({ userRole }) => {
       setIsItalicActive(document.queryCommandState('italic'));
       setIsUnderlineActive(document.queryCommandState('underline'));
     };
-    // Update on selection change
     document.addEventListener('selectionchange', updateFormatState);
     return () => document.removeEventListener('selectionchange', updateFormatState);
   }, []);
@@ -105,7 +101,6 @@ const DocumentGenerator = ({ userRole }) => {
       setContentHtml(editorRef.current.innerHTML);
       setTimeout(() => { isInternalUpdate.current = false; }, 0);
     }
-    // Update state after command
     setTimeout(() => {
       setIsBoldActive(document.queryCommandState('bold'));
       setIsItalicActive(document.queryCommandState('italic'));
@@ -122,7 +117,6 @@ const DocumentGenerator = ({ userRole }) => {
     }
   };
 
-  // Font size: accept any number (pt)
   const setFontSize = (sizeInPt) => {
     const sizeValue = `${sizeInPt}pt`;
     document.execCommand('styleWithCSS', false, true);
@@ -143,7 +137,6 @@ const DocumentGenerator = ({ userRole }) => {
     }
   };
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (!editorRef.current || document.activeElement !== editorRef.current) return;
@@ -178,16 +171,15 @@ const DocumentGenerator = ({ userRole }) => {
     }
   };
 
-  // ---------- PDF GENERATION ----------
   const generatePDF = async (download = true) => {
     if (!title.trim()) {
       showToast.error('Please enter a document title');
       return;
     }
+    setGeneratingType(download ? 'download' : 'preview');
     setIsGenerating(true);
 
     try {
-      // 1. Create a temporary div with content
       const tempDiv = document.createElement('div');
       tempDiv.style.position = 'absolute';
       tempDiv.style.top = '-9999px';
@@ -198,11 +190,10 @@ const DocumentGenerator = ({ userRole }) => {
       tempDiv.style.fontFamily = 'Arial, sans-serif';
       tempDiv.style.fontSize = '12pt';
       tempDiv.style.lineHeight = '1.5';
-      tempDiv.style.color = '#2d3748'; // soft black
+      tempDiv.style.color = '#2d3748';
       tempDiv.innerHTML = contentHtml || '';
       document.body.appendChild(tempDiv);
 
-      // 2. Render the content to an image
       const canvas = await html2canvas(tempDiv, {
         scale: 2,
         backgroundColor: '#ffffff',
@@ -210,33 +201,27 @@ const DocumentGenerator = ({ userRole }) => {
       });
       document.body.removeChild(tempDiv);
 
-      // 3. Create jsPDF document
       const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
       const pageWidth = doc.internal.pageSize.width;
       const pageHeight = doc.internal.pageSize.height;
       const marginLeft = 20;
       const marginRight = 20;
-      const contentWidth = pageWidth - marginLeft - marginRight; // 170mm
+      const contentWidth = pageWidth - marginLeft - marginRight;
 
-      // 4. Add watermark (behind everything)
       const { addOptimizedWatermark } = await import('../admin/ReceiptPDF');
       addOptimizedWatermark(doc, 'letter');
 
-      // 5. Draw header
       let yPos = await addHeader(doc, 15);
 
-      // 6. Draw title
       doc.setFontSize(16);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(...COLORS.primaryBlue);
       doc.text(title.toUpperCase(), pageWidth / 2, yPos, { align: 'center' });
       yPos += 8;
 
-      // 7. Draw divider
       yPos = addDivider(doc, yPos, COLORS.primaryBlue);
-      yPos += 2; // reduced spacing
+      yPos += 2;
 
-      // 8. Calculate image dimensions
       const imgWidthPx = canvas.width;
       const imgHeightPx = canvas.height;
       const imgWidthMm = contentWidth;
@@ -245,9 +230,8 @@ const DocumentGenerator = ({ userRole }) => {
       let remainingHeight = imgHeightMm;
       let currentY = yPos;
       let currentPage = 1;
-      let startY = 0; // mm
+      let startY = 0;
 
-      // Leave bottom margin for signature (45mm)
       const bottomReserved = 45;
 
       while (remainingHeight > 0) {
@@ -259,7 +243,6 @@ const DocumentGenerator = ({ userRole }) => {
 
         const availableHeight = pageHeight - currentY - bottomReserved;
         let cropHeight = Math.min(remainingHeight, availableHeight);
-        // Slightly reduce crop height to prevent cutting lines (add 2mm overlap on next page)
         const overlap = 2;
         if (remainingHeight > availableHeight && cropHeight > overlap) {
           cropHeight -= overlap;
@@ -285,7 +268,6 @@ const DocumentGenerator = ({ userRole }) => {
         currentPage++;
       }
 
-      // 9. Signature block on last page
       const lastPage = doc.getNumberOfPages();
       doc.setPage(lastPage);
       let sigY = pageHeight - 35;
@@ -300,11 +282,9 @@ const DocumentGenerator = ({ userRole }) => {
       doc.setFont('helvetica', 'bold');
       doc.text('Authorised Signatory', marginLeft, sigY);
 
-      // 10. Footer
       const currentDate = new Date().toLocaleDateString('en-GB');
       addFooter(doc, pageHeight - 15, currentDate);
 
-      // 11. Save or preview
       if (download) {
         doc.save(`${title.replace(/\s+/g, '_')}.pdf`);
         showToast.success('Document downloaded');
@@ -319,10 +299,10 @@ const DocumentGenerator = ({ userRole }) => {
       showToast.error('Failed to generate PDF');
     } finally {
       setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
 
-  // Company colour palette
   const companyColors = [
     { name: 'Primary Blue', value: `rgb(${COLORS.primaryBlue[0]}, ${COLORS.primaryBlue[1]}, ${COLORS.primaryBlue[2]})` },
     { name: 'Secondary Blue', value: `rgb(${COLORS.secondaryBlue[0]}, ${COLORS.secondaryBlue[1]}, ${COLORS.secondaryBlue[2]})` },
@@ -333,7 +313,6 @@ const DocumentGenerator = ({ userRole }) => {
     { name: 'White', value: '#ffffff' }
   ];
 
-  // Custom font size input
   const [customFontSize, setCustomFontSize] = useState(12);
   const applyCustomFontSize = () => {
     if (customFontSize >= 6 && customFontSize <= 72) {
@@ -342,6 +321,8 @@ const DocumentGenerator = ({ userRole }) => {
       showToast.error('Font size must be between 6 and 72');
     }
   };
+
+  const isLoading = isGenerating;
 
   return (
     <div className="document-generator">
@@ -354,10 +335,10 @@ const DocumentGenerator = ({ userRole }) => {
             placeholder="e.g., Travel Budget, Project Proposal, etc."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            disabled={isLoading}
           />
         </div>
 
-        {/* Toolbar */}
         <div className="col-md-12 mb-2">
           <label className="form-label fw-bold">Formatting</label>
           <div className="d-flex flex-wrap gap-2 mb-2 align-items-center">
@@ -365,6 +346,7 @@ const DocumentGenerator = ({ userRole }) => {
               type="button"
               className={`btn btn-outline-secondary ${isBoldActive ? 'active bg-secondary text-white' : ''}`}
               onClick={() => execFormat('bold')}
+              disabled={isLoading}
             >
               <i className="fas fa-bold"></i>
             </button>
@@ -372,6 +354,7 @@ const DocumentGenerator = ({ userRole }) => {
               type="button"
               className={`btn btn-outline-secondary ${isItalicActive ? 'active bg-secondary text-white' : ''}`}
               onClick={() => execFormat('italic')}
+              disabled={isLoading}
             >
               <i className="fas fa-italic"></i>
             </button>
@@ -379,12 +362,13 @@ const DocumentGenerator = ({ userRole }) => {
               type="button"
               className={`btn btn-outline-secondary ${isUnderlineActive ? 'active bg-secondary text-white' : ''}`}
               onClick={() => execFormat('underline')}
+              disabled={isLoading}
             >
               <i className="fas fa-underline"></i>
             </button>
 
             <div className="dropdown d-inline-block">
-              <button className="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+              <button className="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" disabled={isLoading}>
                 <i className="fas fa-palette"></i> Color
               </button>
               <ul className="dropdown-menu p-2" style={{ minWidth: '160px' }}>
@@ -405,7 +389,7 @@ const DocumentGenerator = ({ userRole }) => {
             </div>
 
             <div className="dropdown d-inline-block">
-              <button className="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+              <button className="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" disabled={isLoading}>
                 <i className="fas fa-text-height"></i> Size
               </button>
               <ul className="dropdown-menu">
@@ -430,22 +414,23 @@ const DocumentGenerator = ({ userRole }) => {
                       max="72"
                       step="1"
                       style={{ width: '70px' }}
+                      disabled={isLoading}
                     />
                     <span className="input-group-text">pt</span>
-                    <button className="btn btn-sm btn-primary" onClick={applyCustomFontSize}>Set</button>
+                    <button className="btn btn-sm btn-primary" onClick={applyCustomFontSize} disabled={isLoading}>Set</button>
                   </div>
                 </li>
               </ul>
             </div>
 
             <div className="btn-group">
-              <button type="button" className="btn btn-outline-secondary" onClick={() => setAlignment('Left')}>
+              <button type="button" className="btn btn-outline-secondary" onClick={() => setAlignment('Left')} disabled={isLoading}>
                 <i className="fas fa-align-left"></i>
               </button>
-              <button type="button" className="btn btn-outline-secondary" onClick={() => setAlignment('Center')}>
+              <button type="button" className="btn btn-outline-secondary" onClick={() => setAlignment('Center')} disabled={isLoading}>
                 <i className="fas fa-align-center"></i>
               </button>
-              <button type="button" className="btn btn-outline-secondary" onClick={() => setAlignment('Right')}>
+              <button type="button" className="btn btn-outline-secondary" onClick={() => setAlignment('Right')} disabled={isLoading}>
                 <i className="fas fa-align-right"></i>
               </button>
             </div>
@@ -455,7 +440,6 @@ const DocumentGenerator = ({ userRole }) => {
           </small>
         </div>
 
-        {/* Rich Text Editor */}
         <div className="col-md-12 mb-4">
           <label className="form-label fw-bold">Document Body</label>
           <div
@@ -478,28 +462,29 @@ const DocumentGenerator = ({ userRole }) => {
           />
         </div>
 
-        {/* Action Buttons */}
         <div className="col-md-12 d-flex flex-wrap gap-2 justify-content-end">
-            {hasDraft && (
-            <button className="btn btn-outline-info" onClick={loadDraft}>
-                <i className="fas fa-undo me-2"></i>Load Draft
+          {hasDraft && (
+            <button className="btn btn-outline-info" onClick={loadDraft} disabled={isLoading}>
+              <i className="fas fa-undo me-2"></i>Load Draft
             </button>
-            )}
-            <button className="btn btn-secondary" onClick={clearDraft}>
+          )}
+          <button className="btn btn-secondary" onClick={clearDraft} disabled={isLoading}>
             <i className="fas fa-trash me-2"></i>Clear Draft
-            </button>
-            {/* Preview - opens in new tab */}
-            <button className="btn btn-primary" onClick={() => generatePDF(false)} disabled={isGenerating}>
-            {isGenerating ? (
-                <><span className="spinner-border spinner-border-sm me-2"></span>Generating...</>
+          </button>
+          <button className="btn btn-primary" onClick={() => generatePDF(false)} disabled={isLoading}>
+            {isLoading && generatingType === 'preview' ? (
+              <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
             ) : (
-                <><i className="fas fa-eye me-2"></i>Preview Document</>
+              <><i className="fas fa-eye me-2"></i>Preview Document</>
             )}
-            </button>
-            {/* Download - saves file */}
-            <button className="btn btn-success" onClick={() => generatePDF(true)} disabled={isGenerating}>
-            <i className="fas fa-download me-2"></i>Download PDF Document
-            </button>
+          </button>
+          <button className="btn btn-success" onClick={() => generatePDF(true)} disabled={isLoading}>
+            {isLoading && generatingType === 'download' ? (
+              <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Downloading...</>
+            ) : (
+              <><i className="fas fa-download me-2"></i>Download PDF Document</>
+            )}
+          </button>
         </div>
       </div>
 

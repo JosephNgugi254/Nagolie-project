@@ -131,7 +131,7 @@ const ReportsPanel = () => {
                       <td>
                         <textarea
                           className={`form-control ${isPastReport ? 'bg-light' : ''}`}
-                          rows="2"
+                          rows="3"
                           value={client.comment || ''}
                           onChange={(e) => handleCommentChange(client.loan_id, e.target.value)}
                           placeholder={isPastReport ? 'Past report – comments locked' : 'Enter follow-up notes...'}

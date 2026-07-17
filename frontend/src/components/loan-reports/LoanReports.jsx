@@ -16,13 +16,12 @@ const LoanReports = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
-  const [dayAssignments, setDayAssignments] = useState([]); // NEW
+  const [dayAssignments, setDayAssignments] = useState([]);
   const searchTimeoutRef = useRef(null);
 
   useEffect(() => {
-    // 🔐 Only fetch if user is authenticated
     if (!user) return;
-  
+
     const fetchUsersAndAssignments = async () => {
       try {
         const [officersRes, assignmentsRes] = await Promise.all([
@@ -32,7 +31,7 @@ const LoanReports = () => {
         const officersData = officersRes.data;
         setOfficers(officersData);
         setDayAssignments(assignmentsRes.data);
-        
+
         const firstOfficer = officersData.find(o => o.role !== 'valuer');
         if (firstOfficer) {
           setSelectedOfficerId(firstOfficer.id);
@@ -42,12 +41,12 @@ const LoanReports = () => {
       }
     };
     fetchUsersAndAssignments();
-  }, [user]);   // <-- add 'user' as a dependency
+  }, [user]);
 
   useEffect(() => {
-  if (!user || !selectedOfficerId || !reportDate) return;
-  fetchReport();
-}, [user, selectedOfficerId, reportDate]);
+    if (!user || !selectedOfficerId || !reportDate) return;
+    fetchReport();
+  }, [user, selectedOfficerId, reportDate]);
 
   const fetchReport = async () => {
     setLoading(true);
@@ -80,7 +79,6 @@ const LoanReports = () => {
       showToast.error('No officer selected');
       return;
     }
-    // Get assigned days for this officer
     const officerAssignments = dayAssignments.find(d => d.id === selectedOfficer.id);
     const assignedDays = officerAssignments?.days || [];
     const daysMap = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -136,48 +134,17 @@ const LoanReports = () => {
         </div>
       </div>
 
-      {/* Report Table */}
-      {loading ? (
-        <div className="text-center py-5"><div className="spinner-border text-primary"></div></div>
-      ) : (
-        <div className="table-responsive">
-          <table className="table table-bordered table-hover">
-            <thead className="table-light">
-              <tr>
-                <th>#</th>
-                <th>Client Name</th>
-                <th>Phone</th>
-                <th>Current Principal (KES)</th>
-                <th>Interest Owed (KES)</th>
-                <th>Total Balance (KES)</th>
-                <th>Comment / Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clients.map((client, idx) => (
-                <tr key={client.loan_id}>
-                  <td>{idx + 1}</td>
-                  <td>{client.client_name}</td>
-                  <td>{client.phone}</td>
-                  <td>{formatCurrency(client.current_principal)}</td>
-                  <td>{client.interest_rate === 0 ? 'waived' : formatCurrency(client.unpaid_interest)}</td>
-                  <td>{formatCurrency(client.total_balance)}</td>
-                  <td>{client.comment || '—'}</td>
-                </tr>
-              ))}
-              {clients.length === 0 && (
-                <tr><td colSpan="7" className="text-center text-muted">No data for this officer on this date.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Client Assignment Search Section */}
+      {/* Client Assignment Search Section – now appears above the table */}
       {showSearch && (
         <div className="card mt-4">
-          <div className="card-header bg-secondary text-white">
+          <div className="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
             <h5 className="mb-0">🔍 Client Assignment Lookup</h5>
+            <button
+              type="button"
+              className="btn-close btn-close-white"
+              onClick={() => setShowSearch(false)}
+              aria-label="Close"
+            ></button>
           </div>
           <div className="card-body">
             <div className="input-group mb-3">
@@ -244,6 +211,43 @@ const LoanReports = () => {
               <p className="text-muted">No clients found matching your search.</p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Report Table */}
+      {loading ? (
+        <div className="text-center py-5"><div className="spinner-border text-primary"></div></div>
+      ) : (
+        <div className="table-responsive">
+          <table className="table table-bordered table-hover">
+            <thead className="table-light">
+              <tr>
+                <th>#</th>
+                <th>Client Name</th>
+                <th>Phone</th>
+                <th>Current Principal (KES)</th>
+                <th>Interest Owed (KES)</th>
+                <th>Total Balance (KES)</th>
+                <th>Comment / Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clients.map((client, idx) => (
+                <tr key={client.loan_id}>
+                  <td>{idx + 1}</td>
+                  <td>{client.client_name}</td>
+                  <td>{client.phone}</td>
+                  <td>{formatCurrency(client.current_principal)}</td>
+                  <td>{client.interest_rate === 0 ? 'waived' : formatCurrency(client.unpaid_interest)}</td>
+                  <td>{formatCurrency(client.total_balance)}</td>
+                  <td>{client.comment || '—'}</td>
+                </tr>
+              ))}
+              {clients.length === 0 && (
+                <tr><td colSpan="7" className="text-center text-muted">No data for this officer on this date.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

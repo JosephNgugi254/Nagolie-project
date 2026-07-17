@@ -1,14 +1,14 @@
-// components/utilities/PromissoryNoteWriter.jsx
+// frontend/src/components/utilities/PromissoryNoteWriter.jsx
 import { useState, useEffect } from 'react';
 import { adminAPI, recoveryAPI } from '../../services/api';
 import { generatePromissoryNote } from '../admin/ReceiptPDF';
 import { showToast } from '../common/Toast';
 
 const PromissoryNoteWriter = () => {
-  const [loans, setLoans] = useState([]);           // list of loan objects from recovery
+  const [loans, setLoans] = useState([]);
   const [loadingLoans, setLoadingLoans] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState('');
-  const [mode, setMode] = useState('auto'); // 'auto' or 'manual'
+  const [mode, setMode] = useState('auto');
   const [formData, setFormData] = useState({
     clientName: '',
     idNumber: '',
@@ -20,9 +20,9 @@ const PromissoryNoteWriter = () => {
     amountToPay: '',
     dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
   });
-  const [generating, setGenerating] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingType, setGeneratingType] = useState(null);
 
-  // Fetch active loans (recovery data) when in auto mode
   useEffect(() => {
     if (mode === 'auto') {
       fetchRecoveryLoans();
@@ -68,7 +68,7 @@ const PromissoryNoteWriter = () => {
         currentPrincipal: currentPrincipal,
         interestOwed: interestOwed,
         totalBalance: totalBalance,
-        amountToPay: totalBalance,   // default to total balance
+        amountToPay: totalBalance,
         dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
       });
     }
@@ -92,7 +92,8 @@ const PromissoryNoteWriter = () => {
       showToast.error('Due date is required');
       return;
     }
-    setGenerating(true);
+    setGeneratingType('preview');
+    setIsGenerating(true);
     try {
       const blob = await generatePromissoryNote(formData, true);
       if (blob) {
@@ -107,7 +108,8 @@ const PromissoryNoteWriter = () => {
       console.error(error);
       showToast.error('Failed to generate preview');
     } finally {
-      setGenerating(false);
+      setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
 
@@ -124,7 +126,8 @@ const PromissoryNoteWriter = () => {
       showToast.error('Due date is required');
       return;
     }
-    setGenerating(true);
+    setGeneratingType('download');
+    setIsGenerating(true);
     try {
       await generatePromissoryNote(formData, false);
       showToast.success('Promissory note downloaded');
@@ -132,7 +135,8 @@ const PromissoryNoteWriter = () => {
       console.error(error);
       showToast.error('Failed to download promissory note');
     } finally {
-      setGenerating(false);
+      setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
 
@@ -152,6 +156,8 @@ const PromissoryNoteWriter = () => {
     showToast.info('Form cleared');
   };
 
+  const isLoading = isGenerating;
+
   return (
     <div className="promissory-note-writer">
       <div className="row">
@@ -164,6 +170,7 @@ const PromissoryNoteWriter = () => {
                 setMode('auto');
                 resetForm();
               }}
+              disabled={isLoading}
             >
               <i className="fas fa-magic me-2"></i>Auto-fill from Client Loan
             </button>
@@ -174,6 +181,7 @@ const PromissoryNoteWriter = () => {
                 setMode('manual');
                 resetForm();
               }}
+              disabled={isLoading}
             >
               <i className="fas fa-pencil-alt me-2"></i>Manual Entry
             </button>
@@ -193,6 +201,7 @@ const PromissoryNoteWriter = () => {
                   handleLoanSelect(e.target.value);
                 }}
                 required
+                disabled={isLoading}
               >
                 <option value="">-- Choose a loan --</option>
                 {loans.map(loan => (
@@ -209,7 +218,6 @@ const PromissoryNoteWriter = () => {
           </div>
         )}
 
-        {/* Rest of the form (same as original) */}
         <div className="row">
           <div className="col-md-6 mb-3">
             <label className="form-label fw-bold">Client Name *</label>
@@ -220,6 +228,7 @@ const PromissoryNoteWriter = () => {
               value={formData.clientName}
               onChange={handleInputChange}
               required
+              disabled={isLoading}
             />
           </div>
           <div className="col-md-6 mb-3">
@@ -230,6 +239,7 @@ const PromissoryNoteWriter = () => {
               name="idNumber"
               value={formData.idNumber}
               onChange={handleInputChange}
+              disabled={isLoading}
             />
           </div>
         </div>
@@ -243,6 +253,7 @@ const PromissoryNoteWriter = () => {
               name="dateBorrowed"
               value={formData.dateBorrowed}
               onChange={handleInputChange}
+              disabled={isLoading}
             />
           </div>
         </div>
@@ -257,6 +268,7 @@ const PromissoryNoteWriter = () => {
               value={formData.amountBorrowed}
               onChange={handleInputChange}
               step="0.01"
+              disabled={isLoading}
             />
           </div>
           <div className="col-md-4 mb-3">
@@ -268,6 +280,7 @@ const PromissoryNoteWriter = () => {
               value={formData.currentPrincipal}
               onChange={handleInputChange}
               step="0.01"
+              disabled={isLoading}
             />
           </div>
           <div className="col-md-4 mb-3">
@@ -279,6 +292,7 @@ const PromissoryNoteWriter = () => {
               value={formData.interestOwed}
               onChange={handleInputChange}
               step="0.01"
+              disabled={isLoading}
             />
           </div>
         </div>
@@ -293,6 +307,7 @@ const PromissoryNoteWriter = () => {
               value={formData.totalBalance}
               onChange={handleInputChange}
               step="0.01"
+              disabled={isLoading}
             />
           </div>
           <div className="col-md-4 mb-3">
@@ -306,6 +321,7 @@ const PromissoryNoteWriter = () => {
               required
               step="0.01"
               min="0.01"
+              disabled={isLoading}
             />
           </div>
           <div className="col-md-4 mb-3">
@@ -317,6 +333,7 @@ const PromissoryNoteWriter = () => {
               value={formData.dueDate}
               onChange={handleInputChange}
               required
+              disabled={isLoading}
             />
           </div>
         </div>
@@ -327,19 +344,19 @@ const PromissoryNoteWriter = () => {
         </div>
 
         <div className="d-flex gap-2 justify-content-end mt-3">
-          <button type="button" className="btn btn-secondary" onClick={resetForm}>
+          <button type="button" className="btn btn-secondary" onClick={resetForm} disabled={isLoading}>
             <i className="fas fa-undo me-2"></i>Reset
           </button>
-          <button type="button" className="btn btn-info" onClick={handlePreview} disabled={generating}>
-            {generating ? (
-              <><span className="spinner-border spinner-border-sm me-2"></span>Generating...</>
+          <button type="button" className="btn btn-info" onClick={handlePreview} disabled={isLoading}>
+            {isLoading && generatingType === 'preview' ? (
+              <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
             ) : (
               <><i className="fas fa-eye me-2"></i>Preview</>
             )}
           </button>
-          <button type="button" className="btn btn-primary" onClick={handleDownload} disabled={generating}>
-            {generating ? (
-              <><span className="spinner-border spinner-border-sm me-2"></span>Generating...</>
+          <button type="button" className="btn btn-primary" onClick={handleDownload} disabled={isLoading}>
+            {isLoading && generatingType === 'download' ? (
+              <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
             ) : (
               <><i className="fas fa-download me-2"></i>Download PDF</>
             )}

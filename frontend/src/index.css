@@ -4125,3 +4125,26 @@ section {
 .gallery-card .card-body .mt-auto {
   margin-top: auto;
 }
+
+/* Make comment textarea more finger-friendly on mobile */
+.comment-textarea {
+  font-size: 0.9rem;
+  min-height: 70px;        /* better visibility */
+  resize: vertical;        /* allow manual resize if needed */
+}
+
+@media (max-width: 768px) {
+  .comment-textarea {
+    font-size: 1rem;       /* larger text for readability */
+    min-height: 90px;      /* more space for typing */
+    padding: 0.75rem;      /* bigger touch target */
+  }
+}
+
+@media (max-width: 768px) {
+  .table-responsive td:last-child,
+  .table-responsive th:last-child {
+    min-width: 200px;   /* give the comment column more room */
+  }
+}
+

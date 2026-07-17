@@ -1,3 +1,4 @@
+// frontend/src/components/utilities/InvoiceGenerator.jsx
 import { useState, useEffect } from 'react';
 import { generateInvoicePDF } from '../admin/ReceiptPDF';
 import { showToast } from '../common/Toast';
@@ -16,14 +17,13 @@ const InvoiceGenerator = () => {
   const [discountValue, setDiscountValue] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
+  const [generatingType, setGeneratingType] = useState(null); // 'preview' or 'download'
 
-  // User-specific draft key
   const getDraftKey = () => {
     const userId = user?.id || user?.username || 'anonymous';
     return `invoiceDraft_${userId}`;
   };
 
-  // Auto-generate invoice number on mount
   useEffect(() => {
     const generateInvoiceNumber = () => {
       const now = new Date();
@@ -37,7 +37,6 @@ const InvoiceGenerator = () => {
     setInvoiceNumber(generateInvoiceNumber());
   }, []);
 
-  // Load draft from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(getDraftKey());
     if (saved) {
@@ -54,7 +53,6 @@ const InvoiceGenerator = () => {
     }
   }, [user]);
 
-  // Save draft on changes (auto-save)
   useEffect(() => {
     const hasData = clientName || clientEmail || items.some(i => i.description || i.quantity || i.unitPrice) || taxRate || discountValue;
     if (hasData) {
@@ -153,6 +151,7 @@ const InvoiceGenerator = () => {
       showToast.error('Add at least one line item');
       return;
     }
+    setGeneratingType('preview');
     setIsGenerating(true);
     try {
       await generateInvoicePDF({
@@ -174,12 +173,13 @@ const InvoiceGenerator = () => {
         taxRate,
         taxAmount: calculateTax(),
         total: calculateTotal(),
-      }, true); // preview = true      
+      }, true);
     } catch (error) {
       console.error(error);
       showToast.error('Failed to generate invoice preview');
     } finally {
       setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
 
@@ -192,6 +192,7 @@ const InvoiceGenerator = () => {
       showToast.error('Add at least one line item');
       return;
     }
+    setGeneratingType('download');
     setIsGenerating(true);
     try {
       await generateInvoicePDF({
@@ -213,15 +214,18 @@ const InvoiceGenerator = () => {
         taxRate,
         taxAmount: calculateTax(),
         total: calculateTotal(),
-      }, false); // download
+      }, false);
       showToast.success('Invoice downloaded');
     } catch (error) {
       console.error(error);
       showToast.error('Failed to download invoice');
     } finally {
       setIsGenerating(false);
+      setGeneratingType(null);
     }
   };
+
+  const isLoading = isGenerating;
 
   return (
     <div className="invoice-generator">
@@ -234,6 +238,7 @@ const InvoiceGenerator = () => {
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
             placeholder="Full name or company name"
+            disabled={isLoading}
           />
         </div>
         <div className="col-md-6">
@@ -244,6 +249,7 @@ const InvoiceGenerator = () => {
             value={clientEmail}
             onChange={(e) => setClientEmail(e.target.value)}
             placeholder="client@example.com"
+            disabled={isLoading}
           />
         </div>
       </div>
@@ -256,6 +262,7 @@ const InvoiceGenerator = () => {
             className="form-control"
             value={invoiceNumber}
             onChange={(e) => setInvoiceNumber(e.target.value)}
+            disabled={isLoading}
           />
         </div>
         <div className="col-md-6">
@@ -267,6 +274,7 @@ const InvoiceGenerator = () => {
             onChange={(e) => setTaxRate(parseFloat(e.target.value) || 0)}
             min="0"
             step="0.1"
+            disabled={isLoading}
           />
         </div>
       </div>
@@ -280,6 +288,7 @@ const InvoiceGenerator = () => {
               value={discountType}
               onChange={(e) => setDiscountType(e.target.value)}
               style={{ maxWidth: '120px' }}
+              disabled={isLoading}
             >
               <option value="percentage">%</option>
               <option value="fixed">KES</option>
@@ -291,6 +300,7 @@ const InvoiceGenerator = () => {
               onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
               min="0"
               step={discountType === 'percentage' ? 0.1 : 1}
+              disabled={isLoading}
             />
           </div>
         </div>
@@ -317,6 +327,7 @@ const InvoiceGenerator = () => {
                     value={item.description}
                     onChange={(e) => updateItem(idx, 'description', e.target.value)}
                     placeholder="Item / service description"
+                    disabled={isLoading}
                   />
                 </td>
                 <td>
@@ -327,6 +338,7 @@ const InvoiceGenerator = () => {
                     onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
                     min="0"
                     step="1"
+                    disabled={isLoading}
                   />
                 </td>
                 <td>
@@ -337,6 +349,7 @@ const InvoiceGenerator = () => {
                     onChange={(e) => updateItem(idx, 'unitPrice', e.target.value)}
                     min="0"
                     step="0.01"
+                    disabled={isLoading}
                   />
                 </td>
                 <td className="text-end fw-bold">
@@ -347,6 +360,7 @@ const InvoiceGenerator = () => {
                     type="button"
                     className="btn btn-sm btn-outline-danger"
                     onClick={() => removeItem(idx)}
+                    disabled={isLoading}
                   >
                     <i className="fas fa-trash"></i>
                   </button>
@@ -401,26 +415,30 @@ const InvoiceGenerator = () => {
       </div>
 
       <div className="d-flex flex-wrap gap-2 justify-content-end">
-        <button type="button" className="btn btn-secondary" onClick={addItem}>
+        <button type="button" className="btn btn-secondary" onClick={addItem} disabled={isLoading}>
           <i className="fas fa-plus me-2"></i>Add Item
         </button>
         {hasDraft && (
-          <button type="button" className="btn btn-outline-info" onClick={loadDraft}>
+          <button type="button" className="btn btn-outline-info" onClick={loadDraft} disabled={isLoading}>
             <i className="fas fa-undo me-2"></i>Load Draft
           </button>
         )}
-        <button type="button" className="btn btn-outline-danger" onClick={clearDraft}>
+        <button type="button" className="btn btn-outline-danger" onClick={clearDraft} disabled={isLoading}>
           <i className="fas fa-trash me-2"></i>Clear Draft
         </button>       
-        <button className="btn btn-primary" onClick={handleGeneratePreview} disabled={isGenerating}>
-          {isGenerating ? (
-            <><span className="spinner-border spinner-border-sm me-2"></span>Generating...</>
+        <button className="btn btn-primary" onClick={handleGeneratePreview} disabled={isLoading}>
+          {isLoading && generatingType === 'preview' ? (
+            <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
           ) : (
             <><i className="fas fa-eye me-2"></i>Generate & Preview</>
           )}
         </button>
-         <button className="btn btn-success" onClick={handleDownload} disabled={isGenerating}>
-          <i className="fas fa-download me-2"></i>Download PDF
+        <button className="btn btn-success" onClick={handleDownload} disabled={isLoading}>
+          {isLoading && generatingType === 'download' ? (
+            <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Downloading...</>
+          ) : (
+            <><i className="fas fa-download me-2"></i>Download PDF</>
+          )}
         </button>
       </div>
     </div>

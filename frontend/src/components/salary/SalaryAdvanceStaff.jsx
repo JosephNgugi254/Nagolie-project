@@ -1,8 +1,8 @@
+// frontend/src/components/salary/SalaryAdvanceStaff.jsx
 import React, { useState, useEffect } from 'react';
 import { showToast } from '../common/Toast';
 import { salaryAPI } from '../../services/api';
 
-// Helper: format month from "YYYY-MM" to "Month/YYYY"
 const formatMonthDisplay = (monthStr) => {
   if (!monthStr) return '';
   const [year, month] = monthStr.split('-');
@@ -108,6 +108,7 @@ const SalaryAdvanceStaff = ({ user }) => {
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="Max 5000"
                     required
+                    disabled={submitting}
                   />
                   <small className="text-muted">Maximum KES 5,000</small>
                 </div>
@@ -120,10 +121,22 @@ const SalaryAdvanceStaff = ({ user }) => {
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="Brief explanation for the advance"
                     required
+                    disabled={submitting}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary w-100" disabled={submitting}>
-                  {submitting ? 'Submitting...' : 'Submit Request'}
+                <button 
+                  type="submit" 
+                  className="btn btn-primary w-100" 
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Request'
+                  )}
                 </button>
               </form>
             </div>
@@ -131,7 +144,6 @@ const SalaryAdvanceStaff = ({ user }) => {
         </div>
       </div>
 
-      {/* Transaction History – all transactions with formatted month */}
       {stats && stats.transactions && stats.transactions.length > 0 && (
         <div className="card shadow-sm">
           <div className="card-header bg-light">

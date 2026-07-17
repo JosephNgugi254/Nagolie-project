@@ -1,3 +1,4 @@
+// frontend/src/features/payments/PaymentForm.jsx
 "use client"
 
 import { useState } from "react"
@@ -83,8 +84,19 @@ function PaymentForm({ loanId, clientName, balance, onSuccess }) {
         required
       />
 
-      <Button type="submit" className="w-100" disabled={loading}>
-        {loading ? "Processing..." : "Send M-Pesa Prompt"}
+      <Button 
+        type="submit" 
+        className="w-100" 
+        disabled={loading}
+      >
+        {loading ? (
+          <>
+            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Processing...
+          </>
+        ) : (
+          "Send M-Pesa Prompt"
+        )}
       </Button>
     </form>
   )
