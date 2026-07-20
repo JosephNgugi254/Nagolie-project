@@ -796,14 +796,14 @@ export const generateTransactionReceipt = async (transaction) => {
     throw error;
   }
 };
-
-// Generate Professional Loan Agreement PDF (UPDATED)
+// Generate Professional Loan Agreement PDF (with auto DDQ appended)
 export const generateLoanAgreementPDF = async (application) => {
   try {
     const doc = new jsPDF();
 
     addOptimizedWatermark(doc, 'agreement');
 
+    // ========== ORIGINAL AGREEMENT (unchanged) ==========
     let yPos = await addHeader(doc, 10);
 
     // Main Title
@@ -876,7 +876,7 @@ export const generateLoanAgreementPDF = async (application) => {
     yPos += 7;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // REPAYMENT PLAN DETECTION
+    // REPAYMENT PLAN DETECTION (stored for later use)
     const rawPlan = (
       application.repaymentPlan   ||
       application.repayment_plan  ||
@@ -884,7 +884,7 @@ export const generateLoanAgreementPDF = async (application) => {
     ).toString().toLowerCase().trim();
     const selectedPlan = (rawPlan === 'daily') ? 'daily' : 'weekly';
 
-    // Interest calculation
+    // Interest calculation (stored for DDQ)
     const loanAmount = parseFloat(application.loanAmount) || 0;
     let interestAmount = 0, interestLabel = '';
     if (selectedPlan === 'daily') {
@@ -1169,8 +1169,7 @@ export const generateLoanAgreementPDF = async (application) => {
     }
 
     // ========== ADD SIGNATURE LINE AT BOTTOM OF PAGE 2 ==========
-    // Pushed up slightly to avoid overlapping page number
-    const signatureY = Math.min(yPos + 10, 287);  // adjusted offset and max
+    const signatureY = Math.min(yPos + 10, 287);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
@@ -1357,26 +1356,273 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'italic');
     doc.text('OFFICIAL COMPANY STAMP', stampX + stampW / 2, stampY + stampH / 2, { align: 'center' });
 
-    const footerY = 285;
-    doc.setTextColor(...COLORS.textLight);
-    doc.setFontSize(8);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
-    doc.setTextColor(...COLORS.textDark);
-    doc.setFontSize(9);
-    doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
+    // ========== END OF ORIGINAL AGREEMENT (no footer yet, we'll add later) ==========
 
+    // ========== OPTIMIZED DDQ SECTION ==========
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'agreement');
+
+    // Add header for DDQ (fresh)
+    yPos = await addHeader(doc, 10);
+
+    // Title
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('DUE DILIGENCE QUESTIONNAIRE', 105, yPos, { align: 'center' });
+    yPos += 10;
+    yPos = addDivider(doc, yPos);
+    yPos += 6;
+
+    // Client details – auto‑filled
+    const clientName = application.name || '___________________';
+    const idNumber = application.idNumber || '___________________';
+    const principalAmount = loanAmount;
+    const interestOnly = interestAmount;
+
+    const drawCheckboxSmall = (x, y) => {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+    };
+
+    const rowH = 5; // reduced from 6
+    const labelX = 20;
+    const valueX = 70;
+
+    doc.setFontSize(10); // reduced from 11 for tighter rows
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+
+    // Client Name
+    doc.setFont('helvetica', 'bold');
+    doc.text('Client Name:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(clientName, valueX, yPos);
+    yPos += rowH;
+
+    // ID No.
+    doc.setFont('helvetica', 'bold');
+    doc.text('ID No.:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(idNumber, valueX, yPos);
+    yPos += rowH;
+
+    // Principal Amount
+    doc.setFont('helvetica', 'bold');
+    doc.text('Principal Amount (KES):', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`KES ${principalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, valueX, yPos);
+    yPos += rowH;
+
+    // Interest (first period)
+    doc.setFont('helvetica', 'bold');
+    doc.text('Interest (KES):', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`KES ${interestOnly.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, valueX, yPos);
+    yPos += rowH;
+
+    // Repayment Plan (with checkboxes)
+    doc.setFont('helvetica', 'bold');
+    doc.text('Repayment Plan:', labelX, yPos);
+    const weeklyX = valueX;
+    drawCheckboxSmall(weeklyX, yPos - 3);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Weekly', weeklyX + 6, yPos);
+    const dailyX = weeklyX + 40;
+    drawCheckboxSmall(dailyX, yPos - 3);
+    doc.text('Daily', dailyX + 6, yPos);
+    if (selectedPlan === 'weekly') {
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(0, 0, 0);
+      doc.line(weeklyX + 0.5, yPos - 1, weeklyX + 2, yPos + 1.5);
+      doc.line(weeklyX + 2, yPos + 1.5, weeklyX + 4.5, yPos - 2);
+    } else {
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(0, 0, 0);
+      doc.line(dailyX + 0.5, yPos - 1, dailyX + 2, yPos + 1.5);
+      doc.line(dailyX + 2, yPos + 1.5, dailyX + 4.5, yPos - 2);
+    }
+    yPos += 5; // reduced from 6
+
+    // Table of questions – optimized column widths
+    const questions = [
+      'Do you confirm that you understand the amount of loan you have received, the total amount you are required to repay, and your selected repayment plan (Daily/Weekly)?',
+      'Do you understand that any unpaid interest at the end of every seven (7) days will be added to your outstanding loan balance and will continue to attract interest?',
+      'Do you understand that you are expected to fully repay the loan within two (2) weeks or, if unable to do so, present yourself to sign a Loan Renewal Agreement?',
+      'Do you understand that the livestock offered as collateral remains the legal property of Nagolie Enterprises Ltd until the loan is fully repaid, and that you must not sell, transfer, or dispose of it without the Company\'s written consent?',
+      'Do you understand and agree that if you fail to honour this Agreement or any repayment arrangements, Nagolie Enterprises Ltd has the right to immediately recover the collateral livestock without further notice, in accordance with the Agreement?'
+    ];
+
+    // Narrower columns: # (8pt), YES (12pt), NO (12pt) → more space for question
+    const colWidthsDDQ = [8, 148, 12, 12]; // total = 180
+    const startXDDQ = 20;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...COLORS.white);
+    doc.setFillColor(...COLORS.primaryBlue);
+    doc.rect(startXDDQ, yPos, 180, 8, 'F');
+    let xPosDDQ = startXDDQ;
+    ['#', 'Question', 'YES', 'NO'].forEach((h, i) => {
+      doc.text(h, xPosDDQ + 2, yPos + 5.5);
+      xPosDDQ += colWidthsDDQ[i];
+    });
+    yPos += 8;
+
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+
+    const renderQuestionRow = (question, rowNum, y) => {
+      const maxQuestionWidth = colWidthsDDQ[1] - 4;
+      const lines = doc.splitTextToSize(question, maxQuestionWidth);
+      const rowHeightCalc = Math.max(6, lines.length * 4 + 2); // tighter
+
+      if (rowNum % 2 === 0) {
+        doc.setFillColor(...COLORS.border);
+        doc.rect(startXDDQ, y, 180, rowHeightCalc, 'F');
+      }
+
+      let cx = startXDDQ;
+      for (let c = 0; c < colWidthsDDQ.length; c++) {
+        doc.rect(cx, y, colWidthsDDQ[c], rowHeightCalc);
+        cx += colWidthsDDQ[c];
+      }
+
+      doc.text(rowNum.toString(), startXDDQ + 3, y + 4);
+
+      const questionX = startXDDQ + colWidthsDDQ[0] + 2;
+      let textY = y + 4;
+      lines.forEach(line => {
+        doc.text(line, questionX, textY);
+        textY += 4; // tighter
+      });
+
+      const yesX = startXDDQ + colWidthsDDQ[0] + colWidthsDDQ[1] + 2;
+      const noX = yesX + colWidthsDDQ[2];
+      drawCheckboxSmall(yesX + 4, y + 4);
+      drawCheckboxSmall(noX + 4, y + 4);
+
+      return rowHeightCalc;
+    };
+
+    questions.forEach((q, idx) => {
+      if (yPos > 260) {
+        doc.addPage();
+        addWatermarkToCurrentPage(doc, 'agreement');
+        yPos = 20;
+        // Re‑draw header
+        doc.setFillColor(...COLORS.primaryBlue);
+        doc.setTextColor(...COLORS.white);
+        doc.rect(startXDDQ, yPos, 180, 8, 'F');
+        xPosDDQ = startXDDQ;
+        ['#', 'Question', 'YES', 'NO'].forEach((h, i) => {
+          doc.text(h, xPosDDQ + 2, yPos + 5.5);
+          xPosDDQ += colWidthsDDQ[i];
+        });
+        yPos += 8;
+        doc.setTextColor(...COLORS.textDark);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+      }
+      const rowHeightUsed = renderQuestionRow(q, idx + 1, yPos);
+      yPos += rowHeightUsed;
+    });
+
+    yPos += 6; 
+
+    // ========== DECLARATION  ==========
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('CLIENT DECLARATION', 105, yPos, { align: 'center' });
+    yPos += 6;
+
+    const declarationLines = [
+      [
+        { text: 'I, ', style: 'normal' },
+        { text: clientName, style: 'bold' },
+        { text: ', of ID Number ', style: 'normal' },
+        { text: idNumber, style: 'bold' },
+        { text: ', confirm that the above questions were explained to me in a', style: 'normal' }
+      ],
+      "language that I understand. I have answered them truthfully and I fully understand the terms and",
+      "conditions of the Livestock Advance Payment Agreement. I acknowledge that I am signing the",
+      "Agreement voluntarily and without any coercion."
+    ];
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    for (const line of declarationLines) {
+      yPos += renderLine(line, yPos);
+    }
+    yPos += 4;
+
+    // Signature and Date on same row
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Signature:', 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_________________________', 50, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date:', 120, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_________________________', 145, yPos);
+    yPos += 10;
+
+    // ---- FOR NAGOLIE section (left) and Stamp (right) on same row ----
+    const leftColX = 20;
+    const rightColX = 115;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('FOR NAGOLIE:', leftColX, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('Name:      _________________________', leftColX + 5, yPos);
+    yPos += 7;
+    doc.text('Role:       _________________________', leftColX + 5, yPos);
+    yPos += 8;
+    doc.text('Signature: _________________________', leftColX + 5, yPos);
+    yPos += 7;
+    doc.text('Date:      _________________________', leftColX + 5, yPos);
+    yPos += 7;
+
+    // Stamp box (right side)
+    const stampBoxWidth = 60;
+    const stampBoxHeight = 35;
+    const stampBoxX = rightColX;
+    const stampBoxY = yPos - 28; // align with top of FOR NAGOLIE block
+    doc.setDrawColor(230, 235, 245);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2 - 3, { align: 'center' });
+    doc.text('(To be affixed here)', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2 + 3, { align: 'center' });
+
+    yPos = Math.max(yPos, stampBoxY + stampBoxHeight + 10);
+
+    // ---- Footer for the entire document ----
+    addFooter(doc, yPos);
+
+    // Add page numbers for all pages
     addPageNumbers(doc, 'page %d');
 
+    // Save the combined PDF
     const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
 
   } catch (error) {
-    console.error('Error generating loan agreement:', error);
+    console.error('Error generating loan agreement with DDQ:', error);
     throw error;
   }
 };
 
-// Generate Manual Loan Agreement PDF (with blanks for manual filling)
+// Generate Manual Loan Agreement PDF (with blanks for manual filling, now with DDQ appended)
 export const generateManualLoanAgreementPDF = async () => {
   try {
     const doc = new jsPDF();
@@ -1913,8 +2159,252 @@ export const generateManualLoanAgreementPDF = async () => {
       doc.text('OFFICIAL COMPANY STAMP', stampX + stampW / 2, stampY + stampH / 2, { align: 'center' });
     }
 
-    // Footer
-    const footerY = 285;
+    // ========== END OF ORIGINAL MANUAL AGREEMENT ==========
+
+    // ========== MANUAL DDQ SECTION (all blanks, no auto-fill) ==========
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'agreement');
+
+    // Fresh header for DDQ
+    yPos = await addHeader(doc, 10);
+
+    // Title
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('DUE DILIGENCE QUESTIONNAIRE', 105, yPos, { align: 'center' });
+    yPos += 10;
+    yPos = addDivider(doc, yPos);
+    yPos += 6;
+
+    const drawCheckboxSmall = (x, y) => {
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.3);
+      doc.rect(x, y, 4, 4);
+    };
+
+    const rowH = 6;
+    const labelX = 20;
+    const valueX = 70;
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+
+    // Client Name
+    doc.setFont('helvetica', 'bold');
+    doc.text('Client Name:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________________', valueX, yPos);
+    yPos += rowH;
+
+    // ID No.
+    doc.setFont('helvetica', 'bold');
+    doc.text('ID No.:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('___________________________', valueX, yPos);
+    yPos += rowH;
+
+    // Principal Amount
+    doc.setFont('helvetica', 'bold');
+    doc.text('Principal Amount (KES):', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_____________________', valueX, yPos);
+    yPos += rowH;
+
+    // Interest
+    doc.setFont('helvetica', 'bold');
+    doc.text('Interest (KES):', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_____________________', valueX, yPos);
+    yPos += rowH;
+
+    // Repayment Plan (blank checkboxes, tick manually)
+    doc.setFont('helvetica', 'bold');
+    doc.text('Repayment Plan:', labelX, yPos);
+    const weeklyX = valueX;
+    drawCheckboxSmall(weeklyX, yPos - 3);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Weekly', weeklyX + 6, yPos);
+    const dailyX = weeklyX + 40;
+    drawCheckboxSmall(dailyX, yPos - 3);
+    doc.text('Daily', dailyX + 6, yPos);
+    yPos += 8;
+
+    // Table of questions – same as automated version
+    const questions = [
+      'Do you confirm that you understand the amount of loan you have received, the total amount you are required to repay, and your selected repayment plan (Daily/Weekly)?',
+      'Do you understand that any unpaid interest at the end of every seven (7) days will be added to your outstanding loan balance and will continue to attract interest?',
+      'Do you understand that you are expected to fully repay the loan within two (2) weeks or, if unable to do so, present yourself to sign a Loan Renewal Agreement?',
+      'Do you understand that the livestock offered as collateral remains the legal property of Nagolie Enterprises Ltd until the loan is fully repaid, and that you must not sell, transfer, or dispose of it without the Company\'s written consent?',
+      'Do you understand and agree that if you fail to honour this Agreement or any repayment arrangements, Nagolie Enterprises Ltd has the right to immediately recover the collateral livestock without further notice, in accordance with the Agreement?'
+    ];
+
+    const colWidthsDDQ = [8, 148, 12, 12]; // total = 180
+    const startXDDQ = 20;
+
+    const drawDDQHeaderRow = (y) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.white);
+      doc.setFillColor(...COLORS.primaryBlue);
+      doc.rect(startXDDQ, y, 180, 8, 'F');
+      let xPosDDQ = startXDDQ;
+      ['#', 'Question', 'YES', 'NO'].forEach((h, i) => {
+        doc.text(h, xPosDDQ + 2, y + 5.5);
+        xPosDDQ += colWidthsDDQ[i];
+      });
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+    };
+
+    drawDDQHeaderRow(yPos);
+    yPos += 8;
+
+    const renderQuestionRow = (question, rowNum, y) => {
+      const maxQuestionWidth = colWidthsDDQ[1] - 4;
+      const lines = doc.splitTextToSize(question, maxQuestionWidth);
+      const rowHeightCalc = Math.max(6, lines.length * 4 + 2);
+
+      if (rowNum % 2 === 0) {
+        doc.setFillColor(...COLORS.border);
+        doc.rect(startXDDQ, y, 180, rowHeightCalc, 'F');
+      }
+
+      let cx = startXDDQ;
+      for (let c = 0; c < colWidthsDDQ.length; c++) {
+        doc.rect(cx, y, colWidthsDDQ[c], rowHeightCalc);
+        cx += colWidthsDDQ[c];
+      }
+
+      doc.text(rowNum.toString(), startXDDQ + 3, y + 4);
+
+      const questionX = startXDDQ + colWidthsDDQ[0] + 2;
+      let textY = y + 4;
+      lines.forEach(line => {
+        doc.text(line, questionX, textY);
+        textY += 4;
+      });
+
+      const yesX = startXDDQ + colWidthsDDQ[0] + colWidthsDDQ[1] + 2;
+      const noX = yesX + colWidthsDDQ[2];
+      drawCheckboxSmall(yesX + 4, y + 4);
+      drawCheckboxSmall(noX + 4, y + 4);
+
+      return rowHeightCalc;
+    };
+
+    questions.forEach((q, idx) => {
+      if (yPos > 260) {
+        doc.addPage();
+        addWatermarkToCurrentPage(doc, 'agreement');
+        yPos = 20;
+        drawDDQHeaderRow(yPos);
+        yPos += 8;
+      }
+      const rowHeightUsed = renderQuestionRow(q, idx + 1, yPos);
+      yPos += rowHeightUsed;
+    });
+
+    yPos += 4;
+
+    // ========== DECLARATION (restructured like 2.3 Consent to Recovery — no font size reduction) ==========
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('CLIENT DECLARATION', 105, yPos, { align: 'center' });
+    yPos += 6;
+
+    const declarationLines = [
+      [
+        { text: 'I, ', style: 'normal' },
+        { text: '______________________', style: 'bold' },
+        { text: ', of ID Number ', style: 'normal' },
+        { text: '___________________', style: 'bold' },
+        { text: ', confirm that the above questions were explained ', style: 'normal' }
+      ],
+      "to me in a language that I understand. I have answered them truthfully and I fully understand the terms and conditions of the Livestock Advance Payment Agreement. I acknowledge that I am signing the Agreement voluntarily and without any coercion.",
+    ];
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+
+    const renderDDQLine = (line, y) => {
+      if (Array.isArray(line)) {
+        let x = 20;
+        line.forEach(part => {
+          doc.setFont('helvetica', part.style === 'bold' ? 'bold' : 'normal');
+          doc.setTextColor(...COLORS.textDark);
+          doc.text(part.text, x, y);
+          x += doc.getTextWidth(part.text);
+        });
+        return LH;
+      }
+      const wrapped = doc.splitTextToSize(String(line), 170);
+      doc.setFont('helvetica', 'normal');
+      wrapped.forEach((w, idx) => {
+        if (idx === 0) doc.text(w, 20, y);
+        else doc.text(w, 20, y + idx * LH);
+      });
+      return LH * wrapped.length;
+    };
+
+    for (const line of declarationLines) {
+      yPos += renderDDQLine(line, yPos);
+    }
+    yPos += 4;
+
+    // Signature and Date on same row
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Signature:', 20, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_________________________', 50, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date:', 120, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_________________________', 145, yPos);
+    yPos += 10;
+
+    // ---- FOR NAGOLIE section (left) and Stamp (right) on same row ----
+    const ddqLeftColX = 20;
+    const ddqRightColX = 115;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('FOR NAGOLIE:', ddqLeftColX, yPos);
+    yPos += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    doc.text('Name:      _________________________', ddqLeftColX + 5, yPos);
+    yPos += 6;
+    doc.text('Role:       _________________________', ddqLeftColX + 5, yPos);
+    yPos += 6;
+    doc.text('Signature: _________________________', ddqLeftColX + 5, yPos);
+    yPos += 6;
+    doc.text('Date:      _________________________', ddqLeftColX + 5, yPos);
+    yPos += 6;
+
+    // Stamp box (right side, blank – to be affixed manually)
+    const ddqStampW = 60;
+    const ddqStampH = 35;
+    const ddqStampX = ddqRightColX;
+    const ddqStampY = yPos - 28;
+    doc.setDrawColor(230, 235, 245);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(ddqStampX, ddqStampY, ddqStampW, ddqStampH, 2, 2);
+    doc.setTextColor(230, 235, 240);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.text('OFFICIAL COMPANY STAMP', ddqStampX + ddqStampW / 2, ddqStampY + ddqStampH / 2 - 3, { align: 'center' });
+    doc.text('(To be affixed here)', ddqStampX + ddqStampW / 2, ddqStampY + ddqStampH / 2 + 3, { align: 'center' });
+
+    yPos = Math.max(yPos, ddqStampY + ddqStampH + 10);
+
+    // ---- Footer for the entire document (moved to end, after DDQ) ----
+    const footerY = Math.min(yPos + 10, 285);
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
