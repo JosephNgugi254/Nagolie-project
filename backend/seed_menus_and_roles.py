@@ -50,6 +50,7 @@ def seed():
             {'key': 'financial-reports', 'label': 'Financial Reports', 'icon': 'fa-chart-pie', 'path': '/admin/financial-reports', 'order': 75},
             {'key': 'petty-cash', 'label': 'Petty Cash', 'icon': 'fa-wallet', 'path': '/recovery/petty-cash', 'order': 35},
             {'key': 'company-profile', 'label': 'Company Profile', 'icon': 'fa-building', 'path': '/admin/company-profile', 'order': 57}, 
+            {'key': 'bad-debt', 'label': 'Bad Debt', 'icon': 'fa-exclamation-triangle', 'path': '/recovery/bad-debt', 'order': 65},
         ]
 
         for item in menu_items_data:

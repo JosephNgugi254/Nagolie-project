@@ -53,6 +53,7 @@ import { useSocket } from '../context/SocketContext';
 import FinancialReports from '../components/financial/FinancialReports';
 import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
 import CompanyProfile from '../components/admin/CompanyProfile';
+import Avatar from '../components/common/Avatar';
 
 // import { CallProvider, useCall } from '../context/CallContext';
 // import IncomingCallModal from '../components/call/IncomingCallModal';
@@ -1360,11 +1361,13 @@ function RecoveryModule() {
     } catch (e) { console.error(e); }
   };
 
-  const handleSelectUser = (u) => {
-    if (openChatWindows.some(w => w.id === u.id)) return;
-    if (isMobile) { setOpenChatWindows([u]); return; }
+  const handleSelectUser = (chatObj) => {
+    // chatObj = { type: 'user'|'group', data: ... }
+    const id = chatObj.type === 'user' ? chatObj.data.id : `group-${chatObj.data.id}`;
+    if (openChatWindows.some(w => (w.type === chatObj.type && w.data.id === chatObj.data.id))) return;
+    if (isMobile) { setOpenChatWindows([chatObj]); return; }
     if (openChatWindows.length >= MAX_CHAT_WINDOWS) { showToast.info('Max chat windows open'); return; }
-    setOpenChatWindows(prev => [...prev, u]);
+    setOpenChatWindows(prev => [...prev, chatObj]);
   };
 
   const getChatStyle = (i) => isMobile
@@ -1490,6 +1493,39 @@ function RecoveryModule() {
     }
     return total;
   };
+
+  const updateProfilePicture = async (imageData) => {
+    try {
+        const response = await userAPI.updateProfilePicture(imageData);
+        if (response.data.success) {
+            const updatedUser = { ...user, profile_picture: response.data.profile_picture };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            if (updateUserData) updateUserData(updatedUser);
+            showToast.success('Profile picture updated!');
+            return true;
+        }
+        showToast.error('Failed to update picture');
+        return false;
+    } catch (error) {
+        console.error('Profile picture update error:', error);
+        showToast.error(error.response?.data?.error || 'Failed to update picture');
+        return false;
+    }
+  };
+
+  const removeProfilePicture = async () => {
+    try {
+        const response = await userAPI.deleteProfilePicture();
+        if (response.data.success) {
+            const updatedUser = { ...user, profile_picture: null };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            if (updateUserData) updateUserData(updatedUser);
+            showToast.success('Profile picture removed');
+        }
+    } catch (error) {
+        showToast.error('Failed to remove picture');
+    }
+};
 
   // For the recovery module's "Take Action" button (⚡) – uses recovery/TakeActionModal
   const handleRecoveryTakeAction = (loan) => {
@@ -1688,8 +1724,15 @@ function RecoveryModule() {
             <span className="d-lg-none">Recovery</span>
           </a>
           <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
-            <span className="navbar-text text-white">Welcome, <strong>{user?.username || user?.name || 'User'}</strong></span>
-            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}><i className="fas fa-sign-out-alt me-1"></i>Logout</button>
+            <div style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+                <Avatar user={user} size={32} />
+            </div>
+            <span className="navbar-text text-white" style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+                <strong>{user?.username || user?.name || 'User'}</strong>
+            </span>
+            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
+                <i className="fas fa-sign-out-alt me-1"></i>Logout
+            </button>
           </div>
           <button className="navbar-toggler ms-auto" type="button" onClick={() => setSidebarOpen(s => !s)}>
             <span className="navbar-toggler-icon"></span>
@@ -1888,7 +1931,7 @@ function RecoveryModule() {
                                           <button className="btn btn-outline-info position-relative" onClick={() => { setSelectedLoan(loan); setShowCommentBox(true); }}><i className="fas fa-comment"></i>{commentUnreads[loan.id] > 0 && <span className="badge bg-danger rounded-pill" style={{ position:'absolute', top:'-8px', right:'-8px' }}>{commentUnreads[loan.id]}</span>}</button>
                                           <button className="btn btn-outline-danger btn-sm" onClick={() => handleRecoveryTakeAction(loan)}><i className="fas fa-bolt"></i></button>
                                           <button className="btn btn-outline-info btn-sm" onClick={() => handleDownloadInvoice(loan)}><i className="fas fa-file-invoice"></i></button>
-                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (loan.days_left <= 0 || loan.overdue_days > 0 || loan.overdue_weeks > 0) && (
+                                          {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (
                                             <button className="btn btn-outline-warning btn-sm" onClick={() => openRenewalModal(loan)}><i className="fas fa-sync-alt"></i></button>
                                           )}
                                           {['director','secretary','client_relations_officer','head_of_it','deputy_director','hr_manager'].includes(userRole) && (
@@ -3981,15 +4024,15 @@ function RecoveryModule() {
         onlineUsers={onlineUsers}
       />
 
-      {openChatWindows.map((cu, i) => (
+      {openChatWindows.map((chatObj, i) => (
         <ChatWindow
-          key={cu.id}
-          user={cu}
-          onClose={() => setOpenChatWindows(prev => prev.filter(w => w.id !== cu.id))}
+          key={chatObj.type === 'user' ? chatObj.data.id : `group-${chatObj.data.id}`}
+          chat={chatObj}
+          onClose={() => setOpenChatWindows(prev => prev.filter(w => w !== chatObj))}
           onNewMessage={fetchUnreadCount}
           style={getChatStyle(i)}
-          globalSocket={socket}          
-          onlineUsers={onlineUsers} 
+          globalSocket={socket}
+          onlineUsers={onlineUsers}
         />
       ))}
 
@@ -4282,6 +4325,44 @@ function RecoveryModule() {
       {/* SETTINGS MODAL */}
       {showSettingsModal && (
         <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
+          {/* profile picture */}
+          <div className="mb-4">
+              <h6 className="fw-bold fs-5 text-center">Profile Picture</h6>
+              <div className="d-flex flex-column align-items-center">
+                  <Avatar user={user} size={80} className="mb-2" />
+                  <div className="mb-2">
+                      <input
+                          type="file"
+                          accept="image/*"
+                          className="form-control"
+                          onChange={async (e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+                            if (file.size > 1_000_000) {
+                                showToast.error('Image too large (max 1MB)');
+                                return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = async (event) => {
+                                const base64 = event.target.result;
+                                await updateProfilePicture(base64);  
+                            };
+                            reader.readAsDataURL(file);
+                        }}
+                      />
+                      {user?.profile_picture && (
+                        <button className="btn btn-outline-danger btn-sm mt-2" onClick={removeProfilePicture}>
+                            <i className="fas fa-trash me-1"></i> Remove
+                        </button>
+                      )}
+                      <small className="text-muted d-block mt-1">Max 1MB, JPG/PNG/GIF/WEBP</small>
+                  </div>
+              </div>
+          </div>
+
+          <hr />
+
+          {/* change username */}
           <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>
             <form onSubmit={handleUsernameChange}>
@@ -4323,7 +4404,8 @@ function RecoveryModule() {
           </div>
       
           <hr />
-      
+          
+          {/* change password */}
           <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
             <form onSubmit={handlePasswordChange}>
@@ -4379,7 +4461,8 @@ function RecoveryModule() {
           </div>
       
           <hr />
-      
+
+          {/* enable biometric login */}
           <div className="mt-3">
             <h6 className="fw-bold fs-5 text-center mb-3">
               <i className="fas fa-fingerprint me-2 text-primary" />
