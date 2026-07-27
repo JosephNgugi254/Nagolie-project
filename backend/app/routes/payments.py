@@ -8,6 +8,8 @@ from app.utils.daraja import DarajaAPI
 from app.utils.security import log_audit, role_required
 from app.utils.decorators import role_required
 from app.services.ledger import record_ledger_entry
+from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
+
 
 payments_bp = Blueprint('payments', __name__)
 
@@ -82,28 +84,32 @@ def recalculate_loan(loan, save=True):
     else:
         return _accrue_weekly(loan, today, loan.last_interest_payment_date.date(), save=save)
 
-def _record_accrual(loan, amount, notes, event_date, save=True):
+def _record_accrual(loan, amount, notes, event_date, save=True, event_type='accrual', reference='AUTO'):
     if not save:
         return
     if not loan.last_accrual_recorded or event_date > loan.last_accrual_recorded:
         record_ledger_entry(
             loan=loan,
-            event_type='accrual',
+            event_type=event_type,
             amount=amount,
             notes=notes,
             event_date=event_date,
-            user_id=None
+            user_id=None,
+            reference=reference
         )
         loan.last_accrual_recorded = event_date
+
 # ---------------------------------------------------------------------------
 # Daily accrual  (unchanged logic — only the weekly function is fixed)
 # ---------------------------------------------------------------------------
-
 def _accrue_daily(loan, today, last_date, save=True):
     """
     Daily accrual for daily-plan loans with weekly compounding.
-    Compounding occurs on the day AFTER the weekly due date.
-    Interest is NOT added on the due date itself.
+    - Day 0 interest is added immediately.
+    - Interest for a day is only added once that day has passed (i.e., on the next day).
+    - No interest is added on the due date itself.
+    - Compounding occurs at the beginning of the 8th day (day after due date).
+    - Netting of payments: only unpaid interest is capitalised.
     """
     if not loan.disbursement_date:
         return loan
@@ -146,35 +152,38 @@ def _accrue_daily(loan, today, last_date, save=True):
             week_num = days_since_disbursement // 7
             period_key = f"{disb.isoformat()}-W{week_num}"
 
-            prepaid = Decimal('0')
-            if loan.interest_prepaid_period == period_key:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-
-            net_to_capitalise = max(Decimal('0'), loan.accrued_interest - prepaid)
+            # Net out any interest already paid during this period
+            net_to_capitalise = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
 
             if net_to_capitalise > 0:
                 loan.current_principal += net_to_capitalise
                 loan.accrued_interest -= net_to_capitalise
                 if loan.accrued_interest < 0:
                     loan.accrued_interest = Decimal('0')
-
                 _record_accrual(
                     loan=loan,
                     amount=net_to_capitalise,
                     notes=f'Weekly compounding – net capitalised: {net_to_capitalise:.2f}',
                     event_date=datetime.combine(current_date, datetime.min.time()),
-                    save=save
+                    save=save,
+                    event_type='compound_interest',
+                    reference='COMPOUND'
                 )
 
-            # Clear prepaid marker for this period
+            # Reset the period's payment tracker – the week's obligation is settled
+            loan.interest_paid = Decimal('0')
+            loan.accrued_interest = Decimal('0')
+
+            # Clear prepaid marker if any (though daily doesn't use prepaid)
             if loan.interest_prepaid_period == period_key:
                 loan.interest_prepaid_period = None
                 loan.interest_prepaid_amount = Decimal('0')
 
             loan.last_compounding_date = current_date
 
-        # 2. Add daily interest for this day – EXCEPT on the due date itself
-        if current_date != due_date:
+        # 2. Add daily interest for this day – ONLY IF the day is COMPLETED (strictly < today)
+        #    and it is NOT the due date.
+        if current_date < today and current_date != due_date:
             day_interest = (loan.current_principal * daily_rate).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
@@ -187,7 +196,7 @@ def _accrue_daily(loan, today, last_date, save=True):
                 save=save
             )
 
-        # Advance last_interest_payment_date to this day
+        # Advance last_interest_payment_date to this day (even if no interest added)
         loan.last_interest_payment_date = datetime.combine(current_date, datetime.min.time())
 
         current_date += timedelta(days=1)
@@ -196,14 +205,11 @@ def _accrue_daily(loan, today, last_date, save=True):
     unpaid = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
     loan.balance = loan.current_principal + unpaid
 
-    # -----------------------------------------------------------------
-    # NEW: Check for full repayment and DELETE livestock
-    # -----------------------------------------------------------------
+    # --- Check for full repayment and DELETE livestock ---
     if loan.current_principal <= Decimal('0.01') and unpaid <= Decimal('0.01'):
         loan.status = 'completed'
         loan.current_principal = Decimal('0')
         loan.balance = Decimal('0')
-        # Delete associated livestock
         if loan.livestock:
             livestock = loan.livestock
             loan.livestock_id = None
@@ -224,7 +230,6 @@ def _get_second_sunday(disbursement_date):
 # ---------------------------------------------------------------------------
 # Weekly accrual  ← THE FIXED FUNCTION
 # ---------------------------------------------------------------------------
-
 def _accrue_weekly(loan, today, last_date, save=True):
     """
     Compound-interest engine for weekly loans.
@@ -271,7 +276,9 @@ def _accrue_weekly(loan, today, last_date, save=True):
                     current_due + timedelta(days=1),
                     datetime.min.time()
                 ),
-                save=save
+                save=save,
+                event_type='compound_interest',
+                reference='COMPOUND'
             )
         else:
             # No interest to compound; still clear any stale accrued
@@ -310,32 +317,6 @@ def _accrue_weekly(loan, today, last_date, save=True):
 # ---------------------------------------------------------------------------
 # Period helpers  (unchanged)
 # ---------------------------------------------------------------------------
-
-def _get_current_period_key(loan):
-    today = datetime.now().date()
-    if not loan.disbursement_date:
-        return "unknown"
-    disb = loan.disbursement_date.date()
-    days_since = (today - disb).days
-    week_num = days_since // 7
-    return f"{disb.isoformat()}-W{week_num}"
-
-
-def _get_current_period_interest(loan):
-    if loan.repayment_plan == 'daily':
-        raw_interest = (loan.current_principal * Decimal('0.045')).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
-    else:
-        raw_interest = (loan.current_principal * Decimal('0.30')).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
-        )
-
-    current_period = _get_current_period_key(loan)
-    if loan.interest_prepaid_period == current_period:
-        prepaid = loan.interest_prepaid_amount or Decimal('0')
-        return max(Decimal('0'), raw_interest - prepaid)
-    return raw_interest
 
 
 # ---------------------------------------------------------------------------

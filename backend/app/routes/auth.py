@@ -499,3 +499,48 @@ def get_user_menu():
     ).order_by(MenuItem.order).all()
 
     return jsonify([item.to_dict() for item in menu_items]), 200
+
+@auth_bp.route('/profile-picture', methods=['PUT'])
+@jwt_required()
+def update_profile_picture():
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id))
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    data = request.json
+    image_data = data.get('image')
+    if not image_data:
+        return jsonify({'error': 'Image data required'}), 400
+
+    if not image_data.startswith('data:image/'):
+        return jsonify({'error': 'Invalid image format'}), 400
+
+    import base64
+    header, encoded = image_data.split(',', 1)
+    try:
+        decoded = base64.b64decode(encoded)
+        if len(decoded) > 1_000_000:  # 1MB
+            return jsonify({'error': 'Image too large (max 1MB)'}), 400
+    except:
+        return jsonify({'error': 'Invalid base64 data'}), 400
+
+    mime = header.split(';')[0].split(':')[1]
+    if mime not in ['image/jpeg', 'image/png', 'image/gif', 'image/webp']:
+        return jsonify({'error': 'Unsupported image type'}), 400
+
+    user.profile_picture = image_data
+    db.session.commit()
+
+    return jsonify({'success': True, 'profile_picture': user.profile_picture}), 200
+
+@auth_bp.route('/profile-picture', methods=['DELETE'])
+@jwt_required()
+def delete_profile_picture():
+    user_id = get_jwt_identity()
+    user = db.session.get(User, int(user_id))
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    user.profile_picture = None
+    db.session.commit()
+    return jsonify({'success': True}), 200

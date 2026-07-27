@@ -4,17 +4,24 @@ from flask_jwt_extended import decode_token
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 
+# DB instance – imported by models.py
 db = SQLAlchemy()
 
 socketio = SocketIO(
     cors_allowed_origins="*",
     async_mode='eventlet',
-    ping_interval=10,   # send a ping every 10 seconds
-    ping_timeout=20     # wait 20 seconds before considering connection dead
+    ping_interval=10,
+    ping_timeout=20
 )
 
 user_connections = {}   # user_id -> connection count
 sid_to_user = {}        # socket_id -> user_id
+
+
+# ---------- Helpers ----------
+def get_group_room(group_id):
+    return f"group_{group_id}"
+
 
 def get_user_from_token():
     auth_header = request.headers.get('Authorization')
@@ -24,7 +31,7 @@ def get_user_from_token():
             payload = decode_token(token)
             user_id = payload.get('sub')
             if user_id:
-                from app.models import User
+                from app.models import User   # local import
                 return User.query.get(int(user_id))
         except:
             pass
@@ -40,6 +47,8 @@ def get_user_from_token():
             pass
     return None
 
+
+# ---------- Socket events ----------
 @socketio.on('connect')
 def handle_connect():
     user = get_user_from_token()
@@ -54,9 +63,9 @@ def handle_connect():
         join_room(f'user_{user.id}')
         emit('user_online', {'user_id': user.id}, broadcast=True)
 
-    # ✅ Send already-online users to this new client
     online_ids = [uid for uid in user_connections.keys() if uid != user.id]
     emit('online_users_list', {'user_ids': online_ids}, room=sid)
+
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -71,8 +80,10 @@ def handle_disconnect():
         leave_room(f'user_{user_id}')
         emit('user_offline', {'user_id': user_id}, broadcast=True)
 
+
 def get_chat_room(user1_id, user2_id):
     return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
+
 
 @socketio.on('join_chat')
 def handle_join_chat(data):
@@ -83,10 +94,11 @@ def handle_join_chat(data):
     room = get_chat_room(user.id, other_user_id)
     join_room(room)
 
+
 @socketio.on('send_message')
 def handle_send_message(data):
-    from app import db                     # ← import here
-    from app.models import PrivateMessage, User   # ← import here
+    from app import db                     # local import
+    from app.models import PrivateMessage, User   # local import
 
     user = get_user_from_token()
     if not user:
@@ -123,10 +135,11 @@ def handle_send_message(data):
         'status': msg.status
     })
 
+
 @socketio.on('mark_read')
 def handle_mark_read(data):
-    from app import db                     # ← import here
-    from app.models import PrivateMessage   # ← import here
+    from app import db
+    from app.models import PrivateMessage
 
     user = get_user_from_token()
     if not user:
@@ -146,12 +159,9 @@ def handle_mark_read(data):
             }, room=room)
 
 
-
-# socket_events.py (or wherever you handle socket events)
-
+# ---------- Call events ----------
 @socketio.on('call_offer')
 def handle_call_offer(data):
-    """Caller sends SDP offer to callee."""
     user = get_user_from_token()
     if not user:
         return
@@ -160,16 +170,16 @@ def handle_call_offer(data):
     emit('call_offer', {
         'caller_id': user.id,
         'caller_name': user.username,
-        'call_type': data['call_type'],      # 'voice' or 'video'
-        'offer': data['offer'],              # SDP
-        'call_id': data.get('call_id'),      # unique call identifier
+        'call_type': data['call_type'],
+        'offer': data['offer'],
+        'call_id': data.get('call_id'),
         'is_group': data.get('is_group', False),
         'participants': data.get('participants', [user.id])
     }, room=room)
 
+
 @socketio.on('call_answer')
 def handle_call_answer(data):
-    """Callee answers with SDP answer."""
     user = get_user_from_token()
     if not user:
         return
@@ -181,9 +191,9 @@ def handle_call_answer(data):
         'call_id': data['call_id']
     }, room=room)
 
+
 @socketio.on('call_ice')
 def handle_call_ice(data):
-    """Exchange ICE candidates."""
     user = get_user_from_token()
     if not user:
         return
@@ -195,15 +205,13 @@ def handle_call_ice(data):
         'call_id': data['call_id']
     }, room=room)
 
+
 @socketio.on('call_end')
 def handle_call_end(data):
-    """Notify all participants that call ended."""
     user = get_user_from_token()
     if not user:
         return
     call_id = data['call_id']
-    # Broadcast to all users in the call (we need to track rooms per call)
-    # For simplicity, we'll emit to all participants individually
     participants = data.get('participants', [])
     for p in participants:
         room = f'user_{p}'
@@ -213,32 +221,28 @@ def handle_call_end(data):
             'duration': data.get('duration', 0)
         }, room=room)
 
-    # Save call log (will be done by the frontend via API, or we can do it here)
-    # We'll use an API endpoint to save the log after call ends.
 
 @socketio.on('call_status')
 def handle_call_status(data):
-    """Send status updates (ringing, busy, etc.)."""
     user = get_user_from_token()
     if not user:
         return
     target_user_id = data['target_user_id']
     room = f'user_{target_user_id}'
     emit('call_status', {
-        'status': data['status'],    # 'ringing', 'busy', 'unavailable'
+        'status': data['status'],
         'call_id': data['call_id'],
         'from': user.id
     }, room=room)
 
+
 @socketio.on('call_add_participant')
 def handle_add_participant(data):
-    """For group calls: invite a new participant."""
     user = get_user_from_token()
     if not user:
         return
     new_user_id = data['new_user_id']
     call_id = data['call_id']
-    # Forward the invite to the new user
     room = f'user_{new_user_id}'
     emit('call_invite', {
         'call_id': call_id,
@@ -246,5 +250,58 @@ def handle_add_participant(data):
         'inviter_name': user.username,
         'call_type': data['call_type'],
         'existing_participants': data['existing_participants'],
-        'offer': data['offer']   # SDP offer for new participant
+        'offer': data['offer']
     }, room=room)
+
+
+# ---------- Group chat events ----------
+@socketio.on('join_group')
+def handle_join_group(data):
+    from app.models import GroupMember   # local import
+    user = get_user_from_token()
+    if not user:
+        return
+    group_id = data['group_id']
+    member = GroupMember.query.filter_by(group_id=group_id, user_id=user.id, is_active=True).first()
+    if not member:
+        return
+    room = get_group_room(group_id)
+    join_room(room)
+
+
+@socketio.on('send_group_message')
+def handle_send_group_message(data):
+    from app import db
+    from app.models import GroupMember, PrivateMessage
+
+    user = get_user_from_token()
+    if not user:
+        return
+    group_id = data['group_id']
+    member = GroupMember.query.filter_by(group_id=group_id, user_id=user.id, is_active=True).first()
+    if not member:
+        return
+
+    msg = PrivateMessage(
+        sender_id=user.id,
+        group_id=group_id,
+        content=data['content'],
+        attachment_url=data.get('attachment_url'),
+        attachment_type=data.get('attachment_type'),
+        attachment_name=data.get('attachment_name'),
+        status='sent',
+        is_system_message=False
+    )
+    db.session.add(msg)
+    db.session.commit()
+
+    room = get_group_room(group_id)
+    socketio.emit('new_group_message', {
+        'message': msg.to_dict(),
+        'sender': user.username
+    }, room=room)
+
+    emit('group_message_sent', {
+        'message_id': msg.id,
+        'temp_id': data.get('temp_id')
+    })

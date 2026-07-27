@@ -32,6 +32,7 @@ import UnifiedReportsTabs from '../components/admin/UnifiedReportsTabs';
 import FinancialReports from '../components/financial/FinancialReports';
 import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
 import CompanyProfile from '../components/admin/CompanyProfile';
+import Avatar from "../components/common/Avatar"
 
 
 function AdminPanel() {
@@ -374,6 +375,39 @@ function AdminPanel() {
       setSidebarOpen(false);
     }
   }, [showInvestorLoginModal]);
+
+  const updateProfilePicture = async (imageData) => {
+    try {
+        const response = await userAPI.updateProfilePicture(imageData);
+        if (response.data.success) {
+            const updatedUser = { ...user, profile_picture: response.data.profile_picture };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            if (updateUserData) updateUserData(updatedUser);
+            showToast.success('Profile picture updated!');
+            return true;
+        }
+        showToast.error('Failed to update picture');
+        return false;
+    } catch (error) {
+        console.error('Profile picture update error:', error);
+        showToast.error(error.response?.data?.error || 'Failed to update picture');
+        return false;
+    }
+  };
+
+  const removeProfilePicture = async () => {
+    try {
+        const response = await userAPI.deleteProfilePicture();
+        if (response.data.success) {
+            const updatedUser = { ...user, profile_picture: null };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            if (updateUserData) updateUserData(updatedUser);
+            showToast.success('Profile picture removed');
+        }
+    } catch (error) {
+        showToast.error('Failed to remove picture');
+    }
+  };
     
   const handleInvestorSectionClick = () => {
     // First, always close the sidebar on mobile
@@ -393,7 +427,7 @@ function AdminPanel() {
   };
 
   // Replace the existing handleInvestorPinSubmit function with this:
-const handleInvestorPasswordSubmit = (e) => {
+  const handleInvestorPasswordSubmit = (e) => {
   e.preventDefault();  
   const correctPassword = "n@g0l13";    
     if (investorPassword === correctPassword) {
@@ -2680,15 +2714,15 @@ Thank you for choosing us.`;
             <span>Admin Dashboard</span>
           </a>
 
-          <div className="navbar-nav ms-auto align-items-center flex-row">
-            <span className="navbar-text me-3 d-none d-lg-block">Welcome, Admin</span>
-            
-            <button className="sidebar-toggle d-lg-none" onClick={toggleSidebar}>
-              <i className="fas fa-bars"></i>
-            </button>
-
-            <button className="btn btn-outline-light btn-sm d-none d-lg-block" onClick={handleLogout}>
-              <i className="fas fa-sign-out-alt me-1"></i>Logout
+          <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
+            <div style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+                <Avatar user={user} size={32} />
+            </div>
+            <span className="navbar-text text-white" style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+                <strong>{user?.username || user?.name || 'User'}</strong>
+            </span>
+            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
+                <i className="fas fa-sign-out-alt me-1"></i>Logout
             </button>
           </div>
         </div>
@@ -6917,6 +6951,43 @@ Thank you for choosing us.`;
       {/* Settings Modal */}
       {showSettingsModal && (
         <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
+          {/* profile picture */}
+          <div className="mb-4">
+            <h6 className="fw-bold fs-5 text-center">Profile Picture</h6>
+            <div className="d-flex flex-column align-items-center">
+                <Avatar user={user} size={80} className="mb-2" />
+                <div className="mb-2">
+                    <input
+                        type="file"
+                        accept="image/*"
+                        className="form-control"
+                        onChange={async (e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+                            if (file.size > 1_000_000) {
+                                showToast.error('Image too large (max 1MB)');
+                                return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = async (event) => {
+                              const base64 = event.target.result;
+                              const success = await updateProfilePicture(base64);                                
+                            };
+                            reader.readAsDataURL(file);
+                        }}
+                    />
+                    {user?.profile_picture && (
+                        <button className="btn btn-outline-danger btn-sm mt-2" onClick={removeProfilePicture}>
+                            <i className="fas fa-trash me-1"></i> Remove
+                        </button>
+                    )}
+                    <small className="text-muted d-block mt-1">Max 1MB, JPG/PNG/GIF/WEBP</small>
+                </div>
+            </div>
+        </div>
+
+          <hr />
+          
           {/* Change Username */}
           <div className="mb-4">
             <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>

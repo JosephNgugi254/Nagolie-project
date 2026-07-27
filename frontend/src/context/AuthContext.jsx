@@ -103,6 +103,22 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  const updateProfilePicture = async (imageData) => {
+      try {
+          const response = await userAPI.updateProfilePicture(imageData);
+          if (response.data.success) {
+              const updatedUser = { ...user, profile_picture: response.data.profile_picture };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              setUser(updatedUser);
+              return true;
+          }
+          return false;
+      } catch (error) {
+          console.error('Failed to update profile picture:', error);
+          return false;
+      }
+  };
+
   // ADD THIS FUNCTION: setInvestorSession for investor registration
   const setInvestorSession = (investorData) => {
     try {
@@ -189,7 +205,7 @@ export const AuthProvider = ({ children }) => {
     hasRole,
     loading,
     setInvestorSession, 
-    updateUserData,// Now this function is defined
+    updateUserData,
   }
 
   console.log("AuthContext value:", { 

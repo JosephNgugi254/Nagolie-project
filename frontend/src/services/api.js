@@ -20,6 +20,7 @@ const api = axios.create({
   baseURL: API_URL,
   headers: { "Content-Type": "application/json" },
   timeout: 30000,
+  withCredentials: true,   
 });
 
 api.interceptors.request.use(
@@ -321,6 +322,12 @@ export const recoveryAPI = {
 export const userAPI = {
   changeUsername: (data) => api.put('/auth/change-username', data),
   changePassword: (data) => api.put('/auth/change-password', data),
+  updateProfilePicture: (imageData) => {
+    return api.put('/auth/profile-picture', { image: imageData });
+  },
+  deleteProfilePicture: () => {
+    return api.delete('/auth/profile-picture');
+  }
 };
 
 export const salaryAPI = {
@@ -384,6 +391,18 @@ export const financialAPI = {
     }
     return api.get(url);
   },
+};
+
+export const chatAPI = {
+  ping: () => api.get('/chat/ping'),
+  createGroup: (data) => api.post('/chat/groups', data),
+  getGroups: () => api.get('/chat/groups'),
+  getGroupDetails: (groupId) => api.get(`/chat/groups/${groupId}`),
+  sendGroupMessage: (groupId, data) => api.post(`/chat/groups/${groupId}/messages`, data),
+  leaveGroup: (groupId) => api.post(`/chat/groups/${groupId}/leave`),
+  editMessage: (messageId, content) => api.put(`/chat/messages/${messageId}`, { content }),
+  deleteMessage: (messageId) => api.delete(`/chat/messages/${messageId}`),
+  markGroupRead: (groupId) => api.post(`/chat/groups/${groupId}/read`),
 };
 
 export default api;

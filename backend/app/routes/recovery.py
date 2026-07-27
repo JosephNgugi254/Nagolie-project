@@ -3,7 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, CallLog)
 from app.utils.decorators import role_required
-from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary, _get_current_period_interest, _get_current_period_key
+from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
+from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
 from app.utils.cloudinary_upload import upload_base64_image
 import cloudinary.uploader
 from datetime import datetime, timedelta
@@ -32,7 +33,6 @@ def get_week_number(disbursement_date):
 
 @recovery_bp.route('', methods=['GET'])
 @jwt_required()
-@cross_origin(origins=["http://localhost:5173", "https://www.nagolie.com", "https://nagolie.com"]) 
 @role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
@@ -332,9 +332,14 @@ def get_defaulters():
 @recovery_bp.route('/users', methods=['GET'])
 @jwt_required()
 def get_users_for_messaging():
-    uid   = int(get_jwt_identity())
+    uid = int(get_jwt_identity())
     users = User.query.filter(User.id != uid).all()
-    return jsonify([{'id': u.id, 'username': u.username, 'role': u.role} for u in users]), 200
+    return jsonify([{
+        'id': u.id,
+        'username': u.username,
+        'role': u.role,
+        'profile_picture': u.profile_picture  
+    } for u in users]), 200
 
 
 @recovery_bp.route('/messages/conversation/<int:other_user_id>', methods=['GET'])
@@ -564,7 +569,11 @@ def renew_loan_recovery(loan_id):
             except:
                 return jsonify({'error': 'Invalid new_principal value'}), 400
         else:
-            new_principal = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
+            if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+                outstanding_interest = _get_current_period_interest(loan)   # correct, respects prepaid
+            else:
+                outstanding_interest = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+            new_principal = loan.current_principal + outstanding_interest
             if new_principal <= Decimal('0.01'):
                 return jsonify({'error': 'No outstanding balance to renew'}), 400
 
@@ -777,7 +786,6 @@ def get_my_assigned_clients():
                 client['total_balance'] = float(snapshot.total_balance) if snapshot.total_balance is not None else client['total_balance']
                 client['comment'] = snapshot.comment
             else:
-                # No snapshot – fallback to live (should not happen if cron runs)
                 client['comment'] = ''
         else:
             # Today: use live data, but keep comment if any
@@ -787,13 +795,8 @@ def get_my_assigned_clients():
     day_assignments = DayAssignment.query.filter_by(user_id=officer_id).all()
     assigned_days = [da.day_of_week for da in day_assignments]
 
-    response = jsonify({'clients': assigned, 'assigned_days': assigned_days})
-    origin = request.headers.get('Origin')
-    allowed_origins = ['http://localhost:5173', 'https://www.nagolie.com', 'https://nagolie.com']
-    if origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response, 200
+    # ✅ CORS is now handled globally – no manual headers needed
+    return jsonify({'clients': assigned, 'assigned_days': assigned_days}), 200
 
 @recovery_bp.route('/reports/comment', methods=['POST'])
 @jwt_required()

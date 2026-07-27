@@ -16,7 +16,8 @@ import string
 from app.services.ledger import record_ledger_entry   # NEW
 from app.routes.payments import compute_overdue
 from flask import current_app
-from app.routes.payments import recalculate_loan, _loan_summary, _get_current_period_key, _get_current_period_interest
+from app.routes.payments import recalculate_loan, _loan_summary
+from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
 from werkzeug.utils import secure_filename
 import os
 import cloudinary.uploader
@@ -166,7 +167,7 @@ def refresh_day_assignments():
 
 
 def get_assigned_clients_for_user(user_id):
-    from app.routes.payments import _get_current_period_key, _get_current_period_interest
+    from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
 
     assignments = ClientAssignment.query.filter_by(
         officer_id=user_id,
@@ -457,7 +458,7 @@ def get_all_clients():
                 if ld < today:
                     weeks_overdue = (today - ld).days // 7
 
-            from app.routes.payments import _get_current_period_key
+            from app.utils.interest_helpers import _get_current_period_key
 
             # ---- Updated raw weekly interest calculation ----
             current_period = _get_current_period_key(active_loan)
@@ -1103,63 +1104,29 @@ def process_topup(loan_id):
             txn_notes = f'Top-up of {format_currency(topup_amount)}'
 
         elif adjustment_amount > 0:
-            # --- ADJUSTMENT: set new principal and compute period interest ---
             loan.current_principal = adjustment_amount
 
-            # Clear prepaid markers
+            # Clear prepaid markers and interest_paid
             loan.interest_prepaid_period = None
             loan.interest_prepaid_amount = Decimal('0')
+            loan.interest_paid = Decimal('0')               # NEW
+            loan.last_interest_payment_date = datetime.utcnow()
+            loan.last_compounding_date = None
 
-            # Compute the current period interest based on the new principal
             if loan.repayment_plan == 'daily' and loan.interest_rate > 0:
                 period_interest = (loan.current_principal * Decimal('0.045')).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
+                loan.accrued_interest = period_interest
+                loan.balance = loan.current_principal + period_interest
             else:
-                # Weekly or any other plan (30% per week)
-                period_interest = (loan.current_principal * Decimal('0.30')).quantize(
-                    Decimal('0.01'), rounding=ROUND_HALF_UP
-                )
-
-            # Set accrued_interest to this period's interest
-            loan.accrued_interest = period_interest
-
-            # Set balance = principal + current period interest
-            loan.balance = loan.current_principal + period_interest
-
-            # Set last_interest_payment_date to now – recalc will not add more interest for today
-            loan.last_interest_payment_date = datetime.utcnow()
-
-            # Reset compounding date for daily loans (if present)
-            loan.last_compounding_date = None
+                # Weekly interest is always freshly derived from current_principal elsewhere
+                loan.accrued_interest = Decimal('0')
+                loan.balance = loan.current_principal
 
             txn_type = 'adjustment'
             txn_amt = adjustment_amount - old_principal
             txn_notes = f'Adjustment from {format_currency(old_principal)} → {format_currency(adjustment_amount)}'
-
-        else:
-            return jsonify({'error': 'Invalid amount'}), 400
-
-        # Recalculate the loan – no new interest will be added because last_interest_payment_date is now
-        loan = recalculate_loan(loan)
-
-        # Append any user notes
-        if data.get('notes'):
-            txn_notes += f'. {data["notes"]}'
-
-        # Create transaction record
-        txn = Transaction(
-            loan_id=loan.id,
-            transaction_type=txn_type,
-            amount=abs(txn_amt),
-            payment_method=data.get('disbursement_method', 'cash'),
-            mpesa_receipt=data.get('mpesa_reference', '').upper() or None,
-            notes=txn_notes,
-            status='completed'
-        )
-        db.session.add(txn)
-        db.session.commit()
-
         # Record ledger entry
         record_ledger_entry(
             loan=loan,
@@ -1586,7 +1553,11 @@ def renew_loan(loan_id):
             except:
                 return jsonify({'error': 'Invalid new_principal value'}), 400
         else:
-            new_principal = loan.current_principal + (loan.accrued_interest - loan.interest_paid)
+            if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+                outstanding_interest = _get_current_period_interest(loan)   # correct, respects prepaid
+            else:
+                outstanding_interest = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+            new_principal = loan.current_principal + outstanding_interest
             if new_principal <= Decimal('0.01'):
                 return jsonify({'error': 'No outstanding balance to renew'}), 400
 
@@ -2180,7 +2151,7 @@ def update_day_assignments():
 @jwt_required()
 @role_required(['admin', 'director', 'hr_manager'])
 def get_all_client_assignments():
-    from app.routes.payments import _get_current_period_key, _get_current_period_interest
+    from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
 
     flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
     loans = Loan.query.filter(
@@ -2611,7 +2582,8 @@ def get_officer_report():
 @jwt_required()
 @role_required(['admin', 'director','head_of_it', 'hr_manager', 'secretary', 'client_relations_officer', 'valuer'])
 def get_loan(loan_id):
-    from app.routes.payments import recalculate_loan, _get_current_period_key, _get_current_period_interest
+    from app.routes.payments import recalculate_loan
+    from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
     from decimal import Decimal
 
     loan = Loan.query.get(loan_id)

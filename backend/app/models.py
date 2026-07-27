@@ -11,9 +11,11 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(30), default='admin') # admin, investor, staff
-    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=True)   # NEW
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=True)   
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    # NEW - to enable fingerprint biometric
+    profile_picture = db.Column(db.Text, nullable=True)  # base64 encoded image data
+
+    # To enable fingerprint biometric
     fingerprint_enabled = db.Column(db.Boolean, default=False)
     fingerprint_credential = db.Column(db.Text)  # store credential ID
     webauthn_credential_id = db.Column(db.String(255), nullable=True, unique=True)
@@ -65,6 +67,7 @@ class User(db.Model):
             'email': self.email,
             'role': self.role,
             'created_at': self.created_at.isoformat(),
+            'profile_picture': self.profile_picture,
             'webauthn_credential_id': self.webauthn_credential_id,
             'webauthn_enabled': bool(self.webauthn_credential_id),
         }
@@ -656,7 +659,7 @@ class PrivateMessage(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     sender_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    recipient_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # nullable for group messages
     
     content = db.Column(db.Text, nullable=False)
     read = db.Column(db.Boolean, default=False)          # keep for backward compatibility
@@ -667,6 +670,9 @@ class PrivateMessage(db.Model):
     read_at = db.Column(db.DateTime, nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    group_id = db.Column(db.Integer, db.ForeignKey('groups.id'), nullable=True)
+    is_system_message = db.Column(db.Boolean, default=False)   # for leave/join messages
     
     # Attachment fields (already present)
     attachment_url = db.Column(db.String(500), nullable=True)
@@ -693,7 +699,9 @@ class PrivateMessage(db.Model):
             'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
             'attachment_url': self.attachment_url,
             'attachment_type': self.attachment_type,
-            'attachment_name': self.attachment_name
+            'attachment_name': self.attachment_name,
+            'is_system_message': self.is_system_message,
+            'reply_to': self.reply_to.to_dict() if self.reply_to else None
         }
     
 class MessageAttachment(db.Model):
@@ -1043,4 +1051,60 @@ class CompanyDocument(db.Model):
             'uploaded_by_name': self.uploader.username if self.uploader else None,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
+        }
+    
+# -------------------------------------------------------------------
+# GROUP CHAT MODELS
+# -------------------------------------------------------------------
+
+class Group(db.Model):
+    __tablename__ = 'groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)          # supports emojis
+    profile_picture = db.Column(db.Text, nullable=True)       # base64 or URL
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    members = db.relationship('GroupMember', back_populates='group', cascade='all, delete-orphan')
+    messages = db.relationship('PrivateMessage', backref='group', lazy='dynamic')
+
+    creator = db.relationship('User', foreign_keys=[created_by])
+
+    def to_dict(self, include_members=False):
+        data = {
+            'id': self.id,
+            'name': self.name,
+            'profile_picture': self.profile_picture,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() + 'Z',
+            'member_count': len(self.members)
+        }
+        if include_members:
+            data['members'] = [m.to_dict() for m in self.members]
+        return data
+
+
+class GroupMember(db.Model):
+    __tablename__ = 'group_members'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('groups.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_admin = db.Column(db.Boolean, default=False)          # future use
+    is_active = db.Column(db.Boolean, default=True)          # false after leaving
+
+    group = db.relationship('Group', back_populates='members')
+    user = db.relationship('User')
+
+    __table_args__ = (db.UniqueConstraint('group_id', 'user_id', name='uq_group_member'),)
+
+    def to_dict(self):
+        return {
+            'user_id': self.user_id,
+            'username': self.user.username,
+            'joined_at': self.joined_at.isoformat() + 'Z',
+            'is_admin': self.is_admin,
+            'is_active': self.is_active
         }

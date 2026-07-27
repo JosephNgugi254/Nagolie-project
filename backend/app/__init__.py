@@ -1,4 +1,3 @@
-# app/__init__.py
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -32,25 +31,38 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     jwt.init_app(app)
 
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
-    
-    # Configure CORS 
-    import os  
-    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-    CORS(app,
-         origins=[
-             "http://localhost:5173",
-             "https://nagolie-frontend.onrender.com",
-             "https://www.nagolie.com",
-             "https://nagolie.com"
-         ],
-         supports_credentials=True,
-         allow_headers=["Content-Type", "Authorization", "Accept"],
-         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    # ---------- SINGLE CORS CONFIGURATION ----------
+    CORS(
+        app,
+        origins=[
+            "http://localhost:5173",
+            "https://nagolie-frontend.onrender.com",
+            "https://www.nagolie.com",
+            "https://nagolie.com"
+        ],
+        supports_credentials=True,
+        allow_headers=["Content-Type", "Authorization", "Accept"],
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     )
-    
-    limiter.init_app(app)
+    # ------------------------------------------------
 
+    # ---------- Global after_request CORS headers ----------
+    @app.after_request
+    def add_cors_headers(response):
+        origin = request.headers.get('Origin')
+        allowed_origins = [
+            "http://localhost:5173",
+            "https://www.nagolie.com",
+            "https://nagolie.com"
+        ]
+        if origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, PUT, POST, DELETE, OPTIONS'
+        return response
+
+    limiter.init_app(app)
 
     # Cloudinary configuration
     cloudinary.config(
@@ -76,6 +88,8 @@ def create_app(config_class=Config):
     from app.routes.financial import financial_bp
     from app.routes.staff import staff_bp
     from app.routes.company_profile import company_profile_bp
+    from app.routes.chat import chat_bp
+
 
     app.register_blueprint(test_bp, url_prefix='/api/test')
     app.register_blueprint(biometric_bp)
@@ -92,21 +106,14 @@ def create_app(config_class=Config):
     app.register_blueprint(financial_bp)
     app.register_blueprint(staff_bp)
     app.register_blueprint(company_profile_bp, url_prefix='/api/company-profile')
+    app.register_blueprint(chat_bp)
 
-    @app.before_request
-    def before_request():
-        if request.method == "OPTIONS":
-            response = jsonify({"status": "success"})
-            response.headers.add("Access-Control-Allow-Origin", "*")
-            response.headers.add("Access-Control-Allow-Headers", "*")
-            response.headers.add("Access-Control-Allow-Methods", "*")
-            return response
         
     register_commands(app)
 
     def scheduled_balance():
         with app.app_context():
-            from app.routes.admin import refresh_day_assignments  # or any other function
+            from app.routes.admin import refresh_day_assignments
             refresh_day_assignments()
     scheduler = BackgroundScheduler()
     scheduler.add_job(func=scheduled_balance, trigger='cron', hour=2, minute=0)
@@ -363,4 +370,3 @@ def register_commands(app):
 
         db.session.commit()
         print(f"Updated due_date for {updated} active loans to the next due date.")
-

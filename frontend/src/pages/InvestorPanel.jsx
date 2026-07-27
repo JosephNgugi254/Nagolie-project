@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "../context/AuthContext"
-import { investorAPI } from "../services/api"
+import { investorAPI, userAPI } from "../services/api"
 import { useSessionTimeout } from '../components/hooks/useSessionTimeout';
 import InvestorSidebar from "../components/investor/InvestorSidebar"
 import InvestorStatsCard from "../components/investor/InvestorStatsCard"
@@ -11,6 +11,7 @@ import ImageCarousel from "../components/common/ImageCarousel"
 import Modal from "../components/common/Modal"
 import Toast, { showToast } from "../components/common/Toast"
 import { startRegistration } from '@simplewebauthn/browser';
+import Avatar from '../components/common/Avatar';
 
 
 function InvestorPanel() {
@@ -51,6 +52,8 @@ function InvestorPanel() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [usernameLoading, setUsernameLoading] = useState(false)
   const [passwordLoading, setPasswordLoading] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  
 
   const enrollBiometrics = async () => {
   try {
@@ -90,7 +93,40 @@ function InvestorPanel() {
   }
 };
 
-  const disableBiometrics = async () => {
+const updateProfilePicture = async (imageData) => {
+    try {
+        const response = await userAPI.updateProfilePicture(imageData);
+        if (response.data.success) {
+            const updatedUser = { ...user, profile_picture: response.data.profile_picture };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            if (updateUserData) updateUserData(updatedUser);
+            showToast.success('Profile picture updated!');
+            return true;
+        }
+        showToast.error('Failed to update picture');
+        return false;
+    } catch (error) {
+        console.error('Profile picture update error:', error);
+        showToast.error(error.response?.data?.error || 'Failed to update picture');
+        return false;
+    }
+};
+
+const removeProfilePicture = async () => {
+    try {
+        const response = await userAPI.deleteProfilePicture();
+        if (response.data.success) {
+            const updatedUser = { ...user, profile_picture: null };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            if (updateUserData) updateUserData(updatedUser);
+            showToast.success('Profile picture removed');
+        }
+    } catch (error) {
+        showToast.error('Failed to remove picture');
+    }
+};
+
+const disableBiometrics = async () => {
   try {
     const token = localStorage.getItem('token');
     const res = await fetch(`${API_BASE}/auth/biometric/disable`, {
@@ -437,13 +473,15 @@ function InvestorPanel() {
             <span>Investor Dashboard</span>
           </a>
 
-          <div className="navbar-nav ms-auto align-items-center flex-row">
-            <span className="navbar-text me-3 d-none d-lg-block">
-              Welcome, {dashboardData.investor?.name || user?.username || user?.email || 'Investor'}
+          <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
+            <div style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+                <Avatar user={user} size={32} />
+            </div>
+            <span className="navbar-text text-white" style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+                <strong>{user?.username || user?.name || 'User'}</strong>
             </span>
-            
-            <button className="sidebar-toggle d-lg-none ms-3" onClick={toggleSidebar}>
-              <i className="fas fa-bars"></i>
+            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
+                <i className="fas fa-sign-out-alt me-1"></i>Logout
             </button>
           </div>
         </div>
@@ -1008,6 +1046,41 @@ function InvestorPanel() {
                     </div>
                 
                     <div className="row">
+                      {/* profile picture */}
+                      <div className="mb-4">
+                        <h6 className="fw-bold fs-5 text-center">Profile Picture</h6>
+                        <div className="d-flex flex-column align-items-center">
+                            <Avatar user={user} size={80} className="mb-2" />
+                            <div className="mb-2">
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="form-control"
+                                    onChange={async (e) => {
+                                        const file = e.target.files[0];
+                                        if (!file) return;
+                                        if (file.size > 1_000_000) {
+                                            showToast.error('Image too large (max 1MB)');
+                                            return;
+                                        }
+                                        const reader = new FileReader();
+                                        reader.onload = async (event) => {
+                                          const base64 = event.target.result;
+                                          const success = await updateProfilePicture(base64);                    
+                                        };
+                                        reader.readAsDataURL(file);
+                                    }}
+                                />
+                                {user?.profile_picture && (
+                                    <button className="btn btn-outline-danger btn-sm mt-2" onClick={removeProfilePicture}>
+                                        <i className="fas fa-trash me-1"></i> Remove
+                                    </button>
+                                )}
+                                <small className="text-muted d-block mt-1">Max 1MB, JPG/PNG/GIF/WEBP</small>
+                            </div>
+                        </div>
+                    </div>
+                      {/* change username */}
                       <div className="col-md-6 mb-4">
                         <div className="card shadow">
                           <div className="card-header bg-primary text-white">
@@ -1100,7 +1173,7 @@ function InvestorPanel() {
                           </div>
                         </div>
                       </div>
-
+                      {/* Change Password */}
                       <div className="col-md-6 mb-4">
                         <div className="card shadow">
                           <div className="card-header bg-warning text-white">
@@ -1480,6 +1553,185 @@ function InvestorPanel() {
             >
               Cancel
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <Modal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} title="Account Settings" size="md">
+          {/* Profile picture */}
+          <div className="mb-4">
+            <h6 className="fw-bold fs-5 text-center">Profile Picture</h6>
+            <div className="d-flex flex-column align-items-center">
+              <Avatar user={user} size={80} className="mb-2" />
+              <div className="mb-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="form-control"
+                  onChange={async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    if (file.size > 1_000_000) {
+                      showToast.error('Image too large (max 1MB)');
+                      return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                      const base64 = event.target.result;
+                      await updateProfilePicture(base64);
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+                {user?.profile_picture && (
+                  <button className="btn btn-outline-danger btn-sm mt-2" onClick={removeProfilePicture}>
+                    <i className="fas fa-trash me-1"></i> Remove
+                  </button>
+                )}
+                <small className="text-muted d-block mt-1">Max 1MB, JPG/PNG/GIF/WEBP</small>
+              </div>
+            </div>
+          </div>
+              
+          <hr />
+              
+          {/* Change username */}
+          <div className="mb-4">
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Username</h6>
+            <form onSubmit={handleUsernameChange}>
+              <div className="mb-3">
+                <label className="form-label">Current Username</label>
+                <input type="text" className="form-control" value={user?.username || ''} disabled readOnly />
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Username</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  required minLength="3"
+                  placeholder="Enter new username"
+                />
+                <small className="text-muted">Minimum 3 characters</small>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className="form-control"
+                    value={currentPasswordForUsername}
+                    onChange={(e) => setCurrentPasswordForUsername(e.target.value)}
+                    required
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowPassword(!showPassword)}>
+                    <i className={`fas fa-${showPassword ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={usernameLoading}>
+                {usernameLoading ? "Updating..." : "Update Username"}
+              </button>
+            </form>
+          </div>
+              
+          <hr />
+              
+          {/* Change password */}
+          <div className="mb-4">
+            <h6 className="mb-3 fw-bold fs-5 text-center">Change Password</h6>
+            <form onSubmit={handlePasswordChange}>
+              <div className="mb-3">
+                <label className="form-label">Current Password</label>
+                <div className="input-group">
+                  <input
+                    type={showCurrentPassword ? 'text' : 'password'}
+                    className="form-control"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowCurrentPassword(!showCurrentPassword)}>
+                    <i className={`fas fa-${showCurrentPassword ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">New Password</label>
+                <div className="input-group">
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    className="form-control"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required minLength="6"
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowNewPassword(!showNewPassword)}>
+                    <i className={`fas fa-${showNewPassword ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Confirm New Password</label>
+                <div className="input-group">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    className="form-control"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                  />
+                  <button className="btn btn-outline-secondary" type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
+                    <i className={`fas fa-${showConfirmPassword ? 'eye-slash' : 'eye'}`} />
+                  </button>
+                </div>
+              </div>
+              <button type="submit" className="btn btn-warning" disabled={passwordLoading}>
+                {passwordLoading ? "Updating..." : "Update Password"}
+              </button>
+            </form>
+          </div>
+              
+          <hr />
+              
+          {/* Biometric login */}
+          <div className="mt-3">
+            <h6 className="fw-bold fs-5 text-center mb-3">
+              <i className="fas fa-fingerprint me-2 text-primary" />
+              Biometric Login
+            </h6>
+            {!window.PublicKeyCredential ? (
+              <div className="alert alert-warning mb-0">
+                <i className="fas fa-exclamation-triangle me-2" />
+                Your browser does not support biometric authentication.
+              </div>
+            ) : user?.webauthn_credential_id ? (
+              <div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div>
+                  <p className="mb-1 text-success fw-semibold">
+                    <i className="fas fa-check-circle me-2" />
+                    Biometrics Enabled
+                  </p>
+                  <small>You can log in with fingerprint or Face ID.</small>
+                </div>
+                <button className="btn btn-sm btn-outline-danger ms-3" onClick={disableBiometrics}>
+                  <i className="fas fa-times me-1" />Disable
+                </button>
+              </div>
+            ) : (
+              <div className="d-flex align-items-center justify-content-between p-3 rounded" style={{ background: '#fafafa', border: '1px solid #e5e7eb' }}>
+                <div>
+                  <p className="mb-1 fw-semibold">Enable Biometric Login</p>
+                  <small>Use fingerprint or Face ID to log in without typing a password.</small>
+                </div>
+                <button className="btn btn-sm btn-primary ms-3" onClick={enrollBiometrics}>
+                  <i className="fas fa-fingerprint me-1" />Enable
+                </button>
+              </div>
+            )}
           </div>
         </Modal>
       )}
