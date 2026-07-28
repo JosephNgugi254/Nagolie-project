@@ -1148,13 +1148,7 @@ function RecoveryModule() {
   const canRenewLoan = (loan) => {
     const allowed = ['director', 'admin', 'secretary', 'client_relations_officer', 'head_of_it', 'deputy_director', 'hr_manager'];
     if (!allowed.includes(userRole)) return false;
-    if (loan.daysLeft <= 0) return true;
-    if (loan.weeks_overdue > 0) return true;
-    if (loan.borrowedDate) {
-      const daysSince = (new Date() - new Date(loan.borrowedDate)) / (1000*3600*24);
-      if (daysSince >= 14 && loan.balance > 0) return true;
-    }
-    return false;
+    return true;
   };
 
   const [newRenewalPrincipal, setNewRenewalPrincipal] = useState(0);
@@ -1355,7 +1349,7 @@ function RecoveryModule() {
 
   const fetchUnreadCount = async () => {
     try {
-      const res = await recoveryAPI.getUnreadCount();
+      const res = await recoveryAPI.getTotalUnreadCount(); // new endpoint
       setUnreadCount(prev => { if (res.data.count > prev) playSound(); return res.data.count; });
       document.title = res.data.count > 0 ? `(${res.data.count}) Nagolie Recovery` : 'Nagolie Recovery';
     } catch (e) { console.error(e); }

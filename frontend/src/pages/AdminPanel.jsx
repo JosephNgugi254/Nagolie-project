@@ -202,16 +202,8 @@ function AdminPanel() {
   const canRenewLoan = (loan) => {
     const allowedRoles = ['admin','director', 'secretary', 'head_of_it', 'deputy_director'];
     if (!allowedRoles.includes(userRole)) return false;
-    // Eligible if overdue or daysLeft <= 0
-    if (loan.daysLeft <= 0) return true;
-    if (loan.weeks_overdue > 0) return true;
-    // Also if balance > 0 and more than 14 days since disbursement
-    if (loan.borrowedDate) {
-      const disbursed = new Date(loan.borrowedDate);
-      const daysSince = (new Date() - disbursed) / (1000*3600*24);
-      if (daysSince >= 14 && loan.balance > 0) return true;
-    }
-    return false;
+    // Allow renewal for any active loan
+    return true;
   };
   
   

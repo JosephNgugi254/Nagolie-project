@@ -1566,26 +1566,8 @@ def renew_loan(loan_id):
             new_repayment_plan = loan.repayment_plan  # fallback to original
 
         now = datetime.utcnow()
-        today = now.date()
-
-        # ---------- ELIGIBILITY CHECK ----------
-        disburse = loan.disbursement_date or loan.created_at
-        days_since = (now - disburse).days
-
-        # Convert due_date to date if it's a datetime (safety)
-        due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
-
-        # Allow renewal if:
-        #   - loan is at least 14 days old, OR
-        #   - due date is today or in the past (overdue or due today)
-        if days_since < 14 and due_date and due_date > today:
-            return jsonify({
-                'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'
-            }), 400
-        # --------------------------------------------
-
-        # ========== PRESERVE ASSIGNMENT BEFORE MARKING OLD LOAN ==========
-        # Get the current active assignment for the old loan
+        
+        # Preserve assignment before marking old loan
         old_assignment = ClientAssignment.query.filter_by(
             loan_id=loan_id, 
             is_active=True
@@ -1594,10 +1576,8 @@ def renew_loan(loan_id):
         officer_id_to_preserve = None
         if old_assignment:
             officer_id_to_preserve = old_assignment.officer_id
-            # Deactivate the old assignment
             old_assignment.is_active = False
             db.session.flush()
-        # ===============================================================
 
         # Mark old loan as renewed
         loan.status = 'renewed'
@@ -1646,13 +1626,12 @@ def renew_loan(loan_id):
         db.session.add(new_loan)
         db.session.flush()
 
-        # ========== CREATE MANUAL ASSIGNMENT FOR NEW LOAN ==========
+        # Create manual assignment for new loan if officer existed
         if officer_id_to_preserve:
-            # Create a manual assignment for the new loan with the same officer
             new_assignment = ClientAssignment(
                 loan_id=new_loan.id,
                 officer_id=officer_id_to_preserve,
-                assignment_type='manual',  # Manual to preserve the assignment
+                assignment_type='manual',
                 assigned_by=get_jwt_identity(),
                 override_reason=f'Preserved from renewed loan #{loan_id}',
                 is_active=True
@@ -1660,8 +1639,6 @@ def renew_loan(loan_id):
             db.session.add(new_assignment)
             db.session.flush()
         else:
-            # If no assignment existed, create a day-based assignment
-            # based on the new loan's disbursement date
             weekday = new_loan.disbursement_date.weekday()
             day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
             if day_ass:
@@ -1674,7 +1651,6 @@ def renew_loan(loan_id):
                 )
                 db.session.add(new_assignment)
                 db.session.flush()
-        # ===========================================================
 
         txn = Transaction(
             loan_id=loan.id,
@@ -1736,7 +1712,7 @@ def renew_loan(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-        
+            
 # ---------------------------------------------------------------------------
 # Loan waiver (with ledger entries, parent/root linking, and original plan storage)
 # ---------------------------------------------------------------------------

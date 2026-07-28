@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, CallLog)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, CallLog, GroupReadStatus, GroupMember)
 from app.utils.decorators import role_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
 from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
@@ -570,7 +570,7 @@ def renew_loan_recovery(loan_id):
                 return jsonify({'error': 'Invalid new_principal value'}), 400
         else:
             if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-                outstanding_interest = _get_current_period_interest(loan)   # correct, respects prepaid
+                outstanding_interest = _get_current_period_interest(loan)
             else:
                 outstanding_interest = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
             new_principal = loan.current_principal + outstanding_interest
@@ -579,26 +579,9 @@ def renew_loan_recovery(loan_id):
 
         # Validate and set the repayment plan
         if new_repayment_plan not in ['weekly', 'daily']:
-            new_repayment_plan = loan.repayment_plan   # fallback
+            new_repayment_plan = loan.repayment_plan
 
         now = datetime.utcnow()
-        today = now.date()  # <--- SAFETY: use date for comparison
-
-        # ---------- ELIGIBILITY CHECK (with safety) ----------
-        disburse = loan.disbursement_date or loan.created_at
-        days_since = (now - disburse).days
-
-        # Convert due_date to date if it's a datetime (safety)
-        due_date = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
-
-        # Allow renewal if:
-        #   - loan is at least 14 days old, OR
-        #   - due date is today or in the past (overdue or due today)
-        if days_since < 14 and due_date and due_date > today:
-            return jsonify({
-                'error': 'Loan is not yet eligible for renewal (minimum 14 days or overdue)'
-            }), 400
-        # --------------------------------------------
 
         # Mark old loan as renewed
         loan.status = 'renewed'
@@ -698,7 +681,7 @@ def renew_loan_recovery(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-            
+                
 @recovery_bp.route('/loan/<int:loan_id>/transactions', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])
@@ -1131,3 +1114,32 @@ def resolve_bad_debt(loan_id):
     loan.status = 'active'
     db.session.commit()
     return jsonify({'success': True}), 200
+
+
+@recovery_bp.route('/total-unread-count', methods=['GET', 'OPTIONS'])
+@cross_origin(origins="http://localhost:5173", supports_credentials=True)
+@jwt_required(optional=True)
+def total_unread_count():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    # JWT required for actual GET
+    user_id = get_jwt_identity()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # Private unread
+    private_unread = PrivateMessage.query.filter_by(recipient_id=user_id, read=False).count()
+    # Group unread
+    memberships = GroupMember.query.filter_by(user_id=user_id, is_active=True).all()
+    group_unread = 0
+    for m in memberships:
+        read_status = GroupReadStatus.query.filter_by(user_id=user_id, group_id=m.group_id).first()
+        last_read = read_status.last_read_at if read_status else datetime.min
+        group_unread += PrivateMessage.query.filter(
+            PrivateMessage.group_id == m.group_id,
+            PrivateMessage.sender_id != user_id,
+            PrivateMessage.created_at > last_read
+        ).count()
+    return jsonify({'count': private_unread + group_unread}), 200
