@@ -1084,6 +1084,10 @@ def process_topup(loan_id):
         topup_amount = Decimal(str(data.get('topup_amount', 0)))
         adjustment_amount = Decimal(str(data.get('adjustment_amount', 0)))
 
+        # At least one must be > 0
+        if topup_amount == 0 and adjustment_amount == 0:
+            return jsonify({'error': 'Either topup_amount or adjustment_amount must be positive'}), 400
+
         loan = db.session.get(Loan, loan_id)
         if not loan:
             return jsonify({'error': 'Loan not found'}), 404
@@ -1091,9 +1095,11 @@ def process_topup(loan_id):
             return jsonify({'error': 'Loan is not active'}), 400
 
         old_principal = loan.current_principal
+        now = datetime.utcnow()
         txn_type = None
-        txn_amt = None
+        txn_amt = Decimal('0')
         txn_notes = ''
+        payment_method = ''
 
         if topup_amount > 0:
             # --- TOP‑UP: add extra amount, keep all interest state ---
@@ -1102,15 +1108,17 @@ def process_topup(loan_id):
             txn_type = 'topup'
             txn_amt = topup_amount
             txn_notes = f'Top-up of {format_currency(topup_amount)}'
+            payment_method = 'topup'
 
         elif adjustment_amount > 0:
+            # --- ADJUSTMENT: set new principal, reset interest state ---
             loan.current_principal = adjustment_amount
 
             # Clear prepaid markers and interest_paid
             loan.interest_prepaid_period = None
             loan.interest_prepaid_amount = Decimal('0')
-            loan.interest_paid = Decimal('0')               # NEW
-            loan.last_interest_payment_date = datetime.utcnow()
+            loan.interest_paid = Decimal('0')
+            loan.last_interest_payment_date = now
             loan.last_compounding_date = None
 
             if loan.repayment_plan == 'daily' and loan.interest_rate > 0:
@@ -1127,7 +1135,22 @@ def process_topup(loan_id):
             txn_type = 'adjustment'
             txn_amt = adjustment_amount - old_principal
             txn_notes = f'Adjustment from {format_currency(old_principal)} → {format_currency(adjustment_amount)}'
-        # Record ledger entry
+            payment_method = 'adjustment'
+
+        # Create transaction record
+        txn = Transaction(
+            loan_id=loan.id,
+            transaction_type=txn_type,
+            amount=txn_amt,
+            payment_method=payment_method,
+            notes=txn_notes,
+            status='completed',
+            created_at=now
+        )
+        db.session.add(txn)
+        db.session.flush()  # to get txn.id if needed
+
+        # Record ledger entry (using the transaction)
         record_ledger_entry(
             loan=loan,
             event_type='adjustment',
@@ -1137,6 +1160,7 @@ def process_topup(loan_id):
             reference='ADMIN',
             user_id=get_jwt_identity()
         )
+
         db.session.commit()
 
         return jsonify({
@@ -1150,7 +1174,7 @@ def process_topup(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-            
+                
 @admin_bp.route('/approved-loans', methods=['GET'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
@@ -1566,7 +1590,7 @@ def renew_loan(loan_id):
             new_repayment_plan = loan.repayment_plan  # fallback to original
 
         now = datetime.utcnow()
-        
+
         # Preserve assignment before marking old loan
         old_assignment = ClientAssignment.query.filter_by(
             loan_id=loan_id, 
