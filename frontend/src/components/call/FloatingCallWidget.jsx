@@ -1,5 +1,5 @@
-// components/call/FloatingCallWidget.jsx
 import React from 'react';
+import Avatar from '../common/Avatar';
 
 const FloatingCallWidget = ({ call, duration, onMaximize, onEnd }) => {
   const formatDuration = (seconds) => {
@@ -8,11 +8,13 @@ const FloatingCallWidget = ({ call, duration, onMaximize, onEnd }) => {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  const remoteUser = call?.remoteUser || {};
+
   return (
     <div className="floating-call-widget" onClick={onMaximize}>
       <div className="widget-content">
-        <i className="fas fa-phone-alt call-icon" />
-        <span className="call-name">{call?.remoteUser?.name || 'Call'}</span>
+        <Avatar user={remoteUser} size={28} className="call-icon" />
+        <span className="call-name">{remoteUser?.name || 'Call'}</span>
         <span className="call-duration">{formatDuration(duration)}</span>
         <button className="end-call-btn" onClick={(e) => { e.stopPropagation(); onEnd(); }}>
           <i className="fas fa-phone-slash" />

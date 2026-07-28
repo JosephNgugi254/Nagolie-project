@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import { recoveryAPI, chatAPI } from '../../services/api';
 import Avatar from '../common/Avatar';
 import Modal from '../common/Modal';
-import CreateGroupModal from './CreateGroupModal';   // new
+import CreateGroupModal from './CreateGroupModal';
 
 function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [groupUnreads, setGroupUnreads] = useState({});
   const [previewUser, setPreviewUser] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -18,6 +19,7 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
       fetchUsers();
       fetchUnreadCounts();
       fetchGroups();
+      fetchGroupUnreads();
     }
   }, [isOpen]);
 
@@ -35,21 +37,27 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
   };
 
   const fetchGroups = async () => {
-  try {
-    // Test CORS first
-    const pingRes = await chatAPI.ping();  // you'll need to add this method
-    console.log('Ping response:', pingRes.data);
-    const res = await chatAPI.getGroups();
-    setGroups(res.data);
-  } catch (err) {
-    console.error(err);
-  }
-};
+    try {
+      const res = await chatAPI.getGroups();
+      setGroups(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchUnreadCounts = async () => {
     try {
       const res = await recoveryAPI.getUnreadCountByUser();
       setUnreadCounts(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchGroupUnreads = async () => {
+    try {
+      const res = await chatAPI.getGroupUnreadCounts();
+      setGroupUnreads(res.data);
     } catch (err) {
       console.error(err);
     }
@@ -109,7 +117,7 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
             {groups.map(group => (
               <div
                 key={`group-${group.id}`}
-                className="chat-list-item"
+                className={`chat-list-item ${groupUnreads[group.id] > 0 ? 'unread' : ''}`}
                 onClick={() => onSelectUser({ type: 'group', data: group })}
               >
                 <div className="chat-avatar">
@@ -123,6 +131,9 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
                   <div className="chat-name">{group.name}</div>
                   <div className="chat-role">{group.member_count} members</div>
                 </div>
+                {groupUnreads[group.id] > 0 && (
+                  <span className="badge bg-danger rounded-pill">{groupUnreads[group.id]}</span>
+                )}
               </div>
             ))}
             {users.length === 0 && groups.length === 0 && (

@@ -4180,3 +4180,59 @@ section {
 .chat-avatar .fa-users {
   color: #6c757d;
 }
+
+/* Members dropdown */
+.group-members-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: #fff;
+  color: #212529;
+  min-width: 220px;
+  max-height: 300px;
+  overflow-y: auto;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.2);
+  padding: 8px;
+  z-index: 1200;
+}
+
+/* Call grid */
+.call-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+}
+.participant-tile {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #222;
+  min-height: 120px;
+}
+.participant-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.participant-label {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,0,0,.5);
+  border-radius: 12px;
+  padding: 2px 8px;
+  color: #fff;
+  font-size: .8rem;
+}
+
+/* Message menu position for received messages */
+.chat-message.received .message-actions-dropdown {
+  left: -28px;
+  right: auto;
+}

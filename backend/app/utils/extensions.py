@@ -116,6 +116,7 @@ def handle_send_message(data):
         attachment_url=data.get('attachment_url'),
         attachment_type=data.get('attachment_type'),
         attachment_name=data.get('attachment_name'),
+        reply_to_id=data.get('reply_to_id'),  
         status='delivered' if recipient_online else 'sent'
     )
     if recipient_online:
@@ -170,11 +171,13 @@ def handle_call_offer(data):
     emit('call_offer', {
         'caller_id': user.id,
         'caller_name': user.username,
+        'caller_avatar': user.profile_picture,
         'call_type': data['call_type'],
         'offer': data['offer'],
         'call_id': data.get('call_id'),
         'is_group': data.get('is_group', False),
-        'participants': data.get('participants', [user.id])
+        'participants': data.get('participants', [user.id]),
+        'is_mesh': data.get('is_mesh', False), 
     }, room=room)
 
 
@@ -243,16 +246,41 @@ def handle_add_participant(data):
         return
     new_user_id = data['new_user_id']
     call_id = data['call_id']
-    room = f'user_{new_user_id}'
+    existing_participants = data['existing_participants']
+
+    # 1) Invite the new person
     emit('call_invite', {
         'call_id': call_id,
         'inviter_id': user.id,
         'inviter_name': user.username,
+        'inviter_avatar': user.profile_picture,
         'call_type': data['call_type'],
-        'existing_participants': data['existing_participants'],
-        'offer': data['offer']
-    }, room=room)
+        'existing_participants': existing_participants + [new_user_id],
+        'offer': data['offer'],
+    }, room=f'user_{new_user_id}')
 
+    # 2) Tell every OTHER existing participant to also connect to the new person
+    for pid in existing_participants:
+        if pid in (user.id, new_user_id):
+            continue
+        emit('call_mesh_join', {
+            'call_id': call_id,
+            'new_user_id': new_user_id,
+            'call_type': data['call_type'],
+        }, room=f'user_{pid}')
+
+@socketio.on('call_leave')
+def handle_call_leave(data):
+    user = get_user_from_token()
+    if not user:
+        return
+    target = data.get('target_user_id')
+    if not target:
+        return
+    emit('call_peer_left', {
+        'call_id': data['call_id'],
+        'user_id': user.id,
+    }, room=f'user_{target}')
 
 # ---------- Group chat events ----------
 @socketio.on('join_group')
@@ -289,6 +317,7 @@ def handle_send_group_message(data):
         attachment_url=data.get('attachment_url'),
         attachment_type=data.get('attachment_type'),
         attachment_name=data.get('attachment_name'),
+        reply_to_id=data.get('reply_to_id'),  
         status='sent',
         is_system_message=False
     )

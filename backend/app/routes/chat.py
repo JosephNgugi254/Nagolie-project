@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import User, Group, GroupMember, PrivateMessage
+from app.models import User, Group, GroupMember, PrivateMessage, GroupReadStatus, GroupMember
 from datetime import datetime
 import traceback
 
@@ -347,3 +347,55 @@ def mark_group_read(group_id):
 
     db.session.commit()
     return jsonify({'success': True}), 200
+
+@chat_bp.route('/groups/unread-counts', methods=['GET'])
+@jwt_required()
+def get_group_unread_counts():
+    user_id = int(get_jwt_identity())
+    memberships = GroupMember.query.filter_by(user_id=user_id, is_active=True).all()
+    result = {}
+    for m in memberships:
+        read_status = GroupReadStatus.query.filter_by(user_id=user_id, group_id=m.group_id).first()
+        last_read = read_status.last_read_at if read_status else datetime.min
+        count = PrivateMessage.query.filter(
+            PrivateMessage.group_id == m.group_id,
+            PrivateMessage.sender_id != user_id,
+            PrivateMessage.created_at > last_read
+        ).count()
+        result[m.group_id] = count
+    return jsonify(result), 200
+
+
+@chat_bp.route('/groups/<int:group_id>/members', methods=['POST'])
+@jwt_required()
+def add_group_member(group_id):
+    user_id = int(get_jwt_identity())
+    group = Group.query.get_or_404(group_id)
+    if group.created_by != user_id:
+        return jsonify({'error': 'Only the group admin can add members'}), 403
+
+    new_user_id = request.json.get('user_id')
+    existing = GroupMember.query.filter_by(group_id=group_id, user_id=new_user_id).first()
+    if existing:
+        if existing.is_active:
+            return jsonify({'error': 'User already in group'}), 400
+        existing.is_active = True
+        existing.joined_at = datetime.utcnow()
+    else:
+        db.session.add(GroupMember(group_id=group_id, user_id=new_user_id))
+
+    # System message
+    new_user = User.query.get(new_user_id)
+    sys_msg = PrivateMessage(
+        sender_id=user_id,
+        group_id=group_id,
+        content=f"{new_user.username} was added to the group",
+        is_system_message=True,
+        status='sent'
+    )
+    db.session.add(sys_msg)
+    db.session.commit()
+
+    socketio.emit('new_group_message', {'message': sys_msg.to_dict()}, room=f'group_{group_id}')
+    return jsonify({'success': True}), 201
+

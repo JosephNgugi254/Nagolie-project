@@ -1094,6 +1094,7 @@ class GroupMember(db.Model):
     joined_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_admin = db.Column(db.Boolean, default=False)          # future use
     is_active = db.Column(db.Boolean, default=True)          # false after leaving
+    last_read_at = db.Column(db.DateTime, nullable=True)
 
     group = db.relationship('Group', back_populates='members')
     user = db.relationship('User')
@@ -1108,3 +1109,15 @@ class GroupMember(db.Model):
             'is_admin': self.is_admin,
             'is_active': self.is_active
         }
+    
+
+class GroupReadStatus(db.Model):
+    __tablename__ = 'group_read_status'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    group_id = db.Column(db.Integer, db.ForeignKey('groups.id'), nullable=False)
+    last_read_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (db.UniqueConstraint('user_id', 'group_id', name='uq_group_read'),)
+
+    user = db.relationship('User')
+    group = db.relationship('Group')

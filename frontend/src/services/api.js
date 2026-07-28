@@ -313,6 +313,10 @@ export const recoveryAPI = {
 
   saveCallLog: (data) => api.post('/recovery/calls', data),
 
+
+  getTotalUnreadCount: () => api.get('/recovery/total-unread-count'),
+  saveCallLog: (data) => api.post('/recovery/calls', data),
+
   // Bad Debt
   getBadDebtLoans: () => api.get('/recovery/bad-debt'),
   markBadDebt: (loanId) => api.post(`/recovery/loan/${loanId}/mark-bad-debt`),
@@ -403,6 +407,8 @@ export const chatAPI = {
   editMessage: (messageId, content) => api.put(`/chat/messages/${messageId}`, { content }),
   deleteMessage: (messageId) => api.delete(`/chat/messages/${messageId}`),
   markGroupRead: (groupId) => api.post(`/chat/groups/${groupId}/read`),
+  getGroupUnreadCounts: () => api.get('/chat/groups/unread-counts'),
+  addGroupMember: (groupId, userId) => api.post(`/chat/groups/${groupId}/members`, { user_id: userId }),
 };
 
 export default api;

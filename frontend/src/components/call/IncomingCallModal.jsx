@@ -1,11 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import Avatar from '../common/Avatar';
 
 const IncomingCallModal = ({ call, onAnswer, onDecline, onToggleRingtone }) => {
   const [isMuted, setIsMuted] = useState(false);
-
-  useEffect(() => {
-    // Ringtone is handled by CallContext; this component only UI
-  }, []);
 
   const toggleMute = () => {
     setIsMuted(!isMuted);
@@ -18,7 +15,7 @@ const IncomingCallModal = ({ call, onAnswer, onDecline, onToggleRingtone }) => {
     <div className="incoming-call-overlay">
       <div className="incoming-call-card">
         <div className="caller-avatar">
-          <i className="fas fa-user-circle fa-5x" />
+          <Avatar user={{ username: call.callerName, profile_picture: call.callerAvatar }} size={90} />
         </div>
         <h4 className="caller-name">{call.callerName || 'Unknown'}</h4>
         <p className="call-type">{call.type === 'video' ? 'Video Call' : 'Voice Call'} incoming...</p>

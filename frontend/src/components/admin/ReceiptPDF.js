@@ -513,7 +513,6 @@ export const computeRunningBalances = (loan, transactions) => {
   };
 };
 
-
 export const generateClientStatement = async (client, ledgerEntries = null) => {
   try {
     let entries = ledgerEntries;
@@ -1473,7 +1472,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'italic');
     doc.text('OFFICIAL COMPANY STAMP', stampX + stampW / 2, stampY + stampH / 2, { align: 'center' });
 
-    // ========== END OF ORIGINAL AGREEMENT (no footer yet, we'll add later) ==========
+    // ========== END OF ORIGINAL AGREEMENT ==========
 
     // ========== OPTIMIZED DDQ SECTION ==========
     doc.addPage();
@@ -1566,7 +1565,7 @@ export const generateLoanAgreementPDF = async (application) => {
     const questions = [
       'Do you confirm that you understand the amount of loan you have received, the total amount you are required to repay, and your selected repayment plan (Daily/Weekly)?',
       'Do you understand that any unpaid interest at the end of every seven (7) days will be added to your outstanding loan balance and will continue to attract interest?',
-      'Do you understand that you are expected to fully repay the loan within two (2) weeks or, if unable to do so, present yourself to sign a Loan Renewal Agreement?',
+      'Do you understand that you are expected to repay the outstanding loan balance in full within two (2) weeks or, if unable to do so, present yourself to sign a compulsory Loan Renewal Agreement?',
       'Do you understand that the livestock offered as collateral remains the legal property of Nagolie Enterprises Ltd until the loan is fully repaid, and that you must not sell, transfer, or dispose of it without the Company\'s written consent?',
       'Do you understand and agree that if you fail to honour this Agreement or any repayment arrangements, Nagolie Enterprises Ltd has the right to immediately recover the collateral livestock without further notice, in accordance with the Agreement?'
     ];
@@ -2352,7 +2351,7 @@ export const generateManualLoanAgreementPDF = async () => {
     const questions = [
       'Do you confirm that you understand the amount of loan you have received, the total amount you are required to repay, and your selected repayment plan (Daily/Weekly)?',
       'Do you understand that any unpaid interest at the end of every seven (7) days will be added to your outstanding loan balance and will continue to attract interest?',
-      'Do you understand that you are expected to fully repay the loan within two (2) weeks or, if unable to do so, present yourself to sign a Loan Renewal Agreement?',
+      'Do you understand that you are expected to repay the outstanding loan balance in full within two (2) weeks or, if unable to do so, present yourself to sign a compulsory Loan Renewal Agreement?',
       'Do you understand that the livestock offered as collateral remains the legal property of Nagolie Enterprises Ltd until the loan is fully repaid, and that you must not sell, transfer, or dispose of it without the Company\'s written consent?',
       'Do you understand and agree that if you fail to honour this Agreement or any repayment arrangements, Nagolie Enterprises Ltd has the right to immediately recover the collateral livestock without further notice, in accordance with the Agreement?'
     ];
@@ -8481,7 +8480,6 @@ export const generateManualRecoveryReportPDF = async () => {
     throw error;
   }
 };
-
 
 /// Helper: format month from "YYYY-MM" to "Month/YYYY"
 const formatMonthDisplay = (monthStr) => {
