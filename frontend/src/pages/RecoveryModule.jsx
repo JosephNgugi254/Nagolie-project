@@ -2046,6 +2046,43 @@ function RecoveryModule() {
                                     <button className="btn btn-outline-success" onClick={() => handleApplicationAction(row.id, "approve")}><i className="fas fa-check"></i></button>
                                     <button className="btn btn-outline-danger" onClick={() => handleApplicationAction(row.id, "reject")}><i className="fas fa-times"></i></button>
                                     <button className="btn btn-outline-info" onClick={() => { setSelectedApplication(row); setShowApplicationModal(true); }}><i className="fas fa-eye"></i></button>
+                                    {/* NEW: Download Loan Agreement */}
+                                    <button
+                                      className="btn btn-outline-success"
+                                      onClick={async () => {
+                                        try {
+                                          // Map repayment_plan to repaymentPlan for the PDF generator
+                                          await generateLoanAgreementPDF({
+                                            ...row,
+                                            repaymentPlan: row.repayment_plan,
+                                          });
+                                          showToast.success("Loan agreement downloaded");
+                                        } catch (error) {
+                                          console.error("Error generating loan agreement:", error);
+                                          showToast.error("Failed to download loan agreement");
+                                        }
+                                      }}
+                                      title="Download Loan Agreement"
+                                    >
+                                      <i className="fas fa-download"></i>
+                                    </button>
+
+                                    {/* NEW: Download Next of Kin Consent */}
+                                    <button
+                                      className="btn btn-outline-warning"
+                                      onClick={async () => {
+                                        try {
+                                          await generateNextOfKinConsentPDF(row);
+                                          showToast.success("Next of Kin consent form downloaded!");
+                                        } catch (error) {
+                                          console.error("Error generating next of kin consent:", error);
+                                          showToast.error("Failed to download next of kin consent form");
+                                        }
+                                      }}
+                                      title="Download Next of Kin Consent"
+                                    >
+                                      <i className="fas fa-user-friends"></i>
+                                    </button>
                                   </div>
                                 ) }
                               ]}
