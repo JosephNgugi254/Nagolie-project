@@ -298,9 +298,13 @@ def _accrue_weekly(loan, today, last_date, save=True):
     loan.balance = loan.current_principal
 
     # -----------------------------------------------------------------
-    # NEW: Check for full repayment and DELETE livestock
+    # FIXED: Check for full repayment by total outstanding (principal + unpaid interest)
     # -----------------------------------------------------------------
-    if loan.current_principal <= Decimal('0.01'):
+    # Compute any unpaid interest (should be zero after compounding, but safe)
+    unpaid_interest = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+    total_outstanding = loan.current_principal + unpaid_interest
+
+    if total_outstanding <= Decimal('0.01'):
         loan.status = 'completed'
         loan.current_principal = Decimal('0')
         loan.balance = Decimal('0')
@@ -309,10 +313,8 @@ def _accrue_weekly(loan, today, last_date, save=True):
             livestock = loan.livestock
             loan.livestock_id = None
             db.session.delete(livestock)
-            # If you want to log this, you can do it here
 
     return loan
-
 
 # ---------------------------------------------------------------------------
 # Period helpers  (unchanged)
