@@ -1354,12 +1354,15 @@ function RecoveryModule() {
       document.title = res.data.count > 0 ? `(${res.data.count}) Nagolie Recovery` : 'Nagolie Recovery';
     } catch (e) { console.error(e); }
   };
-
   const handleSelectUser = (chatObj) => {
     // chatObj = { type: 'user'|'group', data: ... }
     const id = chatObj.type === 'user' ? chatObj.data.id : `group-${chatObj.data.id}`;
     if (openChatWindows.some(w => (w.type === chatObj.type && w.data.id === chatObj.data.id))) return;
-    if (isMobile) { setOpenChatWindows([chatObj]); return; }
+    if (isMobile) {
+      setOpenChatWindows([chatObj]);
+      setShowChatList(false); // auto‑hide the inbox panel when a chat is opened on mobile
+      return;
+    }
     if (openChatWindows.length >= MAX_CHAT_WINDOWS) { showToast.info('Max chat windows open'); return; }
     setOpenChatWindows(prev => [...prev, chatObj]);
   };
@@ -4059,13 +4062,22 @@ function RecoveryModule() {
         <ChatWindow
           key={chatObj.type === 'user' ? chatObj.data.id : `group-${chatObj.data.id}`}
           chat={chatObj}
-          onClose={() => setOpenChatWindows(prev => prev.filter(w => w !== chatObj))}
+          onClose={() => {
+            setOpenChatWindows(prev => {
+              const updated = prev.filter(w => w !== chatObj);
+              // If on mobile and no chat windows remain, show the inbox again
+              if (isMobile && updated.length === 0) {
+                setShowChatList(true);
+              }
+              return updated;
+            });
+          }}
           onNewMessage={fetchUnreadCount}
           style={getChatStyle(i)}
           globalSocket={socket}
           onlineUsers={onlineUsers}
         />
-      ))}
+    ))}
 
       {showPaymentModal && selectedLoan && (
         <PaymentModal
