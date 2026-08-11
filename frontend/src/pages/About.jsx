@@ -192,7 +192,7 @@ function About() {
 
   const mvvItems = [
     { icon: "bullseye", title: "Our Mission", text: "To provide accessible, financial solutions that empower rural communities, strengthen livelihoods, and drive agricultural growth across Kenya." },
-    { icon: "eye", title: "Our Vision", text: "To become the premier livestock acquisition partner, driving sustainable economic development through innovation and reliability." },
+    { icon: "eye", title: "Our Vision", text: "To become a leading livestock-backed lending partner, driving sustainable economic development through innovation and reliability." },
     { icon: "heart", title: "Our Values", text: "Integrity, transparency, respect for livestock owners, and a firm commitment to efficiency, fairness, and supporting rural prosperity." }
   ]
 
@@ -216,7 +216,7 @@ function About() {
           <div className="row align-items-center">
             <div className="col-lg-8 mx-auto text-center">
               <h1 className="display-4 fw-bold mb-4 text-primary">About Nagolie Enterprises Ltd</h1>
-              <p className="lead mb-4">Revolutionizing direct livestock acquisitions in Kajiado County</p>
+              <p className="lead mb-4">Expanding access to finance through livestock-backed lending in Kajiado County and across Kenya</p>
             </div>
           </div>
         </div>
@@ -242,23 +242,35 @@ function About() {
             >
               <h2 className="display-5 fw-bold mb-4">Our Story</h2>
               <p className="lead mb-4">
-                Your local partner for turning livestock into cash in Isinya, Kajiado County,
-                through fair and innovative buying solutions
+                Your trusted partner for accessing finance using livestock as collateral in Isinya, Kajiado County.
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises Ltd, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that
-                recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
-                while our streamlined approach guarantees you access to funds when you need them most.
+                 At Nagolie Enterprises Ltd, we understand that livestock is more than an asset. 
+                 For many families and farmers, it is a source of income, food security, 
+                 business capital, and long-term financial stability. Our livestock-backed 
+                 lending model enables eligible livestock owners to access financing while 
+                 retaining their productive assets.
               </p>
               <p className="mb-4">
-                Built on the pillars of <strong>integrity, transparency, and efficiency</strong>, 
-                we are committed to empowering livestock owners with purchase opportunities that inspire trust and deliver results.
-                With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
+                Built on the principles of <strong>integrity, transparency, responsibility, 
+                and efficiency</strong>, Nagolie Enterprises Ltd is committed to developing 
+                a responsible livestock-backed lending ecosystem that supports farmers, 
+                strengthens rural livelihoods, and contributes to sustainable agricultural 
+                growth.
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises Ltd, we go beyond traditional livestock financing by recognizing each animal as part of a broader agricultural value chain.
-                Through structured classification and professional valuation, we assess not only the physical asset, but also its income-generating potential, enabling smarter financing, 
-                better risk management, and more sustainable outcomes for our farmers.
+                We believe that accessing capital should not necessarily mean disposing of 
+                productive assets. With Nagolie, livestock owners can use the value of their 
+                livestock to unlock financial opportunities for education, medical needs, 
+                business expansion, farm inputs, and other important needs while continuing 
+                to build their livelihoods.
+              </p>
+              <p className="mb-4">
+                Through professional livestock valuation, client assessment, and transparent 
+                lending terms, we determine the appropriate financing based on the value and 
+                suitability of the livestock provided as collateral. Our goal is to make 
+                financing more accessible to livestock owners who may otherwise have limited 
+                access to conventional credit.
               </p>
 
               {/* Stats with CountUp */}
@@ -426,7 +438,7 @@ function About() {
               </p>
               <div className="d-flex justify-content-center gap-3 flex-wrap">
                 <a href="/#loan-application" className="btn btn-light btn-lg px-4">
-                  Submit Livestock Offer
+                  Apply for a Loan
                 </a>
                 <a href="/#contact" className="btn btn-outline-light btn-lg px-4">
                   Contact Us

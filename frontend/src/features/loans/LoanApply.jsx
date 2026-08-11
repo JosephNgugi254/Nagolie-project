@@ -310,7 +310,7 @@ function LoanApply({ onSubmit }) {
 
         <div className="row">
           <div className="col-md-6">
-            <FormInput label="Amount (KSh)" name="loanAmount" type="number" value={formData.loanAmount} onChange={handleChange} placeholder="Enter desired amount" min="1000" max="1000000" required />
+            <FormInput label="Loan Amount (KSh)" name="loanAmount" type="number" value={formData.loanAmount} onChange={handleChange} placeholder="Enter desired amount" min="1000" max="1000000" required />
           </div>
           <div className="col-md-6">
             <label htmlFor="mainCategory" className="form-label">Livestock Type <span className="text-danger">*</span></label>
@@ -379,7 +379,7 @@ function LoanApply({ onSubmit }) {
             <FormInput label="Number of Livestock" name="count" type="number" value={formData.count} onChange={handleChange} placeholder="Enter number of livestock" min="1" required />
           </div>
           <div className="col-md-6">
-            <FormInput label="Estimated Value (KSh)" name="estimatedValue" type="number" placeholder="Enter estimated value of your livestock" value={formData.estimatedValue} onChange={handleChange} required />
+            <FormInput label="Estimated Livestock Collateral Value (KSh)" name="estimatedValue" type="number" placeholder="Enter estimated value of your livestock" value={formData.estimatedValue} onChange={handleChange} required />
           </div>
         </div>
 

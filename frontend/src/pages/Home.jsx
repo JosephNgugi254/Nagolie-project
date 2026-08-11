@@ -459,7 +459,7 @@ function Home() {
                 </motion.p>
                 <div className="hero-buttons">
                   <a href="#loan-application" className="btn btn-primary btn-lg me-3">
-                    Submit Livestock Offer
+                    Apply for a Loan
                   </a>
                   <Link to="/about" className="btn btn-outline-light btn-lg">
                     Learn More
@@ -477,7 +477,7 @@ function Home() {
           <div className="row">
             {[
               { icon: "fa-clock", title: "Quick Processing", text: "Get cash for your livestock in hours. Our streamlined process ensures fast access to cash when you need them most." },
-              { icon: "fa-shield-alt", title: "Secure & Reliable", text: "We secure your livestock sale with transparent terms, professional valuations, and reliable handling every step of the way." },
+              { icon: "fa-shield-alt", title: "Secure & Reliable", text: "We secure your loan with livestock collateral, transparent terms, professional valuation, and reliable handling throughout the lending process." },
               { icon: "fa-mobile-alt", title: "M-Pesa Integration", text: "Convenient payment options through M-Pesa. Receive funds directly through your mobile phone." }
             ].map((feature, index) => (
               <motion.div
@@ -523,17 +523,16 @@ function Home() {
             <div className="col-lg-12 mb-5 col-sm-12 text-justify">
               <h2 className="display-5 fw-bold mb-4 text-center">About us</h2>
               <p className="lead mb-4">
-                Your local partner for turning livestock into cash in Isinya, Kajiado County,
-                through fair and innovative buying solutions
+                Your local partner for accessing finance using livestock as collateral in Isinya, Kajiado County,
               </p>
               <p className="mb-4">
-                At Nagolie Enterprises Ltd, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable buying services that recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent purchase terms, 
+                At Nagolie Enterprises Ltd, we understand the central role that livestock plays in the livelihoods of our community. We provide quick, reliable financial services that recognize and respect the true value of your livestock. Our professional valuation process ensures fair and transparent lending terms, 
                 while our streamlined approach guarantees you access to funds when you need them most.
               </p>
               <p className="mb-4">
                 Built on the pillars of <strong>integrity, transparency, and efficiency</strong>, 
-                we are committed to empowering livestock owners with purchase opportunities that inspire trust and deliver results.
-                With Nagolie, you don't just sell your livestock, you gain a dependable partner dedicated to supporting your growth and stability
+                we are committed to empowering livestock owners with financial opportunities that inspire trust and deliver results.
+                With Nagolie, you don't just get a loan, you gain a dependable partner dedicated to supporting your growth and stability
               </p>
 
               {/* Stats with CountUp */}
@@ -579,7 +578,7 @@ function Home() {
           <div className="row">
             {[
               { icon: "bullseye", title: "Our Mission", text: "To provide accessible, financial solutions that empower rural communities, strengthen livelihoods, and drive agricultural growth across Kenya." },
-              { icon: "eye", title: "Our Vision", text: "To become the premier livestock acquisition partner, driving sustainable economic development through innovation and reliability." },
+              { icon: "eye", title: "Our Vision", text: "To become a leading livestock-backed lending partner, driving sustainable economic development through innovation and reliability." },
               { icon: "heart", title: "Our Values", text: "Integrity, transparency, respect for livestock owners, and a firm commitment to efficiency, fairness, and supporting rural prosperity." }
             ].map((item, idx) => (
               <motion.div
@@ -617,27 +616,27 @@ function Home() {
         <div className="container">
           <div className="text-center mb-5">
             <h2 className="display-5 fw-bold">Our Services</h2>
-            <p className="lead text-muted">Comprehensive livestock purchase solutions</p>
+            <p className="lead text-muted">Comprehensive livestock-backed lending solutions</p>
           </div>
           <div className="row">
             {[
               {
                 icon: "fa-coins",
-                title: "Quick Purchases",
-                text: "Get cash offers from as low as KSh 1,000 up to KSh 1,000,000 for your livestock. Professional valuation ensures fair terms.",
-                items: ["Purchases processed within 24 to 48 hours", "Competitive market rates", "Flexible sale terms", "Professional livestock valuation"]
+                title: "Quick Loans for Livestock Owners",
+                text: "Get quick cash from as low as KSh 5,000 up to KSh 1,000,000 with your livestock as collateral. Professional valuation ensures fair terms.",
+                items: ["Loans are processed within 24 to 48 hours", "Competitive market rates", "Flexible sale terms", "Professional livestock valuation"]
               },
               {
                 icon: "fa-mobile-alt",
                 title: "Mobile Money Services",
-                text: "Enjoy seamless transactions directly from your phone. Instantly receive purchase disbursement funds and handle your sales through M-Pesa.",
-                items: ["Instant fund disbursement", "Secure, reliable transactions", "Convenient sale confirmations"]
+                text: "Receive approved loan funds conveniently through M-Pesa and make repayments through secure mobile payment channels.",
+                items: ["Instant fund disbursement", "Secure, reliable transactions", "Convenient loan disbursement"]
               },
               {
                 icon: "fa-store",
                 title: "Livestock Marketplace",
-                text: "Access a trusted marketplace to buy or sell livestock with ease. Whether you're sourcing new stock or offloading animals for cash, Nagolie ensures you get the best value.",
-                items: ["Better market access for your livestock", "Reliable sourcing for quality livestock"]
+                text: "Access a trusted marketplace to buy livestock with ease. If you're sourcing new stock, Nagolie ensures you get the best value.",
+                items: ["Better market access for livestock", "Reliable sourcing for quality livestock"]
               }
             ].map((service, index) => (
               <motion.div
@@ -694,12 +693,12 @@ function Home() {
               <div className="testimonials-slider-container">
                 <div className="testimonials-slider" ref={sliderRef}>
                   {[
-                    { name: "Terry Nashipai", location: "Isinya, Kajiado", quote: "Nagolie bought my livestock when I needed cash fast for my children's school fees. Their quick processing meant my kids didn't miss a single day of school. The M-Pesa payment was so convenient!", image: "terry.png" },
-                    { name: "Ivy Akinyi", location: "Isinya, Kajiado", quote: "When my mother was hospitalized, I sold my goats to Nagolie to clear the medical bills. Their valuation was fair, and I got the cash the same day. They truly understand emergencies.", image: "ivy.png" },
-                    { name: "Kelvin Lemayian", location: "Isinya, Kajiado", quote: "My small shop was running out of stock, and I needed quick cash to restock. Selling to Nagolie saved my business. The terms were flexible and fair.", image: "kelvin.png" },
-                    { name: "Francis Katei", location: "Isinya, Kajiado", quote: "I needed capital to expand my poultry farming, so I sold some chickens to Nagolie. Now my business has doubled in size thanks to that quick cash!", image: "francis.png" },
-                    { name: "Beatrice Nayian", location: "Isinya, Kajiado", quote: "During the drought season, I needed money to buy feed for my cattle, so I sold a few to Nagolie. Their quick process helped me save my herd. Their service is a lifeline for livestock farmers.", image: "beatrice.png" },
-                    { name: "Elijah Matura", location: "Isinya, Kajiado", quote: "I was able to pay for my daughter's university fees after selling my sheep to Nagolie. The process was straightforward, transparent, and respectful.", image: "elijah.png" }
+                    { name: "Terry Nashipai", location: "Isinya, Kajiado", quote: "I needed money quickly to pay my children's school fees, and Nagolie helped me access financing using my livestock as collateral. The process was quick, and the M-Pesa disbursement was very convenient.", image: "terry.png" },
+                    { name: "Ivy Akinyi", location: "Isinya, Kajiado", quote: "When my mother was hospitalized, I needed urgent funds for her medical bills. Nagolie helped me access a loan against my goats, with a professional valuation and clear terms. Their support made a difficult time much easier.", image: "ivy.png" },
+                    { name: "Kelvin Lemayian", location: "Isinya, Kajiado", quote: "My small shop was running out of stock, and I needed working capital quickly. Nagolie helped me secure financing using my livestock as collateral, allowing me to restock without having to dispose of my animals.", image: "kelvin.png" },
+                    { name: "Francis Katei", location: "Isinya, Kajiado", quote: "I needed capital to expand my poultry farming, and Nagolie gave me access to financing using my livestock as collateral. The funding helped me grow my business while keeping my productive assets.", image: "francis.png" },
+                    { name: "Beatrice Nayian", location: "Isinya, Kajiado", quote: "During the drought season, I needed money to buy feed for my cattle. Nagolie helped me access financing against my livestock, allowing me to support my herd without having to sell my animals.", image: "beatrice.png" },
+                    { name: "Elijah Matura", location: "Isinya, Kajiado", quote: "I needed funds to pay for my daughter's university fees, and Nagolie helped me access a loan secured by my sheep. The process was straightforward, transparent, and respectful.", image: "elijah.png" }
                   ].map((testimonial, index) => (
                     <motion.div
                       key={index}
@@ -859,7 +858,7 @@ function Home() {
                 transition={{ type: "spring", stiffness: 300, damping: 20 }}
               >
                 <div className="card-header bg-primary text-white text-center">
-                  <h3 className="mb-0">Livestock Sales Proposal Form</h3>
+                  <h3 className="mb-0">Loan Application Form</h3>
                 </div>
                 <div className="card-body p-4">
                   <LoanApply onSubmit={handleLoanSubmit} />

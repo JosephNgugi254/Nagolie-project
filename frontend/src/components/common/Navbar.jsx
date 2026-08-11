@@ -130,7 +130,7 @@ function Navbar() {
                   }
                 }}
               >
-                Submit Livestock Offer
+                Apply for a Loan
               </Link>
             </li>
             <li className="nav-item ms-2">

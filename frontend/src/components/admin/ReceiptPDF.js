@@ -926,7 +926,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
+    doc.text('LOAN AGREEMENT', 105, yPos, { align: 'center' });
     yPos += 3;
 
     yPos = addDivider(doc, yPos);
@@ -1664,7 +1664,7 @@ export const generateLoanAgreementPDF = async (application) => {
         { text: ', confirm that the above questions were explained to me in a', style: 'normal' }
       ],
       "language that I understand. I have answered them truthfully and I fully understand the terms and",
-      "conditions of the Livestock Advance Payment Agreement. I acknowledge that I am signing the",
+      "conditions of the Loan Agreement. I acknowledge that I am signing the",
       "Agreement voluntarily and without any coercion."
     ];
 
@@ -1751,7 +1751,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text('LIVESTOCK ADVANCE PAYMENT AGREEMENT', 105, yPos, { align: 'center' });
+    doc.text('LOAN AGREEMENT', 105, yPos, { align: 'center' });
     yPos += 8;
 
     yPos = addDivider(doc, yPos);
@@ -2440,7 +2440,7 @@ export const generateManualLoanAgreementPDF = async () => {
         { text: '___________________', style: 'bold' },
         { text: ', confirm that the above questions were explained ', style: 'normal' }
       ],
-      "to me in a language that I understand. I have answered them truthfully and I fully understand the terms and conditions of the Livestock Advance Payment Agreement. I acknowledge that I am signing the Agreement voluntarily and without any coercion.",
+      "to me in a language that I understand. I have answered them truthfully and I fully understand the terms and conditions of the Loan Agreement. I acknowledge that I am signing the Agreement voluntarily and without any coercion.",
     ];
 
     doc.setFontSize(10);
@@ -4532,7 +4532,7 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
     doc.text("3. The interest will continue to accrue on the new principal according to the selected repayment plan.", 20, yPos);
     yPos += 5;
     
-    doc.text("4. All terms and conditions of the original Livestock Advance Payment Agreement (including the collateral provisions)", 20, yPos);
+    doc.text("4. All terms and conditions of the original Loan Agreement (including the collateral provisions)", 20, yPos);
     yPos += 4.5;
     doc.text("    remain in full force and effect.", 20, yPos);
     yPos += 5;
@@ -4713,7 +4713,7 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
       "   New Principal: KES _________________________",
       "   Interest: __________ [   ]30% per week /   [   ]4.5% per day",
       "3. The interest will continue to accrue on the new principal according to the original loan's repayment plan.",
-      "4. All terms and conditions of the original Livestock Advance Payment Agreement (including the collateral provisions)",
+      "4. All terms and conditions of the original Loan Agreement (including the collateral provisions)",
       "   remain in full force and effect.",
       "5. The Borrower agrees that failure to comply with this renewal agreement will constitute immediate default,",
       "   and the Company may take possession of the collateral livestock without further notice.",
@@ -5621,7 +5621,7 @@ export const generateLoanWaiverAgreementAutoPDF = async (loanData, newPrincipal,
 
     // Remaining clauses
     yPos = addWrappedLine("5. No further interest will accrue on this waived amount. The new loan carries 0% interest.", yPos);
-    yPos = addWrappedLine("6. All other terms of the original Livestock Advance Payment Agreement (collateral, ownership, etc.) remain in full force.", yPos);
+    yPos = addWrappedLine("6. All other terms of the original Loan Agreement (collateral, ownership, etc.) remain in full force.", yPos);
     yPos = addWrappedLine("7. Failure to repay the agreed amount by the due date will constitute default, and the Company may take possession of the collateral livestock without further notice.", yPos);
     yPos = addWrappedLine("8. If the Borrower fails to clear the full agreed balance on or before the due date specified in clause 4, then effective the next calendar day, the loan shall utomatically revert to the original payment plan that existed before this waiver agreement.", yPos);
     yPos = addWrappedLine("9. This waiver agreement is effective from the date signed below.", yPos);
@@ -5826,7 +5826,7 @@ export const generateManualLoanWaiverAgreementPDF = async () => {
 
     // Remaining clauses
     yPos = addWrappedLine("5. No further interest will accrue on this waived amount. The new loan carries 0% interest.", yPos);
-    yPos = addWrappedLine("6. All other terms of the original Livestock Advance Payment Agreement (collateral, ownership, etc.) remain in full force.", yPos);
+    yPos = addWrappedLine("6. All other terms of the original Loan Agreement (collateral, ownership, etc.) remain in full force.", yPos);
     yPos = addWrappedLine("7. Failure to repay the agreed amount by the due date will constitute default, and the Company may take possession of the collateral livestock without further notice.", yPos);
     yPos = addWrappedLine("8. If the Borrower fails to clear the full agreed balance on or before the due date specified in clause 4, then effective the next calendar day, the loan shall", yPos);
     yPos = addWrappedLine("   automatically revert to the original payment plan that existed before this waiver agreement.", yPos);
@@ -7185,7 +7185,7 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('LIVESTOCK ADVANCE PAYMENT REPORT', 105, yPos, { align: 'center' });
+  doc.text('DAILY LOAN REPORT', 105, yPos, { align: 'center' });
   yPos += 5;
   yPos = addDivider(doc, yPos);
   yPos += 5;
@@ -7401,7 +7401,7 @@ export const generateBlankReportPDF = async () => {
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('LIVESTOCK ADVANCE PAYMENT REPORT', pageWidth / 2, yPos, { align: 'center' });
+  doc.text('DAILY LOAN REPORT', pageWidth / 2, yPos, { align: 'center' });
   yPos += 10;
 
   // Officer and Date row – aligned with new margins
