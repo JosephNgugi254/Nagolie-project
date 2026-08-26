@@ -313,7 +313,7 @@ const ValuerPanel = ({ editable = true }) => {
 
             {editable && (
               <div className="mb-3">
-                <label className="form-label fw-bold">Valuer Recovery Notes (auto‑saved)</label>
+                <label className="form-label fw-bold">Recovery Officer Notes (auto‑saved)</label>
                 <textarea
                   className="form-control"
                   rows="3"
