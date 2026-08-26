@@ -54,6 +54,8 @@ import FinancialReports from '../components/financial/FinancialReports';
 import PettyCashManagement from '../components/petty-cash/PettyCashManagement';
 import CompanyProfile from '../components/admin/CompanyProfile';
 import Avatar from '../components/common/Avatar';
+import AnnieReportsTabs from '../components/recovery/AnnieReportsTabs';
+
 
 // import { CallProvider, useCall } from '../context/CallContext';
 // import IncomingCallModal from '../components/call/IncomingCallModal';
@@ -1775,6 +1777,7 @@ function RecoveryModule() {
                 onOpenUtilities={handleOpenUtilities}
                 userRole={userRole}
                 pendingApplications={pendingApplicationsCount}
+                user={user} 
               />
             </div>
 
@@ -3041,7 +3044,11 @@ function RecoveryModule() {
                   {directorSection === 'utilities' && <UtilitiesPanel userRole={userRole} restrictedMode={true} />}
                 
                   {/* REPORTS */}
-                  {directorSection === 'reports' && <ReportsPanel />}
+                  {directorSection === 'reports' && (
+                    user?.username?.toLowerCase() === 'annie'
+                      ? <AnnieReportsTabs />
+                      : <ReportsPanel />
+                  )}
                 
                   {/* MODALS (identical to AdminPanel)*/}
                   {showApplicationModal && selectedApplication && (

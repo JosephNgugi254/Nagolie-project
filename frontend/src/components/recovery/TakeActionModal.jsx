@@ -1,28 +1,26 @@
 // components/recovery/TakeActionModal.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { showToast } from '../common/Toast';
 
 function TakeActionModal({ loan, onClose, onSendReminder, onClaimOwnership }) {
   const [selectedAction, setSelectedAction] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
 
-  const client = loan; // alias for clarity
+  const client = loan;
 
-  // Calculate due date (14 days after disbursement)
   const disbursementDate = client?.disbursement_date ? new Date(client.disbursement_date) : null;
   const dueDate = disbursementDate ? new Date(disbursementDate.getTime() + 14 * 24 * 60 * 60 * 1000) : null;
   const today = new Date();
   const isPastDue = dueDate ? today > dueDate : false;
 
-  // Overdue status (using backend fields)
   const isOverdue =
     (client?.overdue_days > 0) ||
     (client?.overdue_weeks > 0) ||
     (client?.days_left < 0);
 
-  const isActive = true; // all loans in recovery are active
+  const isActive = true;
 
-  // ----- Default messages -----
   const defaultReminderMessage = `Hello ${client?.name}, this is a reminder from Nagolie Enterprises Ltd that your loan is due.
 • Principal owed: KES ${client?.current_principal?.toLocaleString()}
 • Interest owed: KES ${client?.accrued_interest?.toLocaleString()}
@@ -50,23 +48,73 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
 Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
   })();
 
+  const defaultWarningMessage = (() => {
+    const name = client?.name;
+    const principal = client?.current_principal || 0;
+    const interest = client?.accrued_interest || 0;
+    const total = principal + interest;
+    const dueDateStr = dueDate ? dueDate.toLocaleDateString('en-KE') : 'the due date';
+    const dayOfWeek = dueDate ? dueDate.toLocaleDateString('en-KE', { weekday: 'long' }) : '';
+    return `Dear ${name},
+
+This is to remind you that your loan of KES ${total.toLocaleString()} is due on ${dueDateStr} (${dayOfWeek}).
+
+Outstanding amounts:
+• Principal: KES ${principal.toLocaleString()}
+• Accrued Interest: KES ${interest.toLocaleString()}
+• Total: KES ${total.toLocaleString()}
+
+Please clear the balance before the due date to avoid your account being forwarded to the recovery department as per the loan agreement terms.
+
+Paybill: 247247, Account: 262636
+Thank you.`;
+  })();
+
+  const defaultForwardMessage = (() => {
+    const name = client?.name;
+    const principal = client?.current_principal || 0;
+    const interest = client?.accrued_interest || 0;
+    const total = principal + interest;
+    return `Dear ${name},
+
+This is to inform you that your loan has been forwarded to the recovery department due to non‑payment.
+
+Outstanding amounts:
+• Principal: KES ${principal.toLocaleString()}
+• Accrued Interest: KES ${interest.toLocaleString()}
+• Total: KES ${total.toLocaleString()}
+
+The recovery department will contact you shortly. Please make arrangements to settle the debt to avoid further action.
+
+Paybill: 247247, Account: 262636
+Thank you.`;
+  })();
+
+  // Auto‑fill message when action changes
+  useEffect(() => {
+    if (selectedAction === 'reminder') {
+      setCustomMessage(defaultReminderMessage);
+    } else if (selectedAction === 'deadline') {
+      setCustomMessage(defaultDeadlineMessage);
+    } else if (selectedAction === 'overdue') {
+      setCustomMessage(defaultOverdueMessage);
+    } else if (selectedAction === 'warning') {
+      setCustomMessage(defaultWarningMessage);
+    } else if (selectedAction === 'forward') {
+      setCustomMessage(defaultForwardMessage);
+    }
+  }, [selectedAction]);
+
   const handleSend = async () => {
     if (!selectedAction) {
-      alert('Please select an action first');
+      showToast.warning('Please select an action first');
       return;
     }
 
     setIsLoading(true);
     try {
-      let message = '';
-      if (selectedAction === 'reminder') {
-        message = customMessage || defaultReminderMessage;
-        await onSendReminder(client, message);
-      } else if (selectedAction === 'deadline') {
-        message = customMessage || defaultDeadlineMessage;
-        await onSendReminder(client, message);
-      } else if (selectedAction === 'overdue') {
-        message = customMessage || defaultOverdueMessage;
+      const message = customMessage;
+      if (selectedAction === 'reminder' || selectedAction === 'deadline' || selectedAction === 'overdue' || selectedAction === 'warning' || selectedAction === 'forward') {
         await onSendReminder(client, message);
       } else if (selectedAction === 'claim') {
         await onClaimOwnership(client);
@@ -83,6 +131,18 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
     if (client?.overdue_weeks > 0) return `${client.overdue_weeks} week${client.overdue_weeks !== 1 ? 's' : ''} overdue`;
     if (client?.days_left < 0) return `${Math.abs(client.days_left)} day${Math.abs(client.days_left) !== 1 ? 's' : ''} overdue`;
     return 'Overdue';
+  };
+
+  const copyMessage = () => {
+    if (!selectedAction) {
+      showToast.warning('Please select an action first');
+      return;
+    }
+    navigator.clipboard.writeText(customMessage).then(() => {
+      showToast.success('Message copied to clipboard!');
+    }).catch(() => {
+      showToast.error('Failed to copy message');
+    });
   };
 
   return (
@@ -124,7 +184,6 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
             <div className="mb-4">
               <label className="form-label fw-bold">Select Action:</label>
 
-              {/* 1. Regular Reminder */}
               <div className="form-check mb-2">
                 <input
                   className="form-check-input"
@@ -142,7 +201,6 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
                 </label>
               </div>
 
-              {/* 2. Deadline Reminder (only if active and NOT overdue) */}
               {isActive && !isOverdue && (
                 <div className="form-check mb-2">
                   <input
@@ -162,7 +220,23 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
                 </div>
               )}
 
-              {/* 3. Overdue Reminder (only if overdue) */}
+              <div className="form-check mb-2">
+                <input
+                  className="form-check-input"
+                  type="radio"
+                  name="actionType"
+                  id="sendWarning"
+                  value="warning"
+                  checked={selectedAction === 'warning'}
+                  onChange={(e) => setSelectedAction(e.target.value)}
+                />
+                <label className="form-check-label" htmlFor="sendWarning">
+                  <i className="fas fa-clock text-warning me-2"></i>
+                  <strong>Send Flagging Warning</strong>
+                  <small className="d-block text-muted">Inform client of exact due date and consequences of non‑payment</small>
+                </label>
+              </div>
+
               {isOverdue && (
                 <div className="form-check mb-2">
                   <input
@@ -182,7 +256,23 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
                 </div>
               )}
 
-              {/* 4. Claim Ownership (only if overdue) */}
+              <div className="form-check mb-2">
+                <input
+                  className="form-check-input"
+                  type="radio"
+                  name="actionType"
+                  id="sendForward"
+                  value="forward"
+                  checked={selectedAction === 'forward'}
+                  onChange={(e) => setSelectedAction(e.target.value)}
+                />
+                <label className="form-check-label" htmlFor="sendForward">
+                  <i className="fas fa-arrow-right text-danger me-2"></i>
+                  <strong>Send Forwarded to Recovery</strong>
+                  <small className="d-block text-muted">Formal notice that the loan has been escalated to recovery dept.</small>
+                </label>
+              </div>
+
               {isOverdue && (
                 <div className="form-check">
                   <input
@@ -203,28 +293,31 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
               )}
             </div>
 
-            {/* Custom Message Textarea */}
-            {(selectedAction === 'reminder' || selectedAction === 'deadline' || selectedAction === 'overdue') && (
+            {/* Message Textarea with Copy Button */}
+            {(selectedAction === 'reminder' || selectedAction === 'deadline' || selectedAction === 'overdue' || selectedAction === 'warning' || selectedAction === 'forward') && (
               <div className="mb-3">
-                <label className="form-label fw-bold">Customize Message:</label>
-                <textarea
-                  className="form-control"
-                  rows="6"
-                  value={customMessage}
-                  onChange={(e) => setCustomMessage(e.target.value)}
-                  placeholder={
-                    selectedAction === 'reminder'
-                      ? defaultReminderMessage
-                      : selectedAction === 'deadline'
-                      ? defaultDeadlineMessage
-                      : defaultOverdueMessage
-                  }
-                />
-                <small className="text-muted">You can edit the message above. It will be pre‑filled in your SMS app.</small>
+                <label className="form-label fw-bold">Message:</label>
+                <div className="input-group">
+                  <textarea
+                    className="form-control"
+                    rows="6"
+                    value={customMessage}
+                    onChange={(e) => setCustomMessage(e.target.value)}
+                    placeholder="Select an action above to see the default message"
+                  />
+                  <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    onClick={copyMessage}
+                    title="Copy message to clipboard"
+                  >
+                    <i className="fas fa-copy"></i>
+                  </button>
+                </div>
+                <small className="text-muted">You can edit the message above. Click the copy button to copy the current text.</small>
               </div>
             )}
 
-            {/* Claim Ownership Warning */}
             {selectedAction === 'claim' && (
               <div className="alert alert-warning">
                 <i className="fas fa-exclamation-triangle me-2"></i>
@@ -247,10 +340,14 @@ Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
                   {selectedAction === 'reminder' && <i className="fas fa-paper-plane me-2"></i>}
                   {selectedAction === 'deadline' && <i className="fas fa-hourglass-half me-2"></i>}
                   {selectedAction === 'overdue' && <i className="fas fa-exclamation-triangle me-2"></i>}
+                  {selectedAction === 'warning' && <i className="fas fa-clock me-2"></i>}
+                  {selectedAction === 'forward' && <i className="fas fa-arrow-right me-2"></i>}
                   {selectedAction === 'claim' && <i className="fas fa-gavel me-2"></i>}
                   {selectedAction === 'reminder' && 'Send Reminder'}
                   {selectedAction === 'deadline' && 'Send Deadline Reminder'}
                   {selectedAction === 'overdue' && 'Send Overdue Reminder'}
+                  {selectedAction === 'warning' && 'Send Flagging Warning'}
+                  {selectedAction === 'forward' && 'Send Forwarded to Recovery'}
                   {selectedAction === 'claim' && 'Claim Ownership'}
                 </>
               )}

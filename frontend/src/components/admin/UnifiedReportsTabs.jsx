@@ -27,7 +27,7 @@ const UnifiedReportsTabs = () => {
             className={`nav-link ${activeTab === 'valuer' ? 'active' : ''}`}
             onClick={() => setActiveTab('valuer')}
           >
-            Valuer Recovery Reports
+            Recovery Reports
           </button>
         </li>
       </ul>

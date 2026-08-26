@@ -330,7 +330,7 @@ const ValuerPanel = ({ editable = true }) => {
 
             {!editable && selectedClient.valuer_notes && (
               <div className="mb-3">
-                <label className="form-label fw-bold">Valuer Notes (read‑only)</label>
+                <label className="form-label fw-bold">Recovery Officer Notes (read‑only)</label>
                 <div className="p-2 bg-light rounded">
                   {selectedClient.valuer_notes}
                 </div>

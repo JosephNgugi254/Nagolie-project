@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, CallLog, GroupReadStatus, GroupMember)
-from app.utils.decorators import role_required
+from app.utils.decorators import role_required, role_or_username_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
 from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
 from app.utils.cloudinary_upload import upload_base64_image
@@ -872,7 +872,10 @@ def flag_loan(loan_id):
 
 @recovery_bp.route('/resolve-flag/<int:loan_id>', methods=['POST'])
 @jwt_required()
-@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+@role_or_username_required(
+    allowed_roles=['valuer', 'admin', 'director', 'hr_manager'],
+    allowed_usernames=['Annie']
+)
 def resolve_flag(loan_id):
     """Valuer resolves a flagged loan – moves it back to original officer."""
     user_id = int(get_jwt_identity())
@@ -910,7 +913,10 @@ def resolve_flag(loan_id):
 
 @recovery_bp.route('/flagged-clients', methods=['GET'])
 @jwt_required()
-@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+@role_or_username_required(
+    allowed_roles=['valuer', 'admin', 'director', 'hr_manager'],
+    allowed_usernames=['Annie']
+)
 def get_flagged_clients():
     """Return all currently flagged loans with client details, balances, and livestock value."""
     flagged = FlaggedLoan.query.filter_by(resolved=False).all()
@@ -966,7 +972,10 @@ def get_flagged_clients():
     return jsonify(result), 200
 @recovery_bp.route('/flagged-clients/<int:loan_id>/notes', methods=['PUT'])
 @jwt_required()
-@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+@role_or_username_required(
+    allowed_roles=['valuer', 'admin', 'director', 'hr_manager'],
+    allowed_usernames=['Annie']
+)
 def update_valuer_notes(loan_id):
     """Auto-save valuer notes for a flagged loan."""
     data = request.json
@@ -980,7 +989,10 @@ def update_valuer_notes(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/report-comments', methods=['GET'])
 @jwt_required()
-@role_required(['valuer', 'admin', 'director', 'hr_manager'])
+@role_or_username_required(
+    allowed_roles=['valuer', 'admin', 'director', 'hr_manager'],
+    allowed_usernames=['Annie']
+)
 def get_loan_report_comments(loan_id):
     """Return all report comments (daily loan report notes) for a given loan."""
     comments = ReportComment.query.filter_by(loan_id=loan_id).order_by(ReportComment.created_at.desc()).all()

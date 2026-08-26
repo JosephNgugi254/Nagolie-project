@@ -7512,7 +7512,7 @@ export const generateBlankReportPDF = async () => {
   doc.save(fileName);
 };
 
-// ========== VALUER RECOVERY REPORT FORM (MANUAL FILL) – WITH DATE COLUMN & ADJUSTED WIDTHS ==========
+// ========== RECOVERY REPORT FORM (MANUAL FILL) – WITH DATE COLUMN & ADJUSTED WIDTHS ==========
 export const generateValuerReportPDF = async () => {
   const doc = new jsPDF({
     unit: 'mm',
@@ -7626,7 +7626,7 @@ export const generateValuerReportPDF = async () => {
   }
 
   doc.setFont('helvetica', 'bold');
-  doc.text('Prepared by valuer: ______________________________', margin.left, yPos);
+  doc.text('Prepared by: ______________________________', margin.left, yPos);
   doc.text('Signature: ___________________', margin.left + 120, yPos);
   yPos += 12;
   doc.text('Approved by Director:  Shadrack Kesumet', margin.left, yPos);
@@ -8029,13 +8029,13 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('VALUER RECOVERY REPORT', pageWidth / 2, yPos, { align: 'center' });
+  doc.text('RECOVERY REPORT', pageWidth / 2, yPos, { align: 'center' });
   yPos += 10;
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.textDark);
-  doc.text(`Valuer: ${officerName}`, margin.left, yPos);
+  doc.text(`Officer: ${officerName}`, margin.left, yPos);
   doc.text(`Report Date: ${reportDate}`, pageWidth - margin.right - 50, yPos);
   yPos += 8;
 
@@ -8143,7 +8143,7 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
     yPos = margin.top;
   }
   doc.setFont('helvetica', 'bold');
-  doc.text('Prepared by Valuer: ______________________________', margin.left, yPos);
+  doc.text('Prepared by: ______________________________', margin.left, yPos);
   doc.text('Signature: ___________________', margin.left + 120, yPos);
   yPos += 12;
   doc.text('Approved by Director:  Shadrack Kesumet', margin.left, yPos);

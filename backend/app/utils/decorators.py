@@ -16,3 +16,27 @@ def role_required(roles):
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+def role_or_username_required(allowed_roles=None, allowed_usernames=None):
+    """
+    Decorator that allows access if the user's role is in allowed_roles
+    OR if the user's username is in allowed_usernames.
+    """
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            verify_jwt_in_request()
+            user_id = int(get_jwt_identity())
+            user = User.query.get(user_id)
+            if not user:
+                return jsonify({'error': 'User not found'}), 401
+
+            if allowed_roles and user.role in allowed_roles:
+                return fn(*args, **kwargs)
+
+            if allowed_usernames and user.username in allowed_usernames:
+                return fn(*args, **kwargs)
+
+            return jsonify({'error': 'Permission denied'}), 403
+        return wrapper
+    return decorator
