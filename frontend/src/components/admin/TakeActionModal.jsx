@@ -29,11 +29,25 @@ function TakeActionModal({ client, onClose, onSendReminder, onClaimOwnership }) 
     return `Hello ${name}, your loan is approaching the 14‑day deadline (${dueDateStr}). You are expected to clear the total outstanding balance of KES ${totalBalance.toLocaleString()} by that date. Please visit our office to sign a compulsory loan renewal agreement if you will not have completed the balance, failure to which recovery will take place. Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
   })();
 
-  const defaultOverdueMessage = (() => {
+  const defaultCompoundingMessage = (() => {
     const name = client?.client_name || client?.name;
-    const totalBalance = client?.balance || 0;
-    const dueDateStr = dueDate ? dueDate.toLocaleDateString('en-KE') : 'the due date';
-    return `Hello ${name}, your loan has passed the 14‑day deadline (${dueDateStr}). As per the agreement, you must either clear the balance of KES ${totalBalance.toLocaleString()} in full OR visit our office immediately to sign a compulsory loan renewal agreement. Failure to do so will lead to recovery of the collateral. Make your payment via Paybill: 247247, Account: 262636. Thank you.`;
+    const principal = client?.current_principal || client?.principal || 0;
+    const periodInterest = client?.interest || 0;  // from payment-stats? We'll use current_period_interest if available
+    const unpaid = client?.accrued_interest || client?.interest || 0;
+    const total = client?.balance || (principal + unpaid);
+    const plan = client?.repayment_plan === 'daily' ? '7‑day period' : 'week';
+    return `Dear ${name},
+
+Your loan has entered a new ${plan}. As per the agreement, any unpaid interest from the previous period has been added to your principal.
+
+New current principal: KES ${principal.toLocaleString()}
+New period interest: KES ${periodInterest.toLocaleString()}
+Total balance: KES ${total.toLocaleString()}
+
+Please ensure you make timely payments to avoid additional charges.
+
+Paybill: 247247, Account: 262636
+Thank you.`;
   })();
 
   const defaultWarningMessage = (() => {
@@ -84,8 +98,8 @@ Thank you.`;
       setCustomMessage(defaultReminderMessage);
     } else if (selectedAction === 'deadline') {
       setCustomMessage(defaultDeadlineMessage);
-    } else if (selectedAction === 'overdue') {
-      setCustomMessage(defaultOverdueMessage);
+    } else if (selectedAction === 'compounding') {
+      setCustomMessage(defaultCompoundingMessage);
     } else if (selectedAction === 'warning') {
       setCustomMessage(defaultWarningMessage);
     } else if (selectedAction === 'forward') {
@@ -102,7 +116,7 @@ Thank you.`;
     setIsLoading(true);
     try {
       const message = customMessage;
-      if (selectedAction === 'reminder' || selectedAction === 'deadline' || selectedAction === 'overdue' || selectedAction === 'warning' || selectedAction === 'forward') {
+      if (selectedAction === 'reminder' || selectedAction === 'deadline' || selectedAction === 'compounding' || selectedAction === 'warning' || selectedAction === 'forward') {
         await onSendReminder(client, message);
       } else if (selectedAction === 'claim') {
         await onClaimOwnership(client);
@@ -204,6 +218,24 @@ Thank you.`;
                 </div>
               )}
 
+              {/* NEW Compounding Notice – always available */}
+              <div className="form-check mb-2">
+                <input
+                  className="form-check-input"
+                  type="radio"
+                  name="actionType"
+                  id="sendCompounding"
+                  value="compounding"
+                  checked={selectedAction === 'compounding'}
+                  onChange={(e) => setSelectedAction(e.target.value)}
+                />
+                <label className="form-check-label" htmlFor="sendCompounding">
+                  <i className="fas fa-sync-alt text-info me-2"></i>
+                  <strong>Send Compounding Notice</strong>
+                  <small className="d-block text-muted">Inform client of new week compounding and updated balances</small>
+                </label>
+              </div>
+
               <div className="form-check mb-2">
                 <input
                   className="form-check-input"
@@ -227,35 +259,18 @@ Thank you.`;
                     className="form-check-input"
                     type="radio"
                     name="actionType"
-                    id="sendOverdue"
-                    value="overdue"
-                    checked={selectedAction === 'overdue'}
+                    id="sendForward"
+                    value="forward"
+                    checked={selectedAction === 'forward'}
                     onChange={(e) => setSelectedAction(e.target.value)}
                   />
-                  <label className="form-check-label" htmlFor="sendOverdue">
-                    <i className="fas fa-exclamation-triangle text-danger me-2"></i>
-                    <strong>Send Overdue Reminder</strong>
-                    <small className="d-block text-muted">Inform client to clear balance OR sign renewal, else recovery</small>
+                  <label className="form-check-label" htmlFor="sendForward">
+                    <i className="fas fa-arrow-right text-danger me-2"></i>
+                    <strong>Send Forwarded to Recovery</strong>
+                    <small className="d-block text-muted">Formal notice that the loan has been escalated to recovery dept.</small>
                   </label>
                 </div>
               )}
-
-              <div className="form-check mb-2">
-                <input
-                  className="form-check-input"
-                  type="radio"
-                  name="actionType"
-                  id="sendForward"
-                  value="forward"
-                  checked={selectedAction === 'forward'}
-                  onChange={(e) => setSelectedAction(e.target.value)}
-                />
-                <label className="form-check-label" htmlFor="sendForward">
-                  <i className="fas fa-arrow-right text-danger me-2"></i>
-                  <strong>Send Forwarded to Recovery</strong>
-                  <small className="d-block text-muted">Formal notice that the loan has been escalated to recovery dept.</small>
-                </label>
-              </div>
 
               {isOverdue && (
                 <div className="form-check">
@@ -277,7 +292,7 @@ Thank you.`;
               )}
             </div>
 
-            {(selectedAction === 'reminder' || selectedAction === 'deadline' || selectedAction === 'overdue' || selectedAction === 'warning' || selectedAction === 'forward') && (
+            {(selectedAction === 'reminder' || selectedAction === 'deadline' || selectedAction === 'compounding' || selectedAction === 'warning' || selectedAction === 'forward') && (
               <div className="mb-3">
                 <label className="form-label fw-bold">Message:</label>
                 <div className="input-group">
@@ -334,13 +349,13 @@ Thank you.`;
                 <>
                   {selectedAction === 'reminder' && <i className="fas fa-paper-plane me-2"></i>}
                   {selectedAction === 'deadline' && <i className="fas fa-hourglass-half me-2"></i>}
-                  {selectedAction === 'overdue' && <i className="fas fa-exclamation-triangle me-2"></i>}
+                  {selectedAction === 'compounding' && <i className="fas fa-sync-alt me-2"></i>}
                   {selectedAction === 'warning' && <i className="fas fa-clock me-2"></i>}
                   {selectedAction === 'forward' && <i className="fas fa-arrow-right me-2"></i>}
                   {selectedAction === 'claim' && <i className="fas fa-gavel me-2"></i>}
                   {selectedAction === 'reminder' && 'Send Reminder'}
                   {selectedAction === 'deadline' && 'Send Deadline Reminder'}
-                  {selectedAction === 'overdue' && 'Send Overdue Reminder'}
+                  {selectedAction === 'compounding' && 'Send Compounding Notice'}
                   {selectedAction === 'warning' && 'Send Flagging Warning'}
                   {selectedAction === 'forward' && 'Send Forwarded to Recovery'}
                   {selectedAction === 'claim' && 'Claim Ownership'}
