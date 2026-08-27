@@ -9,7 +9,7 @@ from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy import func
 from app.routes.payments import recalculate_loan, _loan_summary
-from app.utils.decorators import role_required
+from app.utils.decorators import role_required, role_or_username_required
 import json
 import secrets
 import string
@@ -262,7 +262,7 @@ def get_applications():
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director','secretary', 'client_relations_officer', 'hr_manager'])
+@role_or_username_required(allowed_roles=['admin','director'], allowed_usernames=['Annie'])
 def approve_application(loan_id):
     try:
         data           = request.get_json()
@@ -400,7 +400,7 @@ def approve_application(loan_id):
 
 @admin_bp.route('/applications/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director','secretary', 'client_relations_officer', 'hr_manager'])
+@role_or_username_required(allowed_roles=['admin','director'], allowed_usernames=['Annie'])
 def reject_application(loan_id):
     try:
         loan = db.session.get(Loan, loan_id)

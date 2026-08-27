@@ -2049,8 +2049,22 @@ function RecoveryModule() {
                                 { header: "Status", render: () => <span className="badge bg-warning">Pending</span> },
                                 { header: "Actions", render: row => (
                                   <div className="btn-group btn-group-sm">
-                                    <button className="btn btn-outline-success" onClick={() => handleApplicationAction(row.id, "approve")}><i className="fas fa-check"></i></button>
-                                    <button className="btn btn-outline-danger" onClick={() => handleApplicationAction(row.id, "reject")}><i className="fas fa-times"></i></button>
+                                    {(userRole === 'director' || (userRole === 'client_relations_officer' && user?.username === 'Annie')) && (
+                                      <>
+                                        <button
+                                          className="btn btn-outline-success"
+                                          onClick={() => handleApplicationAction(row.id, "approve")}
+                                        >
+                                          <i className="fas fa-check"></i>
+                                        </button>
+                                        <button
+                                          className="btn btn-outline-danger"
+                                          onClick={() => handleApplicationAction(row.id, "reject")}
+                                        >
+                                          <i className="fas fa-times"></i>
+                                        </button>
+                                      </>
+                                    )}
                                     <button className="btn btn-outline-info" onClick={() => { setSelectedApplication(row); setShowApplicationModal(true); }}><i className="fas fa-eye"></i></button>
                                     {/* NEW: Download Loan Agreement */}
                                     <button
@@ -3078,8 +3092,22 @@ function RecoveryModule() {
                       </div>
                       {selectedApplication.status === "pending" && (
                         <div className="mt-4 d-flex gap-2">
-                          <button className="btn btn-success" onClick={() => handleApplicationAction(selectedApplication.id, "approve")}>Approve</button>
-                          <button className="btn btn-danger" onClick={() => handleApplicationAction(selectedApplication.id, "reject")}>Reject</button>
+                          {(userRole === 'director' || (userRole === 'client_relations_officer' && user?.username === 'Annie')) && (
+                            <>
+                              <button
+                                className="btn btn-success"
+                                onClick={() => handleApplicationAction(selectedApplication.id, "approve")}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                className="btn btn-danger"
+                                onClick={() => handleApplicationAction(selectedApplication.id, "reject")}
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                     </Modal>
