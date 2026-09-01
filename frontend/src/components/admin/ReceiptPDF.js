@@ -5253,7 +5253,7 @@ const getSignatureByUser = (user) => {
   }
   // Secretary
   if (role === 'secretary') {
-    return { name: 'Florence Wacuka', title: 'Secretary' };
+    return { name: 'Gladys Sakinoi', title: 'Secretary' };
   }
   // Accountant
   if (role === 'accountant') {

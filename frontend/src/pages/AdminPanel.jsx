@@ -2706,6 +2706,14 @@ Thank you for choosing us.`;
             <span>Admin Dashboard</span>
           </a>
 
+          <button
+            className="sidebar-toggle"
+            onClick={toggleSidebar}
+            aria-label="Toggle sidebar"
+          >
+            <i className="fas fa-bars"></i>
+          </button>
+
           <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
             <div style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
                 <Avatar user={user} size={32} />
@@ -2716,6 +2724,7 @@ Thank you for choosing us.`;
             <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
                 <i className="fas fa-sign-out-alt me-1"></i>Logout
             </button>
+            
           </div>
         </div>
       </nav>
