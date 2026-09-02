@@ -165,11 +165,20 @@ function About() {
       email: "terrykintei02@gmail.com"
     },
     {
+      name: "Brian Ouko",
+      role: "Advocate of the High Court",
+      bio: "Provides legal representation and advocacy services for Nagolie Enterprises Ltd, while offering legal guidance on matters relating to the Company's operations, agreements, and recovery proceedings.",
+      image: "/Brian.png",
+      whatsapp: "https://wa.me/0716527642",
+      email: "brianouko.m.m@gmail.com",
+      linkedin: "https://www.linkedin.com/in/brian-ouko-942230176/"
+    },
+    {
       name: "Tait Lesiamon",
       role: "Legal Consultant",
-      bio: "Provides expert legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises Ltd and its clients in every transaction.",
+      bio: "Provides legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises Ltd and its clients in every transaction.",
       image: "/Timothy.png",
-      whatsapp: "https://wa.me/",
+      whatsapp: "https://wa.me/0725700487",
       email: ""
     },
     {
