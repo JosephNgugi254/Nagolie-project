@@ -1,14 +1,15 @@
 // components/recovery/ValuerPanel.jsx
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { recoveryAPI, adminAPI } from '../../services/api';  // <-- added adminAPI
+import { recoveryAPI, adminAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import Modal from '../common/Modal';
 import ConfirmationDialog from '../common/ConfirmationDialog';
-import { generateValuerReportFromData, generateLoanInvoicePDF } from '../admin/ReceiptPDF';  // <-- added generateLoanInvoicePDF
+import { generateValuerReportFromData, generateLoanInvoicePDF } from '../admin/ReceiptPDF';
+import PaymentModal from './PaymentModal';  // <-- new import
 
 const ValuerPanel = ({ editable = true }) => {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth(); // added userRole
 
   const [flaggedClients, setFlaggedClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +27,10 @@ const ValuerPanel = ({ editable = true }) => {
 
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
+
+  // New state for payment modal
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedLoanForPayment, setSelectedLoanForPayment] = useState(null);
 
   const noteTimeout = useRef({});
 
@@ -123,23 +128,18 @@ const ValuerPanel = ({ editable = true }) => {
     }
   };
 
-  // Generate report – preview or download (always available)
+  // Generate report – preview or download
   const generateReport = async (download = true) => {
     const reportDate = new Date().toLocaleDateString('en-GB');
     await generateValuerReportFromData(filteredClients, reportDate, user?.username || 'Valuer', download);
   };
 
-  // ---------- NEW: Download Invoice (exactly as in RecoveryModule) ----------
+  // Download Invoice
   const handleDownloadInvoice = async (client) => {
     try {
-      // 1. Fetch the most current loan data (including period_interest_prepaid)
       const loanResponse = await adminAPI.getLoan(client.loan_id);
       const freshLoan = loanResponse.data;
-
-      // 2. Get transactions for the invoice
       const txnResponse = await recoveryAPI.getLoanTransactions(client.loan_id);
-
-      // 3. Generate invoice with fresh data
       await generateLoanInvoicePDF(freshLoan, txnResponse.data || []);
       showToast.success('Invoice downloaded');
     } catch (error) {
@@ -147,7 +147,17 @@ const ValuerPanel = ({ editable = true }) => {
       showToast.error('Failed to generate invoice');
     }
   };
-  // -----------------------------------------------------------------
+
+  // ----- NEW: Process Payment handler -----
+  const handleProcessPayment = async (client) => {
+    try {
+      const loanResponse = await adminAPI.getLoan(client.loan_id);
+      setSelectedLoanForPayment(loanResponse.data);
+      setShowPaymentModal(true);
+    } catch (err) {
+      showToast.error('Failed to load loan details for payment');
+    }
+  };
 
   // Branch filter logic
   const filterByBranch = (clients) => {
@@ -157,12 +167,21 @@ const ValuerPanel = ({ editable = true }) => {
       if (branchFilter === 'emarti') {
         return loc.includes('emarti');
       }
-      // 'isinya' – show all clients that are NOT emarti
       return !loc.includes('emarti');
     });
   };
 
   const filteredClients = filterByBranch(flaggedClients);
+
+  // Determine if user can process payments
+  const canProcessPayment = editable && (
+    userRole === 'director' ||
+    userRole === 'secretary' ||
+    userRole === 'client_relations_officer' ||
+    userRole === 'head_of_it' ||
+    userRole === 'deputy_director' ||
+    userRole === 'hr_manager'
+  );
 
   if (loading) {
     return (
@@ -264,7 +283,6 @@ const ValuerPanel = ({ editable = true }) => {
                     >
                       <i className="fas fa-eye"></i> View Details
                     </button>
-                    {/* NEW: Download Invoice button */}
                     <button
                       className="btn btn-sm btn-info me-1"
                       onClick={() => handleDownloadInvoice(client)}
@@ -272,6 +290,18 @@ const ValuerPanel = ({ editable = true }) => {
                     >
                       <i className="fas fa-file-invoice"></i>
                     </button>
+
+                    {/* NEW: Process Payment button */}
+                    {canProcessPayment && (
+                      <button
+                        className="btn btn-sm btn-success me-1"
+                        onClick={() => handleProcessPayment(client)}
+                        title="Process Payment"
+                      >
+                        <i className="fas fa-money-bill-wave"></i> Pay
+                      </button>
+                    )}
+
                     {editable && (
                       <button
                         className="btn btn-sm btn-warning"
@@ -466,6 +496,23 @@ const ValuerPanel = ({ editable = true }) => {
           message="Are you sure you want to add this client back to the recovery module? The client will be returned to the original officer and will no longer appear in your flagged list."
           confirmText="Yes, Add to Recovery Module"
           confirmColor="success"
+        />
+      )}
+
+      {/* NEW: Payment Modal */}
+      {showPaymentModal && selectedLoanForPayment && (
+        <PaymentModal
+          loan={selectedLoanForPayment}
+          onClose={() => {
+            setShowPaymentModal(false);
+            setSelectedLoanForPayment(null);
+          }}
+          onSuccess={() => {
+            // Refresh flagged clients to update balances
+            fetchFlagged();
+            setShowPaymentModal(false);
+            setSelectedLoanForPayment(null);
+          }}
         />
       )}
     </div>
