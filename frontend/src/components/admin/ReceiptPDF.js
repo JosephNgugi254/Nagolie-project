@@ -912,7 +912,6 @@ export const generateTransactionReceipt = async (transaction) => {
   }
 };
 
-// Generate Professional Loan Agreement PDF (with auto DDQ appended)
 export const generateLoanAgreementPDF = async (application) => {
   try {
     const doc = new jsPDF();
@@ -992,7 +991,7 @@ export const generateLoanAgreementPDF = async (application) => {
     yPos += 7;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // REPAYMENT PLAN DETECTION (stored for later use)
+    // REPAYMENT PLAN DETECTION
     const rawPlan = (
       application.repaymentPlan   ||
       application.repayment_plan  ||
@@ -1000,7 +999,7 @@ export const generateLoanAgreementPDF = async (application) => {
     ).toString().toLowerCase().trim();
     const selectedPlan = (rawPlan === 'daily') ? 'daily' : 'weekly';
 
-    // Interest calculation (stored for DDQ)
+    // Interest calculation
     const loanAmount = parseFloat(application.loanAmount) || 0;
     let interestAmount = 0, interestLabel = '';
     if (selectedPlan === 'daily') {
@@ -1179,7 +1178,7 @@ export const generateLoanAgreementPDF = async (application) => {
         { text: `Signature: ___________________          Date: ${today}`, boldDark: true, fontSize: 11 },
         { thumbprintBox: true }
       ],
-      // 3. Repayment Terms and Interest (UPDATED to match manual version)
+      // 3. Repayment Terms and Interest
       [
         { text: "3. Repayment Terms and Interest", heading: true },
         "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
@@ -1474,11 +1473,11 @@ export const generateLoanAgreementPDF = async (application) => {
 
     // ========== END OF ORIGINAL AGREEMENT ==========
 
-    // ========== OPTIMIZED DDQ SECTION ==========
+    // ===================== DDQ SECTION (UPDATED) =====================
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'agreement');
 
-    // Add header for DDQ (fresh)
+    // Add header for DDQ
     yPos = await addHeader(doc, 10);
 
     // Title
@@ -1486,15 +1485,14 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
     doc.text('DUE DILIGENCE QUESTIONNAIRE', 105, yPos, { align: 'center' });
-    yPos += 10;
+    yPos += 3;
     yPos = addDivider(doc, yPos);
-    yPos += 6;
+    yPos += 1;
 
     // Client details – auto‑filled
     const clientName = application.name || '___________________';
     const idNumber = application.idNumber || '___________________';
     const principalAmount = loanAmount;
-    const interestOnly = interestAmount;
 
     const drawCheckboxSmall = (x, y) => {
       doc.setDrawColor(0, 0, 0);
@@ -1502,11 +1500,11 @@ export const generateLoanAgreementPDF = async (application) => {
       doc.rect(x, y, 4, 4);
     };
 
-    const rowH = 5; // reduced from 6
+    const rowH = 5;
     const labelX = 20;
     const valueX = 70;
 
-    doc.setFontSize(10); // reduced from 11 for tighter rows
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLORS.textDark);
 
@@ -1535,7 +1533,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'bold');
     doc.text('Interest (KES):', labelX, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text(`KES ${interestOnly.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, valueX, yPos);
+    doc.text(`KES ${interestAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, valueX, yPos);
     yPos += rowH;
 
     // Repayment Plan (with checkboxes)
@@ -1559,9 +1557,53 @@ export const generateLoanAgreementPDF = async (application) => {
       doc.line(dailyX + 0.5, yPos - 1, dailyX + 2, yPos + 1.5);
       doc.line(dailyX + 2, yPos + 1.5, dailyX + 4.5, yPos - 2);
     }
-    yPos += 5; // reduced from 6
+    yPos += 5;
 
-    // Table of questions – optimized column widths
+    // ===== INTEREST BREAKDOWN SECTION (UPDATED) =====
+    const breakdownPercentages = [
+      { label: 'Operational Fee', pct: 0.15 },
+      { label: 'Credit Risk', pct: 0.05 },
+      { label: 'Collateral/Animal Health Maintenance Fee', pct: 0.04 },
+      { label: 'Processing Fee', pct: 0.04 },
+      { label: 'Valuation Fee', pct: 0.02 }
+    ];
+
+    const breakdownItems = breakdownPercentages.map(item => ({
+      label: item.label,
+      pct: item.pct,
+      amount: loanAmount * item.pct
+    }));
+
+    // Determine the actual interest amount based on selected plan
+    const actualInterest = selectedPlan === 'weekly' ? loanAmount * 0.30 : loanAmount * 0.045;
+    const planLabel = selectedPlan === 'weekly' ? '30% per week' : '4.5% per day (approx. 31.5% per week)';
+
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(10);
+    doc.text('Interest Breakdown :', labelX, yPos);
+    yPos += 4;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(10);
+    breakdownItems.forEach((item) => {
+      const line = `${item.label}: ${(item.pct * 100).toFixed(0)}% = KES ${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      doc.text(line, labelX + 2, yPos);
+      yPos += 4;
+    });
+
+    // Total interest line – now uses the actual interest amount and plan label
+    doc.setFont('helvetica', 'bold');
+    doc.text(
+      `Total Interest: KES ${actualInterest.toLocaleString('en-US', { minimumFractionDigits: 2 })} (${planLabel})`,
+      labelX + 2,
+      yPos
+    );
+    yPos += 5;
+    doc.setFont('helvetica', 'normal');
+
+    // ===== Table of questions =====
     const questions = [
       'Do you confirm that you understand the amount of loan you have received, the total amount you are required to repay, and your selected repayment plan (Daily/Weekly)?',
       'Do you understand that any unpaid interest at the end of every seven (7) days will be added to your outstanding loan balance and will continue to attract interest?',
@@ -1570,8 +1612,7 @@ export const generateLoanAgreementPDF = async (application) => {
       'Do you understand and agree that if you fail to honour this Agreement or any repayment arrangements, Nagolie Enterprises Ltd has the right to immediately recover the collateral livestock without further notice, in accordance with the Agreement?'
     ];
 
-    // Narrower columns: # (8pt), YES (12pt), NO (12pt) → more space for question
-    const colWidthsDDQ = [8, 148, 12, 12]; // total = 180
+    const colWidthsDDQ = [8, 148, 12, 12];
     const startXDDQ = 20;
 
     doc.setFont('helvetica', 'bold');
@@ -1593,7 +1634,7 @@ export const generateLoanAgreementPDF = async (application) => {
     const renderQuestionRow = (question, rowNum, y) => {
       const maxQuestionWidth = colWidthsDDQ[1] - 4;
       const lines = doc.splitTextToSize(question, maxQuestionWidth);
-      const rowHeightCalc = Math.max(6, lines.length * 4 + 2); // tighter
+      const rowHeightCalc = Math.max(6, lines.length * 4 + 2);
 
       if (rowNum % 2 === 0) {
         doc.setFillColor(...COLORS.border);
@@ -1612,7 +1653,7 @@ export const generateLoanAgreementPDF = async (application) => {
       let textY = y + 4;
       lines.forEach(line => {
         doc.text(line, questionX, textY);
-        textY += 4; // tighter
+        textY += 4;
       });
 
       const yesX = startXDDQ + colWidthsDDQ[0] + colWidthsDDQ[1] + 2;
@@ -1646,9 +1687,9 @@ export const generateLoanAgreementPDF = async (application) => {
       yPos += rowHeightUsed;
     });
 
-    yPos += 6; 
+    yPos += 4;
 
-    // ========== DECLARATION  ==========
+    // ===== DECLARATION with thumbprint on right =====
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
@@ -1675,19 +1716,36 @@ export const generateLoanAgreementPDF = async (application) => {
     }
     yPos += 4;
 
-    // Signature and Date on same row
+    // ---- Signature & Date (left) + Thumbprint box (right) ----
+    const sigX = 20;
+    const thumbX = 130;
+    const thumbBoxWidth = 40;
+    const thumbBoxHeight = 35;
+    const thumbBoxY2 = yPos - 4;
+
+    // Left column: Signature and Date
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text('Signature:', 20, yPos);
+    doc.text('Signature:', sigX, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text('_________________________', 50, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Date:', 120, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text('_________________________', 145, yPos);
-    yPos += 10;
+    doc.text('_________________________', sigX + 30, yPos);
 
-    // ---- FOR NAGOLIE section (left) and Stamp (right) on same row ----
+    yPos += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date:', sigX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_________________________', sigX + 30, yPos);
+
+    // Right column: Thumbprint box
+    drawThumbprintBox(thumbX, thumbBoxY2, thumbBoxWidth, thumbBoxHeight);
+    const cbY2 = thumbBoxY2 + thumbBoxHeight + 4;
+    const cbX2 = thumbX + (thumbBoxWidth / 2) - 17;
+    drawRtLtCheckboxes(cbX2, cbY2);
+
+    // Advance yPos past the thumbprint box and its checkboxes
+    yPos = cbY2 + 8;
+
+    // ---- FOR NAGOLIE section (left) and Stamp box (right) ----
     const leftColX = 20;
     const rightColX = 115;
 
@@ -1710,7 +1768,7 @@ export const generateLoanAgreementPDF = async (application) => {
     const stampBoxWidth = 60;
     const stampBoxHeight = 35;
     const stampBoxX = rightColX;
-    const stampBoxY = yPos - 28; // align with top of FOR NAGOLIE block
+    const stampBoxY = yPos - 28;
     doc.setDrawColor(230, 235, 245);
     doc.setLineWidth(0.3);
     doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
@@ -1722,13 +1780,10 @@ export const generateLoanAgreementPDF = async (application) => {
 
     yPos = Math.max(yPos, stampBoxY + stampBoxHeight + 10);
 
-    // ---- Footer for the entire document ----
+    // ---- Footer ----
     addFooter(doc, yPos);
-
-    // Add page numbers for all pages
     addPageNumbers(doc, 'page %d');
 
-    // Save the combined PDF
     const fileName = `Loan_Agreement_${application.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
     doc.save(fileName);
 
@@ -1738,7 +1793,6 @@ export const generateLoanAgreementPDF = async (application) => {
   }
 };
 
-// Generate Manual Loan Agreement PDF (with blanks for manual filling, now with DDQ appended)
 export const generateManualLoanAgreementPDF = async () => {
   try {
     const doc = new jsPDF();
@@ -1756,7 +1810,7 @@ export const generateManualLoanAgreementPDF = async () => {
 
     yPos = addDivider(doc, yPos);
 
-    // Agreement Date – left blank for manual entry
+    // Agreement Date – left blank
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
@@ -2138,7 +2192,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text("of the collateral livestock as recorded above.", 20, yPos);
     yPos += 12;
 
-    // Signature fields (no duplication)
+    // Signature fields
     doc.setFont('helvetica', 'bold');
     doc.text("Client's signature:", 20, yPos);
     doc.setFont('helvetica', 'normal');
@@ -2277,7 +2331,7 @@ export const generateManualLoanAgreementPDF = async () => {
 
     // ========== END OF ORIGINAL MANUAL AGREEMENT ==========
 
-    // ========== MANUAL DDQ SECTION (all blanks, no auto-fill) ==========
+    // ========== MANUAL DDQ SECTION (all blanks, with breakdown and thumbprint) ==========
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'agreement');
 
@@ -2289,9 +2343,9 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
     doc.text('DUE DILIGENCE QUESTIONNAIRE', 105, yPos, { align: 'center' });
-    yPos += 10;
+    yPos += 3;
     yPos = addDivider(doc, yPos);
-    yPos += 6;
+    yPos += 1;
 
     const drawCheckboxSmall = (x, y) => {
       doc.setDrawColor(0, 0, 0);
@@ -2299,11 +2353,11 @@ export const generateManualLoanAgreementPDF = async () => {
       doc.rect(x, y, 4, 4);
     };
 
-    const rowH = 6;
+    const rowH = 5;
     const labelX = 20;
     const valueX = 70;
 
-    doc.setFontSize(11);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLORS.textDark);
 
@@ -2335,7 +2389,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text('_____________________', valueX, yPos);
     yPos += rowH;
 
-    // Repayment Plan (blank checkboxes, tick manually)
+    // Repayment Plan (blank checkboxes)
     doc.setFont('helvetica', 'bold');
     doc.text('Repayment Plan:', labelX, yPos);
     const weeklyX = valueX;
@@ -2345,9 +2399,34 @@ export const generateManualLoanAgreementPDF = async () => {
     const dailyX = weeklyX + 40;
     drawCheckboxSmall(dailyX, yPos - 3);
     doc.text('Daily', dailyX + 6, yPos);
-    yPos += 8;
+    yPos += 5;
 
-    // Table of questions – same as automated version
+    // ===== MANUAL INTEREST BREAKDOWN (blank amounts) =====
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(10);
+    doc.text('Interest Breakdown :', labelX, yPos);
+    yPos += 4;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFontSize(10);
+    const breakdownLines = [
+      'Operational Fee: 15% = KES _______________',
+      'Credit Risk: 5% = KES _______________',
+      'Collateral/Animal Health Maintenance Fee: 4% = KES _______________',
+      'Processing Fee: 4% = KES _______________',
+      'Valuation Fee: 2% = KES _______________',
+      // Total line with blanks for manual filling – now includes plan label options
+      'Total Interest: KES _______________ (_____% per week / 4.5% per day)'
+    ];
+    breakdownLines.forEach(line => {
+      doc.text(line, labelX + 2, yPos);
+      yPos += 4;
+    });
+    yPos += 4;
+
+    // ===== Table of questions =====
     const questions = [
       'Do you confirm that you understand the amount of loan you have received, the total amount you are required to repay, and your selected repayment plan (Daily/Weekly)?',
       'Do you understand that any unpaid interest at the end of every seven (7) days will be added to your outstanding loan balance and will continue to attract interest?',
@@ -2356,7 +2435,7 @@ export const generateManualLoanAgreementPDF = async () => {
       'Do you understand and agree that if you fail to honour this Agreement or any repayment arrangements, Nagolie Enterprises Ltd has the right to immediately recover the collateral livestock without further notice, in accordance with the Agreement?'
     ];
 
-    const colWidthsDDQ = [8, 148, 12, 12]; // total = 180
+    const colWidthsDDQ = [8, 148, 12, 12];
     const startXDDQ = 20;
 
     const drawDDQHeaderRow = (y) => {
@@ -2425,7 +2504,7 @@ export const generateManualLoanAgreementPDF = async () => {
 
     yPos += 4;
 
-    // ========== DECLARATION (restructured like 2.3 Consent to Recovery — no font size reduction) ==========
+    // ===== DECLARATION with thumbprint on right (blank) =====
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
@@ -2472,19 +2551,34 @@ export const generateManualLoanAgreementPDF = async () => {
     }
     yPos += 4;
 
-    // Signature and Date on same row
+    // ---- Signature & Date (left) + Thumbprint box (right) ----
+    const sigX = 20;
+    const thumbX = 130;
+    const thumbBoxWidth = 40;
+    const thumbBoxHeight = 35;
+    const thumbBoxY2 = yPos - 4;
+
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text('Signature:', 20, yPos);
+    doc.text('Signature:', sigX, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text('_________________________', 50, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Date:', 120, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text('_________________________', 145, yPos);
-    yPos += 10;
+    doc.text('_________________________', sigX + 30, yPos);
 
-    // ---- FOR NAGOLIE section (left) and Stamp (right) on same row ----
+    yPos += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date:', sigX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('_________________________', sigX + 30, yPos);
+
+    // Thumbprint box (right)
+    drawThumbprintBox(thumbX, thumbBoxY2, thumbBoxWidth, thumbBoxHeight);
+    const cbY2 = thumbBoxY2 + thumbBoxHeight + 4;
+    const cbX2 = thumbX + (thumbBoxWidth / 2) - 17;
+    drawRtLtCheckboxes(cbX2, cbY2);
+
+    yPos = cbY2 + 8;
+
+    // ---- FOR NAGOLIE section (left) and Stamp (right) ----
     const ddqLeftColX = 20;
     const ddqRightColX = 115;
 
@@ -2503,7 +2597,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.text('Date:      _________________________', ddqLeftColX + 5, yPos);
     yPos += 6;
 
-    // Stamp box (right side, blank – to be affixed manually)
+    // Stamp box (right side)
     const ddqStampW = 60;
     const ddqStampH = 35;
     const ddqStampX = ddqRightColX;
@@ -2519,7 +2613,7 @@ export const generateManualLoanAgreementPDF = async () => {
 
     yPos = Math.max(yPos, ddqStampY + ddqStampH + 10);
 
-    // ---- Footer for the entire document (moved to end, after DDQ) ----
+    // ---- Footer for the entire document ----
     const footerY = Math.min(yPos + 10, 285);
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);

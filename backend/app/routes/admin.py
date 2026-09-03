@@ -1773,10 +1773,10 @@ def waive_loan(loan_id):
             # Daily or zero‑interest loans
             current_balance = loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
 
-        # Allow a tolerance of up to 1 KES
-        if new_principal >= current_balance - Decimal('1.00'):
+        # Allow same amount as total outstanding balance or less, but not more
+        if new_principal > current_balance:
             return jsonify({
-                'error': f'New principal must be less than current balance (current: {current_balance:.2f})',
+                'error': f'New principal cannot exceed current balance (current: {current_balance:.2f})',
                 'debug_current_balance': float(current_balance),
                 'debug_new_principal': float(new_principal)
             }), 400
