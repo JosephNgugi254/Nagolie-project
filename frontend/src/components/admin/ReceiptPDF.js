@@ -160,17 +160,33 @@ export const getLogoBase64 = async (url) => {
   }
 };
 
-// Common header function for all PDFs
+
+// Module-level cache for logo
+let cachedLogoBase64 = null;
+
 export const addHeader = async (doc, yStart = 20) => {
-  const logoBase64 = await getLogoBase64(COMPANY_INFO.logoUrl);
+  // Fetch logo only once
+  if (cachedLogoBase64 === null) {
+    cachedLogoBase64 = await getLogoBase64(COMPANY_INFO.logoUrl);
+  }
+  const logoBase64 = cachedLogoBase64;
   let yPos = yStart;
-  
+
   // Header with logo and company info side by side
   if (logoBase64) {
-    // Add logo with proper dimensions (maintain aspect ratio)
-    doc.addImage(logoBase64, 'PNG', 20, yPos-4.5, 38, 38);
+    const imgX = 20;
+    const imgY = yPos - 4.5;
+    const imgW = 38;
+    const imgH = 38;
+
+    // === FIX: Draw white background to prevent black transparency ===
+    doc.setFillColor(255, 255, 255);
+    doc.rect(imgX, imgY, imgW, imgH, 'F');
+
+    // Add logo on top
+    doc.addImage(logoBase64, 'PNG', imgX, imgY, imgW, imgH);
   }
-  
+
   // Company info aligned to the right of logo
   const infoX = logoBase64 ? 55 : 20;
   doc.setTextColor(...COLORS.primaryBlue);
@@ -6594,6 +6610,7 @@ export const generateInvoicePDF = async (data, preview = false) => {
 };
 
 // ========== DELIVERY NOTE PDF ==========
+// ========== DELIVERY NOTE PDF ==========
 export const generateDeliveryNotePDF = async (data, preview = false) => {
   const doc = new jsPDF();
   addOptimizedWatermark(doc, 'deliveryNote');
@@ -6688,7 +6705,10 @@ export const generateDeliveryNotePDF = async (data, preview = false) => {
     yPos += rowHeight;
   });
 
+  // Add a small gap after table
   yPos += 5;
+
+  // Totals
   doc.setFont('helvetica', 'bold');
   doc.text(`Subtotal: ${formatCurrency(data.subtotal)}`, 140, yPos);
   yPos += 6;
@@ -6717,10 +6737,9 @@ export const generateDeliveryNotePDF = async (data, preview = false) => {
   doc.text('Account No: 262636', 20, yPos);
   yPos += 5;
   doc.text('Account Name: NAGOLIE ENTERPRISES LTD', 20, yPos);
-  yPos = 10;
+  yPos += 10;
 
   // Signature section – ensure enough space
-  yPos += 15;
   if (yPos > 260) {
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'deliveryNote');
@@ -6744,20 +6763,35 @@ export const generateDeliveryNotePDF = async (data, preview = false) => {
   doc.text('Signature: ___________________', 130, yPos);
   yPos += 12;
 
-  // Director signature
+  // ----- MODIFIED: For Nagolie (instead of Director SHADRACK KESUMET) -----
   doc.setFont('helvetica', 'bold');
-  doc.text('Director:', 30, yPos);
+  doc.text('For Nagolie Enterprises Ltd:', 30, yPos);
+  yPos += 12;
   doc.setFont('helvetica', 'normal');
-  doc.text('SHADRACK KESUMET', 70, yPos);
+  doc.text('Name: _________________________', 30, yPos);
   doc.text('Signature: ___________________', 130, yPos);
-  yPos += 12;  
+  yPos += 12;
 
-  // Date line for both
-  doc.text('Date: ___________________', 30, yPos);
-  doc.text('Date: ___________________', 130, yPos);
+  // ----- STAMP BOX (centered at bottom) -----
+  yPos += 10;
+  if (yPos > 260) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'deliveryNote');
+    yPos = 20;
+  }
+  const stampWidth = 60;
+  const stampHeight = 35;
+  const stampX = (210 - stampWidth) / 2;
+  doc.setDrawColor(220, 220, 220);
+  doc.roundedRect(stampX, yPos, stampWidth, stampHeight, 2, 2);
+  doc.setTextColor(180, 180, 180);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'italic');
+  doc.text('COMPANY STAMP', stampX + stampWidth/2, yPos + stampHeight/2 - 3, { align: 'center' });
+  yPos += stampHeight + 10;
 
   // Footer
-  addFooter(doc, yPos + 15);
+  addFooter(doc, yPos);
   addPageNumbers(doc, 'page %d');
 
   if (preview) {
