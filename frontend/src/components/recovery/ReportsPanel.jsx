@@ -44,7 +44,7 @@ const ReportsPanel = () => {
 
   const saveComment = async (loanId, comment) => {
     // Do not save if the report is from a past date
-    if (isPastReport) return;
+    // if (isPastReport) return;
     try {
       await recoveryAPI.saveReportComment(loanId, comment, reportDate);
     } catch (error) {
@@ -54,7 +54,7 @@ const ReportsPanel = () => {
 
   const handleCommentChange = (loanId, value) => {
     // Prevent any changes if report is from a past date
-    if (isPastReport) return;
+    // if (isPastReport) return;
 
     setClients(prev =>
       prev.map(c => (c.loan_id === loanId ? { ...c, comment: value } : c))
@@ -134,8 +134,7 @@ const ReportsPanel = () => {
                           rows="3"
                           value={client.comment || ''}
                           onChange={(e) => handleCommentChange(client.loan_id, e.target.value)}
-                          placeholder={isPastReport ? 'Past report – comments locked' : 'Enter follow-up notes...'}
-                          readOnly={isPastReport}
+                          placeholder={ 'Enter follow-up notes...'}
                         />
                       </td>
                     </tr>

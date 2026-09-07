@@ -160,7 +160,6 @@ export const getLogoBase64 = async (url) => {
   }
 };
 
-
 // Module-level cache for logo
 let cachedLogoBase64 = null;
 
