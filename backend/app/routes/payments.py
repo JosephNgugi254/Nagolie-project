@@ -30,10 +30,15 @@ def compute_overdue(loan, today=None):
         overdue_days = max(0, days_since - 14)
         return overdue_days, 0
     else:
-        week_number = days_since // 7 + 1
+        # Correct week number calculation
+        if days_since == 0:
+            week_number = 1
+        elif days_since % 7 == 0:
+            week_number = days_since // 7          # due date belongs to this week
+        else:
+            week_number = days_since // 7 + 1      # after due date, next week
         overdue_weeks = max(0, week_number - 2)
         return 0, overdue_weeks
-
 
 def compute_historical_unpaid_interest(loan, as_of_date):
     if loan.repayment_plan == 'daily' and loan.interest_rate > 0:

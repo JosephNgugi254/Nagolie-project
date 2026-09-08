@@ -20,11 +20,16 @@ from flask_cors import cross_origin
 recovery_bp = Blueprint('recovery', __name__)
 
 def get_week_number(disbursement_date):
-    """Week 1 = first 7 days, Week 2 = days 7-14, etc."""
     if not disbursement_date:
         return 1
     delta = datetime.utcnow() - disbursement_date
-    return max(1, (delta.days // 7) + 1)
+    days = delta.days
+    if days <= 0:
+        return 1
+    if days % 7 == 0:
+        return days // 7
+    else:
+        return days // 7 + 1
 
 
 # ---------------------------------------------------------------------------

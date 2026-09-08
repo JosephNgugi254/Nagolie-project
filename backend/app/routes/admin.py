@@ -128,7 +128,7 @@ def create_daily_snapshots(as_of_date=None):
         db.session.add(snapshot)
 
     db.session.commit()
-
+    
 # Helper to refresh all day‑based assignments
 def refresh_day_assignments():
     """Clear outdated day_based assignments and create new ones based on current day assignments."""
@@ -1928,12 +1928,6 @@ def waive_loan(loan_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
     
-    except Exception as e:
-        db.session.rollback()
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
 @admin_bp.route('/revert-waived-loans', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director'])
