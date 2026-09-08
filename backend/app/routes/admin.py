@@ -128,7 +128,7 @@ def create_daily_snapshots(as_of_date=None):
         db.session.add(snapshot)
 
     db.session.commit()
-    
+
 # Helper to refresh all day‑based assignments
 def refresh_day_assignments():
     """Clear outdated day_based assignments and create new ones based on current day assignments."""
@@ -1760,16 +1760,13 @@ def waive_loan(loan_id):
         # Recalculate to get latest figures
         loan = recalculate_loan(loan)
 
-        # ---------- FIX: Compute total outstanding balance correctly ----------
-        # For weekly loans, include the current week's interest (even if not yet capitalised)
+        # Compute total outstanding balance correctly
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
             current_period_interest = _get_current_period_interest(loan)
             current_balance = loan.current_principal + current_period_interest
         else:
-            # Daily or zero‑interest loans
             current_balance = loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
 
-        # Allow same amount as total outstanding balance or less, but not more
         if new_principal > current_balance:
             return jsonify({
                 'error': f'New principal cannot exceed current balance (current: {current_balance:.2f})',
@@ -1805,6 +1802,19 @@ def waive_loan(loan_id):
         db.session.add(waiver_txn)
 
         now = datetime.utcnow()
+        
+        # ---- FIX: Preserve original disbursement day ----
+        original_weekday = loan.disbursement_date.weekday() if loan.disbursement_date else now.weekday()
+        today_weekday = now.weekday()
+        days_until = (original_weekday - today_weekday) % 7
+        if days_until == 0:
+            # If today is the same weekday, we can start today or next week.
+            # Using today allows immediate start.
+            disbursement_date = now
+        else:
+            disbursement_date = now + timedelta(days=days_until)
+
+        # Create new loan with the correct disbursement date
         new_loan = Loan(
             client_id=loan.client_id,
             livestock_id=loan.livestock_id,
@@ -1817,8 +1827,8 @@ def waive_loan(loan_id):
             repayment_plan='daily',
             funding_source=loan.funding_source,
             investor_id=loan.investor_id,
-            disbursement_date=now,
-            due_date=now + timedelta(days=duration_days),
+            disbursement_date=disbursement_date,
+            due_date=disbursement_date + timedelta(days=duration_days),
             status='active',
             collateral_text=loan.collateral_text,
             notes=f"Waiver of loan #{loan.id}. Original balance {current_balance:.2f} → agreed {new_principal:.2f}. Repay within {duration_days} days.",
@@ -1826,7 +1836,7 @@ def waive_loan(loan_id):
             principal_paid=Decimal('0'),
             interest_paid=Decimal('0'),
             accrued_interest=Decimal('0'),
-            last_interest_payment_date=now,
+            last_interest_payment_date=disbursement_date,
             interest_prepaid_period=None,
             interest_prepaid_amount=Decimal('0'),
             parent_loan_id=loan.id,
@@ -1837,6 +1847,36 @@ def waive_loan(loan_id):
 
         db.session.add(new_loan)
         db.session.flush()
+
+        # ---- Preserve active client assignment ----
+        old_assignment = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
+        if old_assignment:
+            # Deactivate old assignment
+            old_assignment.is_active = False
+            db.session.flush()
+            # Create new assignment for the new loan with the same officer
+            new_assignment = ClientAssignment(
+                loan_id=new_loan.id,
+                officer_id=old_assignment.officer_id,
+                assignment_type='manual',  # or 'day_based' if you want to keep day-based
+                assigned_by=get_jwt_identity(),
+                override_reason='Preserved from waived loan',
+                is_active=True
+            )
+            db.session.add(new_assignment)
+        else:
+            # If no assignment, create a day-based one using the new disbursement date
+            weekday = new_loan.disbursement_date.weekday()
+            day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
+            if day_ass:
+                new_assignment = ClientAssignment(
+                    loan_id=new_loan.id,
+                    officer_id=day_ass.user_id,
+                    assignment_type='day_based',
+                    assigned_by=None,
+                    is_active=True
+                )
+                db.session.add(new_assignment)
 
         if new_loan.livestock:
             new_loan.livestock.description = f"Collateral for waived loan #{new_loan.id}"
@@ -1882,6 +1922,12 @@ def waive_loan(loan_id):
             'reduction': float(reduction)
         }), 200
 
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
     except Exception as e:
         db.session.rollback()
         import traceback
