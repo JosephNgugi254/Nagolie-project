@@ -7985,7 +7985,7 @@ export const generatePromissoryNote = async (data, preview = false) => {
   }
 };
 
-// ========== MANUAL PROMISSORY NOTE PDF (BLANK – FILL BY HAND) ==========
+// ========== MANUAL PROMISSORY NOTE PDF ==========
 export const generateManualPromissoryNotePDF = async () => {
   const doc = new jsPDF();
   addOptimizedWatermark(doc, 'document');
@@ -8134,7 +8134,7 @@ export const generateManualPromissoryNotePDF = async () => {
   doc.save(fileName);
 };
 
-// ========== VALUER REPORT FROM DATA (with preview/download support) ==========
+// ========== RECOVERY REPORT FROM DATA (EXACT FIT) ==========
 export const generateValuerReportFromData = async (flaggedClients, reportDate, officerName, download = true) => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   addOptimizedWatermark(doc, 'document');
@@ -8185,14 +8185,30 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
     return `KES ${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   };
 
-  const rowHeight = 28;
+  // -------- EXACT ROW HEIGHT CALCULATION ----------
+  const MIN_ROW_HEIGHT = 28;   // mm (covers single‑line notes and other columns)
+  const TOP_PADDING = 5;       // mm
+  const BOTTOM_PADDING = 5;    // mm
+  const LINE_HEIGHT = 5;       // mm per text line (includes gap)
 
   for (let i = 0; i < flaggedClients.length; i++) {
     const client = flaggedClients[i];
-    if (yPos + rowHeight > 280) {
+
+    // Split notes into wrapped lines
+    const notesText = client.valuer_notes || '';
+    const notesLines = doc.splitTextToSize(notesText, colWidths[5] - 4);
+    const lineCount = notesLines.length;
+
+    // Height needed for notes = top padding + lines * line height + bottom padding
+    const neededHeight = TOP_PADDING + (lineCount * LINE_HEIGHT) + BOTTOM_PADDING;
+    const rowHeight = Math.max(MIN_ROW_HEIGHT, neededHeight);
+
+    // Check page break
+    if (yPos + rowHeight > 275) {   // leave room for footer
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'document');
       yPos = margin.top;
+      // Redraw header on new page
       doc.setFillColor(...COLORS.primaryBlue);
       doc.setTextColor(...COLORS.white);
       doc.rect(startX, yPos, tableWidth, 8, 'F');
@@ -8205,20 +8221,24 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
       doc.setTextColor(...COLORS.textDark);
       doc.setFont('helvetica', 'normal');
     }
+
+    // Row background (alternating)
     if (i % 2 === 0) {
       doc.setFillColor(...COLORS.border);
       doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
     }
+
+    // Draw cell borders
     let cx = startX;
     for (let j = 0; j < colWidths.length; j++) {
       doc.rect(cx, yPos, colWidths[j], rowHeight);
       cx += colWidths[j];
     }
 
-    // Column 0: Index
+    // ----- Column 0: Index -----
     doc.text((i + 1).toString(), startX + 3, yPos + 15);
 
-    // Column 1: Client name + Plan badge
+    // ----- Column 1: Client name + Plan badge -----
     const nameX = startX + colWidths[0] + 3;
     doc.text(client.client_name, nameX, yPos + 15);
     if (client.repayment_plan) {
@@ -8230,18 +8250,18 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
       doc.setFontSize(10);
     }
 
-    // Column 2: Date Flagged – rotated +45° (bottom-left to top-right), pushed down
+    // ----- Column 2: Date Flagged (rotated) -----
     const flaggedDate = new Date(client.flagged_at).toLocaleDateString('en-GB');
-    const dateX = startX + colWidths[0] + colWidths[1] + (colWidths[2] / 2)+ 3;
-    const dateY = yPos + 20; // pushed down from 15 to 20
+    const dateX = startX + colWidths[0] + colWidths[1] + (colWidths[2] / 2) + 3;
+    const dateY = yPos + 20;
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(9);
     doc.text(flaggedDate, dateX, dateY, { align: 'center', angle: 45 });
 
-    // Column 3: Principal
+    // ----- Column 3: Principal -----
     doc.text(formatCurrency(client.current_principal), startX + colWidths[0] + colWidths[1] + colWidths[2] + 3, yPos + 15);
 
-    // Column 4: Interest + Total (blue)
+    // ----- Column 4: Interest + Total (blue) -----
     const interestX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 3;
     const interest = client.unpaid_interest || 0;
     doc.text(formatCurrency(interest), interestX, yPos + 15);
@@ -8252,14 +8272,15 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(10);
 
-    // Column 5: Valuer Notes
-    const notesLines = doc.splitTextToSize(client.valuer_notes || '', colWidths[5] - 4);
-    let noteY = yPos + 5;
+    // ----- Column 5: Valuer Notes (multi‑line, top‑aligned) -----
+    const notesStartX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 3;
+    let noteY = yPos + TOP_PADDING;
     notesLines.forEach(line => {
-      doc.text(line, startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 3, noteY);
-      noteY += 5;
+      doc.text(line, notesStartX, noteY);
+      noteY += LINE_HEIGHT;
     });
-    yPos += rowHeight;
+
+    yPos += rowHeight;   // move to next row
   }
 
   // ---------- Signatures & Stamp ----------
