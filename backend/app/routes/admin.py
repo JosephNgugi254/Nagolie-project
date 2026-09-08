@@ -77,48 +77,47 @@ def _days_left_label(loan, today):
 def create_daily_snapshots(as_of_date=None):
     """
     Create a ReportComment snapshot for every active loan for the given date.
-    If as_of_date is None, use yesterday (so that the day is complete).
+    If as_of_date is None, use yesterday.
     """
     if as_of_date is None:
         as_of_date = datetime.utcnow().date() - timedelta(days=1)
     else:
         as_of_date = as_of_date.date() if hasattr(as_of_date, 'date') else as_of_date
 
-    # Get all active loans (excluding flagged ones if you like)
     loans = Loan.query.filter_by(status='active').all()
 
     for loan in loans:
-        # Recalculate the loan as of today? No – we want the state as of the end of that day.
-        # But we don't have a way to recalculate for a past date easily.
-        # However, since the cron runs daily at the end of the day, we can just use the current live state
-        # because it already includes all transactions and accruals up to that moment.
-        # We need to ensure that the loan has been recalculated for the current date.
         loan = recalculate_loan(loan, save=False)
 
-        # Compute unpaid interest for today (which is the end of as_of_date)
+        # Compute unpaid interest using the correct logic
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            unpaid_interest = float(_get_current_period_interest(loan))
+            period_key = _get_current_period_key(loan, as_of_date)
+            raw_interest = (loan.current_principal * Decimal('0.30')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            prepaid = Decimal('0')
+            if loan.interest_prepaid_period == period_key:
+                prepaid = loan.interest_prepaid_amount or Decimal('0')
+            unpaid_interest = float(max(Decimal('0'), raw_interest - prepaid))
         else:
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
         current_principal = float(loan.current_principal)
         total_balance = current_principal + unpaid_interest
 
-        # Check if a snapshot already exists for this loan/date
+        # Check if snapshot already exists for this loan/date
         existing = ReportComment.query.filter_by(
             loan_id=loan.id,
             report_date=as_of_date
         ).first()
         if existing:
-            # Optionally update if you want to refresh (but better to keep original)
             continue
 
-        # Create snapshot
         snapshot = ReportComment(
             loan_id=loan.id,
-            officer_id=None,          # No officer – system‑generated
+            officer_id=None,
             report_date=as_of_date,
-            comment='',               # No comment
+            comment='',
             current_principal=current_principal,
             unpaid_interest=unpaid_interest,
             total_balance=total_balance,
@@ -129,7 +128,7 @@ def create_daily_snapshots(as_of_date=None):
         db.session.add(snapshot)
 
     db.session.commit()
-
+    
 # Helper to refresh all day‑based assignments
 def refresh_day_assignments():
     """Clear outdated day_based assignments and create new ones based on current day assignments."""
@@ -443,7 +442,28 @@ def get_all_clients():
             current_principal = active_loan.current_principal or active_loan.principal_amount
             principal_paid = active_loan.principal_paid or Decimal('0')
             interest_paid = active_loan.interest_paid or Decimal('0')
-            unpaid_interest = max(Decimal('0'), active_loan.accrued_interest - interest_paid)
+
+            # Compute unpaid interest correctly
+            if active_loan.repayment_plan == 'weekly' and active_loan.interest_rate > 0:
+                current_period = _get_current_period_key(active_loan)
+                raw_weekly_interest = (active_loan.current_principal * Decimal('0.30')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                period_prepaid = Decimal('0')
+                if active_loan.interest_prepaid_period == current_period:
+                    period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
+                unpaid_interest = max(Decimal('0'), raw_weekly_interest - period_prepaid)
+                period_interest = raw_weekly_interest
+                period_interest_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
+            else:
+                unpaid_interest = max(Decimal('0'), active_loan.accrued_interest - interest_paid)
+                period_interest = _get_current_period_interest(active_loan)
+                period_prepaid = Decimal('0')
+                period_interest_paid = False
+                current_period = _get_current_period_key(active_loan)
+                if active_loan.interest_prepaid_period == current_period:
+                    period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
+                    period_interest_paid = period_prepaid >= period_interest - Decimal('0.01')
 
             if active_loan.due_date:
                 due = active_loan.due_date.date() if hasattr(active_loan.due_date, 'date') else active_loan.due_date
@@ -457,30 +477,6 @@ def get_all_clients():
                 ld = last_ip.date() if hasattr(last_ip, 'date') else last_ip
                 if ld < today:
                     weeks_overdue = (today - ld).days // 7
-
-            from app.utils.interest_helpers import _get_current_period_key
-
-            # ---- Updated raw weekly interest calculation ----
-            current_period = _get_current_period_key(active_loan)
-            if active_loan.repayment_plan == 'weekly' and active_loan.interest_rate > 0:
-                raw_weekly_interest = (active_loan.current_principal * Decimal('0.30')).quantize(
-                    Decimal('0.01'), rounding=ROUND_HALF_UP
-                )
-                period_interest = raw_weekly_interest
-                period_prepaid = Decimal('0')
-                period_interest_paid = False
-
-                if active_loan.interest_prepaid_period == current_period:
-                    period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
-                    period_interest_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
-            else:
-                # Fallback for daily / other plans
-                period_interest = _get_current_period_interest(active_loan)
-                period_prepaid = Decimal('0')
-                period_interest_paid = False
-                if active_loan.interest_prepaid_period == current_period:
-                    period_prepaid = active_loan.interest_prepaid_amount or Decimal('0')
-                    period_interest_paid = period_prepaid >= period_interest - Decimal('0.01')
 
             clients_data.append({
                 'id': client.id,
@@ -518,7 +514,7 @@ def get_all_clients():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+        
 # ---------------------------------------------------------------------------
 # Dashboard (unchanged)
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ from app import db
 from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, CallLog, GroupReadStatus, GroupMember)
 from app.utils.decorators import role_required, role_or_username_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
-from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
+from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest, _get_current_week_number
 from app.utils.cloudinary_upload import upload_base64_image
 import cloudinary.uploader
 from datetime import datetime, timedelta
@@ -32,19 +32,19 @@ def get_week_number(disbursement_date):
 # ---------------------------------------------------------------------------
 
 @recovery_bp.route('', methods=['GET'])
+@cross_origin(origins="http://localhost:5173", supports_credentials=True) 
 @jwt_required()
 @role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
 def get_recovery_data():
     user_id = int(get_jwt_identity())
     
-    # Subquery to get IDs of loans that are flagged and unresolved
     flagged_subq = db.session.query(FlaggedLoan.loan_id).filter(FlaggedLoan.resolved == False).subquery()
     
     loans = Loan.query.options(
         joinedload(Loan.client), joinedload(Loan.livestock)
     ).filter(
         Loan.status == 'active',
-        Loan.id.notin_(flagged_subq)   # exclude flagged loans
+        Loan.id.notin_(flagged_subq)
     ).all()
     
     result = {}
@@ -52,16 +52,13 @@ def get_recovery_data():
     
     for loan in loans:
         loan = recalculate_loan(loan)
-        today = datetime.utcnow().date()
         overdue_days, overdue_weeks = compute_overdue(loan, today)
         
         due_day = loan.disbursement_date.strftime('%A') if loan.disbursement_date else 'Monday'
         client = loan.client
         lv = loan.livestock
-        
         collateral = loan.collateral_text or (f"{lv.count} {lv.livestock_type}" if lv else '')
         
-        # ---- Pre-period interest info ----
         current_period = _get_current_period_key(loan)
         raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         period_prepaid = Decimal('0')
@@ -70,25 +67,18 @@ def get_recovery_data():
             period_prepaid = loan.interest_prepaid_amount or Decimal('0')
             period_fully_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
         
-        # Determine the interest amount for the current period (1 week or 1 day)
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            periodic_interest = float(raw_weekly_interest)          # 30% of current principal
+            periodic_interest = float(raw_weekly_interest)
+            unpaid_interest = float(max(Decimal('0'), raw_weekly_interest - period_prepaid))
         elif loan.repayment_plan == 'daily' and loan.interest_rate > 0:
-            periodic_interest = float((loan.current_principal * Decimal('0.045')).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            ))                                                      # 4.5% of current principal
-        else:
-            periodic_interest = 0.0     
-        
-        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            if loan.interest_prepaid_period == current_period:
-                unpaid_interest = float(max(Decimal('0'), raw_weekly_interest - period_prepaid))
-            else:
-                unpaid_interest = float(raw_weekly_interest)
-        else:
+            periodic_interest = float((loan.current_principal * Decimal('0.045')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+        else:
+            periodic_interest = 0.0
+            unpaid_interest = 0.0
         
-        week_number = get_week_number(loan.disbursement_date)
+        # Use the corrected week number helper
+        week_number = _get_current_week_number(loan)
         is_defaulter = Defaulter.query.filter_by(loan_id=loan.id, resolved=False).first() is not None
         
         if loan.due_date:
@@ -97,7 +87,6 @@ def get_recovery_data():
         else:
             days_left = 0
         
-        # ---------- NEW: Detect waived loans and get original principal ----------
         is_waiver = (loan.interest_rate == 0 and loan.repayment_plan == 'daily')
         original_principal = None
         if is_waiver and loan.parent_loan_id:
@@ -130,7 +119,6 @@ def get_recovery_data():
             'interest_rate': float(loan.interest_rate),
             'overdue_days': overdue_days,
             'overdue_weeks': overdue_weeks,
-            # ---------- NEW fields ----------
             'is_waiver': is_waiver,
             'original_principal': original_principal,
         })

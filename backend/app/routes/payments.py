@@ -373,7 +373,7 @@ def _apply_payment(loan, payment_type, payment_amount, notes, method='Cash'):
     return notes_text
 
 # ---------------------------------------------------------------------------
-# Loan summary  (unchanged)
+# Loan summary  
 # ---------------------------------------------------------------------------
 
 def _loan_summary(loan):
@@ -387,8 +387,7 @@ def _loan_summary(loan):
         period_already_paid = period_prepaid >= period_interest - Decimal('0.01')
 
     if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-        unpaid_current_week = max(Decimal('0'), period_interest - period_prepaid)
-        unpaid_total = unpaid_current_week
+        unpaid_total = max(Decimal('0'), period_interest - period_prepaid)
     else:
         unpaid_total = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
 
@@ -410,7 +409,6 @@ def _loan_summary(loan):
         'period_interest_fully_paid': period_already_paid,
         'interest_prepaid_period': loan.interest_prepaid_period,
     }
-
 
 # ---------------------------------------------------------------------------
 # Payment endpoints  (unchanged)
