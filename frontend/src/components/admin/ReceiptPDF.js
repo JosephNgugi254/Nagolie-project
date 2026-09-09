@@ -90,10 +90,6 @@ export const addOptimizedWatermark = (doc, type = 'agreement') => {
 };
 
 // ========== NEW: SINGLE PAGE WATERMARK FUNCTION FOR MULTI-PAGE DOCS ==========
-/**
- * Adds watermark to ONLY the current page (for multi-page documents)
- * This should be called BEFORE adding content to each new page
- */
 const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
   const DOC_LABELS = {
     receipt: 'RECEIPT',
@@ -143,6 +139,32 @@ const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
   }
 };
 
+// Takes a raw base64 image (PNG with transparency) and returns a new base64 with a solid white background
+const processLogoWithWhiteBackground = (rawBase64) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        // Fill with white background
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Draw the logo on top
+        ctx.drawImage(img, 0, 0);
+        // Export as PNG (with white background now baked in)
+        resolve(canvas.toDataURL('image/png'));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error('Failed to load logo image'));
+    img.src = rawBase64;
+  });
+};
+
 // Helper to fetch logo as base64 with proper dimensions
 export const getLogoBase64 = async (url) => {
   try {
@@ -160,13 +182,24 @@ export const getLogoBase64 = async (url) => {
   }
 };
 
-// Module-level cache for logo
+// Module-level cache for processed logo (with white background)
 let cachedLogoBase64 = null;
 
 export const addHeader = async (doc, yStart = 20) => {
-  // Fetch logo only once
+  // Fetch and process logo only once
   if (cachedLogoBase64 === null) {
-    cachedLogoBase64 = await getLogoBase64(COMPANY_INFO.logoUrl);
+    try {
+      const rawLogo = await getLogoBase64(COMPANY_INFO.logoUrl);
+      if (rawLogo) {
+        // Process to add white background
+        cachedLogoBase64 = await processLogoWithWhiteBackground(rawLogo);
+      } else {
+        cachedLogoBase64 = null;
+      }
+    } catch (error) {
+      console.error('Failed to load or process logo:', error);
+      cachedLogoBase64 = null;
+    }
   }
   const logoBase64 = cachedLogoBase64;
   let yPos = yStart;
@@ -178,15 +211,15 @@ export const addHeader = async (doc, yStart = 20) => {
     const imgW = 38;
     const imgH = 38;
 
-    // === FIX: Draw white background to prevent black transparency ===
+    // white background 
     doc.setFillColor(255, 255, 255);
     doc.rect(imgX, imgY, imgW, imgH, 'F');
 
-    // Add logo on top
+    // Add the processed logo (now has a white background)
     doc.addImage(logoBase64, 'PNG', imgX, imgY, imgW, imgH);
   }
 
-  // Company info aligned to the right of logo
+  // ... rest of the header (company info) unchanged ...
   const infoX = logoBase64 ? 55 : 20;
   doc.setTextColor(...COLORS.primaryBlue);
   doc.setFontSize(16);
@@ -6608,7 +6641,6 @@ export const generateInvoicePDF = async (data, preview = false) => {
   }
 };
 
-// ========== DELIVERY NOTE PDF ==========
 // ========== DELIVERY NOTE PDF ==========
 export const generateDeliveryNotePDF = async (data, preview = false) => {
   const doc = new jsPDF();
