@@ -4,6 +4,7 @@ from app import db
 from app.models import User, Group, GroupMember, PrivateMessage, GroupReadStatus, GroupMember
 from datetime import datetime
 import traceback
+from app import socketio
 
 chat_bp = Blueprint('chat', __name__, url_prefix='/api/chat')
 
@@ -336,6 +337,9 @@ def mark_group_read(group_id):
     if not check_group_membership(group_id, user_id):
         return jsonify({'error': 'You are not a member of this group'}), 403
 
+    now = datetime.utcnow()
+
+    # 1. Mark individual messages as read (keeps message-level read flags correct)
     messages = PrivateMessage.query.filter_by(group_id=group_id).filter(
         PrivateMessage.sender_id != user_id,
         PrivateMessage.status != 'read'
@@ -343,7 +347,16 @@ def mark_group_read(group_id):
     for msg in messages:
         msg.status = 'read'
         msg.read = True
-        msg.read_at = datetime.utcnow()
+        msg.read_at = now
+
+    # 2. ✅ CRITICAL: upsert GroupReadStatus so unread-counts endpoint stops counting them
+    read_status = GroupReadStatus.query.filter_by(
+        user_id=user_id, group_id=group_id
+    ).first()
+    if not read_status:
+        read_status = GroupReadStatus(user_id=user_id, group_id=group_id)
+        db.session.add(read_status)
+    read_status.last_read_at = now
 
     db.session.commit()
     return jsonify({'success': True}), 200

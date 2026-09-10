@@ -4,7 +4,7 @@ import Avatar from '../common/Avatar';
 import Modal from '../common/Modal';
 import CreateGroupModal from './CreateGroupModal';
 
-function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
+function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set(), refreshKey }) {
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -21,7 +21,7 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set() }) {
       fetchGroups();
       fetchGroupUnreads();
     }
-  }, [isOpen]);
+  }, [isOpen, refreshKey]);
 
   const fetchUsers = async () => {
     try {

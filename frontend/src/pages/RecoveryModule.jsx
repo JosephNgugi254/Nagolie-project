@@ -117,7 +117,6 @@ function RecoveryModule() {
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [commentUnreads, setCommentUnreads] = useState({});
   const [audio, setAudio] = useState(null);
-  const prevCounts = useRef({});
   const [showTakeActionModal, setShowTakeActionModal] = useState(false);
   const [selectedLoanForAction, setSelectedLoanForAction] = useState(null);
   const [showRenewalModal, setShowRenewalModal] = useState(false);
@@ -243,6 +242,12 @@ function RecoveryModule() {
   const [badDebtLoanId, setBadDebtLoanId] = useState(null);
   const [badDebtLoanName, setBadDebtLoanName] = useState('');
 
+  const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
+
+  const lastAlertedCommentCountsRef = useRef({});   // { loanId: lastCount }
+  const lastAlertedMessagesCountRef  = useRef(0);
+  const lastAlertedAppsCountRef      = useRef(0);
+
   const fetchBadDebtLoans = async () => {
     try {
       const res = await recoveryAPI.getBadDebtLoans();
@@ -336,15 +341,13 @@ function RecoveryModule() {
       const res = await adminAPI.getApplications();
       const newApps = res.data || [];
       setApplications(newApps);
-
-      // Count pending applications
+    
       const newPendingCount = newApps.filter(app => app.status === 'pending').length;
       setPendingApplicationsCount(newPendingCount);
-
-      // Play sound if count increased
-      if (newPendingCount > prevPendingApplicationsRef.current) {
-        playSound(); // reuse existing playSound function
-      }
+    
+      // Sound only if the pending count went up vs. what we last alerted on
+      if (newPendingCount > lastAlertedAppsCountRef.current) playSound();
+      lastAlertedAppsCountRef.current = newPendingCount;
       prevPendingApplicationsRef.current = newPendingCount;
     } catch (err) {
       showToast.error("Failed to load applications");
@@ -1326,16 +1329,23 @@ function RecoveryModule() {
     if (!audio) { const a = new Audio('/notification-sound.mp3'); setAudio(a); a.play().catch(() => {}); }
     else audio.play().catch(() => {});
   };
+  
 
   const fetchCommentUnreads = useCallback(async () => {
     try {
       const res = await recoveryAPI.getCommentUnreadCounts();
-      const nc = res.data;
+      const nc = res.data || {};
+
       let hasNew = false;
-      Object.keys(nc).forEach(id => { if (nc[id] > (prevCounts.current[id] || 0)) hasNew = true; });
+      Object.keys(nc).forEach(id => {
+        const curr = nc[id] || 0;
+        const prev = lastAlertedCommentCountsRef.current[id] || 0;
+        if (curr > prev) hasNew = true;
+        lastAlertedCommentCountsRef.current[id] = curr;
+      });
+
       if (hasNew) playSound();
       setCommentUnreads(nc);
-      prevCounts.current = { ...nc };
     } catch (e) { console.error(e); }
   }, []);
   
@@ -1351,11 +1361,19 @@ function RecoveryModule() {
 
   const fetchUnreadCount = async () => {
     try {
-      const res = await recoveryAPI.getTotalUnreadCount(); // new endpoint
-      setUnreadCount(prev => { if (res.data.count > prev) playSound(); return res.data.count; });
-      document.title = res.data.count > 0 ? `(${res.data.count}) Nagolie Recovery` : 'Nagolie Recovery';
+      const res = await recoveryAPI.getTotalUnreadCount();
+      const current = res.data.count;
+
+      if (current > lastAlertedMessagesCountRef.current) playSound();
+      lastAlertedMessagesCountRef.current = current;
+
+      setUnreadCount(current);
+      document.title = current > 0
+        ? `(${current}) Nagolie Recovery`
+        : 'Nagolie Recovery';
     } catch (e) { console.error(e); }
   };
+
   const handleSelectUser = (chatObj) => {
     // chatObj = { type: 'user'|'group', data: ... }
     const id = chatObj.type === 'user' ? chatObj.data.id : `group-${chatObj.data.id}`;
@@ -1766,6 +1784,7 @@ function RecoveryModule() {
                 onToggleInbox={() => {
                   setShowUtilities(false);
                   setShowChatList(s => !s);
+                  setChatListRefreshKey(k => k + 1);
                   setSidebarOpen(false);
                 }}
                 unreadCount={unreadCount}
@@ -4091,6 +4110,7 @@ function RecoveryModule() {
         onClose={() => setShowChatList(false)}
         onSelectUser={handleSelectUser}
         onlineUsers={onlineUsers}
+        refreshKey={chatListRefreshKey}
       />
 
       {openChatWindows.map((chatObj, i) => (
@@ -4107,7 +4127,10 @@ function RecoveryModule() {
               return updated;
             });
           }}
-          onNewMessage={fetchUnreadCount}
+          onNewMessage={() => {
+            fetchUnreadCount();                   // sidebar total
+            setChatListRefreshKey(k => k + 1);    // <-- new: notify ChatList
+          }}
           style={getChatStyle(i)}
           globalSocket={socket}
           onlineUsers={onlineUsers}
