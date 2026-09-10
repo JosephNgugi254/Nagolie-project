@@ -373,9 +373,11 @@ const MessageBubble = memo(({
 
   // Background color: for group received messages, use sender-specific light color
   const bubbleStyle = {};
-  if (!isOwn && isGroup && showSender) {
+
+  if (isGroup && !isOwn) {
     bubbleStyle.backgroundColor = getUserBgColor(msg.sender_id);
-  } else if (!isOwn && msg.status === 'read') {
+  } else if (!isGroup && !isOwn && msg.status === 'read') {
+    // existing 1-to-1 "read" highlight — leave as-is
     bubbleStyle.backgroundColor = '#fff3cd';
   }
 
@@ -516,7 +518,7 @@ const MessageBubble = memo(({
 // ------------------------------------------------------------
 // Main ChatWindow
 // ------------------------------------------------------------
-function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUsers }) {
+function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSocket, onlineUsers }) {
   const getCurrentUserId = () => {
     const ud = JSON.parse(localStorage.getItem('user') || '{}');
     if (ud.id) return ud.id;
@@ -556,8 +558,9 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
   const [showMembersDropdown, setShowMembersDropdown] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
 
-  const isGroupAdmin = group?.created_by === getCurrentUserId();
+  const isGroupAdmin =  group?.created_by != null && String(group.created_by) === String(getCurrentUserId());
 
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -585,6 +588,8 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
   const [socketConnected, setSocketConnected] = useState(false);
 
   const pendingTempIds = useRef(new Map());
+
+  const sendTimeoutRef = useRef(null);
 
   // Reply-to state
   const [replyTo, setReplyTo] = useState(null);
@@ -673,13 +678,27 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
       const m = data.message;
       const cid = getCurrentUserId();
 
+      // Helper: compare IDs regardless of number/string typing
+      const eq = (a, b) => a != null && b != null && String(a) === String(b);
+
+      // ✅ Scope guard: only handle messages that belong to THIS chat window
+      if (isGroup) {
+        if (!eq(m.group_id, group.id)) return;
+      } else {
+        if (!eq(m.sender_id, user.id) && !eq(m.recipient_id, user.id)) return;
+      }
+    
+      // Is this message one we ourselves sent?
+      const isOwn = eq(m.sender_id, cid);
+    
       setMessages(prev => {
-        if (prev.some(msg => msg.id === m.id)) return prev;
-        if (m.sender_id === cid) {
+        if (prev.some(msg => eq(msg.id, m.id))) return prev;
+      
+        if (isOwn) {
           const tempIdx = prev.findIndex(msg =>
             pendingTempIds.current.has(msg.id) &&
-            msg.sender_id === cid &&
-            (isGroup ? msg.group_id === group.id : msg.recipient_id === user.id)
+            eq(msg.sender_id, cid) &&
+            (isGroup ? eq(msg.group_id, group.id) : eq(msg.recipient_id, user.id))
           );
           if (tempIdx !== -1) {
             pendingTempIds.current.delete(prev[tempIdx].id);
@@ -690,13 +709,20 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
         }
         return [...prev, { ...m, is_call_log: false }];
       });
-
-      if (!isGroup && m.sender_id === user.id && m.status !== 'read') markRead(m.id);
-      if (m.sender_id !== cid && onNewMessage) {
-        onNewMessage();
+    
+      // ✅ If this is our own message echoing back, clear spinner + timeout.
+      if (isOwn) {
+        if (sendTimeoutRef.current) {
+          clearTimeout(sendTimeoutRef.current);
+          sendTimeoutRef.current = null;
+        }
+        setSending(false);
       }
-
-      if (!isUserAtBottom.current) {
+    
+      if (!isGroup && eq(m.sender_id, user.id) && m.status !== 'read') markRead(m.id);
+      if (!isOwn && onNewMessage) onNewMessage();
+    
+      if (!isUserAtBottom.current && !isOwn) {
         setNewMessageCount(p => p + 1);
         setShowScrollButton(true);
       }
@@ -706,19 +732,36 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
       setMessages(prev => prev.map(m => m.id === d.message_id ? { ...m, status: d.status } : m));
 
     const onSent = (d) => {
-      if (window._sendTO) clearTimeout(window._sendTO);
-      setSending(false);
       const realMsg = d.message;
-      const tempId = d.temp_id;
-      if (realMsg && tempId) {
+      const tempId  = d.temp_id;
+
+      const eq = (a, b) => a != null && b != null && String(a) === String(b);
+
+      if (!realMsg) return;
+      if (isGroup) {
+        if (!eq(realMsg.group_id, group.id)) return;
+      } else {
+        if (!eq(realMsg.recipient_id, user.id) && !eq(realMsg.sender_id, user.id)) return;
+      }
+    
+      if (sendTimeoutRef.current) {
+        clearTimeout(sendTimeoutRef.current);
+        sendTimeoutRef.current = null;
+      }
+      setSending(false);
+    
+      if (tempId && pendingTempIds.current.has(tempId)) {
         pendingTempIds.current.delete(tempId);
         setMessages(prev => {
-          if (prev.some(msg => msg.id === realMsg.id)) {
-            return prev.map(m => m.id === realMsg.id ? { ...m, status: realMsg.status } : m);
+          if (prev.some(msg => eq(msg.id, realMsg.id))) {
+            return prev.map(m => eq(m.id, realMsg.id) ? { ...m, status: realMsg.status } : m);
           }
           return prev.map(m => m.id === tempId ? { ...realMsg, is_call_log: false } : m);
         });
+      } else {
+        setMessages(prev => prev.map(m => eq(m.id, realMsg.id) ? { ...m, status: realMsg.status } : m));
       }
+    
       scrollToBottom();
     };
 
@@ -751,6 +794,8 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
       }
     };
   }, [globalSocket, user?.id, group?.id, isGroup]);
+
+  
 
   // Mark message as read (only for user chats) – now calls onNewMessage
   const markRead = async (id) => {
@@ -888,7 +933,7 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
 
       if (isGroup) {
         if (socketRef.current && socketConnected) {
-          window._sendTO = setTimeout(() => {
+          sendTimeoutRef.current = setTimeout(() => {
             setSending(false);
             showToast.error('Sending timed out');
             pendingTempIds.current.delete(tempId);
@@ -917,7 +962,7 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
         }
       } else {
         if (socketRef.current && socketConnected) {
-          window._sendTO = setTimeout(() => {
+          sendTimeoutRef.current = setTimeout(() => {
             setSending(false);
             showToast.error('Sending timed out');
             pendingTempIds.current.delete(tempId);
@@ -1048,7 +1093,7 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
 
       if (isGroup) {
         if (socketRef.current && socketConnected) {
-          window._sendTO = setTimeout(() => {
+          sendTimeoutRef.current = setTimeout(() => {
             setSending(false);
             showToast.error('Sending timed out');
             pendingTempIds.current.delete(tempId);
@@ -1075,7 +1120,7 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
         }
       } else {
         if (socketRef.current && socketConnected) {
-          window._sendTO = setTimeout(() => {
+          sendTimeoutRef.current = setTimeout(() => {
             setSending(false);
             showToast.error('Sending timed out');
             pendingTempIds.current.delete(tempId);
@@ -1215,10 +1260,24 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
   // Leave group – now uses modal
   const handleLeaveGroup = () => setShowLeaveModal(true);
 
+  const confirmDeleteGroup = async () => {
+    try {
+      await chatAPI.deleteGroup(group.id);
+      showToast.success('Group deleted');
+      if (onGroupLeft) onGroupLeft();
+      onClose();
+    } catch (err) {
+      showToast.error(err.response?.data?.error || 'Failed to delete group');
+    } finally {
+      setShowDeleteGroupModal(false);
+    }
+  };
+  
   const confirmLeaveGroup = async () => {
     try {
       await chatAPI.leaveGroup(group.id);
       showToast.success('You left the group');
+      if (onGroupLeft) onGroupLeft();   // <-- tell RecoveryModule to refresh ChatList
       onClose();
     } catch (err) {
       showToast.error(err.response?.data?.error || 'Failed to leave');
@@ -1426,12 +1485,20 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
                       </div>
                     ))}
                     {isGroupAdmin && (
-                      <button
-                        className="btn btn-sm btn-primary w-100 mt-2"
-                        onClick={() => { setShowMembersDropdown(false); setShowAddMemberModal(true); }}
-                      >
-                        <i className="fas fa-user-plus me-1" /> Add Member
-                      </button>
+                      <>
+                        <button
+                          className="btn btn-sm btn-primary w-100 mt-2"
+                          onClick={() => { setShowMembersDropdown(false); setShowAddMemberModal(true); }}
+                        >
+                          <i className="fas fa-user-plus me-1" /> Add Member
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger w-100 mt-2"
+                          onClick={() => { setShowMembersDropdown(false); setShowDeleteGroupModal(true); }}
+                        >
+                          <i className="fas fa-trash me-1" /> Delete Group
+                        </button>
+                      </>
                     )}
                   </div>
                 )}
@@ -1680,6 +1747,17 @@ function ChatWindow({ chat, onClose, onNewMessage, style, globalSocket, onlineUs
         title="Leave Group"
         message={`Are you sure you want to leave "${group?.name}"?`}
         confirmText="Leave"
+        confirmColor="danger"
+      />
+
+      {/* Delete Group Confirmation */}
+      <ConfirmationDialog
+        isOpen={showDeleteGroupModal}
+        onClose={() => setShowDeleteGroupModal(false)}
+        onConfirm={confirmDeleteGroup}
+        title="Delete Group"
+        message={`Are you sure you want to delete "${group?.name}"? This will remove the group for every member and cannot be undone.`}
+        confirmText="Delete Group"
         confirmColor="danger"
       />
 

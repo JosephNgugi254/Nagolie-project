@@ -78,6 +78,45 @@ def create_group():
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response, 500
 
+# ---------- Delete group ----------
+@chat_bp.route('/groups/<int:group_id>', methods=['DELETE', 'OPTIONS'])
+@jwt_required()
+def delete_group(group_id):
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    try:
+        user_id = int(get_jwt_identity())
+        group = db.session.get(Group, group_id)
+        if not group:
+            return jsonify({'error': 'Group not found'}), 404
+
+        # Only the creator/admin can delete
+        if group.created_by != user_id:
+            return jsonify({'error': 'Only the group admin can delete the group'}), 403
+
+        # Notify everyone in the group room BEFORE we delete the records
+        socketio.emit(
+            'group_deleted',
+            {'group_id': group_id},
+            room=f'group_{group_id}'
+        )
+
+        # Wipe child records first (avoids FK constraint errors)
+        PrivateMessage.query.filter_by(group_id=group_id).delete()
+        GroupMember.query.filter_by(group_id=group_id).delete()
+        GroupReadStatus.query.filter_by(group_id=group_id).delete()
+
+        db.session.delete(group)
+        db.session.commit()
+
+        return jsonify({'success': True}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
 # ---------- Get groups for current user ----------
 @chat_bp.route('/groups', methods=['GET', 'OPTIONS'])
 @jwt_required()
@@ -234,6 +273,13 @@ def leave_group(group_id):
         )
         db.session.add(system_msg)
         db.session.commit()
+
+         # ✅ Notify the room so remaining members see "X left" live
+        socketio.emit(
+            'new_group_message',
+            {'message': system_msg.to_dict()},
+            room=f'group_{group_id}'
+        )
 
         response = jsonify({'success': True})
         response.headers['Access-Control-Allow-Origin'] = 'http://localhost:5173'

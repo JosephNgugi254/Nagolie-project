@@ -400,6 +400,7 @@ export const financialAPI = {
 export const chatAPI = {
   ping: () => api.get('/chat/ping'),
   createGroup: (data) => api.post('/chat/groups', data),
+  deleteGroup: (groupId) => api.delete(`/chat/groups/${groupId}`),
   getGroups: () => api.get('/chat/groups'),
   getGroupDetails: (groupId) => api.get(`/chat/groups/${groupId}`),
   sendGroupMessage: (groupId, data) => api.post(`/chat/groups/${groupId}/messages`, data),

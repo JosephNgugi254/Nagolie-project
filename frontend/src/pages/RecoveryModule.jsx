@@ -341,10 +341,10 @@ function RecoveryModule() {
       const res = await adminAPI.getApplications();
       const newApps = res.data || [];
       setApplications(newApps);
-    
+
       const newPendingCount = newApps.filter(app => app.status === 'pending').length;
       setPendingApplicationsCount(newPendingCount);
-    
+
       // Sound only if the pending count went up vs. what we last alerted on
       if (newPendingCount > lastAlertedAppsCountRef.current) playSound();
       lastAlertedAppsCountRef.current = newPendingCount;
@@ -1716,6 +1716,21 @@ function RecoveryModule() {
   //     }
   //   };
   // }, [isAuthenticated]);
+
+    // React to group deletions → close that chat window + refresh chat list
+  useEffect(() => {
+    if (!socket) return;
+    const handleGroupDeleted = (data) => {
+      const deletedId = String(data.group_id);
+      setOpenChatWindows(prev =>
+        prev.filter(w => !(w.type === 'group' && String(w.data.id) === deletedId))
+      );
+      setChatListRefreshKey(k => k + 1);
+      fetchUnreadCount();
+    };
+    socket.on('group_deleted', handleGroupDeleted);
+    return () => socket.off('group_deleted', handleGroupDeleted);
+  }, [socket]);
 
   if (loading) {
     return (
@@ -4130,6 +4145,10 @@ function RecoveryModule() {
           onNewMessage={() => {
             fetchUnreadCount();                   // sidebar total
             setChatListRefreshKey(k => k + 1);    // <-- new: notify ChatList
+          }}
+          onGroupLeft={() => {                    
+            setChatListRefreshKey(k => k + 1);    // force ChatList refetch → group vanishes
+            fetchUnreadCount();                   // sidebar total also drops if group had unread
           }}
           style={getChatStyle(i)}
           globalSocket={socket}
