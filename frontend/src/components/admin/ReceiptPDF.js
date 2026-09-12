@@ -8166,14 +8166,52 @@ export const generateManualPromissoryNotePDF = async () => {
   doc.save(fileName);
 };
 
+// ==========(Helper function) RESOLVE REPORT PREPARED-BY NAME ==========
+const resolveReportPreparedByName = (userOrName) => {
+  if (!userOrName) return 'Valuer';
+
+  // Fallback for string input
+  if (typeof userOrName === 'string') {
+    const u = userOrName.toLowerCase().trim();
+    if (u === 'annie'  || u === 'ann' || u.includes('annie')) return 'Ann Ndura';
+    if (u === 'robert' || u.includes('robert'))                 return 'Robert Kalama';
+    if (u === 'george' || u.includes('george'))                 return 'George Marite';
+    return userOrName.charAt(0).toUpperCase() + userOrName.slice(1);
+  }
+
+  // Full user object
+  const username = (userOrName.username || '').toLowerCase().trim();
+  if (username === 'annie' || username.includes('annie'))  return 'Ann Ndura';
+  if (username === 'robert' || username.includes('robert')) return 'Robert Kalama';
+  if (username === 'george' || username.includes('george')) return 'George Marite';
+
+  // Fallbacks
+  if (userOrName.full_name) return userOrName.full_name;
+  if (userOrName.username) {
+    return userOrName.username.charAt(0).toUpperCase() + userOrName.username.slice(1);
+  }
+  return 'Valuer';
+};
+
 // ========== RECOVERY REPORT FROM DATA (EXACT FIT) ==========
-export const generateValuerReportFromData = async (flaggedClients, reportDate, officerName, download = true) => {
+export const generateValuerReportFromData = async (
+  flaggedClients,
+  reportDate,
+  userOrName,     // <-- accept full user object OR username string
+  download = true
+) => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   addOptimizedWatermark(doc, 'document');
 
   const margin = { left: 7, right: 7, top: 10 };
   const pageWidth = doc.internal.pageSize.width;
   const tableWidth = pageWidth - margin.left - margin.right;
+
+  // Resolve display identity
+  const officerName  = typeof userOrName === 'string'
+    ? userOrName
+    : (userOrName?.username || 'Valuer');
+  const preparedName = resolveReportPreparedByName(userOrName);
 
   // Column widths: # (4%), Name (22%), Date (8%), Principal (16%), Interest (18%), Notes (32%)
   const colPercent = [4, 22, 8, 16, 18, 32];
@@ -8217,30 +8255,23 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
     return `KES ${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
   };
 
-  // -------- EXACT ROW HEIGHT CALCULATION ----------
-  const MIN_ROW_HEIGHT = 28;   // mm (covers single‑line notes and other columns)
-  const TOP_PADDING = 5;       // mm
-  const BOTTOM_PADDING = 5;    // mm
-  const LINE_HEIGHT = 5;       // mm per text line (includes gap)
+  const MIN_ROW_HEIGHT = 28;
+  const TOP_PADDING = 5;
+  const BOTTOM_PADDING = 5;
+  const LINE_HEIGHT = 5;
 
   for (let i = 0; i < flaggedClients.length; i++) {
     const client = flaggedClients[i];
-
-    // Split notes into wrapped lines
     const notesText = client.valuer_notes || '';
     const notesLines = doc.splitTextToSize(notesText, colWidths[5] - 4);
     const lineCount = notesLines.length;
-
-    // Height needed for notes = top padding + lines * line height + bottom padding
     const neededHeight = TOP_PADDING + (lineCount * LINE_HEIGHT) + BOTTOM_PADDING;
     const rowHeight = Math.max(MIN_ROW_HEIGHT, neededHeight);
 
-    // Check page break
-    if (yPos + rowHeight > 275) {   // leave room for footer
+    if (yPos + rowHeight > 275) {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'document');
       yPos = margin.top;
-      // Redraw header on new page
       doc.setFillColor(...COLORS.primaryBlue);
       doc.setTextColor(...COLORS.white);
       doc.rect(startX, yPos, tableWidth, 8, 'F');
@@ -8254,23 +8285,19 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
       doc.setFont('helvetica', 'normal');
     }
 
-    // Row background (alternating)
     if (i % 2 === 0) {
       doc.setFillColor(...COLORS.border);
       doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
     }
 
-    // Draw cell borders
     let cx = startX;
     for (let j = 0; j < colWidths.length; j++) {
       doc.rect(cx, yPos, colWidths[j], rowHeight);
       cx += colWidths[j];
     }
 
-    // ----- Column 0: Index -----
     doc.text((i + 1).toString(), startX + 3, yPos + 15);
 
-    // ----- Column 1: Client name + Plan badge -----
     const nameX = startX + colWidths[0] + 3;
     doc.text(client.client_name, nameX, yPos + 15);
     if (client.repayment_plan) {
@@ -8282,7 +8309,6 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
       doc.setFontSize(10);
     }
 
-    // ----- Column 2: Date Flagged (rotated) -----
     const flaggedDate = new Date(client.flagged_at).toLocaleDateString('en-GB');
     const dateX = startX + colWidths[0] + colWidths[1] + (colWidths[2] / 2) + 3;
     const dateY = yPos + 20;
@@ -8290,10 +8316,9 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
     doc.setFontSize(9);
     doc.text(flaggedDate, dateX, dateY, { align: 'center', angle: 45 });
 
-    // ----- Column 3: Principal -----
-    doc.text(formatCurrency(client.current_principal), startX + colWidths[0] + colWidths[1] + colWidths[2] + 3, yPos + 15);
+    doc.text(formatCurrency(client.current_principal),
+      startX + colWidths[0] + colWidths[1] + colWidths[2] + 3, yPos + 15);
 
-    // ----- Column 4: Interest + Total (blue) -----
     const interestX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 3;
     const interest = client.unpaid_interest || 0;
     doc.text(formatCurrency(interest), interestX, yPos + 15);
@@ -8304,7 +8329,6 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
     doc.setTextColor(...COLORS.textDark);
     doc.setFontSize(10);
 
-    // ----- Column 5: Valuer Notes (multi‑line, top‑aligned) -----
     const notesStartX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 3;
     let noteY = yPos + TOP_PADDING;
     notesLines.forEach(line => {
@@ -8312,7 +8336,7 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
       noteY += LINE_HEIGHT;
     });
 
-    yPos += rowHeight;   // move to next row
+    yPos += rowHeight;
   }
 
   // ---------- Signatures & Stamp ----------
@@ -8322,10 +8346,12 @@ export const generateValuerReportFromData = async (flaggedClients, reportDate, o
     addWatermarkToCurrentPage(doc, 'document');
     yPos = margin.top;
   }
+
   doc.setFont('helvetica', 'bold');
-  doc.text('Prepared by: ______________________________', margin.left, yPos);
+  doc.text(`Prepared by: ${preparedName}`, margin.left, yPos);
   doc.text('Signature: ___________________', margin.left + 120, yPos);
   yPos += 12;
+
   doc.text('Approved by Director:  Shadrack Kesumet', margin.left, yPos);
   doc.text('Signature: ___________________', margin.left + 80, yPos);
   doc.text('Date: ___________________', margin.left + 140, yPos);

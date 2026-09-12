@@ -1121,3 +1121,35 @@ class GroupReadStatus(db.Model):
 
     user = db.relationship('User')
     group = db.relationship('Group')
+
+class FlaggedLoanNote(db.Model):
+    """
+    Per-user notes on a flagged loan.
+    Each valuer / Annie / any other authorised user has their own note
+    for the same loan, so their reports never overwrite each other.
+    """
+    __tablename__ = 'flagged_loan_notes'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    loan_id    = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False, index=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    notes      = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('loan_id', 'user_id', name='uq_flagged_loan_user'),
+    )
+
+    loan = db.relationship('Loan')
+    user = db.relationship('User')
+
+    def to_dict(self):
+        return {
+            'id':         self.id,
+            'loan_id':    self.loan_id,
+            'user_id':    self.user_id,
+            'username':   self.user.username if self.user else None,
+            'notes':      self.notes or '',
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }

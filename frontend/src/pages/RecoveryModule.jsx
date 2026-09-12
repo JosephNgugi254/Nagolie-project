@@ -74,9 +74,7 @@ function RecoveryModule() {
   const navigate = useNavigate();
   useSessionTimeout(logout, isAuthenticated, userRole);
 
-
   const { socket, onlineUsers } = useSocket();
-
 
   const [branchFilter, setBranchFilter] = useState('all'); // 'all', 'isinya', 'emarti'
   const filterByBranch = (loans) => {
@@ -142,11 +140,13 @@ function RecoveryModule() {
   const [waiverAmount, setWaiverAmount] = useState(0);
   const [waiverDuration, setWaiverDuration] = useState(14);
   const [waiverProcessing, setWaiverProcessing] = useState(false);
+
   // ---------- Director dashboard data ----------
   const [dashboardData, setDashboardData] = useState({
     total_clients: 0, total_lent: 0, total_received: 0, total_revenue: 0,
     total_principal_paid: 0, available_funds: 0, due_today: [], overdue: []
   });
+
   const [applications, setApplications] = useState([]);
   const [approvedLoans, setApprovedLoans] = useState([]);
   const [pendingApplicationsCount, setPendingApplicationsCount] = useState(0);
@@ -157,6 +157,7 @@ function RecoveryModule() {
     payment_stats: [], total_principal_collected: 0,
     currently_lent: 0, available_for_lending: 0, revenue_collected: 0
   });
+
   const [livestock, setLivestock] = useState([]);
   const [livestockLoading, setLivestockLoading] = useState(false);
   const [applicationsLoading, setApplicationsLoading] = useState(false);
@@ -234,16 +235,13 @@ function RecoveryModule() {
   const [showFlagConfirmModal, setShowFlagConfirmModal] = useState(false);
   const [flagLoanToConfirm, setFlagLoanToConfirm] = useState(null);
   const [flagLoanName, setFlagLoanName] = useState('');
-
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [badDebtLoans, setBadDebtLoans] = useState([]);
   const [showBadDebtConfirm, setShowBadDebtConfirm] = useState(false);
   const [badDebtAction, setBadDebtAction] = useState(null); // 'mark' or 'resolve'
   const [badDebtLoanId, setBadDebtLoanId] = useState(null);
   const [badDebtLoanName, setBadDebtLoanName] = useState('');
-
   const [chatListRefreshKey, setChatListRefreshKey] = useState(0);
-
   const lastAlertedCommentCountsRef = useRef({});   // { loanId: lastCount }
   const lastAlertedMessagesCountRef  = useRef(0);
   const lastAlertedAppsCountRef      = useRef(0);
@@ -300,7 +298,6 @@ function RecoveryModule() {
       setBadDebtLoanName('');
     }
   };
-
   
   const fetchPendingRequestsCount = async () => {
     try {
@@ -1330,7 +1327,6 @@ function RecoveryModule() {
     else audio.play().catch(() => {});
   };
   
-
   const fetchCommentUnreads = useCallback(async () => {
     try {
       const res = await recoveryAPI.getCommentUnreadCounts();
@@ -1646,78 +1642,7 @@ function RecoveryModule() {
     return () => clearInterval(applicationInterval);
   }, [directorSection, userRole, isInvestorSectionAuthenticated]);
 
-  // Global Socket.IO connection for online status & chat
-  // useEffect(() => {
-  //   // Only connect if user is authenticated and not already connected
-  //   if (!isAuthenticated() || socketRef.current) return;
-
-  //   const socketUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
-  //   const token = localStorage.getItem('token');
-  //   if (!token) return;
-
-  //   console.log('[Global Socket] Connecting to:', socketUrl);
-  //   const newSocket = io(socketUrl, {
-  //     transports: ['websocket', 'polling'],
-  //     reconnection: true,
-  //     reconnectionAttempts: 10,
-  //     reconnectionDelay: 1000,
-  //     pingInterval: 25000,
-  //     pingTimeout: 60000,
-  //     query: { token },
-  //   });
-
-  //   newSocket.on('connect', () => {
-  //     console.log('[Global Socket] Connected');
-  //     // Join the user's personal room (already handled on server)
-  //   });
-
-  //   newSocket.on('online_users_list', (data) => {
-  //     console.log('[Global Socket] Initial online users:', data.user_ids);
-  //     setOnlineUsers(new Set(data.user_ids));
-  //   });
-
-  //   newSocket.on('user_online', (data) => {
-  //     console.log('[Global Socket] User online:', data.user_id);
-  //     if (disconnectTimeouts.current[data.user_id]) {
-  //       clearTimeout(disconnectTimeouts.current[data.user_id]);
-  //       delete disconnectTimeouts.current[data.user_id];
-  //     }
-  //     setOnlineUsers(prev => new Set([...prev, data.user_id]));
-  //   });
-
-  //   newSocket.on('user_offline', (data) => {
-  //     console.log('[Global Socket] User offline:', data.user_id);
-  //     // Delay removal to avoid flickering on temporary disconnects
-  //     if (disconnectTimeouts.current[data.user_id]) {
-  //       clearTimeout(disconnectTimeouts.current[data.user_id]);
-  //     }
-  //     const timeout = setTimeout(() => {
-  //       setOnlineUsers(prev => {
-  //         const newSet = new Set(prev);
-  //         newSet.delete(data.user_id);
-  //         return newSet;
-  //       });
-  //       delete disconnectTimeouts.current[data.user_id];
-  //     }, 10000); // 10 seconds grace period
-  //     disconnectTimeouts.current[data.user_id] = timeout;
-  //   });
-
-  //   newSocket.on('disconnect', () => {
-  //     console.log('[Global Socket] Disconnected');
-  //   });
-
-  //   socketRef.current = newSocket;
-  //   setSocket(newSocket);
-
-  //   return () => {
-  //     if (socketRef.current) {
-  //       socketRef.current.disconnect();
-  //       socketRef.current = null;
-  //     }
-  //   };
-  // }, [isAuthenticated]);
-
-    // React to group deletions → close that chat window + refresh chat list
+  // React to group deletions → close that chat window + refresh chat list
   useEffect(() => {
     if (!socket) return;
     const handleGroupDeleted = (data) => {
@@ -1742,7 +1667,6 @@ function RecoveryModule() {
       </div>
     );
   }
-
 
   // ---------- JSX ----------
   return (

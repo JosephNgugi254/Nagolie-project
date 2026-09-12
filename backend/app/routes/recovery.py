@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, CallLog, GroupReadStatus, GroupMember)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember)
 from app.utils.decorators import role_required, role_or_username_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
 from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest, _get_current_week_number
@@ -911,7 +911,10 @@ def resolve_flag(loan_id):
     allowed_usernames=['Annie']
 )
 def get_flagged_clients():
-    """Return all currently flagged loans with client details, balances, and livestock value."""
+    """Return all currently flagged loans with client details, balances, and livestock value.
+    The 'valuer_notes' field reflects ONLY the current user's own notes."""
+    current_user_id = int(get_jwt_identity())
+
     flagged = FlaggedLoan.query.filter_by(resolved=False).all()
     result = []
     for f in flagged:
@@ -937,6 +940,13 @@ def get_flagged_clients():
         # Collateral value from livestock
         collateral_value = float(livestock.estimated_value) if livestock else 0
 
+        # ---- Per-user notes (current user's own note only) ----
+        my_note = FlaggedLoanNote.query.filter_by(
+            loan_id=loan.id,
+            user_id=current_user_id
+        ).first()
+        my_notes_text = my_note.notes if my_note else ''
+
         result.append({
             'flag_id': f.id,
             'loan_id': loan.id,
@@ -949,20 +959,20 @@ def get_flagged_clients():
             'collateral_value': collateral_value,
             'flagged_at': f.flagged_at.isoformat() + 'Z',
             'flagged_by_username': f.flagger.username if f.flagger else None,
-            'valuer_notes': f.valuer_notes or '',
+            'valuer_notes': my_notes_text,     # <-- current user's notes only
             'repayment_plan': loan.repayment_plan,
             'interest_rate': float(loan.interest_rate),
             'location': client.location if client and client.location else '',
-            # NEW fields for loan details modal
             'disbursement_date': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
             'due_date': loan.due_date.isoformat() if loan.due_date else None,
             'livestock_type': livestock.livestock_type if livestock else 'N/A',
             'livestock_count': livestock.count if livestock else 0,
-            'estimated_value': collateral_value,  # kept for compatibility, but frontend uses collateral_value
+            'estimated_value': collateral_value,
             'photos': livestock.photos if livestock and livestock.photos else [],
             'client_id': client.id if client else None,
         })
     return jsonify(result), 200
+
 @recovery_bp.route('/flagged-clients/<int:loan_id>/notes', methods=['PUT'])
 @jwt_required()
 @role_or_username_required(
@@ -970,15 +980,35 @@ def get_flagged_clients():
     allowed_usernames=['Annie']
 )
 def update_valuer_notes(loan_id):
-    """Auto-save valuer notes for a flagged loan."""
-    data = request.json
+    """Auto-save the CURRENT user's notes for a flagged loan.
+    Each user has their own row in FlaggedLoanNote, so nothing is overwritten."""
+    current_user_id = int(get_jwt_identity())
+    data  = request.json or {}
     notes = data.get('notes', '')
+
+    # Ensure the loan is still actively flagged
     flagged = FlaggedLoan.query.filter_by(loan_id=loan_id, resolved=False).first()
     if not flagged:
         return jsonify({'error': 'No unresolved flag for this loan'}), 404
-    flagged.valuer_notes = notes
+
+    # Upsert per-user note
+    note = FlaggedLoanNote.query.filter_by(
+        loan_id=loan_id,
+        user_id=current_user_id
+    ).first()
+    if note:
+        note.notes = notes
+        note.updated_at = datetime.utcnow()
+    else:
+        note = FlaggedLoanNote(
+            loan_id=loan_id,
+            user_id=current_user_id,
+            notes=notes
+        )
+        db.session.add(note)
+
     db.session.commit()
-    return jsonify({'success': True}), 200
+    return jsonify({'success': True, 'note': note.to_dict()}), 200
 
 @recovery_bp.route('/loan/<int:loan_id>/report-comments', methods=['GET'])
 @jwt_required()
@@ -1148,3 +1178,53 @@ def total_unread_count():
             PrivateMessage.created_at > last_read
         ).count()
     return jsonify({'count': private_unread + group_unread}), 200
+
+@recovery_bp.route('/flagged-clients/all-notes', methods=['GET', 'OPTIONS'])
+@cross_origin(origins="http://localhost:5173", supports_credentials=True)
+@jwt_required(optional=True)
+def get_all_flagged_notes():
+    """
+    Return every user's notes for every currently-flagged loan.
+    Used by Annie / admin / director to monitor what valuers have written.
+    Response shape: { "<loan_id>": [ { user_id, username, notes, updated_at }, ... ] }
+    """
+    # ---- Preflight ----
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    # ---- Auth for the real request ----
+    user_id = get_jwt_identity()
+    if not user_id:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    # ---- Authorization (manual check, replaces the decorator) ----
+    me = db.session.get(User, int(user_id))
+    if not me:
+        return jsonify({'error': 'Unauthorized'}), 401
+    username = (me.username or '').lower()
+    allowed_roles = ('admin', 'director', 'hr_manager')
+    if me.role not in allowed_roles and username != 'annie':
+        return jsonify({'error': 'Forbidden'}), 403
+
+    # ---- Actual work ----
+    flagged = FlaggedLoan.query.filter_by(resolved=False).all()
+    loan_ids = [f.loan_id for f in flagged]
+    if not loan_ids:
+        return jsonify({}), 200
+
+    notes = (
+        FlaggedLoanNote.query
+        .filter(FlaggedLoanNote.loan_id.in_(loan_ids))
+        .order_by(FlaggedLoanNote.updated_at.desc())
+        .all()
+    )
+
+    result = {}
+    for n in notes:
+        result.setdefault(str(n.loan_id), []).append({
+            'user_id':    n.user_id,
+            'username':   n.user.username if n.user else 'Unknown',
+            'notes':      n.notes or '',
+            'updated_at': n.updated_at.isoformat() if n.updated_at else None,
+        })
+    return jsonify(result), 200

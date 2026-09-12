@@ -11,19 +11,13 @@ function RecoverySidebar({
   unreadCount = 0,
   onOpenSettings,
   onOpenUtilities,
-  userRole,              
+  userRole,
   pendingApplications = 0,
-  user,                 // <-- added to receive full user object
+  user,
 }) {
   const { menuItems, loading } = useUserMenu();
 
-  // ---- NEW: Filter out 'reports' menu item for valuers ----
-  const filteredMenuItems = menuItems.filter((item) => {
-    if (item.key === 'reports' && user?.role === 'valuer') {
-      return false;
-    }
-    return true;
-  });
+  const filteredMenuItems = menuItems;
 
   if (loading) {
     return (
@@ -40,7 +34,7 @@ function RecoverySidebar({
   return (
     <div className="sidebar-sticky">
       <ul className="nav flex-column h-100">
-        {filteredMenuItems.map((item) => (   // <-- use filteredMenuItems here
+        {filteredMenuItems.map((item) => (
           <li className="nav-item" key={item.key}>
             <a
               href={item.path}

@@ -313,6 +313,7 @@ export const recoveryAPI = {
 
   saveCallLog: (data) => api.post('/recovery/calls', data),
 
+  getAllValuerNotes: () => api.get('/recovery/flagged-clients/all-notes'),
 
   getTotalUnreadCount: () => api.get('/recovery/total-unread-count'),
   saveCallLog: (data) => api.post('/recovery/calls', data),

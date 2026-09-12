@@ -6,10 +6,23 @@ import { showToast } from '../common/Toast';
 import Modal from '../common/Modal';
 import ConfirmationDialog from '../common/ConfirmationDialog';
 import { generateValuerReportFromData, generateLoanInvoicePDF } from '../admin/ReceiptPDF';
-import PaymentModal from './PaymentModal';  // <-- new import
+import PaymentModal from './PaymentModal';
 
-const ValuerPanel = ({ editable = true }) => {
-  const { user, userRole } = useAuth(); // added userRole
+/**
+ * ValuerPanel props:
+ *  - editable   (default true)  → show the notes textarea, allow saving own notes
+ *  - monitorMode(default false) → read ALL valuers' notes for each flagged loan (read-only)
+ *  - canResolve (default null)  → show the Resolve button. If null, falls back to `editable`.
+ *
+ * Typical usage:
+ *   <ValuerPanel />                                      // valuer: writes own notes, can resolve
+ *   <ValuerPanel editable={false} monitorMode canResolve />  // Annie: reads all notes, can resolve
+ */
+const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }) => {
+  const { user, userRole } = useAuth();
+
+  // Default canResolve to `editable` if not explicitly provided
+  const canResolveFinal = canResolve === null ? editable : canResolve;
 
   const [flaggedClients, setFlaggedClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +31,10 @@ const ValuerPanel = ({ editable = true }) => {
   const [reportComments, setReportComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [branchFilter, setBranchFilter] = useState('all');
+
+  // Monitor-mode data: { "<loan_id>": [ { user_id, username, notes, updated_at }, ... ] }
+  const [allValuerNotes, setAllValuerNotes] = useState({});
+  const [loadingAllNotes, setLoadingAllNotes] = useState(false);
 
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [resolveLoanId, setResolveLoanId] = useState(null);
@@ -28,20 +45,19 @@ const ValuerPanel = ({ editable = true }) => {
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
 
-  // New state for payment modal
+  // Payment modal
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedLoanForPayment, setSelectedLoanForPayment] = useState(null);
 
   const noteTimeout = useRef({});
 
-  // Helpers
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-KE', {
+  // ─────────────────────────────── Helpers ───────────────────────────────
+  const formatCurrency = (amount) =>
+    new Intl.NumberFormat('en-KE', {
       style: 'currency',
       currency: 'KES',
       minimumFractionDigits: 0,
     }).format(amount || 0);
-  };
 
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
@@ -52,11 +68,12 @@ const ValuerPanel = ({ editable = true }) => {
     }
   };
 
+  // ────────────────────────────── Data loading ───────────────────────────
   // Fetch flagged clients
   const fetchFlagged = useCallback(async () => {
     try {
       const res = await recoveryAPI.getFlaggedClients();
-      setFlaggedClients(res.data);
+      setFlaggedClients(res.data || []);
     } catch (err) {
       showToast.error('Failed to load flagged clients');
     } finally {
@@ -68,7 +85,25 @@ const ValuerPanel = ({ editable = true }) => {
     fetchFlagged();
   }, [fetchFlagged]);
 
-  // Auto‑set branch filter based on logged-in valuer's default_branch
+  // Monitor mode → fetch every valuer's notes for every flagged loan
+  useEffect(() => {
+    if (!monitorMode) return;
+    const run = async () => {
+      setLoadingAllNotes(true);
+      try {
+        const res = await recoveryAPI.getAllValuerNotes();
+        setAllValuerNotes(res.data || {});
+      } catch (err) {
+        console.error('Failed to load all valuer notes', err);
+        showToast.error('Failed to load valuer notes');
+      } finally {
+        setLoadingAllNotes(false);
+      }
+    };
+    run();
+  }, [monitorMode]);
+
+  // Auto-set branch filter based on logged-in valuer's default_branch
   useEffect(() => {
     if (user && user.role === 'valuer' && user.default_branch) {
       setBranchFilter(user.default_branch);
@@ -80,7 +115,7 @@ const ValuerPanel = ({ editable = true }) => {
     setLoadingComments(true);
     try {
       const res = await recoveryAPI.getLoanReportComments(loanId);
-      setReportComments(res.data);
+      setReportComments(res.data || []);
     } catch (err) {
       console.error('Failed to load report comments', err);
       setReportComments([]);
@@ -89,10 +124,9 @@ const ValuerPanel = ({ editable = true }) => {
     }
   };
 
-  // Auto‑save valuer notes – only when editable
+  // Auto-save valuer notes (only when editable)
   const autoSaveNotes = (loanId, value) => {
     if (!editable) return;
-
     if (noteTimeout.current[loanId]) clearTimeout(noteTimeout.current[loanId]);
     noteTimeout.current[loanId] = setTimeout(async () => {
       try {
@@ -108,8 +142,9 @@ const ValuerPanel = ({ editable = true }) => {
     }, 600);
   };
 
+  // ─────────────────────────────── Resolve ───────────────────────────────
   const handleResolveClick = (loanId) => {
-    if (!editable) return;
+    if (!canResolveFinal) return;
     setResolveLoanId(loanId);
     setShowResolveModal(true);
   };
@@ -128,13 +163,34 @@ const ValuerPanel = ({ editable = true }) => {
     }
   };
 
-  // Generate report – preview or download
+  // ───────────────────────────── Report generation ───────────────────────
   const generateReport = async (download = true) => {
     const reportDate = new Date().toLocaleDateString('en-GB');
-    await generateValuerReportFromData(filteredClients, reportDate, user?.username || 'Valuer', download);
+
+    // In monitor mode, merge every valuer's notes into one string per client
+    const clientsForReport = monitorMode
+      ? filteredClients.map(c => {
+          const entries = (allValuerNotes[c.loan_id] || [])
+            .filter(e => e.notes && e.notes.trim());
+          const combined = entries
+            .map(e => `${e.username}: ${e.notes}`)
+            .join('  |  ');
+          return { ...c, valuer_notes: combined };
+        })
+      : filteredClients;
+
+    // In monitor mode, the PDF's "Prepared by" line reads Ann Ndura (Monitoring)
+    const identityForReport = monitorMode ? 'Ann Ndura (Monitoring)' : user;
+
+    await generateValuerReportFromData(
+      clientsForReport,
+      reportDate,
+      identityForReport,
+      download
+    );
   };
 
-  // Download Invoice
+  // ─────────────────────────────── Invoices ──────────────────────────────
   const handleDownloadInvoice = async (client) => {
     try {
       const loanResponse = await adminAPI.getLoan(client.loan_id);
@@ -148,7 +204,6 @@ const ValuerPanel = ({ editable = true }) => {
     }
   };
 
-  // ----- NEW: Process Payment handler -----
   const handleProcessPayment = async (client) => {
     try {
       const loanResponse = await adminAPI.getLoan(client.loan_id);
@@ -159,7 +214,7 @@ const ValuerPanel = ({ editable = true }) => {
     }
   };
 
-  // Branch filter logic
+  // ──────────────────────────── Branch filtering ─────────────────────────
   const filterByBranch = (clients) => {
     if (branchFilter === 'all') return clients;
     return clients.filter(client => {
@@ -173,7 +228,7 @@ const ValuerPanel = ({ editable = true }) => {
 
   const filteredClients = filterByBranch(flaggedClients);
 
-  // Determine if user can process payments
+  // Only roles listed here can process a payment from this panel
   const canProcessPayment = editable && (
     userRole === 'director' ||
     userRole === 'secretary' ||
@@ -183,6 +238,7 @@ const ValuerPanel = ({ editable = true }) => {
     userRole === 'hr_manager'
   );
 
+  // ─────────────────────────────── Render ────────────────────────────────
   if (loading) {
     return (
       <div className="text-center py-5">
@@ -291,7 +347,6 @@ const ValuerPanel = ({ editable = true }) => {
                       <i className="fas fa-file-invoice"></i>
                     </button>
 
-                    {/* NEW: Process Payment button */}
                     {canProcessPayment && (
                       <button
                         className="btn btn-sm btn-success me-1"
@@ -302,7 +357,7 @@ const ValuerPanel = ({ editable = true }) => {
                       </button>
                     )}
 
-                    {editable && (
+                    {canResolveFinal && (
                       <button
                         className="btn btn-sm btn-warning"
                         onClick={() => handleResolveClick(client.loan_id)}
@@ -326,7 +381,7 @@ const ValuerPanel = ({ editable = true }) => {
         </table>
       </div>
 
-      {/* Comments Modal (unchanged) */}
+      {/* ─────────────── Comments / Notes Modal ─────────────── */}
       <Modal
         isOpen={showCommentsModal}
         onClose={() => setShowCommentsModal(false)}
@@ -341,38 +396,101 @@ const ValuerPanel = ({ editable = true }) => {
               <p><strong>Loan ID:</strong> {selectedClient.loan_id}</p>
             </div>
 
-            {editable && (
+            {/* ---------- Notes section ---------- */}
+            {monitorMode ? (
+              // Annie / admin / director: read-only stacked view of every valuer's notes
               <div className="mb-3">
-                <label className="form-label fw-bold">Recovery Officer Notes (auto‑saved)</label>
-                <textarea
-                  className="form-control"
-                  rows="3"
-                  value={selectedClient.valuer_notes || ''}
-                  onChange={(e) => {
-                    const newNotes = e.target.value;
-                    setSelectedClient({ ...selectedClient, valuer_notes: newNotes });
-                    autoSaveNotes(selectedClient.loan_id, newNotes);
-                  }}
-                  placeholder="Enter your valuer notes here..."
-                />
+                <label className="form-label fw-bold">
+                  Valuers' Notes (all authors, read-only)
+                </label>
+                {loadingAllNotes ? (
+                  <div className="text-center py-3">
+                    <div className="spinner-border spinner-border-sm"></div>
+                  </div>
+                ) : (() => {
+                  const entries = (allValuerNotes[selectedClient.loan_id] || [])
+                    .filter(e => e.notes && e.notes.trim());
+                  if (entries.length === 0) {
+                    return (
+                      <p className="text-muted mb-0">
+                        No valuer has written notes for this client yet.
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="list-group">
+                      {entries.map((e, idx) => (
+                        <div key={idx} className="list-group-item">
+                          <div className="d-flex justify-content-between">
+                            <strong>{e.username}</strong>
+                            <small className="text-muted">
+                              {e.updated_at
+                                ? new Date(e.updated_at).toLocaleString('en-GB', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : ''}
+                            </small>
+                          </div>
+                          <p
+                            className="mt-1 mb-0"
+                            style={{ whiteSpace: 'pre-wrap' }}
+                          >
+                            {e.notes}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
-            )}
+            ) : (
+              <>
+                {editable && (
+                  <div className="mb-3">
+                    <label className="form-label fw-bold">
+                      Recovery Officer Notes (auto-saved)
+                    </label>
+                    <textarea
+                      className="form-control"
+                      rows="3"
+                      value={selectedClient.valuer_notes || ''}
+                      onChange={(e) => {
+                        const newNotes = e.target.value;
+                        setSelectedClient({ ...selectedClient, valuer_notes: newNotes });
+                        autoSaveNotes(selectedClient.loan_id, newNotes);
+                      }}
+                      placeholder="Enter your valuer notes here..."
+                    />
+                  </div>
+                )}
 
-            {!editable && selectedClient.valuer_notes && (
-              <div className="mb-3">
-                <label className="form-label fw-bold">Recovery Officer Notes (read‑only)</label>
-                <div className="p-2 bg-light rounded">
-                  {selectedClient.valuer_notes}
-                </div>
-              </div>
+                {!editable && selectedClient.valuer_notes && (
+                  <div className="mb-3">
+                    <label className="form-label fw-bold">
+                      Recovery Officer Notes (read-only)
+                    </label>
+                    <div className="p-2 bg-light rounded">
+                      {selectedClient.valuer_notes}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             <hr />
             <h5>Officer's Daily Report Comments</h5>
             {loadingComments ? (
-              <div className="text-center py-3"><div className="spinner-border spinner-border-sm"></div></div>
+              <div className="text-center py-3">
+                <div className="spinner-border spinner-border-sm"></div>
+              </div>
             ) : reportComments.length === 0 ? (
-              <p className="text-muted">No report comments have been recorded for this client.</p>
+              <p className="text-muted">
+                No report comments have been recorded for this client.
+              </p>
             ) : (
               <div className="list-group">
                 {reportComments.map(comment => (
@@ -385,7 +503,7 @@ const ValuerPanel = ({ editable = true }) => {
                           month: '2-digit',
                           year: 'numeric',
                           hour: '2-digit',
-                          minute: '2-digit'
+                          minute: '2-digit',
                         })}
                       </small>
                     </div>
@@ -395,13 +513,18 @@ const ValuerPanel = ({ editable = true }) => {
               </div>
             )}
             <div className="mt-3 d-flex justify-content-end">
-              <button className="btn btn-secondary" onClick={() => setShowCommentsModal(false)}>Close</button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowCommentsModal(false)}
+              >
+                Close
+              </button>
             </div>
           </>
         )}
       </Modal>
 
-      {/* Loan Details Modal (unchanged) */}
+      {/* ─────────────── Loan Details Modal ─────────────── */}
       {showLoanDetailsModal && selectedLoanDetails && (
         <Modal
           isOpen={showLoanDetailsModal}
@@ -458,12 +581,17 @@ const ValuerPanel = ({ editable = true }) => {
           )}
 
           <div className="mt-4 d-flex justify-content-end">
-            <button className="btn btn-secondary" onClick={() => setShowLoanDetailsModal(false)}>Close</button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowLoanDetailsModal(false)}
+            >
+              Close
+            </button>
           </div>
         </Modal>
       )}
 
-      {/* Image Zoom Modal (unchanged) */}
+      {/* ─────────────── Image Zoom Modal ─────────────── */}
       {showImageModal && selectedImage && (
         <Modal
           isOpen={showImageModal}
@@ -475,16 +603,26 @@ const ValuerPanel = ({ editable = true }) => {
           size="lg"
         >
           <div className="text-center">
-            <img src={selectedImage} alt="Livestock" className="img-fluid rounded" style={{ maxHeight: '70vh' }} />
+            <img
+              src={selectedImage}
+              alt="Livestock"
+              className="img-fluid rounded"
+              style={{ maxHeight: '70vh' }}
+            />
           </div>
           <div className="mt-3 text-center">
-            <button className="btn btn-secondary" onClick={() => setShowImageModal(false)}>Close</button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowImageModal(false)}
+            >
+              Close
+            </button>
           </div>
         </Modal>
       )}
 
-      {/* Resolve Confirmation Modal (unchanged) */}
-      {editable && (
+      {/* ─────────────── Resolve Confirmation Modal ─────────────── */}
+      {canResolveFinal && (
         <ConfirmationDialog
           isOpen={showResolveModal}
           onClose={() => {
@@ -499,7 +637,7 @@ const ValuerPanel = ({ editable = true }) => {
         />
       )}
 
-      {/* NEW: Payment Modal */}
+      {/* ─────────────── Payment Modal ─────────────── */}
       {showPaymentModal && selectedLoanForPayment && (
         <PaymentModal
           loan={selectedLoanForPayment}
@@ -508,7 +646,6 @@ const ValuerPanel = ({ editable = true }) => {
             setSelectedLoanForPayment(null);
           }}
           onSuccess={() => {
-            // Refresh flagged clients to update balances
             fetchFlagged();
             setShowPaymentModal(false);
             setSelectedLoanForPayment(null);
