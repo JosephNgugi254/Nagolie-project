@@ -745,8 +745,7 @@ export const generateClientStatement = async (client, ledgerEntries = null) => {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
 
-      const sortedEntries = [...entries].sort((a, b) => new Date(a.date) - new Date(b.date));
-
+      const sortedEntries = [...entries].filter(e => (e.type || '').toLowerCase() !== 'adjustment').sort((a, b) => new Date(a.date) - new Date(b.date));
       for (let idx = 0; idx < sortedEntries.length; idx++) {
         const entry = sortedEntries[idx];
         const rowHeight = 7;
@@ -5492,8 +5491,8 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
     doc.text('PAYMENT HISTORY', 20, yPos);
     yPos += 8;
 
-    const sortedTxns = [...transactions].sort((a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at));
-
+    const sortedTxns = [...transactions].filter(txn => {const type = (txn.transaction_type || txn.type || '').toLowerCase();return type !== 'adjustment';})
+  .sort((a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at));
     doc.setFillColor(...COLORS.primaryBlue);
     doc.setTextColor(...COLORS.white);
     doc.setFont('helvetica', 'bold');

@@ -30,10 +30,55 @@ def get_week_number(disbursement_date):
         return days // 7
     else:
         return days // 7 + 1
+    
+
+# ---------------------------------------------------------------------------
+# Collateral traffic-light helper
+# ---------------------------------------------------------------------------
+
+def _compute_collateral_status(loan, unpaid_interest, collateral_value):
+    """
+    Return (status, next_period_total) where status is one of:
+      'green'  – safe now and still safe after next period's charge
+      'orange' – safe now, but one missed payment pushes us over collateral
+      'red'    – current balance already exceeds collateral
+      'none'   – no collateral value on record
+
+    Compounding assumptions:
+      • weekly  → compound: (P + U) * 1.30  (30 % on capitalised balance)
+      • daily   → simple:   P + U + P*0.045 (one extra day of interest)
+      • waived  → no interest accrues
+    """
+    if not collateral_value or collateral_value <= 0:
+        return 'none', 0.0
+
+    current_total = float(loan.current_principal or 0) + float(unpaid_interest or 0)
+
+    if loan.repayment_plan == 'weekly' and loan.interest_rate and loan.interest_rate > 0:
+        next_principal = (loan.current_principal or Decimal('0')) + Decimal(str(unpaid_interest or 0))
+        next_interest  = (next_principal * Decimal('0.30')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        next_period_total = float(next_principal + next_interest)
+
+    elif loan.repayment_plan == 'daily' and loan.interest_rate and loan.interest_rate > 0:
+        daily_interest = ((loan.current_principal or Decimal('0')) * Decimal('0.045')).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        next_period_total = current_total + float(daily_interest)
+
+    else:
+        next_period_total = current_total
+
+    if current_total >= collateral_value:
+        return 'red', next_period_total
+    if next_period_total >= collateral_value:
+        return 'orange', next_period_total
+    return 'green', next_period_total
 
 
 # ---------------------------------------------------------------------------
-# Recovery data – now includes pre‑period interest tracking
+# Recovery data 
 # ---------------------------------------------------------------------------
 
 @recovery_bp.route('', methods=['GET'])
@@ -99,11 +144,20 @@ def get_recovery_data():
             if parent:
                 original_principal = float(parent.principal_amount)
         
+        # ---------- NEW: collateral value + traffic-light status ----------
+        collateral_value = float(lv.estimated_value) if lv and lv.estimated_value else 0.0
+        collateral_status, next_period_total = _compute_collateral_status(
+            loan, unpaid_interest, collateral_value
+        )
+        
         result.setdefault(due_day, []).append({
             'id': loan.id,
             'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
             'name': client.full_name if client else 'Unknown',
             'collateral': collateral,
+            'collateral_value': collateral_value,                 # NEW
+            'collateral_status': collateral_status,               # NEW: 'green' | 'orange' | 'red' | 'none'
+            'next_period_total': next_period_total,               # NEW
             'location': client.location if client else '',
             'id_number': client.id_number if client else '',
             'contacts': client.phone_number if client else '',
@@ -1103,11 +1157,20 @@ def get_bad_debt_loans():
         due = loan.due_date.date() if loan.due_date else None
         days_left = (due - datetime.utcnow().date()).days if due else 0
 
+        # ---------- NEW: collateral value + traffic-light status ----------
+        collateral_value = float(livestock.estimated_value) if livestock and livestock.estimated_value else 0.0
+        collateral_status, next_period_total = _compute_collateral_status(
+            loan, unpaid_interest, collateral_value
+        )
+
         result.append({
             'id': loan.id,
             'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
             'name': client.full_name if client else 'Unknown',
             'collateral': collateral,
+            'collateral_value': collateral_value,                 # NEW
+            'collateral_status': collateral_status,               # NEW
+            'next_period_total': next_period_total,               # NEW
             'location': client.location if client else '',
             'id_number': client.id_number if client else '',
             'contacts': client.phone_number if client else '',
@@ -1121,7 +1184,6 @@ def get_bad_debt_loans():
             'interest_rate': float(loan.interest_rate),
         })
     return jsonify(result), 200
-
 
 @recovery_bp.route('/loan/<int:loan_id>/mark-bad-debt', methods=['POST'])
 @jwt_required()

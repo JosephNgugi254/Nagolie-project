@@ -246,6 +246,48 @@ function RecoveryModule() {
   const lastAlertedMessagesCountRef  = useRef(0);
   const lastAlertedAppsCountRef      = useRef(0);
 
+  // ---------------------------------------------------------------------------
+  // Collateral traffic-light cell
+  // ---------------------------------------------------------------------------
+  const CollateralValueCell = ({ loan, fmt }) => {
+    const value  = loan.collateral_value || 0;
+    const status = loan.collateral_status || 'none';
+
+    if (!value) {
+      return <span className="text-muted small"><i className="fas fa-minus me-1"></i>N/A</span>;
+    }
+
+    const currentTotal =
+      Number(loan.current_principal || 0) + Number(loan.accrued_interest || 0);
+    const nextTotal = Number(loan.next_period_total || currentTotal);
+
+    const config = {
+      green:  { color: '#198754', icon: 'fa-check-circle',        label: 'Safe' },
+      orange: { color: '#fd7e14', icon: 'fa-exclamation-triangle', label: 'At risk' },
+      red:    { color: '#dc3545', icon: 'fa-times-circle',         label: 'Underwater' },
+      none:   { color: '#6c757d', icon: 'fa-question-circle',     label: 'No data' },
+    }[status] || { color: '#6c757d', icon: 'fa-question-circle', label: 'No data' };
+
+    const tooltip =
+      status === 'red'
+        ? `Loan balance ${fmt(currentTotal)} already exceeds collateral value ${fmt(value)}`
+        : status === 'orange'
+        ? `Warning: current balance ${fmt(currentTotal)} is still covered, but next period total ${fmt(nextTotal)} will exceed collateral ${fmt(value)}. Act now.`
+        : status === 'green'
+        ? `Safe: current ${fmt(currentTotal)} and next period ${fmt(nextTotal)} are both below collateral ${fmt(value)}`
+        : 'No collateral value recorded';
+
+    return (
+      <span
+        style={{ color: config.color, fontWeight: 600, cursor: 'help' }}
+        title={tooltip}
+      >
+        <i className={`fas ${config.icon} me-1`}></i>
+        {fmt(value)}
+      </span>
+    );
+  };
+
   const fetchBadDebtLoans = async () => {
     try {
       const res = await recoveryAPI.getBadDebtLoans();
@@ -1862,7 +1904,7 @@ function RecoveryModule() {
                             <div className="table-responsive">
                               <table className="table table-hover mb-0">
                                 <thead className="table-light">
-                                  <tr><th>Name</th><th>Collateral</th><th>Location</th><th>ID Number</th><th>Contact</th><th>Borrowed Date</th><th>Initial Principal</th><th>Current Principal</th><th>Interest / Period</th><th>Accrued (Unpaid)</th><th>Week</th><th>Actions</th></tr></thead>
+                                  <tr><th>Name</th><th>Collateral</th><th>Collateral Value</th><th>Location</th><th>ID Number</th><th>Contact</th><th>Borrowed Date</th><th>Initial Principal</th><th>Current Principal</th><th>Interest / Period</th><th>Accrued (Unpaid)</th><th>Week</th><th>Actions</th></tr></thead>
                                 <tbody>
                                   {filteredData[day].map(loan => {
                                     const badge = getDaysBadge(loan);
@@ -1870,6 +1912,7 @@ function RecoveryModule() {
                                       <tr key={loan.id}>
                                         <td><div>{loan.name}</div><span className="badge me-1" style={{ backgroundColor: '#fff3cd', color: '#856404' }}>{loan.interest_rate === 0 ? 'Waived' : (loan.repayment_plan === 'daily' ? 'Daily' : 'Weekly')}</span>{badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}</td>
                                         <td>{loan.collateral}</td>
+                                        <td><CollateralValueCell loan={loan} fmt={fmt} /></td>
                                         <td>{loan.location}</td>
                                         <td>{loan.id_number}</td>
                                         <td>{loan.contacts}</td>
@@ -1923,7 +1966,7 @@ function RecoveryModule() {
                                     );
                                   })}
                                 </tbody>
-                                <tfoot className="table-secondary fw-bold">{(() => { const t = dayTotals(filteredData[day]); return (<tr><td colSpan="6">Day Totals</td><td>{fmt(t.principal)}</td><td>{fmt(t.curPrincipal)}</td><td>{fmt(t.interest)}</td><td className="text-danger">{fmt(t.accrued)}</td><td colSpan="2"></td></tr>); })()}</tfoot>
+                                <tfoot className="table-secondary fw-bold">{(() => { const t = dayTotals(filteredData[day]); return (<tr><td colSpan="7">Day Totals</td><td>{fmt(t.principal)}</td><td>{fmt(t.curPrincipal)}</td><td>{fmt(t.interest)}</td><td className="text-danger">{fmt(t.accrued)}</td><td colSpan="2"></td></tr>); })()}</tfoot>
                               </table>
                             </div>
                           </div>
@@ -2652,6 +2695,7 @@ function RecoveryModule() {
                                   <tr>
                                     <th>Name</th>
                                     <th>Collateral</th>
+                                    <th>Collateral Value</th>
                                     <th>Location</th>
                                     <th>ID Number</th>
                                     <th>Contact</th>
@@ -2677,6 +2721,7 @@ function RecoveryModule() {
                                           {badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}
                                         </td>
                                         <td>{loan.collateral}</td>
+                                        <td><CollateralValueCell loan={loan} fmt={fmt} /></td>
                                         <td>{loan.location}</td>
                                         <td>{loan.id_number}</td>
                                         <td>{loan.contacts}</td>
@@ -2722,23 +2767,24 @@ function RecoveryModule() {
                                     const totals = badDebtLoans.reduce(
                                       (acc, loan) => ({
                                         currentPrincipal: acc.currentPrincipal + (loan.current_principal || 0),
-                                        unpaidInterest: acc.unpaidInterest + (loan.accrued_interest || 0),
-                                        totalOwed: acc.totalOwed + (loan.current_principal || 0) + (loan.accrued_interest || 0),
+                                        unpaidInterest:  acc.unpaidInterest  + (loan.accrued_interest || 0),
+                                        totalOwed:       acc.totalOwed       + (loan.current_principal || 0) + (loan.accrued_interest || 0),
                                       }),
                                       { currentPrincipal: 0, unpaidInterest: 0, totalOwed: 0 }
                                     );
                                     return (
                                       <>
-                                        {/* Sub-totals row */}
+                                        {/* Sub-totals row — 1 + 9 + 1 + 1 + 1 = 13 */}
                                         <tr className="table-light">
-                                          <td colSpan="8" className="text-end">Subtotals</td>
+                                          <td colSpan="9" className="text-end">Subtotals</td>
                                           <td>{fmt(totals.currentPrincipal)}</td>
                                           <td className="text-danger">{fmt(totals.unpaidInterest)}</td>
-                                          <td></td>
+                                          <td colSpan="2"></td>
                                         </tr>
-                                        {/* Grand Total row */}
+                                    
+                                        {/* Grand Total row — 10 + 1 + 2 = 13 */}
                                         <tr className="table-light">
-                                          <td colSpan="9" className="text-end fw-bold">Grand Total (Principal + Interest)</td>
+                                          <td colSpan="10" className="text-end fw-bold">Grand Total (Principal + Interest)</td>
                                           <td className="text-primary fw-bold">{fmt(totals.totalOwed)}</td>
                                           <td colSpan="2"></td>
                                         </tr>
@@ -3871,6 +3917,7 @@ function RecoveryModule() {
                                       <tr>
                                         <th>Name</th>
                                         <th>Collateral</th>
+                                        <th>Collateral Value</th>
                                         <th>Location</th>
                                         <th>ID Number</th>
                                         <th>Contact</th>
@@ -3896,6 +3943,7 @@ function RecoveryModule() {
                                               {badge && <span className={`badge ${badge.cls}`}>{badge.text}</span>}
                                             </td>
                                             <td>{loan.collateral}</td>
+                                            <td><CollateralValueCell loan={loan} fmt={fmt} /></td>
                                             <td>{loan.location}</td>
                                             <td>{loan.id_number}</td>
                                             <td>{loan.contacts}</td>
@@ -3965,7 +4013,7 @@ function RecoveryModule() {
                                         const t = dayTotals(filteredData[day]);
                                         return (
                                           <tr>
-                                            <td colSpan="6">Day Totals</td>
+                                            <td colSpan="7">Day Totals</td>
                                             <td>{fmt(t.principal)}</td>
                                             <td>{fmt(t.curPrincipal)}</td>
                                             <td>{fmt(t.interest)}</td>
