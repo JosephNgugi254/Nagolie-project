@@ -2020,6 +2020,93 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
     return () => socket.off('group_deleted', handleGroupDeleted);
   }, [socket]);
 
+  // Renders the bell icon + its dropdown panel.
+  // Called twice (once in the desktop nav, once in the mobile nav) —
+  // only the visible instance renders because its parent uses `d-none`/`d-lg-flex`.
+  const renderNotifBell = () => (
+    <div className="recovery-notif-wrapper">
+      <button
+        type="button"
+        className="recovery-notif-btn"
+        onClick={() => setShowNotifPanel(v => !v)}
+        title="Notifications"
+        aria-label="Notifications"
+      >
+        <i className="fas fa-bell" />
+        {totalNotifCount > 0 && (
+          <span className="recovery-notif-badge">
+            {totalNotifCount > 99 ? '99+' : totalNotifCount}
+          </span>
+        )}
+      </button>
+
+      {showNotifPanel && (
+        <>
+          <div
+            className="recovery-notif-backdrop"
+            onClick={() => setShowNotifPanel(false)}
+          />
+          <div className="recovery-notif-panel">
+            <div className="recovery-notif-panel-header">
+              <strong>Notifications</strong>
+              {notifications.length > 0 && (
+                <button
+                  type="button"
+                  className="recovery-notif-clear-btn"
+                  onClick={clearAllNotifications}
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+
+            <div className="recovery-notif-list">
+              {notifications.length === 0 ? (
+                <div className="recovery-notif-empty">
+                  <i className="fas fa-bell-slash" />
+                  <div>No notifications</div>
+                </div>
+              ) : (
+                notifications.map(n => {
+                  const iconClass =
+                    n.type === 'message' || n.type === 'group_message'
+                      ? 'message'
+                      : n.type === 'comment'
+                        ? 'comment'
+                        : 'application';
+                  const iconName =
+                    n.type === 'message' || n.type === 'group_message'
+                      ? 'fa-envelope'
+                      : n.type === 'comment'
+                        ? 'fa-comment'
+                        : 'fa-file-alt';
+                  return (
+                    <div
+                      key={n.id}
+                      className="recovery-notif-item"
+                      onClick={() => handleNotificationClick(n)}
+                      role="button"
+                    >
+                      <div className={`recovery-notif-icon ${iconClass}`}>
+                        <i className={`fas ${iconName}`} />
+                      </div>
+                      <div className="recovery-notif-content">
+                        <div className="recovery-notif-title">{n.title}</div>
+                        <div className="recovery-notif-time">
+                          {formatRelativeTime(n.latest_at)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="text-center py-5">
@@ -2038,107 +2125,48 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
       <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
         <div className="container-fluid">
           <a className="navbar-brand d-flex align-items-center" href="#">
-            <img src="/nagolie-logo.png" alt="Nagolie" height="30" style={{borderRadius:5}} className="me-2" onError={(e) => e.target.style.display='none'} />
+            <img
+              src="/nagolie-logo.png"
+              alt="Nagolie"
+              height="30"
+              style={{ borderRadius: 5 }}
+              className="me-2"
+              onError={(e) => (e.target.style.display = 'none')}
+            />
             <span className="d-none d-lg-inline">Nagolie Recovery Module</span>
             <span className="d-lg-none">Recovery</span>
           </a>
-          <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
-            {/* Notifications */}
-            <div className="recovery-notif-wrapper">
-              <button
-                type="button"
-                className="recovery-notif-btn"
-                onClick={() => setShowNotifPanel(v => !v)}
-                title="Notifications"
-                aria-label="Notifications"
-              >
-                <i className="fas fa-bell" />
-                {totalNotifCount > 0 && (
-                  <span className="recovery-notif-badge">
-                    {totalNotifCount > 99 ? '99+' : totalNotifCount}
-                  </span>
-                )}
-              </button>
-              
-              {showNotifPanel && (
-                <>
-                  <div
-                    className="recovery-notif-backdrop"
-                    onClick={() => setShowNotifPanel(false)}
-                  />
-                  <div className="recovery-notif-panel">
-                    <div className="recovery-notif-panel-header">
-                      <strong>Notifications</strong>
-                      {notifications.length > 0 && (
-                        <button
-                          type="button"
-                          className="recovery-notif-clear-btn"
-                          onClick={clearAllNotifications}
-                        >
-                          Clear all
-                        </button>
-                      )}
-                    </div>
-                    
-                    <div className="recovery-notif-list">
-                      {notifications.length === 0 ? (
-                        <div className="recovery-notif-empty">
-                          <i className="fas fa-bell-slash" />
-                          <div>No notifications</div>
-                        </div>
-                      ) : (
-                        notifications.map(n => {
-                          const iconClass =
-                            n.type === 'message' || n.type === 'group_message'
-                              ? 'message'
-                              : n.type === 'comment'
-                                ? 'comment'
-                                : 'application';
-                          const iconName =
-                            n.type === 'message' || n.type === 'group_message'
-                              ? 'fa-envelope'
-                              : n.type === 'comment'
-                                ? 'fa-comment'
-                                : 'fa-file-alt';
-                          return (
-                            <div
-                              key={n.id}
-                              className="recovery-notif-item"
-                              onClick={() => handleNotificationClick(n)}
-                              role="button"
-                            >
-                              <div className={`recovery-notif-icon ${iconClass}`}>
-                                <i className={`fas ${iconName}`} />
-                              </div>
-                              <div className="recovery-notif-content">
-                                <div className="recovery-notif-title">{n.title}</div>
-                                <div className="recovery-notif-time">
-                                  {formatRelativeTime(n.latest_at)}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            {/* User Avatar */}
-            <div style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+
+          {/* Single cluster: bell (always) + user info (desktop only) + hamburger (mobile only) */}
+          <div className="recovery-nav-cluster d-flex align-items-center ms-auto">
+            {renderNotifBell()}
+
+            {/* Desktop-only user cluster */}
+            <div className="d-none d-lg-flex align-items-center gap-3">
+              <div style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
                 <Avatar user={user} size={32} />
-            </div>
-            <span className="navbar-text text-white" style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
+              </div>
+              <span
+                className="navbar-text text-white"
+                style={{ cursor: 'pointer' }}
+                onClick={() => setShowSettingsModal(true)}
+              >
                 <strong>{user?.username || user?.name || 'User'}</strong>
-            </span>
-            <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
+              </span>
+              <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
                 <i className="fas fa-sign-out-alt me-1"></i>Logout
+              </button>
+            </div>
+
+            {/* Mobile-only hamburger */}
+            <button
+              className="navbar-toggler d-lg-none"
+              type="button"
+              onClick={() => setSidebarOpen(s => !s)}
+            >
+              <span className="navbar-toggler-icon"></span>
             </button>
           </div>
-          <button className="navbar-toggler ms-auto" type="button" onClick={() => setSidebarOpen(s => !s)}>
-            <span className="navbar-toggler-icon"></span>
-          </button>
         </div>
       </nav>
 

@@ -4489,3 +4489,97 @@ section {
     border-radius: 12px;
   }
 }
+
+/* ---------- Navbar bell ---------- */
+.recovery-notif-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* (keep .recovery-notif-btn and .recovery-notif-badge as-is) */
+
+/* ---------- Dropdown panel ---------- */
+.recovery-notif-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1490;
+}
+
+.recovery-notif-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  z-index: 1500;
+  overflow: hidden;
+  color: #212529;
+  display: flex;
+  flex-direction: column;
+  max-height: 480px;
+}
+
+/* ---- On mobile/tablet, anchor the panel to the viewport ---- */
+@media (max-width: 991.98px) {
+  .recovery-notif-panel {
+    position: fixed;
+    top: 62px;                 /* just below the navbar */
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100vh - 80px);
+  }
+}
+
+@media (max-width: 991.98px) {
+  .recovery-notif-btn i {
+    font-size: 1.4rem;
+  }
+  .recovery-notif-badge {
+    top: -6px;
+    right: -8px;
+    font-size: 0.7rem;
+    min-width: 20px;
+    padding: 3px 6px;
+  }
+}
+
+
+
+/* ============================================================
+   NAVBAR CLUSTER — bell + user info + hamburger (single row)
+   ============================================================ */
+.recovery-nav-cluster {
+  display: flex !important;
+  flex-direction: row !important;      /* defends against global .gap-2 overrides */
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* On desktop give the cluster a bit more breathing room */
+@media (min-width: 992px) {
+  .recovery-nav-cluster {
+    gap: 16px;
+  }
+}
+
+/* Nothing inside the cluster should stretch to full width */
+.recovery-nav-cluster > * {
+  width: auto !important;
+  margin-bottom: 0 !important;
+  flex-shrink: 0;
+}
+
+/* Ensure the bell wrapper stays inline too */
+.recovery-nav-cluster .recovery-notif-wrapper {
+  display: flex !important;
+  align-items: center;
+  flex-direction: row !important;
+}
