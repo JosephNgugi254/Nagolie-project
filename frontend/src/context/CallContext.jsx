@@ -50,14 +50,29 @@ export const CallProvider = ({ children }) => {
 
   // ---------- User directory (for avatars in call UI) ----------
   useEffect(() => {
+    if (!user) {
+      setUserDirectory({});
+      return;
+    }
+  
+    let cancelled = false;
+  
     recoveryAPI.getUsers()
       .then(res => {
+        if (cancelled) return;
         const map = {};
         (res.data || []).forEach(u => { map[u.id] = u; });
         setUserDirectory(map);
       })
-      .catch(() => {});
-  }, []);
+      .catch(err => {
+        // A 401 here just means the session ended; not fatal on public pages
+        if (err.response?.status !== 401) {
+          console.error('Failed to load call user directory:', err);
+        }
+      });
+    
+    return () => { cancelled = true; };
+  }, [user]);
 
   // ---------- Ringtone ----------
   const playRingtone = () => {

@@ -47,8 +47,8 @@ function AdminPanel() {
   const [activeSection, setActiveSection] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [imageUploading, setImageUploading] = useState(false);
-  const [audio, setAudio] = useState(null);
   const prevPendingCountRef = useRef(0);
+  const applicationsInitializedRef = useRef(false); 
   // ref for infinite scroll
   const sentinelRef = useRef(null);
 
@@ -1774,50 +1774,53 @@ useEffect(() => {
     }
   }, [activeSection, fetchLivestock]);
 
+  const audioRef = useRef(null);
+  const lastSoundPlayedRef = useRef(0);
+  
   const playNotificationSound = () => {
-    if (!audio) {
-      const newAudio = new Audio('/notification-sound.mp3')
-      setAudio(newAudio)
-      newAudio.play().catch(() => {})
-    } else {
-      audio.play().catch(() => {})
+    const now = Date.now();
+    if (now - lastSoundPlayedRef.current < 2000) return;
+    lastSoundPlayedRef.current = now;
+  
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/notification-sound.mp3');
     }
-  }
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch(() => {});
+  };
+
 
   const fetchApplications = useCallback(async () => {
-    setApplicationsLoading(true)
-    try {
-      console.log("Fetching applications...")
-      const response = await adminAPI.getApplications()
-      console.log("Applications response:", response.data)
+  setApplicationsLoading(true);
+  try {
+    const response = await adminAPI.getApplications();
+    const newApps = response.data || [];
+    setApplications(newApps);
 
-      const newApps = response.data || []
-      setApplications(newApps)
-
-      // Count pending applications
-      const newPendingCount = newApps.filter(app => app.status === "pending").length
-      const oldPendingCount = prevPendingCountRef.current
-
-      // Play sound if new pending count is greater than previous (new application arrived)
-      if (newPendingCount > oldPendingCount) {
-        playNotificationSound()
+    const newPendingCount = newApps.filter(app => app.status === "pending").length;
+      if (!applicationsInitializedRef.current) {
+        //First fetch after login — sound once if any pending exist.
+        applicationsInitializedRef.current = true;
+        if (newPendingCount > 0) playNotificationSound();
+      } else if (newPendingCount > prevPendingCountRef.current) {
+        // Subsequent polls — only when a new application arrived.
+        playNotificationSound();
       }
 
-      // Update ref for next comparison
-      prevPendingCountRef.current = newPendingCount
+      prevPendingCountRef.current = newPendingCount;
 
     } catch (error) {
-      console.error("Failed to fetch applications:", error)
+      console.error("Failed to fetch applications:", error);
       if (error.response?.status === 401) {
-        navigate("/admin/login")
-        return
+        navigate("/admin/login");
+        return;
       }
-      setApplications([])
-      showToast.error("Failed to load applications: " + (error.response?.data?.error || error.message))
+      setApplications([]);
+      showToast.error("Failed to load applications: " + (error.response?.data?.error || error.message));
     } finally {
-      setApplicationsLoading(false)
+      setApplicationsLoading(false);
     }
-  }, [navigate])
+  }, [navigate]);
 
   const fetchClients = useCallback(async () => {
     setClientsLoading(true)

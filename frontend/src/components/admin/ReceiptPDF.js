@@ -5492,7 +5492,7 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
     yPos += 8;
 
     const sortedTxns = [...transactions].filter(txn => {const type = (txn.transaction_type || txn.type || '').toLowerCase();return type !== 'adjustment';})
-  .sort((a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at));
+    .sort((a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at));
     doc.setFillColor(...COLORS.primaryBlue);
     doc.setTextColor(...COLORS.white);
     doc.setFont('helvetica', 'bold');

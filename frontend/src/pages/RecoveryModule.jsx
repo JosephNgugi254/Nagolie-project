@@ -69,6 +69,102 @@ const MAX_CHAT_WINDOWS = 4;
 const CHAT_WINDOW_WIDTH = 360;
 const CHAT_WINDOW_GAP = 12;
 
+// ---------------------------------------------------------------------------
+// Collateral traffic-light cell
+// ---------------------------------------------------------------------------
+const CollateralValueCell = ({ loan, fmt }) => {
+  const [showPopover, setShowPopover] = useState(false);
+
+  const value  = loan.collateral_value || 0;
+  const status = loan.collateral_status || 'none';
+
+  if (!value) {
+    return (
+      <span className="text-muted small">
+        <i className="fas fa-minus me-1"></i>N/A
+      </span>
+    );
+  }
+
+  const currentTotal = Number(loan.current_principal || 0) + Number(loan.accrued_interest || 0);
+  const nextTotal    = Number(loan.next_period_total || currentTotal);
+
+  const config = {
+    green:  { color: '#198754', icon: 'fa-check-circle',        label: 'Safe' },
+    orange: { color: '#fd7e14', icon: 'fa-exclamation-triangle', label: 'At risk' },
+    red:    { color: '#dc3545', icon: 'fa-times-circle',         label: 'Underwater' },
+    none:   { color: '#6c757d', icon: 'fa-question-circle',     label: 'No data' },
+  }[status] || { color: '#6c757d', icon: 'fa-question-circle', label: 'No data' };
+
+  const tooltip =
+    status === 'red'
+      ? `Loan balance ${fmt(currentTotal)} already exceeds collateral value ${fmt(value)}`
+      : status === 'orange'
+      ? `Warning: current balance ${fmt(currentTotal)} is still covered, but next period total ${fmt(nextTotal)} will exceed collateral ${fmt(value)}. Act now.`
+      : status === 'green'
+      ? `Safe: current ${fmt(currentTotal)} and next period ${fmt(nextTotal)} are both below collateral ${fmt(value)}`
+      : 'No collateral value recorded';
+
+  return (
+    <span className="position-relative d-inline-block" style={{ cursor: 'pointer' }}>
+      {/* Visible colored value — title attr gives desktop hover */}
+      <span
+        style={{ color: config.color, fontWeight: 600 }}
+        title={tooltip}
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowPopover(true);
+        }}
+      >
+        <i className={`fas ${config.icon} me-1`}></i>
+        {fmt(value)}
+      </span>
+
+      {/* Popover — only closes via the × button */}
+      {showPopover && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            zIndex: 1070,
+            minWidth: '260px',
+            maxWidth: '320px',
+            background: '#212529',
+            color: '#fff',
+            padding: '10px 12px',
+            borderRadius: '6px',
+            fontSize: '0.8rem',
+            lineHeight: 1.4,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            marginTop: '6px',
+            whiteSpace: 'normal',
+            textAlign: 'left',
+          }}
+        >
+          <div className="d-flex justify-content-between align-items-start mb-1">
+            <strong style={{ color: config.color }}>
+              <i className={`fas ${config.icon} me-1`}></i>
+              {config.label}
+            </strong>
+            <button
+              type="button"
+              className="btn-close btn-close-white"
+              style={{ fontSize: '0.6rem' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowPopover(false);
+              }}
+            />
+          </div>
+          <div>{tooltip}</div>
+        </div>
+      )}
+    </span>
+  );
+};
+
 function RecoveryModule() {
   const { user, userRole, isAuthenticated, logout, loading: authLoading, updateUserData } = useAuth();
   const navigate = useNavigate();
@@ -114,7 +210,6 @@ function RecoveryModule() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [commentUnreads, setCommentUnreads] = useState({});
-  const [audio, setAudio] = useState(null);
   const [showTakeActionModal, setShowTakeActionModal] = useState(false);
   const [selectedLoanForAction, setSelectedLoanForAction] = useState(null);
   const [showRenewalModal, setShowRenewalModal] = useState(false);
@@ -246,48 +341,11 @@ function RecoveryModule() {
   const lastAlertedMessagesCountRef  = useRef(0);
   const lastAlertedAppsCountRef      = useRef(0);
 
-  // ---------------------------------------------------------------------------
-  // Collateral traffic-light cell
-  // ---------------------------------------------------------------------------
-  const CollateralValueCell = ({ loan, fmt }) => {
-    const value  = loan.collateral_value || 0;
-    const status = loan.collateral_status || 'none';
+  const commentUnreadsInitializedRef = useRef(false);
+  const messagesUnreadInitializedRef = useRef(false);
+  const applicationsInitializedRef   = useRef(false);
 
-    if (!value) {
-      return <span className="text-muted small"><i className="fas fa-minus me-1"></i>N/A</span>;
-    }
-
-    const currentTotal =
-      Number(loan.current_principal || 0) + Number(loan.accrued_interest || 0);
-    const nextTotal = Number(loan.next_period_total || currentTotal);
-
-    const config = {
-      green:  { color: '#198754', icon: 'fa-check-circle',        label: 'Safe' },
-      orange: { color: '#fd7e14', icon: 'fa-exclamation-triangle', label: 'At risk' },
-      red:    { color: '#dc3545', icon: 'fa-times-circle',         label: 'Underwater' },
-      none:   { color: '#6c757d', icon: 'fa-question-circle',     label: 'No data' },
-    }[status] || { color: '#6c757d', icon: 'fa-question-circle', label: 'No data' };
-
-    const tooltip =
-      status === 'red'
-        ? `Loan balance ${fmt(currentTotal)} already exceeds collateral value ${fmt(value)}`
-        : status === 'orange'
-        ? `Warning: current balance ${fmt(currentTotal)} is still covered, but next period total ${fmt(nextTotal)} will exceed collateral ${fmt(value)}. Act now.`
-        : status === 'green'
-        ? `Safe: current ${fmt(currentTotal)} and next period ${fmt(nextTotal)} are both below collateral ${fmt(value)}`
-        : 'No collateral value recorded';
-
-    return (
-      <span
-        style={{ color: config.color, fontWeight: 600, cursor: 'help' }}
-        title={tooltip}
-      >
-        <i className={`fas ${config.icon} me-1`}></i>
-        {fmt(value)}
-      </span>
-    );
-  };
-
+  
   const fetchBadDebtLoans = async () => {
     try {
       const res = await recoveryAPI.getBadDebtLoans();
@@ -384,8 +442,15 @@ function RecoveryModule() {
       const newPendingCount = newApps.filter(app => app.status === 'pending').length;
       setPendingApplicationsCount(newPendingCount);
 
-      // Sound only if the pending count went up vs. what we last alerted on
-      if (newPendingCount > lastAlertedAppsCountRef.current) playSound();
+      if (!applicationsInitializedRef.current) {
+        // 🔔 First fetch after login — sound once if there are pending apps.
+        applicationsInitializedRef.current = true;
+        if (newPendingCount > 0) playSound();
+      } else if (newPendingCount > lastAlertedAppsCountRef.current) {
+        // Subsequent polls — only when a new application arrived.
+        playSound();
+      }
+
       lastAlertedAppsCountRef.current = newPendingCount;
       prevPendingApplicationsRef.current = newPendingCount;
     } catch (err) {
@@ -1364,9 +1429,21 @@ function RecoveryModule() {
 
   const formatClockTime = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   const formatClockDate = (date) => date.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  
+  const audioRef = useRef(null);
+  const lastSoundPlayedRef = useRef(0);
+
   const playSound = () => {
-    if (!audio) { const a = new Audio('/notification-sound.mp3'); setAudio(a); a.play().catch(() => {}); }
-    else audio.play().catch(() => {});
+    const now = Date.now();
+    //Swallow any sound within 2s of the last one — makes 3 channels(messages / comments / applications) → 1 ding.
+    if (now - lastSoundPlayedRef.current < 2000) return;
+    lastSoundPlayedRef.current = now;
+
+    if (!audioRef.current) {
+      audioRef.current = new Audio('/notification-sound.mp3');
+    }
+    audioRef.current.currentTime = 0;      // rewind so re-triggers play from start
+    audioRef.current.play().catch(() => {});
   };
   
   const fetchCommentUnreads = useCallback(async () => {
@@ -1374,17 +1451,31 @@ function RecoveryModule() {
       const res = await recoveryAPI.getCommentUnreadCounts();
       const nc = res.data || {};
 
-      let hasNew = false;
+      if (!commentUnreadsInitializedRef.current) {
+        //First fetch after login — sound once if ANY unread comments exist.
+        commentUnreadsInitializedRef.current = true;
+        const hasAnyUnread = Object.values(nc).some(count => (count || 0) > 0);
+        if (hasAnyUnread) playSound();
+      } else {
+        // Subsequent polls — sound only if the count went UP on any loan.
+        let hasNew = false;
+        Object.keys(nc).forEach(id => {
+          const curr = nc[id] || 0;
+          const prev = lastAlertedCommentCountsRef.current[id] || 0;
+          if (curr > prev) hasNew = true;
+        });
+        if (hasNew) playSound();
+      }
+
+      // Always update the baseline so the next comparison is meaningful.
       Object.keys(nc).forEach(id => {
-        const curr = nc[id] || 0;
-        const prev = lastAlertedCommentCountsRef.current[id] || 0;
-        if (curr > prev) hasNew = true;
-        lastAlertedCommentCountsRef.current[id] = curr;
+        lastAlertedCommentCountsRef.current[id] = nc[id] || 0;
       });
 
-      if (hasNew) playSound();
       setCommentUnreads(nc);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
   
   const fetchData = async () => {
@@ -1402,14 +1493,23 @@ function RecoveryModule() {
       const res = await recoveryAPI.getTotalUnreadCount();
       const current = res.data.count;
 
-      if (current > lastAlertedMessagesCountRef.current) playSound();
+      if (!messagesUnreadInitializedRef.current) {
+        //First fetch after login — sound once if there is any unread.
+        messagesUnreadInitializedRef.current = true;
+        if (current > 0) playSound();
+      } else if (current > lastAlertedMessagesCountRef.current) {
+        // Subsequent polls — only when new messages arrived.
+        playSound();
+      }
       lastAlertedMessagesCountRef.current = current;
 
       setUnreadCount(current);
       document.title = current > 0
         ? `(${current}) Nagolie Recovery`
         : 'Nagolie Recovery';
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleSelectUser = (chatObj) => {
@@ -3193,9 +3293,11 @@ function RecoveryModule() {
                       <div className="d-flex gap-2"><button className="btn btn-primary" onClick={handleUpdateInvestor}>Update Investor</button><button className="btn btn-secondary" onClick={() => { setShowEditInvestorModal(false); setEditingInvestor(null); }}>Cancel</button></div>
                     </Modal>
                   )}
+
                   {showActivateDeactivateModal && investorToToggle && (
                     <ConfirmationDialog isOpen={showActivateDeactivateModal} onClose={() => setShowActivateDeactivateModal(false)} onConfirm={confirmToggleAccountStatus} title={`${investorToToggle.account_status === 'active' ? 'Deactivate' : 'Activate'} Investor Account`} message={`Are you sure you want to ${investorToToggle.account_status === 'active' ? 'deactivate' : 'activate'} ${investorToToggle.name}'s account?`} confirmText={investorToToggle.account_status === 'active' ? 'Deactivate' : 'Activate'} confirmColor={investorToToggle.account_status === 'active' ? 'danger' : 'success'} />
                   )}
+
                   {showDeleteInvestorModal && investorToDelete && (
                     <ConfirmationDialog isOpen={showDeleteInvestorModal} onClose={() => setShowDeleteInvestorModal(false)} onConfirm={confirmDeleteInvestor} title="Delete Investor" message={`Are you sure you want to delete ${investorToDelete.name}'s account? This action will permanently remove all investor data.`} confirmText="Delete" confirmColor="danger" />
                   )}

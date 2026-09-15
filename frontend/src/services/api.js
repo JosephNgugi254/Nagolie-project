@@ -55,7 +55,8 @@ api.interceptors.response.use(
       const now = Date.now();
       if (now - lastTokenClear > 3000) {
         lastTokenClear = now;
-        // Clear ALL authentication data
+      
+        // Clear all auth data
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('user_role');
@@ -65,8 +66,18 @@ api.interceptors.response.use(
         localStorage.removeItem('investor_user');
       
         const currentPath = window.location.pathname;
-        if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
-          // Use replace() to avoid back-button issues
+      
+        // Only redirect for routes that actually require authentication
+        const isProtectedRoute =
+          currentPath.startsWith('/admin') ||
+          currentPath.startsWith('/recovery') ||
+          currentPath.startsWith('/investor');
+      
+        const isAuthRoute =
+          currentPath.includes('/login') ||
+          currentPath.includes('/register');
+      
+        if (isProtectedRoute && !isAuthRoute) {
           window.location.replace('/login');
         }
       }
