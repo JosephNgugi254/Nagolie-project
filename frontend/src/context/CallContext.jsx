@@ -13,14 +13,35 @@ const formatCallDuration = (seconds) => {
 const CallContext = createContext();
 const RINGTONE_URL = '/nagolie-iphone-call-ringtone.mp3';
 
+const _turnUrls = (import.meta.env.VITE_TURN_URLS || '')
+  .split(',')
+  .map((u) => u.trim())
+  .filter(Boolean);
+
+const _turnUser = import.meta.env.VITE_TURN_USERNAME;
+const _turnCred = import.meta.env.VITE_TURN_CREDENTIAL;
+
 const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+
+    // Metered TURN — one entry per transport variant
+    ...(_turnUrls.length && _turnUser && _turnCred
+      ? _turnUrls.map((url) => ({
+          urls: url,
+          username: _turnUser,
+          credential: _turnCred,
+        }))
+      : [
+          // Dev-only fallback
+          { urls: 'turn:openrelay.metered.ca:80',  username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject', credential: 'openrelayproject' },
+        ]),
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export const CallProvider = ({ children }) => {
@@ -54,9 +75,9 @@ export const CallProvider = ({ children }) => {
       setUserDirectory({});
       return;
     }
-  
+
     let cancelled = false;
-  
+
     recoveryAPI.getUsers()
       .then(res => {
         if (cancelled) return;
@@ -70,7 +91,7 @@ export const CallProvider = ({ children }) => {
           console.error('Failed to load call user directory:', err);
         }
       });
-    
+
     return () => { cancelled = true; };
   }, [user]);
 
@@ -183,8 +204,13 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         removePeer(callId, targetUserId);
+      } else if (pc.connectionState === 'disconnected') {
+        // give 5 s for transient blips before declaring dead
+        setTimeout(() => {
+          if (pc.connectionState === 'disconnected') removePeer(callId, targetUserId);
+        }, 5000);
       }
     };
 
@@ -289,12 +315,18 @@ export const CallProvider = ({ children }) => {
       return;
     }
 
+
     const callId = `call_${Date.now()}_${getUserId()}`;
     const allParticipants = isGroup ? Array.from(new Set([getUserId(), ...participants])) : [getUserId(), targetUserId];
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' });
-      localStream.current = stream;
+      const mediaConstraints = type === 'video'
+      ? { audio: { echoCancellation: true, noiseSuppression: true },
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } }
+      : { audio: { echoCancellation: true, noiseSuppression: true }, video: false };
+
+      const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      localStream.current = stream;      
 
       if (isGroup) {
         const others = allParticipants.filter(id => id !== getUserId());
@@ -354,42 +386,59 @@ export const CallProvider = ({ children }) => {
     if (!call) return;
 
     if (!accept) {
-      socket.emit('call_status', { target_user_id: call.callerId, status: 'declined', call_id: callId });
-      setIncomingCall(null);
-      stopRingtone();
-      return;
+        socket.emit('call_status', {
+            target_user_id: call.callerId,
+            status: 'declined',
+            call_id: callId,
+        });
+        setIncomingCall(null);
+        stopRingtone();
+        return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: call.type === 'video' });
-      localStream.current = stream;
+        const mediaConstraints = call.type === 'video'
+            ? { audio: { echoCancellation: true, noiseSuppression: true },
+                video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' } }
+            : { audio: { echoCancellation: true, noiseSuppression: true }, video: false };
 
-      const pc = createPeerConnection(callId, call.callerId, false);
-      if (!peerConnections.current[callId]) peerConnections.current[callId] = {};
-      peerConnections.current[callId][call.callerId] = pc;
+        const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+        localStream.current = stream;
 
-      await pc.setRemoteDescription(new RTCSessionDescription(call.offer));
-      await flushIceQueue(callId, call.callerId, pc);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+        const pc = createPeerConnection(callId, call.callerId, false);
+        if (!peerConnections.current[callId]) peerConnections.current[callId] = {};
+        peerConnections.current[callId][call.callerId] = pc;
 
-      socket.emit('call_answer', { target_user_id: call.callerId, answer, call_id: callId });
+        await pc.setRemoteDescription(new RTCSessionDescription(call.offer));
+        await flushIceQueue(callId, call.callerId, pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
 
-      setActiveCall({
-        callId,
-        type: call.type,
-        remoteUser: call.isGroup ? null : { id: call.callerId, name: call.callerName },
-        status: 'connecting',
-        startTime: Date.now(),
-        isGroup: call.isGroup || false,
-        participants: call.participants || [getUserId(), call.callerId],
-      });
-      setIncomingCall(null);
-      stopRingtone();
-      setIsMinimized(false);
+        socket.emit('call_answer', {
+            target_user_id: call.callerId,
+            answer,
+            call_id: callId,
+            call_type: call.type,
+            other_participants: call.isGroup
+                ? (call.participants || []).filter(id => id !== call.callerId && id !== getUserId())
+                : [],
+        });
+
+        setActiveCall({
+            callId,
+            type: call.type,
+            remoteUser: call.isGroup ? null : { id: call.callerId, name: call.callerName },
+            status: 'connecting',
+            startTime: Date.now(),
+            isGroup: call.isGroup || false,
+            participants: call.participants || [getUserId(), call.callerId],
+        });
+        setIncomingCall(null);
+        stopRingtone();
+        setIsMinimized(false);
     } catch (err) {
-      console.error('Error answering call:', err);
-      showToast.error('Could not answer call');
+        console.error('Error answering call:', err);
+        showToast.error('Could not answer call');
     }
   }, [incomingCall, socket, getUserId, createPeerConnection, flushIceQueue]);
 
@@ -470,30 +519,34 @@ export const CallProvider = ({ children }) => {
     if (!socket) return;
 
     const onCallOffer = (data) => {
-      const { caller_id, caller_name, caller_avatar, call_type, offer, call_id, is_group, participants, is_mesh } = data;
+      const { caller_id, caller_name, caller_avatar, call_type, offer,
+              call_id, is_group, participants, is_mesh } = data;
 
-      if (is_mesh && activeCall && activeCall.callId === call_id) {
-        handleMeshOffer(caller_id, offer, call_id);
-        return;
+      // Mesh offers arrive only AFTER we've accepted the group invite.
+      if (is_mesh) {
+          if (activeCall && activeCall.callId === call_id) {
+              handleMeshOffer(caller_id, offer, call_id);
+          }
+          return;             // never turn a mesh offer into an incomingCall
       }
 
       if (activeCall) {
-        socket.emit('call_status', { target_user_id: caller_id, status: 'busy', call_id });
-        return;
+          socket.emit('call_status', { target_user_id: caller_id, status: 'busy', call_id });
+          return;
       }
 
       setIncomingCall({
-        callId: call_id,
-        callerId: caller_id,
-        callerName: caller_name || 'Unknown',
-        callerAvatar: caller_avatar,
-        type: call_type,
-        offer,
-        isGroup: is_group || false,
-        participants: participants || [caller_id],
+          callId: call_id,
+          callerId: caller_id,
+          callerName: caller_name || 'Unknown',
+          callerAvatar: caller_avatar,
+          type: call_type,
+          offer,
+          isGroup: is_group || false,
+          participants: participants || [caller_id],
       });
       playRingtone();
-    };
+  };
 
     const onCallAnswer = (data) => {
       const { answerer_id, answer, call_id } = data;
@@ -531,11 +584,55 @@ export const CallProvider = ({ children }) => {
     };
 
     const onCallStatus = (data) => {
-      const { status, call_id } = data;
+      const { status, call_id, from } = data;
+        
+      // Callee side: cancel/missed before accepting
+      if ((status === 'cancelled' || status === 'missed') &&
+          incomingCall && incomingCall.callId === call_id) {
+        setIncomingCall(null);
+        stopRingtone();
+        showToast.info(status === 'cancelled' ? 'Call cancelled' : 'Missed call');
+        return;
+      }
+    
+      // Caller side
       if (!activeCall || activeCall.callId !== call_id) return;
-      if (status === 'declined') { endCall(call_id); showToast.info('Call declined'); }
-      else if (status === 'busy') { endCall(call_id); showToast.info('User is busy'); }
-      else if (status === 'unavailable') { endCall(call_id); showToast.info('User is unavailable'); }
+    
+      const isGroup = activeCall.isGroup;
+      const fromId = from;
+    
+      const dropOnePeer = (reason) => {
+        if (!fromId) return;
+        removePeer(call_id, fromId);
+        setActiveCall(prev => prev ? ({
+          ...prev,
+          participants: prev.participants.filter(id => id !== fromId),
+        }) : prev);
+        showToast.info(reason);
+      };
+    
+      if (status === 'declined' || status === 'busy' || status === 'unavailable') {
+        const label = status === 'declined' ? 'declined'
+                    : status === 'busy' ? 'was busy'
+                    : 'was unavailable';
+        if (isGroup) {
+          dropOnePeer(`Participant ${label}`);
+        } else {
+          endCall(call_id);
+          showToast.info(status === 'declined' ? 'Call declined'
+                        : status === 'busy' ? 'User is busy'
+                        : 'User unavailable');
+        }
+        return;
+      }
+    
+      if (status === 'cancelled') {
+        if (isGroup) {
+          dropOnePeer('Participant cancelled');
+        } else {
+          endCall(call_id);
+        }
+      }
     };
 
     const onCallInvite = (data) => {
@@ -579,6 +676,23 @@ export const CallProvider = ({ children }) => {
       socket.off('call_mesh_join', onCallMeshJoin);
     };
   }, [socket, activeCall, incomingCall, endCall, removePeer, queueOrAddIce, flushIceQueue, handleMeshJoin, handleMeshOffer]);
+
+  // Auto-cancel if nobody answers within 45s
+  useEffect(() => {
+      if (!activeCall || activeCall.status !== 'ringing') return;
+      const timer = setTimeout(() => {
+          if (activeCall && activeCall.status === 'ringing') {
+              socket.emit('call_status', {
+                  target_user_id: activeCall.remoteUser?.id,
+                  status: 'cancelled',
+                  call_id: activeCall.callId,
+              });
+              showToast.info('No answer');
+              endCall(activeCall.callId);
+          }
+      }, 45000);
+      return () => clearTimeout(timer);
+  }, [activeCall?.callId, activeCall?.status, socket, endCall]);
 
   useEffect(() => {
     return () => {

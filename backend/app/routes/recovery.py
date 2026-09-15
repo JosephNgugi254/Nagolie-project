@@ -304,12 +304,40 @@ def send_private_message():
     data = request.json
     if not data.get('recipient_id') or not data.get('content'):
         return jsonify({'error': 'Recipient and content required'}), 400
-    msg = PrivateMessage(sender_id=uid, recipient_id=data['recipient_id'],
-                          content=data['content'], attachment_url=data.get('attachment_url'),
-                          attachment_type=data.get('attachment_type'), attachment_name=data.get('attachment_name'))
-    db.session.add(msg); db.session.commit()
-    return jsonify({'success': True, 'message': msg.to_dict()}), 201
 
+    # Validate reply_to_id — must belong to the same conversation
+    reply_to_id = data.get('reply_to_id')
+    if reply_to_id:
+        parent = db.session.get(PrivateMessage, reply_to_id)
+        if not parent:
+            reply_to_id = None
+        else:
+            ids = {parent.sender_id, parent.recipient_id}
+            # Parent must be between the same two users
+            if not (uid in ids and data['recipient_id'] in ids):
+                reply_to_id = None
+
+    msg = PrivateMessage(
+        sender_id=uid,
+        recipient_id=data['recipient_id'],
+        content=data['content'],
+        attachment_url=data.get('attachment_url'),
+        attachment_type=data.get('attachment_type'),
+        attachment_name=data.get('attachment_name'),
+        reply_to_id=reply_to_id,
+    )
+    db.session.add(msg)
+    db.session.commit()
+
+    # Optionally push over socket for real-time delivery
+    try:
+        from app.utils.extensions import socketio
+        socketio.emit('new_message', {'message': msg.to_dict(), 'status': msg.status},
+                      room=f'user_{data["recipient_id"]}')
+    except Exception:
+        pass
+
+    return jsonify({'success': True, 'message': msg.to_dict()}), 201
 
 @recovery_bp.route('/messages/inbox', methods=['GET'])
 @jwt_required()

@@ -589,7 +589,7 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
 
   const pendingTempIds = useRef(new Map());
 
-  const sendTimeoutRef = useRef(null);
+  const sendTimeoutRef = useRef(new Map());
 
   // Reply-to state
   const [replyTo, setReplyTo] = useState(null);
@@ -675,6 +675,7 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     const onDisconn = () => setSocketConnected(false);
 
     const onNewMsg = (data) => {
+
       const m = data.message;
       const cid = getCurrentUserId();
 
@@ -700,8 +701,15 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
             eq(msg.sender_id, cid) &&
             (isGroup ? eq(msg.group_id, group.id) : eq(msg.recipient_id, user.id))
           );
+          
           if (tempIdx !== -1) {
-            pendingTempIds.current.delete(prev[tempIdx].id);
+            const oldTempId = prev[tempIdx].id;
+            pendingTempIds.current.delete(oldTempId);
+
+            // Also clear any pending send timeout for this temp message
+            const t = sendTimeoutRef.current.get(oldTempId);
+            if (t) { clearTimeout(t); sendTimeoutRef.current.delete(oldTempId); }
+
             const updated = [...prev];
             updated[tempIdx] = { ...m, is_call_log: false };
             return updated;
@@ -712,10 +720,6 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     
       // ✅ If this is our own message echoing back, clear spinner + timeout.
       if (isOwn) {
-        if (sendTimeoutRef.current) {
-          clearTimeout(sendTimeoutRef.current);
-          sendTimeoutRef.current = null;
-        }
         setSending(false);
       }
     
@@ -731,9 +735,12 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     const onStatus = (d) =>
       setMessages(prev => prev.map(m => m.id === d.message_id ? { ...m, status: d.status } : m));
 
-    const onSent = (d) => {
+    const onSent = (d) => {      
       const realMsg = d.message;
       const tempId  = d.temp_id;
+
+      const t = sendTimeoutRef.current.get(tempId);
+      if (t) { clearTimeout(t); sendTimeoutRef.current.delete(tempId); }
 
       const eq = (a, b) => a != null && b != null && String(a) === String(b);
 
@@ -744,10 +751,6 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
         if (!eq(realMsg.recipient_id, user.id) && !eq(realMsg.sender_id, user.id)) return;
       }
     
-      if (sendTimeoutRef.current) {
-        clearTimeout(sendTimeoutRef.current);
-        sendTimeoutRef.current = null;
-      }
       setSending(false);
     
       if (tempId && pendingTempIds.current.has(tempId)) {
@@ -933,12 +936,14 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
 
       if (isGroup) {
         if (socketRef.current && socketConnected) {
-          sendTimeoutRef.current = setTimeout(() => {
-            setSending(false);
-            showToast.error('Sending timed out');
-            pendingTempIds.current.delete(tempId);
-            setMessages(prev => prev.filter(m => m.id !== tempId));
+          const timeoutId = setTimeout(() => {
+              setSending(false);
+              showToast.error('Sending timed out');
+              pendingTempIds.current.delete(tempId);
+              setMessages(prev => prev.filter(m => m.id !== tempId));
+              sendTimeoutRef.current.delete(tempId);
           }, 15000);
+          sendTimeoutRef.current.set(tempId, timeoutId);
           socketRef.current.emit('send_group_message', {
             group_id: group.id,
             content,
@@ -962,12 +967,14 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
         }
       } else {
         if (socketRef.current && socketConnected) {
-          sendTimeoutRef.current = setTimeout(() => {
-            setSending(false);
-            showToast.error('Sending timed out');
-            pendingTempIds.current.delete(tempId);
-            setMessages(prev => prev.filter(m => m.id !== tempId));
+          const timeoutId = setTimeout(() => {
+              setSending(false);
+              showToast.error('Sending timed out');
+              pendingTempIds.current.delete(tempId);
+              setMessages(prev => prev.filter(m => m.id !== tempId));
+              sendTimeoutRef.current.delete(tempId);
           }, 15000);
+          sendTimeoutRef.current.set(tempId, timeoutId);
           socketRef.current.emit('send_message', {
             recipient_id: user.id,
             content,
@@ -1093,12 +1100,14 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
 
       if (isGroup) {
         if (socketRef.current && socketConnected) {
-          sendTimeoutRef.current = setTimeout(() => {
+          const timeoutId = setTimeout(() => {
             setSending(false);
             showToast.error('Sending timed out');
             pendingTempIds.current.delete(tempId);
             setMessages(prev => prev.filter(m => m.id !== tempId));
+            sendTimeoutRef.current.delete(tempId);
           }, 15000);
+          sendTimeoutRef.current.set(tempId, timeoutId);
           socketRef.current.emit('send_group_message', {
             group_id: group.id,
             content: '🎤 Voice message',
@@ -1120,12 +1129,14 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
         }
       } else {
         if (socketRef.current && socketConnected) {
-          sendTimeoutRef.current = setTimeout(() => {
+          const timeoutId = setTimeout(() => {
             setSending(false);
             showToast.error('Sending timed out');
             pendingTempIds.current.delete(tempId);
             setMessages(prev => prev.filter(m => m.id !== tempId));
+            sendTimeoutRef.current.delete(tempId);
           }, 15000);
+          sendTimeoutRef.current.set(tempId, timeoutId);
           socketRef.current.emit('send_message', {
             recipient_id: user.id,
             content: '🎤 Voice message',

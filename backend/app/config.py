@@ -49,3 +49,7 @@ class Config:
 
     WEBAUTHN_RP_ID = os.environ.get('WEBAUTHN_RP_ID', 'localhost')  
     FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+
+    #Metered
+    METERED_DOMAIN = os.getenv('METERED_DOMAIN', '')
+    METERED_SECRET_KEY = os.getenv('METERED_SECRET_KEY', '')

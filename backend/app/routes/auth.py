@@ -1,4 +1,5 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
+import requests
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from marshmallow import ValidationError
 from app import db
@@ -544,3 +545,31 @@ def delete_profile_picture():
     user.profile_picture = None
     db.session.commit()
     return jsonify({'success': True}), 200
+
+@auth_bp.route('/turn-credentials', methods=['GET'])
+@jwt_required()
+def get_turn_credentials():
+    domain = current_app.config['METERED_DOMAIN']
+    secret = current_app.config['METERED_SECRET_KEY']
+
+    resp = requests.post(
+        f'https://{domain}/api/v2/turn/credential?secretKey={secret}',
+        json={'expiryInSeconds': 3600, 'label': 'session'},
+        timeout=10,
+    )
+    if not resp.ok:
+        return jsonify({'error': 'Could not mint TURN credentials'}), 502
+
+    data = resp.json()
+    base = 'global.relay.metered.ca'
+    return jsonify({
+        'username': data['username'],
+        'credential': data['password'],
+        'urls': [
+            f'turn:{base}:80',
+            f'turn:{base}:80?transport=tcp',
+            f'turn:{base}:443',
+            f'turns:{base}:443?transport=tcp',
+        ],
+        'ttl': data.get('expiryInSeconds', 3600),
+    })

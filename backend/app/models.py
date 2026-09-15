@@ -670,6 +670,8 @@ class PrivateMessage(db.Model):
     read_at = db.Column(db.DateTime, nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    edited     = db.Column(db.Boolean, default=False)
+    updated_at = db.Column(db.DateTime, nullable=True)
 
     group_id = db.Column(db.Integer, db.ForeignKey('groups.id'), nullable=True)
     is_system_message = db.Column(db.Boolean, default=False)   # for leave/join messages
@@ -687,21 +689,37 @@ class PrivateMessage(db.Model):
     recipient = db.relationship('User', foreign_keys=[recipient_id], back_populates='received_messages')
     
     def to_dict(self):
+        # Flatten reply_to — avoid recursion, keep payload small
+        reply_to_data = None
+        if self.reply_to:
+            reply_to_data = {
+                'id':              self.reply_to.id,
+                'sender_id':       self.reply_to.sender_id,
+                'sender':          self.reply_to.sender.username if self.reply_to.sender else None,
+                'content':         self.reply_to.content,
+                'attachment_type': self.reply_to.attachment_type,
+                'attachment_name': self.reply_to.attachment_name,
+                'attachment_url':  self.reply_to.attachment_url,
+            }
+
         return {
-            'id': self.id,
-            'sender_id': self.sender_id,
-            'sender': self.sender.username if self.sender else None,
-            'recipient_id': self.recipient_id,
-            'recipient': self.recipient.username if self.recipient else None,
-            'content': self.content,
-            'read': self.read,
-            'status': self.status,                   
-            'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
-            'attachment_url': self.attachment_url,
+            'id':              self.id,
+            'sender_id':       self.sender_id,
+            'sender':          self.sender.username if self.sender else None,
+            'recipient_id':    self.recipient_id,
+            'recipient':       self.recipient.username if self.recipient else None,
+            'content':         self.content,
+            'read':            self.read,
+            'status':          self.status,
+            'edited':          self.edited,
+            'created_at':      (self.created_at.isoformat() + 'Z') if self.created_at else None,
+            'updated_at':      (self.updated_at.isoformat() + 'Z') if self.updated_at else None,
+            'attachment_url':  self.attachment_url,
             'attachment_type': self.attachment_type,
             'attachment_name': self.attachment_name,
             'is_system_message': self.is_system_message,
-            'reply_to': self.reply_to.to_dict() if self.reply_to else None
+            'group_id':        self.group_id,
+            'reply_to':        reply_to_data,
         }
     
 class MessageAttachment(db.Model):

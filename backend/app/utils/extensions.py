@@ -109,6 +109,12 @@ def handle_send_message(data):
 
     recipient_online = recipient.id in user_connections
 
+    reply_to_id = data.get('reply_to_id')
+    if reply_to_id:
+        parent = PrivateMessage.query.get(reply_to_id)
+        if not parent or parent.recipient_id not in (user.id, recipient.id):
+            reply_to_id = None
+
     msg = PrivateMessage(
         sender_id=user.id,
         recipient_id=recipient.id,
@@ -116,8 +122,8 @@ def handle_send_message(data):
         attachment_url=data.get('attachment_url'),
         attachment_type=data.get('attachment_type'),
         attachment_name=data.get('attachment_name'),
-        reply_to_id=data.get('reply_to_id'),  
-        status='delivered' if recipient_online else 'sent'
+        reply_to_id=reply_to_id,
+        status='delivered' if recipient_online else 'sent',
     )
     if recipient_online:
         msg.delivered_at = datetime.utcnow()
@@ -132,8 +138,10 @@ def handle_send_message(data):
     }, room=room)
 
     emit('message_sent', {
+        'message': msg.to_dict(),
         'message_id': msg.id,
-        'status': msg.status
+        'temp_id': data.get('temp_id'),
+        'status': msg.status,
     })
 
 
@@ -178,20 +186,6 @@ def handle_call_offer(data):
         'is_group': data.get('is_group', False),
         'participants': data.get('participants', [user.id]),
         'is_mesh': data.get('is_mesh', False), 
-    }, room=room)
-
-
-@socketio.on('call_answer')
-def handle_call_answer(data):
-    user = get_user_from_token()
-    if not user:
-        return
-    target_user_id = data['target_user_id']
-    room = f'user_{target_user_id}'
-    emit('call_answer', {
-        'answerer_id': user.id,
-        'answer': data['answer'],
-        'call_id': data['call_id']
     }, room=room)
 
 
@@ -248,7 +242,7 @@ def handle_add_participant(data):
     call_id = data['call_id']
     existing_participants = data['existing_participants']
 
-    # 1) Invite the new person
+    # Only invite the new participant. Do NOT tell others yet.
     emit('call_invite', {
         'call_id': call_id,
         'inviter_id': user.id,
@@ -259,14 +253,31 @@ def handle_add_participant(data):
         'offer': data['offer'],
     }, room=f'user_{new_user_id}')
 
-    # 2) Tell every OTHER existing participant to also connect to the new person
-    for pid in existing_participants:
-        if pid in (user.id, new_user_id):
+
+@socketio.on('call_answer')
+def handle_call_answer(data):
+    user = get_user_from_token()
+    if not user:
+        return
+    target_user_id = data['target_user_id']
+    call_id = data['call_id']
+
+    # Forward the answer to the original offerer
+    emit('call_answer', {
+        'answerer_id': user.id,
+        'answer': data['answer'],
+        'call_id': call_id,
+    }, room=f'user_{target_user_id}')
+
+    # NOW tell other existing participants to mesh-join the new user
+    other_ids = data.get('other_participants') or []
+    for pid in other_ids:
+        if pid in (user.id, target_user_id):
             continue
         emit('call_mesh_join', {
             'call_id': call_id,
-            'new_user_id': new_user_id,
-            'call_type': data['call_type'],
+            'new_user_id': user.id,
+            'call_type': data.get('call_type', 'voice'),
         }, room=f'user_{pid}')
 
 @socketio.on('call_leave')
@@ -310,6 +321,12 @@ def handle_send_group_message(data):
     if not member:
         return
 
+    reply_to_id = data.get('reply_to_id')
+    if reply_to_id:
+        parent = PrivateMessage.query.get(reply_to_id)
+        if not parent or parent.group_id != group_id:
+            reply_to_id = None
+
     msg = PrivateMessage(
         sender_id=user.id,
         group_id=group_id,
@@ -317,10 +334,11 @@ def handle_send_group_message(data):
         attachment_url=data.get('attachment_url'),
         attachment_type=data.get('attachment_type'),
         attachment_name=data.get('attachment_name'),
-        reply_to_id=data.get('reply_to_id'),  
+        reply_to_id=reply_to_id,
         status='sent',
-        is_system_message=False
+        is_system_message=False,
     )
+
     db.session.add(msg)
     db.session.commit()
 
