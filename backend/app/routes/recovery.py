@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember, Group)
 from app.utils.decorators import role_required, role_or_username_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
 from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest, _get_current_week_number
@@ -1290,3 +1290,105 @@ def get_all_flagged_notes():
             'updated_at': n.updated_at.isoformat() if n.updated_at else None,
         })
     return jsonify(result), 200
+
+@recovery_bp.route('/notification-data', methods=['GET'])
+@jwt_required()
+def get_notification_data():
+    """
+    Consolidated notification source.
+    Returns unread items grouped intelligently so the frontend doesn't
+    need to build grouping logic from raw counts.
+
+    Shape:
+      messages:       [{ sender_id, sender_username, sender_profile_picture, count, latest_at }]
+      group_messages: [{ group_id, group_name, group_profile_picture, count, latest_at }]
+      comments:       [{ loan_id, client_name, user_id, username, count, latest_at }]
+      applications:   { count, latest_at }
+    """
+    uid = int(get_jwt_identity())
+
+    # ---------- Private messages grouped by sender ----------
+    unread_msgs = PrivateMessage.query.filter(
+        PrivateMessage.recipient_id == uid,
+        PrivateMessage.read == False,
+        PrivateMessage.group_id.is_(None),
+    ).order_by(PrivateMessage.created_at.desc()).all()
+
+    msg_groups = {}
+    for m in unread_msgs:
+        key = m.sender_id
+        if key not in msg_groups:
+            msg_groups[key] = {
+                'sender_id': m.sender_id,
+                'sender_username': m.sender.username if m.sender else 'Unknown',
+                'sender_profile_picture': m.sender.profile_picture if m.sender else None,
+                'count': 0,
+                'latest_at': m.created_at.isoformat() + 'Z' if m.created_at else None,
+            }
+        msg_groups[key]['count'] += 1
+
+    # ---------- Group messages grouped by group ----------
+    memberships = GroupMember.query.filter_by(user_id=uid, is_active=True).all()
+    group_msgs_list = []
+    for mem in memberships:
+        read_status = GroupReadStatus.query.filter_by(user_id=uid, group_id=mem.group_id).first()
+        last_read = read_status.last_read_at if read_status else datetime.min
+        unread_group_msgs = PrivateMessage.query.filter(
+            PrivateMessage.group_id == mem.group_id,
+            PrivateMessage.sender_id != uid,
+            PrivateMessage.created_at > last_read,
+        ).order_by(PrivateMessage.created_at.desc()).all()
+        if unread_group_msgs:
+            group = db.session.get(Group, mem.group_id)
+            latest = unread_group_msgs[0]
+            group_msgs_list.append({
+                'group_id': mem.group_id,
+                'group_name': group.name if group else 'Group',
+                'group_profile_picture': group.profile_picture if group else None,
+                'count': len(unread_group_msgs),
+                'latest_at': latest.created_at.isoformat() + 'Z' if latest.created_at else None,
+            })
+
+    # ---------- Comments grouped by (loan, commenter) ----------
+    loans = Loan.query.filter(Loan.status == 'active').all()
+    comment_groups = {}
+    for loan in loans:
+        rec = UserLoanCommentRead.query.filter_by(user_id=uid, loan_id=loan.id).first()
+        lr = rec.last_read_at if rec else datetime.min
+        unread_comments = Comment.query.filter(
+            Comment.loan_id == loan.id,
+            Comment.user_id != uid,
+            Comment.created_at > lr,
+        ).order_by(Comment.created_at.desc()).all()
+        for c in unread_comments:
+            key = (loan.id, c.user_id)
+            if key not in comment_groups:
+                comment_groups[key] = {
+                    'loan_id': loan.id,
+                    'client_name': loan.client.full_name if loan.client else 'Unknown',
+                    'user_id': c.user_id,
+                    'username': c.user.username if c.user else 'Unknown',
+                    'count': 0,
+                    'latest_at': c.created_at.isoformat() + 'Z' if c.created_at else None,
+                }
+            comment_groups[key]['count'] += 1
+
+    # ---------- Pending applications (only for reviewer roles) ----------
+    me = db.session.get(User, uid)
+    reviewer_roles = ['director', 'secretary', 'client_relations_officer', 'hr_manager']
+    apps_data = {'count': 0, 'latest_at': None}
+    if me and me.role in reviewer_roles:
+        pending_apps = Loan.query.filter_by(status='pending').all()
+        if pending_apps:
+            latest = max(pending_apps, key=lambda a: a.created_at or datetime.min)
+            apps_data = {
+                'count': len(pending_apps),
+                'latest_at': latest.created_at.isoformat() + 'Z' if latest.created_at else None,
+            }
+
+    return jsonify({
+        'messages': list(msg_groups.values()),
+        'group_messages': group_msgs_list,
+        'comments': list(comment_groups.values()),
+        'applications': apps_data,
+    }), 200

@@ -321,18 +321,19 @@ export const recoveryAPI = {
   updateValuerNotes: (loanId, notes) => api.put(`/recovery/flagged-clients/${loanId}/notes`, { notes }),
 
   getLoanReportComments: (loanId) => api.get(`/recovery/loan/${loanId}/report-comments`),
-
   saveCallLog: (data) => api.post('/recovery/calls', data),
-
   getAllValuerNotes: () => api.get('/recovery/flagged-clients/all-notes'),
-
   getTotalUnreadCount: () => api.get('/recovery/total-unread-count'),
   saveCallLog: (data) => api.post('/recovery/calls', data),
 
   // Bad Debt
   getBadDebtLoans: () => api.get('/recovery/bad-debt'),
   markBadDebt: (loanId) => api.post(`/recovery/loan/${loanId}/mark-bad-debt`),
-  resolveBadDebt: (loanId) => api.post(`/recovery/loan/${loanId}/resolve-bad-debt`)
+  resolveBadDebt: (loanId) => api.post(`/recovery/loan/${loanId}/resolve-bad-debt`),
+
+  // Notification data
+  getNotificationData: () => api.get('/recovery/notification-data'),
+
 };
 
 export const userAPI = {

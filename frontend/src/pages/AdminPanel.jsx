@@ -1776,12 +1776,12 @@ useEffect(() => {
 
   const audioRef = useRef(null);
   const lastSoundPlayedRef = useRef(0);
-  
+
   const playNotificationSound = () => {
     const now = Date.now();
     if (now - lastSoundPlayedRef.current < 2000) return;
     lastSoundPlayedRef.current = now;
-  
+
     if (!audioRef.current) {
       audioRef.current = new Audio('/notification-sound.mp3');
     }
@@ -1791,34 +1791,34 @@ useEffect(() => {
 
 
   const fetchApplications = useCallback(async () => {
-  setApplicationsLoading(true);
-  try {
-    const response = await adminAPI.getApplications();
-    const newApps = response.data || [];
-    setApplications(newApps);
+    setApplicationsLoading(true);
+    try {
+      const response = await adminAPI.getApplications();
+      const newApps = response.data || [];
+      setApplications(newApps);
 
-    const newPendingCount = newApps.filter(app => app.status === "pending").length;
-      if (!applicationsInitializedRef.current) {
-        //First fetch after login — sound once if any pending exist.
-        applicationsInitializedRef.current = true;
-        if (newPendingCount > 0) playNotificationSound();
-      } else if (newPendingCount > prevPendingCountRef.current) {
-        // Subsequent polls — only when a new application arrived.
-        playNotificationSound();
-      }
+      const newPendingCount = newApps.filter(app => app.status === "pending").length;
+        if (!applicationsInitializedRef.current) {
+          //First fetch after login — sound once if any pending exist.
+          applicationsInitializedRef.current = true;
+          if (newPendingCount > 0) playNotificationSound();
+        } else if (newPendingCount > prevPendingCountRef.current) {
+          // Subsequent polls — only when a new application arrived.
+          playNotificationSound();
+        }
 
-      prevPendingCountRef.current = newPendingCount;
+        prevPendingCountRef.current = newPendingCount;
 
-    } catch (error) {
-      console.error("Failed to fetch applications:", error);
-      if (error.response?.status === 401) {
-        navigate("/admin/login");
-        return;
-      }
-      setApplications([]);
-      showToast.error("Failed to load applications: " + (error.response?.data?.error || error.message));
-    } finally {
-      setApplicationsLoading(false);
+      } catch (error) {
+        console.error("Failed to fetch applications:", error);
+        if (error.response?.status === 401) {
+          navigate("/admin/login");
+          return;
+        }
+        setApplications([]);
+        showToast.error("Failed to load applications: " + (error.response?.data?.error || error.message));
+      } finally {
+        setApplicationsLoading(false);
     }
   }, [navigate]);
 

@@ -236,6 +236,14 @@ function RecoveryModule() {
   const [waiverDuration, setWaiverDuration] = useState(14);
   const [waiverProcessing, setWaiverProcessing] = useState(false);
 
+  // ---------- Notification system state ----------
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [floatingNotifs, setFloatingNotifs] = useState([]);
+  const seenNotifsRef = useRef({});          // signature -> latest_at we've already alerted on (in-session)
+  const dismissedNotifsRef = useRef({});     // signature -> latest_at user dismissed (persisted)
+  const initialNotifLoadRef = useRef(true);  // suppress floating on first poll after login
+
   // ---------- Director dashboard data ----------
   const [dashboardData, setDashboardData] = useState({
     total_clients: 0, total_lent: 0, total_received: 0, total_revenue: 0,
@@ -1445,6 +1453,83 @@ function RecoveryModule() {
     audioRef.current.currentTime = 0;      // rewind so re-triggers play from start
     audioRef.current.play().catch(() => {});
   };
+
+  // ---------- Notification helpers ----------
+const persistDismissedNotifs = () => {
+  if (!user?.id) return;
+  try {
+    localStorage.setItem(`dismissedNotifs_${user.id}`, JSON.stringify(dismissedNotifsRef.current));
+  } catch {}
+};
+
+const addFloatingNotif = (n) => {
+  const floatId = `f-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  setFloatingNotifs(prev => [...prev, { ...n, floatId }]);
+  setTimeout(() => {
+    setFloatingNotifs(prev => prev.filter(x => x.floatId !== floatId));
+  }, 5000);
+};
+
+const removeFloatingNotif = (floatId) => {
+  setFloatingNotifs(prev => prev.filter(x => x.floatId !== floatId));
+};
+
+const formatRelativeTime = (iso) => {
+  if (!iso) return '';
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
+};
+
+const handleNotificationClick = (n) => {
+  // Mark this notification dismissed (act-on-it = clear)
+  dismissedNotifsRef.current[n.signature] = n.latest_at;
+  persistDismissedNotifs();
+
+  // Remove immediately from visible list
+  setNotifications(prev => prev.filter(x => x.signature !== n.signature));
+  setShowNotifPanel(false);
+
+  // Navigate / open the relevant UI
+  if (n.type === 'message') {
+    handleSelectUser({
+      type: 'user',
+      data: {
+        id: n.actionData.sender_id,
+        username: n.actionData.sender_username,
+        profile_picture: n.actionData.sender_profile_picture,
+      },
+    });
+  } else if (n.type === 'group_message') {
+    handleSelectUser({
+      type: 'group',
+      data: {
+        id: n.actionData.group_id,
+        name: n.actionData.group_name,
+        profile_picture: n.actionData.group_profile_picture,
+      },
+    });
+  } else if (n.type === 'comment') {
+    setSelectedLoan({ id: n.actionData.loan_id });
+    setShowCommentBox(true);
+  } else if (n.type === 'application') {
+    setDirectorSection('applications');
+    setApplicationsTab('pending');
+  }
+};
+
+const clearAllNotifications = () => {
+  notifications.forEach(n => {
+    dismissedNotifsRef.current[n.signature] = n.latest_at;
+  });
+  persistDismissedNotifs();
+  setNotifications([]);
+};
+
+const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0);
   
   const fetchCommentUnreads = useCallback(async () => {
     try {
@@ -1701,6 +1786,11 @@ function RecoveryModule() {
   }, []);
 
   useEffect(() => {
+    initialNotifLoadRef.current = true;
+    seenNotifsRef.current = {};
+  }, [user?.id]);
+
+  useEffect(() => {
     const h = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', h);
     return () => window.removeEventListener('resize', h);
@@ -1738,6 +1828,137 @@ function RecoveryModule() {
     const i2 = setInterval(fetchCommentUnreads, 5000);
     return () => { clearInterval(i1); clearInterval(i2); };
   }, [authLoading, isAuthenticated, userRole, navigate, fetchCommentUnreads, logout]);
+
+   // Load dismissed-notification state for this user
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const stored = localStorage.getItem(`dismissedNotifs_${user.id}`);
+      dismissedNotifsRef.current = stored ? JSON.parse(stored) : {};
+    } catch {
+      dismissedNotifsRef.current = {};
+    }
+  }, [user?.id]);
+
+  // Poll grouped notification data (aligned with existing 5s message/comment polling)
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated()) return;
+    if (!user?.id) return;
+
+    let cancelled = false;
+
+    const buildAndDispatch = (payload) => {
+      const list = [];
+
+      (payload.messages || []).forEach(m => {
+        list.push({
+          id: `msg-${m.sender_id}`,
+          signature: `msg:${m.sender_id}`,
+          type: 'message',
+          title: m.count === 1
+            ? `New message from ${m.sender_username}`
+            : `${m.count} new messages from ${m.sender_username}`,
+          count: m.count,
+          latest_at: m.latest_at,
+          actionData: {
+            sender_id: m.sender_id,
+            sender_username: m.sender_username,
+            sender_profile_picture: m.sender_profile_picture,
+          },
+        });
+      });
+
+      (payload.group_messages || []).forEach(g => {
+        list.push({
+          id: `gmsg-${g.group_id}`,
+          signature: `gmsg:${g.group_id}`,
+          type: 'group_message',
+          title: g.count === 1
+            ? `New message in ${g.group_name}`
+            : `${g.count} new messages in ${g.group_name}`,
+          count: g.count,
+          latest_at: g.latest_at,
+          actionData: {
+            group_id: g.group_id,
+            group_name: g.group_name,
+            group_profile_picture: g.group_profile_picture,
+          },
+        });
+      });
+
+      (payload.comments || []).forEach(c => {
+        list.push({
+          id: `cmt-${c.loan_id}-${c.user_id}`,
+          signature: `cmt:${c.loan_id}:${c.user_id}`,
+          type: 'comment',
+          title: c.count === 1
+            ? `New comment for ${c.client_name} from ${c.username}`
+            : `${c.count} new comments for ${c.client_name} from ${c.username}`,
+          count: c.count,
+          latest_at: c.latest_at,
+          actionData: { loan_id: c.loan_id },
+        });
+      });
+
+      if (payload.applications && payload.applications.count > 0 && payload.applications.latest_at) {
+        const n = payload.applications.count;
+        list.push({
+          id: 'app',
+          signature: 'app',
+          type: 'application',
+          title: n === 1 ? 'New loan application' : `${n} new loan applications`,
+          count: n,
+          latest_at: payload.applications.latest_at,
+          actionData: {},
+        });
+      }
+
+      // Most recent first
+      list.sort((a, b) => new Date(b.latest_at) - new Date(a.latest_at));
+
+      // Filter out dismissed
+      const visible = list.filter(n => {
+        const d = dismissedNotifsRef.current[n.signature];
+        if (!d) return true;
+        return new Date(n.latest_at) > new Date(d);
+      });
+
+      setNotifications(visible);
+
+      // First poll after login: don't float — just record baselines
+      const isInitialLoad = initialNotifLoadRef.current;
+      initialNotifLoadRef.current = false;
+
+      if (!isInitialLoad) {
+        visible.forEach(n => {
+          const seenAt = seenNotifsRef.current[n.signature];
+          if (!seenAt || new Date(n.latest_at) > new Date(seenAt)) {
+            addFloatingNotif(n);
+          }
+        });
+      }
+
+      // Record what we've seen so we don't re-float the same activity
+      visible.forEach(n => {
+        seenNotifsRef.current[n.signature] = n.latest_at;
+      });
+    };
+
+    const fetchNotifs = async () => {
+      try {
+        const res = await recoveryAPI.getNotificationData();
+        if (cancelled) return;
+        buildAndDispatch(res.data || {});
+      } catch (e) {
+        console.error('Notification poll failed:', e);
+      }
+    };
+
+    fetchNotifs();
+    const interval = setInterval(fetchNotifs, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [authLoading, isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (userRole === 'director') {
@@ -1822,6 +2043,89 @@ function RecoveryModule() {
             <span className="d-lg-none">Recovery</span>
           </a>
           <div className="navbar-nav ms-auto d-none d-lg-flex flex-row align-items-center gap-3">
+            {/* Notifications */}
+            <div className="recovery-notif-wrapper">
+              <button
+                type="button"
+                className="recovery-notif-btn"
+                onClick={() => setShowNotifPanel(v => !v)}
+                title="Notifications"
+                aria-label="Notifications"
+              >
+                <i className="fas fa-bell" />
+                {totalNotifCount > 0 && (
+                  <span className="recovery-notif-badge">
+                    {totalNotifCount > 99 ? '99+' : totalNotifCount}
+                  </span>
+                )}
+              </button>
+              
+              {showNotifPanel && (
+                <>
+                  <div
+                    className="recovery-notif-backdrop"
+                    onClick={() => setShowNotifPanel(false)}
+                  />
+                  <div className="recovery-notif-panel">
+                    <div className="recovery-notif-panel-header">
+                      <strong>Notifications</strong>
+                      {notifications.length > 0 && (
+                        <button
+                          type="button"
+                          className="recovery-notif-clear-btn"
+                          onClick={clearAllNotifications}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="recovery-notif-list">
+                      {notifications.length === 0 ? (
+                        <div className="recovery-notif-empty">
+                          <i className="fas fa-bell-slash" />
+                          <div>No notifications</div>
+                        </div>
+                      ) : (
+                        notifications.map(n => {
+                          const iconClass =
+                            n.type === 'message' || n.type === 'group_message'
+                              ? 'message'
+                              : n.type === 'comment'
+                                ? 'comment'
+                                : 'application';
+                          const iconName =
+                            n.type === 'message' || n.type === 'group_message'
+                              ? 'fa-envelope'
+                              : n.type === 'comment'
+                                ? 'fa-comment'
+                                : 'fa-file-alt';
+                          return (
+                            <div
+                              key={n.id}
+                              className="recovery-notif-item"
+                              onClick={() => handleNotificationClick(n)}
+                              role="button"
+                            >
+                              <div className={`recovery-notif-icon ${iconClass}`}>
+                                <i className={`fas ${iconName}`} />
+                              </div>
+                              <div className="recovery-notif-content">
+                                <div className="recovery-notif-title">{n.title}</div>
+                                <div className="recovery-notif-time">
+                                  {formatRelativeTime(n.latest_at)}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            {/* User Avatar */}
             <div style={{ cursor: 'pointer' }} onClick={() => setShowSettingsModal(true)}>
                 <Avatar user={user} size={32} />
             </div>
@@ -4974,6 +5278,55 @@ function RecoveryModule() {
         confirmColor={badDebtAction === 'mark' ? 'danger' : 'success'}
       />
       
+      {/* ========== FLOATING NOTIFICATION ISLAND ========== */}
+      {floatingNotifs.length > 0 && (
+        <div className="floating-notif-container">
+          {floatingNotifs.map(f => {
+            const iconClass =
+              f.type === 'message' || f.type === 'group_message'
+                ? 'message'
+                : f.type === 'comment'
+                  ? 'comment'
+                  : 'application';
+            const iconName =
+              f.type === 'message' || f.type === 'group_message'
+                ? 'fa-envelope'
+                : f.type === 'comment'
+                  ? 'fa-comment'
+                  : 'fa-file-alt';
+            return (
+              <div
+                key={f.floatId}
+                className="floating-notif-card"
+                role="button"
+                onClick={() => {
+                  handleNotificationClick(f);
+                  removeFloatingNotif(f.floatId);
+                }}
+              >
+                <div className={`floating-notif-icon ${iconClass}`}>
+                  <i className={`fas ${iconName}`} />
+                </div>
+                <div className="floating-notif-content">
+                  <div className="floating-notif-title">{f.title}</div>
+                  <div className="floating-notif-hint">Tap to open</div>
+                </div>
+                <button
+                  type="button"
+                  className="floating-notif-close"
+                  aria-label="Dismiss"
+                  onClick={e => {
+                    e.stopPropagation();
+                    removeFloatingNotif(f.floatId);
+                  }}
+                >
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
     </div>
   );
