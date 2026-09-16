@@ -11,6 +11,7 @@ import ImageCarousel from "../components/common/ImageCarousel"
 import Toast, { showToast } from "../components/common/Toast"
 import SEO from '../components/common/SEO'
 import { CountUp as CountUpCore } from 'countup.js';
+import { sendContactEmail } from "../services/emailService"
 
 const CountUp = ({ end, duration, suffix, prefix, ...rest }) => {
   const ref = useRef(null);
