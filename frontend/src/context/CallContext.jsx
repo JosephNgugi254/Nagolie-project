@@ -201,6 +201,13 @@ export const CallProvider = ({ children }) => {
         if (!prevConnected) startTimer();
         return true;
       });
+
+      // Flip status → 'connected' for BOTH sides once media flows.
+      setActiveCall(prev => {
+        if (!prev || prev.callId !== callId) return prev;
+        if (prev.status === 'connected') return prev;
+        return { ...prev, status: 'connected' };
+      });
     };
 
     pc.onconnectionstatechange = () => {
@@ -219,7 +226,7 @@ export const CallProvider = ({ children }) => {
 
   // ---------- End call entirely (1-on-1, or last person in a group) ----------
   const endCall = useCallback(async (callId, options = {}) => {
-    const { skipSave = false } = options;
+    const { skipSave = false, status: finalStatus = 'ended' } = options;
     stopTimer();
 
     const peers = peerConnections.current[callId] || {};
@@ -241,38 +248,40 @@ export const CallProvider = ({ children }) => {
     if (active) {
       const duration = Math.floor((Date.now() - active.startTime) / 1000);
 
-      // Only the side that INITIATED the end persists + broadcasts the log.
-      // When we're ending because the other party already ended, skipSave is
-      // true and we just clean up locally.
-      if (!skipSave) {
-        try {
-          const resp = await recoveryAPI.saveCallLog({
-            call_type: active.type,
-            status: 'ended',
-            started_at: new Date(active.startTime).toISOString(),
-            ended_at: new Date().toISOString(),
-            duration_seconds: duration,
-            caller_id: getUserId(),
-            callee_id: active.isGroup ? null : active.remoteUser?.id,
-            is_group: active.isGroup,
-            participants: active.participants,
-          });
+        if (!skipSave) {
+          // Only count real talk time. Declines / misses / cancels = 0.
+          const duration = (finalStatus === 'ended' || finalStatus === 'answered')
+            ? Math.floor((Date.now() - active.startTime) / 1000)
+            : 0;
 
-          const savedLog = resp?.data?.log;
-          if (savedLog) {
-            const recipients = Array.from(new Set([
-              getUserId(),
-              ...(active.participants || []),
-            ]));
-            socket.emit('call_log_created', { log: savedLog, recipients });
+          try {
+            const resp = await recoveryAPI.saveCallLog({
+              call_type: active.type,
+              status: finalStatus,
+              started_at: new Date(active.startTime).toISOString(),
+              ended_at: new Date().toISOString(),
+              duration_seconds: duration,
+              caller_id: getUserId(),
+              callee_id: active.isGroup ? null : active.remoteUser?.id,
+              is_group: active.isGroup,
+              participants: active.participants,
+            });
+
+            const savedLog = resp?.data?.log;
+            if (savedLog) {
+              const recipients = Array.from(new Set([
+                getUserId(),
+                ...(active.participants || []),
+              ]));
+              socket.emit('call_log_created', { log: savedLog, recipients });
+            }
+          } catch (err) {
+            console.error('Failed to save call log:', err);
           }
-        } catch (err) {
-          console.error('Failed to save call log:', err);
-        }
 
-        const others = (active.participants || []).filter(id => id !== getUserId());
-        others.forEach(pid => socket.emit('call_end', { call_id: callId, participants: [pid], duration }));
-      }
+          const others = (active.participants || []).filter(id => id !== getUserId());
+          others.forEach(pid => socket.emit('call_end', { call_id: callId, participants: [pid], duration }));
+        }
     }
 
     setActiveCall(null);
@@ -621,26 +630,26 @@ export const CallProvider = ({ children }) => {
         showToast.info(reason);
       };
     
-      if (status === 'declined' || status === 'busy' || status === 'unavailable') {
-        const label = status === 'declined' ? 'declined'
-                    : status === 'busy' ? 'was busy'
-                    : 'was unavailable';
-        if (isGroup) {
-          dropOnePeer(`Participant ${label}`);
-        } else {
-          endCall(call_id);
-          showToast.info(status === 'declined' ? 'Call declined'
-                        : status === 'busy' ? 'User is busy'
-                        : 'User unavailable');
+        if (status === 'declined' || status === 'busy' || status === 'unavailable') {
+          const label = status === 'declined' ? 'declined'
+                      : status === 'busy' ? 'was busy'
+                      : 'was unavailable';
+          if (isGroup) {
+            dropOnePeer(`Participant ${label}`);
+          } else {
+            endCall(call_id, { status: 'declined' });
+            showToast.info(status === 'declined' ? 'Call declined'
+                          : status === 'busy' ? 'User is busy'
+                          : 'User unavailable');
         }
         return;
       }
-    
+
       if (status === 'cancelled') {
         if (isGroup) {
           dropOnePeer('Participant cancelled');
         } else {
-          endCall(call_id);
+          endCall(call_id, { status: 'cancelled' });
         }
       }
     };
@@ -690,7 +699,7 @@ export const CallProvider = ({ children }) => {
   // Auto-cancel if nobody answers within 45s
   useEffect(() => {
       if (!activeCall || activeCall.status !== 'ringing') return;
-      const timer = setTimeout(() => {
+        const timer = setTimeout(() => {
           if (activeCall && activeCall.status === 'ringing') {
               socket.emit('call_status', {
                   target_user_id: activeCall.remoteUser?.id,
@@ -698,9 +707,9 @@ export const CallProvider = ({ children }) => {
                   call_id: activeCall.callId,
               });
               showToast.info('No answer');
-              endCall(activeCall.callId);
+              endCall(activeCall.callId, { status: 'missed' });   // <-- was endCall(activeCall.callId)
           }
-      }, 45000);
+        }, 45000);
       return () => clearTimeout(timer);
   }, [activeCall?.callId, activeCall?.status, socket, endCall]);
 

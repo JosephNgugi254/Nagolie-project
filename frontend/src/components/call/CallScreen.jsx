@@ -62,19 +62,40 @@ const ParticipantTile = ({ userId, stream, isVideoCall, userDirectory }) => {
 // ---------------------------------------------------------------------------
 const RemoteAudio = ({ stream }) => {
   const ref = useRef(null);
+
   useEffect(() => {
     const el = ref.current;
     if (!el || !stream) return;
+
     el.srcObject = stream;
-    el.play().catch((err) => {
-      console.warn('[CallScreen] remote audio autoplay blocked:', err?.name);
-    });
+    el.muted = false;
+
+    const tryPlay = () => {
+      el.play().catch((err) => {
+        console.warn('[RemoteAudio] autoplay blocked:', err?.name);
+      });
+    };
+    tryPlay();
+
+    // Retry if audio tracks arrive after the effect ran
+    const onAddTrack = () => tryPlay();
+    stream.addEventListener('addtrack', onAddTrack);
+
+    return () => {
+      stream.removeEventListener('addtrack', onAddTrack);
+      el.pause();
+      el.srcObject = null;
+    };
   }, [stream]);
+
   return (
     <audio
       ref={ref}
       autoPlay
       playsInline
+      // webkit-playsinline is required for iOS Safari to allow inline playback
+      webkit-playsinline="true"
+      preload="auto"
       style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
     />
   );
@@ -86,7 +107,7 @@ const RemoteAudio = ({ stream }) => {
 const CallScreen = ({
   call, localStream, remoteStreamsMap, userDirectory,
   onEnd, onToggleMute, onToggleSpeaker, onToggleCamera, onAddParticipant,
-  duration, onMinimize, isGroup,
+  duration, onMinimize, isGroup, isCallConnected,
 }) => {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -304,8 +325,9 @@ const CallScreen = ({
         <button
           className={`control-btn ${speaker ? 'active' : ''}`}
           onClick={() => { setSpeaker(!speaker); onToggleSpeaker?.(); }}
+          title={speaker ? 'Turn speaker off' : 'Turn speaker on'}
         >
-          <i className={`fas fa-volume-up${speaker ? '' : '-off'}`} />
+          <i className={`fas ${speaker ? 'fa-volume-high' : 'fa-volume-xmark'}`} />
         </button>
 
         {/* Camera — only for video calls, independent of microphone */}
@@ -329,7 +351,15 @@ const CallScreen = ({
         </button>
       </div>
 
-      <div className="call-timer">{formatDuration(duration)}</div>
+      <div className="call-timer">
+        {isCallConnected
+          ? formatDuration(duration)
+          : call?.status === 'ringing'
+            ? 'Ringing…'
+            : call?.status === 'connecting'
+              ? 'Connecting…'
+              : 'Calling…'}
+      </div>
     </div>
   );
 };

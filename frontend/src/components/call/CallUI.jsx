@@ -10,6 +10,7 @@ const CallUI = () => {
   const { onlineUsers } = useSocket();
   const {
     activeCall, incomingCall, isMinimized, setIsMinimized, callDuration,
+    isCallConnected,
     localStream, remoteStreams, userDirectory,
     answerCall, endCall, leaveCall, addParticipant,
   } = useCall();
@@ -42,6 +43,7 @@ const CallUI = () => {
           isGroup={activeCall.isGroup}
           participants={activeCall.participants}
           onAddParticipant={() => setShowAddParticipant(true)}
+          isCallConnected={isCallConnected}
         />
       )}
       {activeCall && isMinimized && (
