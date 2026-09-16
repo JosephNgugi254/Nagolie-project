@@ -674,6 +674,39 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     };
     const onDisconn = () => setSocketConnected(false);
 
+    const onCallLogCreated = (data) => {
+      const log = data?.log;
+      if (!log) return;
+      if (isGroup) return;                 // 1:1 only for now
+
+      const cid = getCurrentUserId();
+      const eq  = (a, b) => a != null && b != null && String(a) === String(b);
+
+      // Belongs to THIS conversation?
+      const involvesMe    = eq(log.caller_id, cid) || eq(log.callee_id, cid);
+      const involvesOther = eq(log.caller_id, user.id) || eq(log.callee_id, user.id);
+      if (!involvesMe || !involvesOther) return;
+
+      const logId = `call-${log.id}`;
+      setMessages(prev => {
+        if (prev.some(m => m.id === logId)) return prev;
+        return [
+          ...prev,
+          {
+            id: logId,
+            sender_id: log.caller_id,
+            recipient_id: log.callee_id,
+            content: formatCallLog(log),
+            created_at: log.started_at,
+            is_call_log: true,
+            status: 'read',
+            _callLog: log,
+          },
+        ];
+      });
+      scrollToBottom();
+    };
+
     const onNewMsg = (data) => {
 
       const m = data.message;
@@ -775,6 +808,8 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     socket.on('message_sent', onSent);
     socket.on('new_group_message', onNewMsg);
     socket.on('group_message_sent', onSent);
+    socket.on('call_log_created', onCallLogCreated);
+
 
     if (socket.connected) onConn();
 
@@ -788,6 +823,8 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
       socket.off('message_sent', onSent);
       socket.off('new_group_message', onNewMsg);
       socket.off('group_message_sent', onSent);
+      socket.off('call_log_created', onCallLogCreated);
+
       if (socket.connected) {
         if (isGroup) {
           socket.emit('leave_group', { group_id: group.id });

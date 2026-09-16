@@ -3952,16 +3952,6 @@ section {
   background: #d32f2f;
 }
 
-/* Call log messages – centered, grey, no bubble */
-.call-log-message {
-  text-align: center;
-  font-size: 0.85rem;
-  color: #6c757d;
-  padding: 0.5rem 0;
-  width: 100%;
-  font-style: italic;
-}
-
 /* Reply preview above input */
 .reply-preview {
   background: #f0f0f0;
@@ -4157,16 +4147,6 @@ section {
   }
 }
 
-/* System message */
-.system-message {
-  text-align: center;
-  color: #6c757d;
-  font-style: italic;
-  font-size: 0.9rem;
-  margin: 0.5rem 0;
-  padding: 0.25rem 0;
-  background: transparent;
-}
 
 /* Sender name in group messages */
 .sender-name {
@@ -4582,4 +4562,35 @@ section {
   display: flex !important;
   align-items: center;
   flex-direction: row !important;
+}
+
+/* Center non-sent, non-received lines (system + call log) */
+.chat-message:not(.sent):not(.received) {
+  justify-content: center;
+  width: 100%;
+}
+
+.chat-message:not(.sent):not(.received) > div {
+  max-width: 90%;
+}
+
+.system-message,
+.call-log-message {
+  display: inline-block;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #6c757d;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 4px 12px;
+  border-radius: 12px;
+  margin: 0.5rem auto;
+  font-style: normal;      /* call-log isn't italic in WhatsApp */
+  max-width: 100%;
+}
+
+.call-log-message {
+  background: rgba(0, 0, 0, 0.06);
+  font-style: normal;
+  color: #495057;
+  font-weight: 500;
 }

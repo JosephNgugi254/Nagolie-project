@@ -352,3 +352,15 @@ def handle_send_group_message(data):
         'message_id': msg.id,
         'temp_id': data.get('temp_id')
     })
+
+@socketio.on('call_log_created')
+def handle_call_log_created(data):
+    user = get_user_from_token()
+    if not user:
+        return
+    recipients = data.get('recipients', [])
+    log = data.get('log')
+    if not log:
+        return
+    for pid in recipients:
+        emit('call_log_created', {'log': log}, room=f'user_{pid}')

@@ -218,7 +218,8 @@ export const CallProvider = ({ children }) => {
   }, [socket, startTimer, removePeer]);
 
   // ---------- End call entirely (1-on-1, or last person in a group) ----------
-  const endCall = useCallback(async (callId) => {
+  const endCall = useCallback(async (callId, options = {}) => {
+    const { skipSave = false } = options;
     stopTimer();
 
     const peers = peerConnections.current[callId] || {};
@@ -239,30 +240,39 @@ export const CallProvider = ({ children }) => {
     const active = activeCall;
     if (active) {
       const duration = Math.floor((Date.now() - active.startTime) / 1000);
-      try {
-        await recoveryAPI.saveCallLog({
-          call_type: active.type,
-          status: 'ended',
-          started_at: new Date(active.startTime).toISOString(),
-          ended_at: new Date().toISOString(),
-          duration_seconds: duration,
-          caller_id: getUserId(),
-          callee_id: active.isGroup ? null : active.remoteUser?.id,
-          is_group: active.isGroup,
-          participants: active.participants,
-        });
-      } catch (err) { console.error('Failed to save call log:', err); }
 
-      if (!active.isGroup && active.remoteUser?.id) {
-        const emoji = active.type === 'video' ? '📹' : '📞';
-        const label = active.type === 'video' ? 'Video' : 'Voice';
+      // Only the side that INITIATED the end persists + broadcasts the log.
+      // When we're ending because the other party already ended, skipSave is
+      // true and we just clean up locally.
+      if (!skipSave) {
         try {
-          await recoveryAPI.sendMessage(active.remoteUser.id, `${emoji} ${label} call · ${formatCallDuration(duration)}`);
-        } catch (err) { console.error('Failed to send call log message:', err); }
-      }
+          const resp = await recoveryAPI.saveCallLog({
+            call_type: active.type,
+            status: 'ended',
+            started_at: new Date(active.startTime).toISOString(),
+            ended_at: new Date().toISOString(),
+            duration_seconds: duration,
+            caller_id: getUserId(),
+            callee_id: active.isGroup ? null : active.remoteUser?.id,
+            is_group: active.isGroup,
+            participants: active.participants,
+          });
 
-      const others = (active.participants || []).filter(id => id !== getUserId());
-      others.forEach(pid => socket.emit('call_end', { call_id: callId, participants: [pid], duration }));
+          const savedLog = resp?.data?.log;
+          if (savedLog) {
+            const recipients = Array.from(new Set([
+              getUserId(),
+              ...(active.participants || []),
+            ]));
+            socket.emit('call_log_created', { log: savedLog, recipients });
+          }
+        } catch (err) {
+          console.error('Failed to save call log:', err);
+        }
+
+        const others = (active.participants || []).filter(id => id !== getUserId());
+        others.forEach(pid => socket.emit('call_end', { call_id: callId, participants: [pid], duration }));
+      }
     }
 
     setActiveCall(null);
@@ -568,7 +578,7 @@ export const CallProvider = ({ children }) => {
 
     const onCallEnded = (data) => {
       if (activeCall && activeCall.callId === data.call_id) {
-        endCall(data.call_id);
+        endCall(data.call_id, { skipSave: true });
         showToast.info('Call ended by other party');
       }
     };
@@ -585,7 +595,7 @@ export const CallProvider = ({ children }) => {
 
     const onCallStatus = (data) => {
       const { status, call_id, from } = data;
-        
+
       // Callee side: cancel/missed before accepting
       if ((status === 'cancelled' || status === 'missed') &&
           incomingCall && incomingCall.callId === call_id) {
