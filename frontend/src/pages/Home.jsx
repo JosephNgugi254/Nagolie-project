@@ -54,51 +54,7 @@ const CountUp = ({ end, duration, suffix, prefix, ...rest }) => {
     }
     return errs;
   };
-
-  const handleContactSubmit = async (e) => {
-    e.preventDefault();
-    if (contactSending) return; // guard against double-clicks
-
-    // 1) Validate
-    const errs = validateContactForm();
-    if (Object.keys(errs).length > 0) {
-      setContactErrors(errs);
-      showToast.error('Please fix the highlighted fields.');
-      return;
-    }
-
-    // 2) Rate-limit (60s between sends from the same browser session)
-    const now = Date.now();
-    const cooldownMs = 60 * 1000;
-    if (now - lastContactSentAt < cooldownMs) {
-      const wait = Math.ceil((cooldownMs - (now - lastContactSentAt)) / 1000);
-      showToast.error(`Please wait ${wait}s before sending another message.`);
-      return;
-    }
-
-    // 3) Send
-    setContactSending(true);
-    try {
-      await sendContactEmail({
-        name: contactForm.name.trim(),
-        email: contactForm.email.trim(),
-        phone: contactForm.phone.trim(),
-        message: contactForm.message.trim(),
-      });
-
-      showToast.success("Message sent! We'll get back to you soon.");
-      setContactForm({ name: '', email: '', phone: '', message: '' });
-      setContactErrors({});
-      setLastContactSentAt(Date.now());
-    } catch (error) {
-      console.error('Contact form error:', error?.text || error?.message || error);
-      showToast.error(
-        'Failed to send message. Please try again or call us directly at +254 721 451 707.'
-      );
-    } finally {
-      setContactSending(false);
-    }
-  };
+  
 
   useEffect(() => {
     if (ref.current) {
@@ -206,6 +162,17 @@ function Home() {
     setShowImageModal(true);
   };
 
+  // ---- Contact form state ----
+  const [contactForm, setContactForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    message: ''
+  });
+  const [contactSending, setContactSending] = useState(false);
+  const [contactErrors, setContactErrors] = useState({});
+  const [lastContactSentAt, setLastContactSentAt] = useState(0);
+
   const handleLoanSubmit = async (formData) => {
     try {
       console.log("Loan application submitted:", formData)
@@ -245,6 +212,75 @@ function Home() {
       return { success: false, error: errorMessage }
     }
   }
+
+  // ============================================================
+  // CONTACT FORM — handlers
+  // ============================================================
+  const handleContactChange = (e) => {
+    const { name, value } = e.target;
+    setContactForm(prev => ({ ...prev, [name]: value }));
+    if (contactErrors[name]) {
+      setContactErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+  
+  const validateContactForm = () => {
+    const errs = {};
+    if (!contactForm.name.trim()) errs.name = 'Please enter your name.';
+    if (!contactForm.email.trim()) {
+      errs.email = 'Please enter your email.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactForm.email.trim())) {
+      errs.email = 'Please enter a valid email address.';
+    }
+    if (!contactForm.message.trim()) {
+      errs.message = 'Please write a short message.';
+    } else if (contactForm.message.trim().length < 5) {
+      errs.message = 'Message is a bit too short.';
+    }
+    return errs;
+  };
+  
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    if (contactSending) return;
+  
+    const errs = validateContactForm();
+    if (Object.keys(errs).length > 0) {
+      setContactErrors(errs);
+      showToast.error('Please fix the highlighted fields.');
+      return;
+    }
+  
+    const now = Date.now();
+    const cooldownMs = 60 * 1000;
+    if (now - lastContactSentAt < cooldownMs) {
+      const wait = Math.ceil((cooldownMs - (now - lastContactSentAt)) / 1000);
+      showToast.error(`Please wait ${wait}s before sending another message.`);
+      return;
+    }
+  
+    setContactSending(true);
+    try {
+      await sendContactEmail({
+        name: contactForm.name.trim(),
+        email: contactForm.email.trim(),
+        phone: contactForm.phone.trim(),
+        message: contactForm.message.trim(),
+      });
+    
+      showToast.success("Message sent! We'll get back to you soon.");
+      setContactForm({ name: '', email: '', phone: '', message: '' });
+      setContactErrors({});
+      setLastContactSentAt(Date.now());
+    } catch (error) {
+      console.error('Contact form error:', error?.text || error?.message || error);
+      showToast.error(
+        'Failed to send message. Please try again or call us directly at +254 721 451 707.'
+      );
+    } finally {
+      setContactSending(false);
+    }
+  };
 
   // --- Testimonials slider logic (unchanged) ---
   useEffect(() => {
