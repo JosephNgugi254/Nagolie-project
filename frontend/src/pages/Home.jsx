@@ -17,6 +17,89 @@ const CountUp = ({ end, duration, suffix, prefix, ...rest }) => {
   const ref = useRef(null);
   const instance = useRef(null);
 
+  const [contactForm, setContactForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    message: ''
+  });
+  const [contactSending, setContactSending] = useState(false);
+  const [contactErrors, setContactErrors] = useState({});
+  const [lastContactSentAt, setLastContactSentAt] = useState(0);
+
+  // ============================================================
+  // CONTACT FORM — handlers
+  // ============================================================
+  const handleContactChange = (e) => {
+    const { name, value } = e.target;
+    setContactForm(prev => ({ ...prev, [name]: value }));
+    // Clear the field's error as soon as the user starts typing
+    if (contactErrors[name]) {
+      setContactErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const validateContactForm = () => {
+    const errs = {};
+    if (!contactForm.name.trim()) errs.name = 'Please enter your name.';
+    if (!contactForm.email.trim()) {
+      errs.email = 'Please enter your email.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactForm.email.trim())) {
+      errs.email = 'Please enter a valid email address.';
+    }
+    if (!contactForm.message.trim()) {
+      errs.message = 'Please write a short message.';
+    } else if (contactForm.message.trim().length < 5) {
+      errs.message = 'Message is a bit too short.';
+    }
+    return errs;
+  };
+
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    if (contactSending) return; // guard against double-clicks
+
+    // 1) Validate
+    const errs = validateContactForm();
+    if (Object.keys(errs).length > 0) {
+      setContactErrors(errs);
+      showToast.error('Please fix the highlighted fields.');
+      return;
+    }
+
+    // 2) Rate-limit (60s between sends from the same browser session)
+    const now = Date.now();
+    const cooldownMs = 60 * 1000;
+    if (now - lastContactSentAt < cooldownMs) {
+      const wait = Math.ceil((cooldownMs - (now - lastContactSentAt)) / 1000);
+      showToast.error(`Please wait ${wait}s before sending another message.`);
+      return;
+    }
+
+    // 3) Send
+    setContactSending(true);
+    try {
+      await sendContactEmail({
+        name: contactForm.name.trim(),
+        email: contactForm.email.trim(),
+        phone: contactForm.phone.trim(),
+        message: contactForm.message.trim(),
+      });
+
+      showToast.success("Message sent! We'll get back to you soon.");
+      setContactForm({ name: '', email: '', phone: '', message: '' });
+      setContactErrors({});
+      setLastContactSentAt(Date.now());
+    } catch (error) {
+      console.error('Contact form error:', error?.text || error?.message || error);
+      showToast.error(
+        'Failed to send message. Please try again or call us directly at +254 721 451 707.'
+      );
+    } finally {
+      setContactSending(false);
+    }
+  };
+
   useEffect(() => {
     if (ref.current) {
       instance.current = new CountUpCore(ref.current, end, {
@@ -919,21 +1002,99 @@ function Home() {
               </div>              
             </div>
             <div className="col-lg-6">
-              <form id="contactForm">
+              <form id="contactForm" onSubmit={handleContactSubmit} noValidate>
+                {/* Name */}
                 <div className="mb-3">
-                  <input type="text" className="form-control" placeholder="Your Name" required />
+                  <input
+                    type="text"
+                    name="name"
+                    className={`form-control ${contactErrors.name ? 'is-invalid' : ''}`}
+                    placeholder="Your Name"
+                    value={contactForm.name}
+                    onChange={handleContactChange}
+                    disabled={contactSending}
+                    autoComplete="name"
+                    required
+                  />
+                  {contactErrors.name && (
+                    <div className="invalid-feedback d-block">{contactErrors.name}</div>
+                  )}
                 </div>
+                
+                {/* Email */}
                 <div className="mb-3">
-                  <input type="email" className="form-control" placeholder="Your Email" required />
+                  <input
+                    type="email"
+                    name="email"
+                    className={`form-control ${contactErrors.email ? 'is-invalid' : ''}`}
+                    placeholder="Your Email"
+                    value={contactForm.email}
+                    onChange={handleContactChange}
+                    disabled={contactSending}
+                    autoComplete="email"
+                    required
+                  />
+                  {contactErrors.email && (
+                    <div className="invalid-feedback d-block">{contactErrors.email}</div>
+                  )}
                 </div>
+                
+                {/* Phone (optional) */}
                 <div className="mb-3">
-                  <input type="tel" className="form-control" placeholder="Your Phone" />
+                  <input
+                    type="tel"
+                    name="phone"
+                    className={`form-control ${contactErrors.phone ? 'is-invalid' : ''}`}
+                    placeholder="Your Phone (optional)"
+                    value={contactForm.phone}
+                    onChange={handleContactChange}
+                    disabled={contactSending}
+                    autoComplete="tel"
+                  />
+                  {contactErrors.phone && (
+                    <div className="invalid-feedback d-block">{contactErrors.phone}</div>
+                  )}
                 </div>
+                
+                {/* Message */}
                 <div className="mb-3">
-                  <textarea className="form-control" rows="4" placeholder="Your Message" required></textarea>
+                  <textarea
+                    name="message"
+                    className={`form-control ${contactErrors.message ? 'is-invalid' : ''}`}
+                    rows="4"
+                    placeholder="Your Message"
+                    value={contactForm.message}
+                    onChange={handleContactChange}
+                    disabled={contactSending}
+                    required
+                  ></textarea>
+                  {contactErrors.message && (
+                    <div className="invalid-feedback d-block">{contactErrors.message}</div>
+                  )}
                 </div>
-                <button type="submit" className="btn btn-primary">
-                  Send Message
+                
+                {/* Submit button with loading state */}
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={contactSending}
+                  aria-busy={contactSending}
+                >
+                  {contactSending ? (
+                    <>
+                      <span
+                        className="spinner-border spinner-border-sm me-2"
+                        role="status"
+                        aria-hidden="true"
+                      ></span>
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-paper-plane me-2"></i>
+                      Send Message
+                    </>
+                  )}
                 </button>
               </form>
             </div>
