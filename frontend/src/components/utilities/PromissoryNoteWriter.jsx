@@ -5,6 +5,14 @@ import { generatePromissoryNote } from '../admin/ReceiptPDF';
 import { showToast } from '../common/Toast';
 
 const PromissoryNoteWriter = () => {
+  const MAX_PROMISSORY_NOTES = 3;
+  const [promissoryInfo, setPromissoryInfo] = useState({
+    count: 0, 
+    max: MAX_PROMISSORY_NOTES, 
+    remaining: MAX_PROMISSORY_NOTES,
+    can_issue: true, 
+    loading: false, notes: [],
+  });
   const [loans, setLoans] = useState([]);
   const [loadingLoans, setLoadingLoans] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState('');
@@ -53,24 +61,48 @@ const PromissoryNoteWriter = () => {
     }
   };
 
-  const handleLoanSelect = (loanId) => {
-    const loan = loans.find(l => l.loanId === parseInt(loanId));
-    if (loan) {
-      const currentPrincipal = loan.currentPrincipal || 0;
-      const interestOwed = loan.accruedInterest || 0;
-      const totalBalance = currentPrincipal + interestOwed;
+  const handleLoanSelect = async (loanId) => {
+    if (!loanId) {
+      setPromissoryInfo({ count: 0, max: MAX_PROMISSORY_NOTES,
+                          remaining: MAX_PROMISSORY_NOTES,
+                          can_issue: true, loading: false, notes: [] });
+      return;
+    }
 
-      setFormData({
-        clientName: loan.clientName,
-        idNumber: loan.idNumber || '',
-        dateBorrowed: formatDateForInput(loan.borrowedDate),
-        amountBorrowed: loan.principalAmount || 0,
-        currentPrincipal: currentPrincipal,
-        interestOwed: interestOwed,
-        totalBalance: totalBalance,
-        amountToPay: totalBalance,
-        dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+    const loan = loans.find(l => l.loanId === parseInt(loanId));
+    if (!loan) return;
+
+    const currentPrincipal = loan.currentPrincipal || 0;
+    const interestOwed     = loan.accruedInterest || 0;
+    const totalBalance     = currentPrincipal + interestOwed;
+
+    setFormData({
+      clientName:      loan.clientName,
+      idNumber:        loan.idNumber || '',
+      dateBorrowed:    formatDateForInput(loan.borrowedDate),
+      amountBorrowed:  loan.principalAmount || 0,
+      currentPrincipal,
+      interestOwed,
+      totalBalance,
+      amountToPay:     totalBalance,
+      dueDate:         new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+    });
+
+    // Fetch promissory note count for this loan
+    setPromissoryInfo(p => ({ ...p, loading: true }));
+    try {
+      const res = await recoveryAPI.getPromissoryNotes(loan.loanId);
+      setPromissoryInfo({
+        count:     res.data.count,
+        max:       res.data.max,
+        remaining: res.data.remaining,
+        can_issue: res.data.can_issue,
+        notes:     res.data.notes || [],
+        loading:   false,
       });
+    } catch (err) {
+      console.error('Failed to load promissory note count:', err);
+      setPromissoryInfo(p => ({ ...p, loading: false }));
     }
   };
 
@@ -115,20 +147,64 @@ const PromissoryNoteWriter = () => {
 
   const handleDownload = async () => {
     if (!formData.clientName.trim()) {
-      showToast.error('Client name is required');
-      return;
+      showToast.error('Client name is required'); return;
     }
     if (!formData.amountToPay || parseFloat(formData.amountToPay) <= 0) {
-      showToast.error('Please enter a valid amount to pay');
-      return;
+      showToast.error('Please enter a valid amount to pay'); return;
     }
     if (!formData.dueDate) {
-      showToast.error('Due date is required');
+      showToast.error('Due date is required'); return;
+    }
+    if (!promissoryInfo.can_issue) {
+      showToast.error(
+        `Maximum of ${MAX_PROMISSORY_NOTES} promissory notes for this loan has been reached.`
+      );
       return;
     }
+
     setGeneratingType('download');
     setIsGenerating(true);
     try {
+      // 1) Record on the server FIRST — the server is authoritative.
+      if (mode === 'auto' && selectedLoanId) {
+        try {
+          const recordRes = await recoveryAPI.createPromissoryNote(
+            parseInt(selectedLoanId),
+            {
+              amount_to_pay:  parseFloat(formData.amountToPay)  || 0,
+              total_balance:  parseFloat(formData.totalBalance) || 0,
+              due_date:       formData.dueDate,
+              notes:          '',
+            }
+          );
+          setPromissoryInfo({
+            count:     recordRes.data.count,
+            max:       recordRes.data.max,
+            remaining: recordRes.data.remaining,
+            can_issue: recordRes.data.can_issue,
+            notes:     [recordRes.data.note, ...promissoryInfo.notes],
+            loading:   false,
+          });
+          showToast.success(
+            `Promissory Note #${recordRes.data.sequence} of ${recordRes.data.max} recorded`
+          );
+        } catch (err) {
+          if (err.response?.status === 409) {
+            setPromissoryInfo(p => ({
+              ...p,
+              count:     err.response.data.count,
+              max:       err.response.data.max,
+              can_issue: false,
+              remaining: 0,
+            }));
+            showToast.error(err.response.data.error);
+            return;
+          }
+          throw err;
+        }
+      }
+
+      // 2) Now generate the PDF (server already accepted the record)
       await generatePromissoryNote(formData, false);
       showToast.success('Promissory note downloaded');
     } catch (error) {
@@ -142,6 +218,10 @@ const PromissoryNoteWriter = () => {
 
   const resetForm = () => {
     setSelectedLoanId('');
+    setPromissoryInfo({
+      count: 0, max: MAX_PROMISSORY_NOTES, remaining: MAX_PROMISSORY_NOTES,
+      can_issue: true, loading: false, notes: [],
+    });
     setFormData({
       clientName: '',
       idNumber: '',
@@ -214,6 +294,42 @@ const PromissoryNoteWriter = () => {
               {!loadingLoans && loans.length === 0 && (
                 <div className="text-muted small mt-1">No active loans found</div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ---------- Promissory note counter badge + cap warning ---------- */}
+        {mode === 'auto' && selectedLoanId && !promissoryInfo.loading && (
+          <div className="d-flex align-items-center mb-3">
+            <span
+              className={`badge ${
+                !promissoryInfo.can_issue
+                  ? 'bg-danger'
+                  : promissoryInfo.remaining === 1
+                    ? 'bg-warning text-dark'
+                    : 'bg-info text-dark'
+              }`}
+              style={{ fontSize: '0.85rem' }}
+              title="Promissory notes issued for this loan"
+            >
+              <i className="fas fa-file-signature me-1"></i>
+              Promissory Note {promissoryInfo.count} of {promissoryInfo.max}
+            </span>
+            {promissoryInfo.remaining > 0 && promissoryInfo.remaining <= 1 && (
+              <small className="text-warning ms-2">
+                <i className="fas fa-exclamation-triangle me-1"></i>
+                Only {promissoryInfo.remaining} remaining
+              </small>
+            )}
+          </div>
+        )}
+
+        {mode === 'auto' && selectedLoanId && !promissoryInfo.can_issue && (
+          <div className="alert alert-danger d-flex align-items-center">
+            <i className="fas fa-ban me-2"></i>
+            <div>
+              <strong>Maximum reached.</strong> {promissoryInfo.max} promissory notes
+              have already been issued for this loan. Further notes cannot be created.
             </div>
           </div>
         )}
@@ -347,14 +463,14 @@ const PromissoryNoteWriter = () => {
           <button type="button" className="btn btn-secondary" onClick={resetForm} disabled={isLoading}>
             <i className="fas fa-undo me-2"></i>Reset
           </button>
-          <button type="button" className="btn btn-info" onClick={handlePreview} disabled={isLoading}>
+          <button type="button" className="btn btn-info" onClick={handlePreview} disabled={isLoading || !promissoryInfo.can_issue}>
             {isLoading && generatingType === 'preview' ? (
               <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
             ) : (
               <><i className="fas fa-eye me-2"></i>Preview</>
             )}
           </button>
-          <button type="button" className="btn btn-primary" onClick={handleDownload} disabled={isLoading}>
+                    <button type="button" className="btn btn-primary" onClick={handleDownload} disabled={isLoading || !promissoryInfo.can_issue}>
             {isLoading && generatingType === 'download' ? (
               <><span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Generating...</>
             ) : (

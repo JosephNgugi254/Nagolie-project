@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember, Group)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember, Group, DayAssignment, PromissoryNote)
 from app.utils.decorators import role_required, role_or_username_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
 from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest, _get_current_week_number
@@ -18,6 +18,8 @@ from app.routes.payments import compute_overdue
 from flask_cors import cross_origin
 
 recovery_bp = Blueprint('recovery', __name__)
+
+MAX_PROMISSORY_NOTES = 3  
 
 def get_week_number(disbursement_date):
     if not disbursement_date:
@@ -616,10 +618,12 @@ def claim_ownership(loan_id):
 
 @recovery_bp.route('/loan/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director',
+                'client_relations_officer', 'hr_manager'])
 def renew_loan_recovery(loan_id):
     try:
         from app.routes.payments import recalculate_loan
+        from app.routes.admin import sync_client_assignments
         from datetime import datetime, timedelta
         from decimal import Decimal
 
@@ -635,13 +639,12 @@ def renew_loan_recovery(loan_id):
 
         loan = recalculate_loan(loan)
 
-        # Determine the new principal
         if new_principal is not None:
             try:
                 new_principal = Decimal(str(new_principal))
                 if new_principal <= 0:
                     return jsonify({'error': 'New principal must be positive'}), 400
-            except:
+            except Exception:
                 return jsonify({'error': 'Invalid new_principal value'}), 400
         else:
             if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
@@ -652,19 +655,30 @@ def renew_loan_recovery(loan_id):
             if new_principal <= Decimal('0.01'):
                 return jsonify({'error': 'No outstanding balance to renew'}), 400
 
-        # Validate and set the repayment plan
         if new_repayment_plan not in ['weekly', 'daily']:
             new_repayment_plan = loan.repayment_plan
 
         now = datetime.utcnow()
 
-        # Mark old loan as renewed
+        # ---- Preserve only MANUAL overrides ----
+        old_assignment = ClientAssignment.query.filter_by(
+            loan_id=loan_id, is_active=True
+        ).first()
+
+        preserve_officer_id = None
+        if old_assignment:
+            old_assignment.is_active = False
+            if old_assignment.assignment_type == 'manual':
+                preserve_officer_id = old_assignment.officer_id
+            db.session.flush()
+
+        # ---- Mark old loan as renewed ----
         loan.status = 'renewed'
         loan.balance = Decimal('0')
         loan.amount_paid = loan.total_amount
         loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()}"
 
-        # Create new loan with the chosen plan
+        # ---- New loan ----
         if new_repayment_plan == 'daily':
             interest_rate = Decimal('4.5')
             interest_type = 'simple'
@@ -705,6 +719,30 @@ def renew_loan_recovery(loan_id):
         db.session.add(new_loan)
         db.session.flush()
 
+        # =====================================================================
+        # NEW: Assign the new loan so it doesn't vanish from reports
+        # =====================================================================
+        if preserve_officer_id:
+            db.session.add(ClientAssignment(
+                loan_id=new_loan.id,
+                officer_id=preserve_officer_id,
+                assignment_type='manual',
+                assigned_by=get_jwt_identity(),
+                override_reason=f'Preserved manual override from renewed loan #{loan_id}',
+                is_active=True,
+            ))
+        else:
+            weekday = new_loan.disbursement_date.weekday()
+            day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
+            if day_ass:
+                db.session.add(ClientAssignment(
+                    loan_id=new_loan.id,
+                    officer_id=day_ass.user_id,
+                    assignment_type='day_based',
+                    assigned_by=None,
+                    is_active=True,
+                ))
+
         txn = Transaction(
             loan_id=loan.id,
             transaction_type='renewal',
@@ -721,7 +759,7 @@ def renew_loan_recovery(loan_id):
 
         db.session.commit()
 
-        # Record ledger entries
+        # ---- Ledger entries ----
         record_ledger_entry(
             loan=loan,
             event_type='renewal_merged',
@@ -742,13 +780,17 @@ def renew_loan_recovery(loan_id):
         )
         db.session.commit()
 
+        # ---- Guarantee parity with Reports ----
+        sync_client_assignments()
+
         return jsonify({
             'success': True,
             'message': f'Loan renewed. New loan ID: {new_loan.id}',
             'old_loan': loan.to_dict(),
             'new_loan': new_loan.to_dict(),
             'new_principal': float(new_principal),
-            'new_repayment_plan': new_repayment_plan
+            'new_repayment_plan': new_repayment_plan,
+            'preserved_officer_id': preserve_officer_id
         }), 200
 
     except Exception as e:
@@ -756,7 +798,7 @@ def renew_loan_recovery(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-                
+                    
 @recovery_bp.route('/loan/<int:loan_id>/transactions', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])
@@ -1420,3 +1462,85 @@ def get_notification_data():
         'comments': list(comment_groups.values()),
         'applications': apps_data,
     }), 200
+
+@recovery_bp.route('/loan/<int:loan_id>/promissory-notes', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer',
+                'head_of_it', 'deputy_director', 'hr_manager'])
+def get_promissory_notes(loan_id):
+    """Return the count + full history for a loan's promissory notes."""
+    loan = db.session.get(Loan, loan_id)
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
+
+    notes = (PromissoryNote.query
+             .filter_by(loan_id=loan_id)
+             .order_by(PromissoryNote.issued_at.desc())
+             .all())
+
+    count = len(notes)
+    return jsonify({
+        'count': count,
+        'max': MAX_PROMISSORY_NOTES,
+        'remaining': max(0, MAX_PROMISSORY_NOTES - count),
+        'can_issue': count < MAX_PROMISSORY_NOTES,
+        'notes': [n.to_dict() for n in notes],
+    }), 200
+
+
+@recovery_bp.route('/loan/<int:loan_id>/promissory-notes', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer',
+                'head_of_it', 'deputy_director', 'hr_manager'])
+def create_promissory_note(loan_id):
+    """Record a new promissory note. Enforces MAX_PROMISSORY_NOTES."""
+    uid  = int(get_jwt_identity())
+    loan = db.session.get(Loan, loan_id)
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
+
+    # --- HARD CAP ENFORCEMENT ---
+    existing = PromissoryNote.query.filter_by(loan_id=loan_id).count()
+    if existing >= MAX_PROMISSORY_NOTES:
+        return jsonify({
+            'error': f'Maximum of {MAX_PROMISSORY_NOTES} promissory notes '
+                     f'for this loan has been reached.',
+            'count': existing,
+            'max': MAX_PROMISSORY_NOTES,
+            'can_issue': False,
+        }), 409      # 409 Conflict — semantically correct for "cap reached"
+
+    data = request.get_json() or {}
+
+    due_date = None
+    if data.get('due_date'):
+        try:
+            due_date = datetime.strptime(data['due_date'], '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid due_date format (YYYY-MM-DD)'}), 400
+
+    try:
+        note = PromissoryNote(
+            loan_id       = loan_id,
+            issued_by_id  = uid,
+            amount_to_pay = Decimal(str(data.get('amount_to_pay', 0) or 0)),
+            total_balance = Decimal(str(data.get('total_balance', 0) or 0)),
+            due_date      = due_date,
+            notes         = (data.get('notes') or '').strip(),
+        )
+        db.session.add(note)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+    count = existing + 1
+    return jsonify({
+        'success': True,
+        'note': note.to_dict(),
+        'sequence': count,           # this is note #N
+        'count': count,
+        'max': MAX_PROMISSORY_NOTES,
+        'remaining': max(0, MAX_PROMISSORY_NOTES - count),
+        'can_issue': count < MAX_PROMISSORY_NOTES,
+    }), 201

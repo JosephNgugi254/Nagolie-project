@@ -192,6 +192,9 @@ export const adminAPI = {
   getOfficers: () => api.get('/admin/officers'),
   getOfficerReport: (officerId, date) => api.get(`/admin/reports/officer?officer_id=${officerId}&date=${date}`),
   clientAssignmentSearch: (query) => api.get(`/admin/reports/client-assignment?q=${encodeURIComponent(query)}`),
+
+  // refresh in report management
+  syncClientAssignments: () => api.post('/admin/sync-assignments'),
   
 };
 
@@ -333,6 +336,12 @@ export const recoveryAPI = {
 
   // Notification data
   getNotificationData: () => api.get('/recovery/notification-data'),
+
+  //promissory notes
+
+  getPromissoryNotes:  (loanId) => api.get(`/recovery/loan/${loanId}/promissory-notes`),
+
+  createPromissoryNote: (loanId, data) =>api.post(`/recovery/loan/${loanId}/promissory-notes`, data),
 
 };
 

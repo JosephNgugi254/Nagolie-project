@@ -1171,3 +1171,38 @@ class FlaggedLoanNote(db.Model):
             'notes':      self.notes or '',
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+    
+# app/models.py
+class PromissoryNote(db.Model):
+    __tablename__ = 'promissory_notes'
+
+    id             = db.Column(db.Integer, primary_key=True)
+    loan_id        = db.Column(db.Integer, db.ForeignKey('loans.id'),
+                               nullable=False, index=True)
+    issued_by_id   = db.Column(db.Integer, db.ForeignKey('users.id'),
+                               nullable=True)
+    issued_at      = db.Column(db.DateTime, default=datetime.utcnow,
+                               nullable=False, index=True)
+    amount_to_pay  = db.Column(db.Numeric(15, 2), default=0)
+    total_balance  = db.Column(db.Numeric(15, 2), default=0)
+    due_date       = db.Column(db.Date, nullable=True)
+    notes          = db.Column(db.Text, nullable=True)
+
+    loan      = db.relationship('Loan',
+                  backref=db.backref('promissory_notes',
+                                     lazy='dynamic',
+                                     cascade='all, delete-orphan'))
+    issued_by = db.relationship('User', foreign_keys=[issued_by_id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'loan_id': self.loan_id,
+            'issued_by_id': self.issued_by_id,
+            'issued_by_username': self.issued_by.username if self.issued_by else None,
+            'issued_at': self.issued_at.isoformat() + 'Z' if self.issued_at else None,
+            'amount_to_pay': float(self.amount_to_pay or 0),
+            'total_balance': float(self.total_balance or 0),
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'notes': self.notes or '',
+        }

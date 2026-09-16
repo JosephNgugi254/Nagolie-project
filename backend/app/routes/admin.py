@@ -129,41 +129,183 @@ def create_daily_snapshots(as_of_date=None):
 
     db.session.commit()
     
-# Helper to refresh all day‑based assignments
-def refresh_day_assignments():
-    """Clear outdated day_based assignments and create new ones based on current day assignments."""
-    ClientAssignment.query.filter_by(assignment_type='day_based', is_active=True).update({'is_active': False})
-    db.session.flush()
-    
-    # Exclude flagged loans
+# ---------- assignment sync engine ----------
+def _get_assignable_loans():
+    """Active loans that should appear in officer reports.
+    Excludes flagged and anything whose status isn't 'active'."""
     flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
-    loans = Loan.query.filter(Loan.status == 'active', Loan.id.notin_(flagged_ids)).all()
+    q = Loan.query.filter(Loan.status == 'active')
+    if flagged_ids:
+        q = q.filter(~Loan.id.in_(flagged_ids))
+    return q.all()
 
-    # For each active loan, get its disbursement weekday
-    loans = Loan.query.filter_by(status='active').all()
+
+@admin_bp.route('/balance-suggest', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director', 'hr_manager'])
+def suggest_balanced_distribution():
+    """
+    Day-aware, minimal-churn workload balancing.
+
+    Strategy
+    --------
+    1. Seed from the CURRENT ClientAssignment state (manual + day_based).
+       This means we only *change* what actually needs to change — the
+       suggestion will be a small delta on top of reality, not a full rewrite.
+    2. At each balancing step, evaluate EVERY single-client move from a
+       richer officer to a poorer officer, compute the resulting global
+       spread, and commit the move that reduces the spread the most.
+       Manual overrides are never candidates for moving.
+    3. Prefer moves whose client disbursement-day matches one of the
+       receiving officer's assigned days (tiebreaker).
+    4. Stop when the spread is within tolerance OR no move improves it.
+    """
+    from app.utils.interest_helpers import _get_current_period_interest
+
+    officers = User.query.filter(
+        User.role.in_(['secretary', 'client_relations_officer'])
+    ).all()
+    if not officers:
+        return jsonify({'suggestions': []}), 200
+
+    officer_ids  = [o.id for o in officers]
+    officer_days = {o.id: {da.day_of_week for da in o.day_assignments} for o in officers}
+    day_officers = {}
+    for oid, days in officer_days.items():
+        for d in days:
+            day_officers[d] = oid
+
+    # ---------- gather clients ----------
+    flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
+    q = Loan.query.filter(Loan.status == 'active')
+    if flagged_ids:
+        q = q.filter(~Loan.id.in_(flagged_ids))
+    loans = q.all()
+
+    clients = []
     for loan in loans:
-        if not loan.disbursement_date:
-            continue
-        weekday = loan.disbursement_date.weekday()  # Monday=0 ... Sunday=6
-        # Find officer assigned to that weekday
-        day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
-        if not day_ass:
-            continue   # no officer assigned – skip (or assign to default)
-        # Check if a manual assignment already exists for this loan (manual overrides)
-        manual = ClientAssignment.query.filter_by(loan_id=loan.id, assignment_type='manual', is_active=True).first()
-        if manual:
-            continue   # manual assignment exists, do not create day_based
-        # Create new day_based assignment
-        new_ass = ClientAssignment(
-            loan_id=loan.id,
-            officer_id=day_ass.user_id,
-            assignment_type='day_based',
-            assigned_by=None,
-            is_active=True
-        )
-        db.session.add(new_ass)
-    db.session.commit()
+        loan = recalculate_loan(loan, save=False)
+        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+            interest = float(_get_current_period_interest(loan))
+        else:
+            interest = float(max(Decimal('0'),
+                                 loan.accrued_interest - loan.interest_paid))
+        clients.append({
+            'loan_id': loan.id,
+            'interest': interest,
+            'day': loan.disbursement_date.weekday() if loan.disbursement_date else 0,
+        })
+    client_by_id = {c['loan_id']: c for c in clients}
 
+    # ---------- seed from current assignments ----------
+    current = {ass.loan_id: ass for ass in ClientAssignment.query.filter(
+        ClientAssignment.is_active == True,
+        ClientAssignment.loan_id.in_([c['loan_id'] for c in clients])
+    ).all()}
+
+    assignments   = {oid: []   for oid in officer_ids}
+    totals        = {oid: 0.0  for oid in officer_ids}
+    manual_locked = set()
+
+    for c in clients:
+        lid = c['loan_id']
+        target = None
+
+        # 1. Preserve whatever assignment already exists in the DB.
+        if lid in current:
+            oid = current[lid].officer_id
+            if oid in totals:
+                target = oid
+                if current[lid].assignment_type == 'manual':
+                    manual_locked.add(lid)
+
+        # 2. Otherwise honour the day map.
+        if target is None:
+            target = day_officers.get(c['day'])
+
+        # 3. Final fallback: least-loaded by interest so far.
+        if target is None:
+            target = min(officer_ids, key=lambda x: totals[x])
+
+        assignments[target].append(lid)
+        totals[target] += c['interest']
+
+    # ---------- balancing loop ----------
+    def _spread(vals):
+        return max(vals) - min(vals) if vals else 0.0
+
+    total_interest = sum(totals.values())
+    avg            = total_interest / len(officers)
+    tolerance      = max(2000.0, avg * 0.10)   # 10% band, min KES 2,000
+
+    max_iter = len(clients) * 2 + 20
+    for _ in range(max_iter):
+        current_spread = _spread(list(totals.values()))
+        if current_spread <= tolerance:
+            break
+
+        best_move       = None   # (high, low, lid, amt, day_match)
+        best_new_spread = current_spread
+
+        for high in officer_ids:
+            for low in officer_ids:
+                if high == low:
+                    continue
+                if totals[high] <= totals[low]:
+                    continue   # only move from richer to poorer
+
+                for lid in assignments[high]:
+                    if lid in manual_locked:
+                        continue
+                    c   = client_by_id[lid]
+                    amt = c['interest']
+
+                    # Compute resulting spread without mutating state.
+                    new_vals = []
+                    for oid in officer_ids:
+                        if oid == high:
+                            new_vals.append(totals[oid] - amt)
+                        elif oid == low:
+                            new_vals.append(totals[oid] + amt)
+                        else:
+                            new_vals.append(totals[oid])
+                    new_spread = max(new_vals) - min(new_vals)
+
+                    if new_spread < best_new_spread - 0.5:
+                        best_new_spread = new_spread
+                        best_move = (
+                            high, low, lid, amt,
+                            c['day'] in officer_days.get(low, set())
+                        )
+                    elif (abs(new_spread - best_new_spread) < 0.5
+                          and best_move is not None
+                          and not best_move[4]
+                          and c['day'] in officer_days.get(low, set())):
+                        # Same spread but a day-matching move — prefer it.
+                        best_move = (high, low, lid, amt, True)
+
+        if best_move is None:
+            break
+
+        high, low, lid, amt, _ = best_move
+        assignments[high].remove(lid)
+        assignments[low].append(lid)
+        totals[high] -= amt
+        totals[low]  += amt
+
+    return jsonify({'suggestions': [
+        {
+            'officer_id': o.id,
+            'officer_name': o.username,
+            'suggested_loans': assignments[o.id],
+            'suggested_total_interest': totals[o.id],
+        }
+        for o in officers
+    ]}), 200
+
+# Keep the old name working so any other imports don't break
+def refresh_day_assignments():
+    sync_client_assignments()
 
 def get_assigned_clients_for_user(user_id):
     from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
@@ -1545,7 +1687,8 @@ def get_investor_statement(investor_id):
 
 @admin_bp.route('/loans/<int:loan_id>/renew', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director',
+                'client_relations_officer', 'hr_manager'])
 def renew_loan(loan_id):
     try:
         from app.routes.payments import recalculate_loan, _loan_summary
@@ -1564,48 +1707,51 @@ def renew_loan(loan_id):
 
         loan = recalculate_loan(loan)
 
-        # Determine the new principal
+        # ---- Determine new principal ----
         if new_principal is not None:
             try:
                 new_principal = Decimal(str(new_principal))
                 if new_principal <= 0:
                     return jsonify({'error': 'New principal must be positive'}), 400
-            except:
+            except Exception:
                 return jsonify({'error': 'Invalid new_principal value'}), 400
         else:
             if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-                outstanding_interest = _get_current_period_interest(loan)   # correct, respects prepaid
+                outstanding_interest = _get_current_period_interest(loan)
             else:
                 outstanding_interest = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
             new_principal = loan.current_principal + outstanding_interest
             if new_principal <= Decimal('0.01'):
                 return jsonify({'error': 'No outstanding balance to renew'}), 400
 
-        # Determine the repayment plan
         if new_repayment_plan not in ['weekly', 'daily']:
-            new_repayment_plan = loan.repayment_plan  # fallback to original
+            new_repayment_plan = loan.repayment_plan
 
         now = datetime.utcnow()
 
-        # Preserve assignment before marking old loan
+        # =====================================================================
+        # FIXED: Only preserve MANUAL overrides. Day-based assignments are
+        # re-derived from the NEW loan's disbursement weekday so a
+        # Tuesday→Wednesday renewal correctly moves to Wednesday's officer.
+        # =====================================================================
         old_assignment = ClientAssignment.query.filter_by(
-            loan_id=loan_id, 
-            is_active=True
+            loan_id=loan_id, is_active=True
         ).first()
-        
-        officer_id_to_preserve = None
+
+        preserve_officer_id = None
         if old_assignment:
-            officer_id_to_preserve = old_assignment.officer_id
             old_assignment.is_active = False
+            if old_assignment.assignment_type == 'manual':
+                preserve_officer_id = old_assignment.officer_id
             db.session.flush()
 
-        # Mark old loan as renewed
+        # ---- Mark old loan as renewed ----
         loan.status = 'renewed'
         loan.balance = Decimal('0')
         loan.amount_paid = loan.total_amount
         loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()} - new principal: {new_principal}"
 
-        # Create new loan with chosen plan
+        # ---- Create new loan with chosen plan ----
         if new_repayment_plan == 'daily':
             interest_rate = Decimal('4.5')
             interest_type = 'simple'
@@ -1646,32 +1792,33 @@ def renew_loan(loan_id):
         db.session.add(new_loan)
         db.session.flush()
 
-        # Create manual assignment for new loan if officer existed
-        if officer_id_to_preserve:
-            new_assignment = ClientAssignment(
+        # ---- Assign the new loan ----
+        if preserve_officer_id:
+            # Manual override carried forward — user's explicit intent
+            db.session.add(ClientAssignment(
                 loan_id=new_loan.id,
-                officer_id=officer_id_to_preserve,
+                officer_id=preserve_officer_id,
                 assignment_type='manual',
                 assigned_by=get_jwt_identity(),
-                override_reason=f'Preserved from renewed loan #{loan_id}',
-                is_active=True
-            )
-            db.session.add(new_assignment)
-            db.session.flush()
+                override_reason=f'Preserved manual override from renewed loan #{loan_id}',
+                is_active=True,
+            ))
         else:
+            # Day-based: derived from the NEW loan's disbursement weekday
             weekday = new_loan.disbursement_date.weekday()
             day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
             if day_ass:
-                new_assignment = ClientAssignment(
+                db.session.add(ClientAssignment(
                     loan_id=new_loan.id,
                     officer_id=day_ass.user_id,
                     assignment_type='day_based',
                     assigned_by=None,
-                    is_active=True
-                )
-                db.session.add(new_assignment)
-                db.session.flush()
+                    is_active=True,
+                ))
+            # else: no officer for this weekday — sync_client_assignments()
+            #       will fall back to least-loaded on next poll
 
+        # ---- Transaction ----
         txn = Transaction(
             loan_id=loan.id,
             transaction_type='renewal',
@@ -1688,7 +1835,7 @@ def renew_loan(loan_id):
 
         db.session.commit()
 
-        # Record ledger entries
+        # ---- Ledger entries ----
         record_ledger_entry(
             loan=loan,
             event_type='renewal_merged',
@@ -1709,12 +1856,15 @@ def renew_loan(loan_id):
         )
         db.session.commit()
 
+        # ---- Guarantee parity with Recovery module ----
+        sync_client_assignments()
+
         log_audit('loan_renewed', 'loan', loan.id, {
             'old_loan_id': loan.id,
             'new_loan_id': new_loan.id,
             'new_principal': float(new_principal),
             'repayment_plan': new_repayment_plan,
-            'preserved_officer_id': officer_id_to_preserve
+            'preserved_officer_id': preserve_officer_id
         })
 
         return jsonify({
@@ -1724,7 +1874,7 @@ def renew_loan(loan_id):
             'new_loan': new_loan.to_dict(),
             'new_principal': float(new_principal),
             'new_repayment_plan': new_repayment_plan,
-            'preserved_officer_id': officer_id_to_preserve
+            'preserved_officer_id': preserve_officer_id
         }), 200
 
     except Exception as e:
@@ -1732,14 +1882,15 @@ def renew_loan(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-            
+                
 # ---------------------------------------------------------------------------
 # Loan waiver (with ledger entries, parent/root linking, and original plan storage)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/loans/<int:loan_id>/waive', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])
+@role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director',
+                'client_relations_officer', 'hr_manager'])
 def waive_loan(loan_id):
     try:
         from app.routes.payments import recalculate_loan, _loan_summary, _get_current_period_interest
@@ -1759,15 +1910,15 @@ def waive_loan(loan_id):
         if not loan or loan.status != 'active':
             return jsonify({'error': 'Loan not found or not active'}), 404
 
-        # Recalculate to get latest figures
         loan = recalculate_loan(loan)
 
-        # Compute total outstanding balance correctly
+        # Compute current balance correctly
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
             current_period_interest = _get_current_period_interest(loan)
             current_balance = loan.current_principal + current_period_interest
         else:
-            current_balance = loan.current_principal + max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+            current_balance = loan.current_principal + max(Decimal('0'),
+                                loan.accrued_interest - loan.interest_paid)
 
         if new_principal > current_balance:
             return jsonify({
@@ -1776,21 +1927,39 @@ def waive_loan(loan_id):
                 'debug_new_principal': float(new_principal)
             }), 400
 
-        current_app.logger.info(f"Waiver: loan {loan.id}, current_principal={loan.current_principal}, "
-                        f"accrued_interest={loan.accrued_interest}, interest_paid={loan.interest_paid}, "
-                        f"computed_balance={current_balance}, new_principal={new_principal}")
+        current_app.logger.info(
+            f"Waiver: loan {loan.id}, current_principal={loan.current_principal}, "
+            f"accrued_interest={loan.accrued_interest}, interest_paid={loan.interest_paid}, "
+            f"computed_balance={current_balance}, new_principal={new_principal}"
+        )
 
         reduction = current_balance - new_principal
-
-        # Store original plan for possible reversion
         original_plan = loan.repayment_plan
         original_rate = loan.interest_rate
 
-        # Mark old loan as waived
+        # =====================================================================
+        # FIXED: Preserve only MANUAL overrides. Day-based gets recomputed
+        # from the NEW loan's disbursement weekday (which is today).
+        # =====================================================================
+        old_assignment = ClientAssignment.query.filter_by(
+            loan_id=loan.id, is_active=True
+        ).first()
+
+        preserve_officer_id = None
+        if old_assignment:
+            old_assignment.is_active = False
+            if old_assignment.assignment_type == 'manual':
+                preserve_officer_id = old_assignment.officer_id
+            db.session.flush()
+
+        # ---- Mark old loan as waived ----
         loan.status = 'waived'
         loan.balance = Decimal('0')
         loan.amount_paid = loan.total_amount
-        loan.notes = (loan.notes or '') + f"\nWaived on {datetime.utcnow().isoformat()} – reduced from {current_balance:.2f} to {new_principal:.2f}"
+        loan.notes = (loan.notes or '') + (
+            f"\nWaived on {datetime.utcnow().isoformat()} – "
+            f"reduced from {current_balance:.2f} to {new_principal:.2f}"
+        )
 
         waiver_txn = Transaction(
             loan_id=loan.id,
@@ -1804,15 +1973,8 @@ def waive_loan(loan_id):
         db.session.add(waiver_txn)
 
         now = datetime.utcnow()
+        disbursement_date = now  # repayment starts today
 
-        # ---- FIX: For waivers, repayment always starts today ----
-        # The client is signing a new zero-interest repayment plan effective from
-        # today's date. We no longer push the disbursement date forward to match
-        # the original loan's weekday, since that caused incorrect "days left"
-        # values (e.g. showing 19 days when only 14 should remain).
-        disbursement_date = now
-
-        # Create new loan with the correct disbursement date
         new_loan = Loan(
             client_id=loan.client_id,
             livestock_id=loan.livestock_id,
@@ -1829,7 +1991,10 @@ def waive_loan(loan_id):
             due_date=disbursement_date + timedelta(days=duration_days),
             status='active',
             collateral_text=loan.collateral_text,
-            notes=f"Waiver of loan #{loan.id}. Original balance {current_balance:.2f} → agreed {new_principal:.2f}. Repay within {duration_days} days.",
+            notes=(
+                f"Waiver of loan #{loan.id}. Original balance {current_balance:.2f} "
+                f"→ agreed {new_principal:.2f}. Repay within {duration_days} days."
+            ),
             created_at=now,
             principal_paid=Decimal('0'),
             interest_paid=Decimal('0'),
@@ -1846,42 +2011,34 @@ def waive_loan(loan_id):
         db.session.add(new_loan)
         db.session.flush()
 
-        # ---- Preserve active client assignment ----
-        old_assignment = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
-        if old_assignment:
-            # Deactivate old assignment
-            old_assignment.is_active = False
-            db.session.flush()
-            # Create new assignment for the new loan with the same officer
-            new_assignment = ClientAssignment(
+        # ---- Assign the new loan ----
+        if preserve_officer_id:
+            db.session.add(ClientAssignment(
                 loan_id=new_loan.id,
-                officer_id=old_assignment.officer_id,
+                officer_id=preserve_officer_id,
                 assignment_type='manual',
                 assigned_by=get_jwt_identity(),
-                override_reason='Preserved from waived loan',
-                is_active=True
-            )
-            db.session.add(new_assignment)
+                override_reason=f'Preserved manual override from waived loan #{loan.id}',
+                is_active=True,
+            ))
         else:
-            # If no assignment, create a day-based one using the new disbursement date
             weekday = new_loan.disbursement_date.weekday()
             day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
             if day_ass:
-                new_assignment = ClientAssignment(
+                db.session.add(ClientAssignment(
                     loan_id=new_loan.id,
                     officer_id=day_ass.user_id,
                     assignment_type='day_based',
                     assigned_by=None,
-                    is_active=True
-                )
-                db.session.add(new_assignment)
+                    is_active=True,
+                ))
 
         if new_loan.livestock:
             new_loan.livestock.description = f"Collateral for waived loan #{new_loan.id}"
 
         db.session.commit()
 
-        # Record ledger entries
+        # ---- Ledger entries ----
         record_ledger_entry(
             loan=loan,
             event_type='waiver',
@@ -1901,6 +2058,9 @@ def waive_loan(loan_id):
             user_id=get_jwt_identity()
         )
         db.session.commit()
+
+        # ---- Guarantee parity with Recovery module ----
+        sync_client_assignments()
 
         log_audit('loan_waived', 'loan', loan.id, {
             'old_loan_id': loan.id,
@@ -1925,7 +2085,7 @@ def waive_loan(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-        
+            
 @admin_bp.route('/revert-waived-loans', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director'])
@@ -2271,6 +2431,8 @@ def update_day_assignments():
 def get_all_client_assignments():
     from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
 
+    sync_client_assignments()
+
     flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
     loans = Loan.query.filter(
         Loan.status == 'active',
@@ -2351,80 +2513,68 @@ def reassign_client():
     db.session.commit()
     return jsonify({'success': True}), 200
 
-@admin_bp.route('/balance-suggest', methods=['POST'])
-@jwt_required()
-@role_required(['admin', 'director', 'hr_manager'])
-def suggest_balanced_distribution():
-    """Return a suggested redistribution of clients to balance total unpaid interest."""
-    target_min = 60000
-    target_max = 70000
-
-    officers = User.query.filter(User.role.in_(['secretary', 'client_relations_officer'])).all()
-    all_clients = []
-    for loan in Loan.query.filter_by(status='active').all():
-        loan = recalculate_loan(loan, save=False)
-        unpaid = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
-        all_clients.append({
-            'loan_id': loan.id,
-            'unpaid_interest': unpaid,
-            'client_name': loan.client.full_name,
-            'current_principal': float(loan.current_principal)
-        })
-
-    all_clients.sort(key=lambda x: x['unpaid_interest'], reverse=True)
-
-    totals = {o.id: 0 for o in officers}
-    suggestions = {o.id: [] for o in officers}
-
-    for client in all_clients:
-        best = min(officers, key=lambda o: totals[o.id])
-        suggestions[best.id].append(client['loan_id'])
-        totals[best.id] += client['unpaid_interest']
-
-    result = []
-    for o in officers:
-        result.append({
-            'officer_id': o.id,
-            'officer_name': o.username,
-            'suggested_loans': suggestions[o.id],
-            'suggested_total_interest': totals[o.id]
-        })
-    return jsonify({'suggestions': result}), 200
 
 @admin_bp.route('/reset-day-assignments', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director', 'hr_manager'])
 def reset_day_assignments():
-    """Deactivate all manual assignments and re-run day-based assignment refresh."""
-    # Deactivate all manual assignments
-    ClientAssignment.query.filter_by(assignment_type='manual', is_active=True).update({'is_active': False})
+    """Clear manual overrides and rebuild purely from day assignments."""
+    ClientAssignment.query.filter_by(assignment_type='manual', is_active=True)\
+        .update({'is_active': False})
     db.session.commit()
-    # Rebuild all day-based assignments from scratch
-    refresh_day_assignments()
+    sync_client_assignments()
     return jsonify({'success': True}), 200
 
 @admin_bp.route('/apply-suggestion', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director', 'hr_manager'])
 def apply_suggestion():
-    """Apply the suggested distribution (calls reassign_client for each)."""
-    data = request.json
-    suggestions = data.get('suggestions', [])  # list of {officer_id, suggested_loans}
+    """
+    Apply a proposed layout but be surgical:
+      • No-op if the loan is already with the right officer via the day map.
+      • No-op if the loan is already correct as a manual override.
+      • Otherwise deactivate and create a new assignment — day_based when the
+        target officer matches the loan's weekday, manual otherwise.
+    """
+    data = request.json or {}
+    suggestions = data.get('suggestions', [])
+
+    # loan_id -> officer_id
+    proposed = {}
     for item in suggestions:
-        officer_id = item['officer_id']
-        for loan_id in item['suggested_loans']:
-            # Deactivate existing assignment
-            ClientAssignment.query.filter_by(loan_id=loan_id, is_active=True).update({'is_active': False})
-            # Create new manual assignment
-            new_ass = ClientAssignment(
-                loan_id=loan_id,
-                officer_id=officer_id,
-                assignment_type='manual',
-                assigned_by=get_jwt_identity(),
-                override_reason='Auto-balanced by system',
-                is_active=True
-            )
-            db.session.add(new_ass)
+        for lid in item.get('suggested_loans', []):
+            proposed[lid] = item['officer_id']
+
+    day_officers = {da.day_of_week: da.user_id for da in DayAssignment.query.all()}
+
+    for lid, oid in proposed.items():
+        curr = ClientAssignment.query.filter_by(loan_id=lid, is_active=True).first()
+        loan = db.session.get(Loan, lid)
+        expected_day_officer = None
+        if loan and loan.disbursement_date:
+            expected_day_officer = day_officers.get(loan.disbursement_date.weekday())
+
+        # Already correct? (day-based or manual) — skip
+        if curr and curr.officer_id == oid:
+            if curr.assignment_type == 'manual':
+                continue
+            if curr.assignment_type == 'day_based' and expected_day_officer == oid:
+                continue
+
+        # Otherwise reassign
+        if curr:
+            curr.is_active = False
+
+        use_day_based = (expected_day_officer == oid)
+        db.session.add(ClientAssignment(
+            loan_id=lid,
+            officer_id=oid,
+            assignment_type='day_based' if use_day_based else 'manual',
+            assigned_by=None if use_day_based else get_jwt_identity(),
+            override_reason=None if use_day_based else 'Auto-balanced by system',
+            is_active=True,
+        ))
+
     db.session.commit()
     return jsonify({'success': True}), 200
 
@@ -2808,3 +2958,103 @@ def upload_file():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    
+@admin_bp.route('/sync-assignments', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director', 'hr_manager'])
+def sync_assignments_endpoint():
+    sync_client_assignments()
+    return jsonify({'success': True}), 200
+
+def _get_assignable_loans():
+    """Active loans that should appear in officer reports.
+    Excludes flagged and anything whose status isn't 'active'."""
+    flagged_ids = [fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()]
+    q = Loan.query.filter(Loan.status == 'active')
+    if flagged_ids:
+        q = q.filter(~Loan.id.in_(flagged_ids))
+    return q.all()
+
+
+@admin_bp.route('/balance-suggest', methods=['POST'])
+def sync_client_assignments():
+    """
+    Idempotent reconciliation of ClientAssignment rows against reality.
+
+    Rules:
+      • Manual overrides are NEVER touched — they are the user's intent.
+      • Any active loan without an active assignment gets one, based on the
+        officer assigned to its disbursement weekday.
+      • Any day_based assignment whose officer no longer matches the day map
+        is updated in place.
+      • Any active assignment for a loan that is no longer assignable
+        (flagged / bad_debt / completed / renewed / waived) is deactivated.
+      • Loans whose weekday has no officer fall back to the least-loaded
+        officer — never left unassigned (guarantees report parity).
+    """
+    day_officers = {da.day_of_week: da.user_id for da in DayAssignment.query.all()}
+    assignable   = _get_assignable_loans()
+    assignable_ids = {l.id for l in assignable}
+
+    # 1. Deactivate assignments for loans that should no longer appear
+    if assignable_ids:
+        ClientAssignment.query.filter(
+            ClientAssignment.is_active == True,
+            ~ClientAssignment.loan_id.in_(assignable_ids)
+        ).update({'is_active': False}, synchronize_session=False)
+    else:
+        ClientAssignment.query.filter_by(is_active=True).update(
+            {'is_active': False}, synchronize_session=False
+        )
+
+    # 2. Build a live load map.
+    # Include ALL eligible officers — not just those with day assignments —
+    # so the least-loaded fallback still works when no days are mapped.
+    eligible_officers = User.query.filter(
+        User.role.in_(['secretary', 'client_relations_officer'])
+    ).all()
+    officer_load = {o.id: 0 for o in eligible_officers}
+    for row in (ClientAssignment.query
+                .filter_by(is_active=True)
+                .with_entities(ClientAssignment.officer_id).all()):
+        if row.officer_id in officer_load:
+            officer_load[row.officer_id] += 1
+
+    # 3. Reconcile each active loan
+    for loan in assignable:
+        existing = ClientAssignment.query.filter_by(
+            loan_id=loan.id, is_active=True
+        ).first()
+
+        # Manual override — authoritative, leave untouched
+        if existing and existing.assignment_type == 'manual':
+            continue
+
+        # Determine expected officer from the loan's current disbursement day
+        expected = None
+        if loan.disbursement_date:
+            expected = day_officers.get(loan.disbursement_date.weekday())
+
+        # Fallback: least-loaded officer (still guarantees parity)
+        if expected is None and officer_load:
+            expected = min(officer_load, key=officer_load.get)
+            officer_load[expected] = officer_load.get(expected, 0) + 1
+
+        if expected is None:
+            if existing:
+                existing.is_active = False
+            continue
+
+        if existing and existing.assignment_type == 'day_based':
+            if existing.officer_id != expected:
+                existing.officer_id = expected
+        elif not existing:
+            db.session.add(ClientAssignment(
+                loan_id=loan.id,
+                officer_id=expected,
+                assignment_type='day_based',
+                assigned_by=None,
+                is_active=True,
+            ))
+
+    db.session.commit()

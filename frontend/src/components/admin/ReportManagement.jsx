@@ -24,6 +24,7 @@ const ReportManagement = () => {
 
   const isRefreshingRef = useRef(false);
   const pollTimer = useRef(null);
+  const [lastSync, setLastSync] = useState(null);
 
   // ---------- data fetching (memoized) ----------
   const fetchDayAssignments = useCallback(async () => {
@@ -47,40 +48,28 @@ const ReportManagement = () => {
     }
   }, []);
 
-  // combined refresh – silent mode for polling, visible mode for manual
+  // REFRESH
   const refreshData = useCallback(async (silent = false) => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
-
-    if (!silent) {
-      setRefreshing(true);
-    }
+    if (!silent) setRefreshing(true);
 
     try {
+      await adminAPI.syncClientAssignments?.();
       await Promise.all([fetchDayAssignments(), fetchClientAssignments()]);
-    } catch (error) {
-      // errors are already handled inside each function
+      setLastSync(new Date());          // ✅ stamp only on success
+    } catch (err) {
+      // Per-fetch handlers already show a toast
     } finally {
       isRefreshingRef.current = false;
-      if (!silent) {
-        setRefreshing(false);
-      }
+      if (!silent) setRefreshing(false);
     }
   }, [fetchDayAssignments, fetchClientAssignments]);
 
-  // initial load & polling (silent auto‑refresh every 30s)
   useEffect(() => {
-    // initial load with visible spinner
     refreshData(false);
-
-    // start silent polling
-    pollTimer.current = setInterval(() => {
-      refreshData(true); // silent
-    }, 30000);
-
-    return () => {
-      if (pollTimer.current) clearInterval(pollTimer.current);
-    };
+    pollTimer.current = setInterval(() => refreshData(true), 15000);
+    return () => clearInterval(pollTimer.current);
   }, [refreshData]);
 
   // ---------- Valuer branch assignments ----------
@@ -238,6 +227,11 @@ const ReportManagement = () => {
 
   const formatCurrency = (val) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(val);
 
+  // ✅ Derive the sync label — falls back gracefully before first successful sync
+  const lastSyncLabel = !lastSync
+    ? 'Not yet synced'
+    : `Synced ${lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
   return (
     <div className="content-section">
       <style>{`
@@ -247,8 +241,12 @@ const ReportManagement = () => {
 
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2>Report Management</h2>
-        <div>
-          {/* Manual refresh button – visible spinner */}
+        <div className="d-flex align-items-center">
+          {/* Sync indicator — shows when data was last reconciled with the backend */}
+          <div className="text-muted small me-2">
+            {refreshing ? 'Syncing…' : lastSyncLabel}
+          </div>
+
           <button
             className="btn btn-info me-2"
             onClick={() => refreshData(false)}
@@ -455,8 +453,8 @@ const ReportManagement = () => {
         <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1050 }}>
           <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content">
-              <div className="modal-header bg-success text-white">
-                <h5 className="modal-title">Suggested Balanced Distribution</h5>
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title text-white">Suggested Balanced Distribution</h5>
                 <button type="button" className="btn-close btn-close-white" onClick={() => setShowSuggestionModal(false)}></button>
               </div>
               <div className="modal-body">
