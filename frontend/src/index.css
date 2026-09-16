@@ -4594,3 +4594,124 @@ section {
   color: #495057;
   font-weight: 500;
 }
+
+/* ============================================================
+   1:1 VIDEO CALL — full-screen stage with floating preview
+   ============================================================ */
+
+.call-video-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Full-screen video (main) */
+.call-video-main {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  z-index: 1;
+}
+
+/* Floating preview (top-right, avoids controls at bottom) */
+.call-video-preview {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 108px;
+  height: 152px;
+  object-fit: cover;
+  background: #000;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  z-index: 10;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.call-video-preview:hover {
+  transform: scale(1.03);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.65);
+}
+
+/* Waiting overlay (before remote stream arrives) */
+.call-video-waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #fff;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.call-video-waiting p {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0;
+}
+
+/* Autoplay unblock button */
+.call-unblock-audio {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================================
+   MICROPHONE — red when muted
+   ============================================================ */
+.control-btn.muted {
+  background: #e53935 !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.4);
+}
+.control-btn.muted:hover {
+  background: #c62828 !important;
+  transform: scale(1.05);
+}
+
+/* ============================================================
+   Mobile responsive — safe areas + smaller preview
+   ============================================================ */
+@media (max-width: 768px) {
+  .call-video-preview {
+    width: 88px;
+    height: 124px;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    right: 12px;
+    border-radius: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .call-video-preview {
+    width: 80px;
+    height: 112px;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    right: 10px;
+    border-radius: 9px;
+  }
+}
+
+/* Landscape orientation (phone rotated) — slightly wider preview */
+@media (max-height: 500px) and (orientation: landscape) {
+  .call-video-preview {
+    width: 130px;
+    height: 92px;
+  }
+}

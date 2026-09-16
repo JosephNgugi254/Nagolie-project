@@ -15,8 +15,18 @@ const FloatingCallWidget = ({ call, duration, onMaximize, onEnd }) => {
       <div className="widget-content">
         <Avatar user={remoteUser} size={28} className="call-icon" />
         <span className="call-name">{remoteUser?.name || 'Call'}</span>
-        <span className="call-duration">{formatDuration(duration)}</span>
-        <button className="end-call-btn" onClick={(e) => { e.stopPropagation(); onEnd(); }}>
+
+        {/* Live timer */}
+        <span className="call-duration" aria-label="Call duration">
+          <i className="far fa-clock" style={{ fontSize: '0.75rem', marginRight: 4 }} />
+          {formatDuration(duration)}
+        </span>
+
+        <button
+          className="end-call-btn"
+          onClick={(e) => { e.stopPropagation(); onEnd(); }}
+          aria-label="End call"
+        >
           <i className="fas fa-phone-slash" />
         </button>
       </div>
