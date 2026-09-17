@@ -292,6 +292,15 @@ function RecoveryModule() {
   const [transactionSearch, setTransactionSearch] = useState("");
   const [transactionDate, setTransactionDate] = useState("");
 
+
+
+  const [renewalAddCollateral,  setRenewalAddCollateral]  = useState(false);
+  const [renewalCollateralType, setRenewalCollateralType] = useState('cattle');
+  const [renewalCollateralCount, setRenewalCollateralCount] = useState('');
+  const [renewalCollateralValue, setRenewalCollateralValue] = useState('');
+  const [renewalCollateralImages, setRenewalCollateralImages] = useState([]);
+  const [renewalImageUploading,   setRenewalImageUploading]   = useState(false);
+
   // ---------- Director investor section ----------
   const [investors, setInvestors] = useState([]);
   const [investorsLoading, setInvestorsLoading] = useState(false);
@@ -958,6 +967,30 @@ function RecoveryModule() {
     }
   };
 
+  const handleRenewalImageUpload = async (event) => {
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
+    setRenewalImageUploading(true);
+    try {
+      const opts = { maxSizeMB: 1, maxWidthOrHeight: 1024, useWebWorker: true };
+      const compressed = await Promise.all(files.map(f => imageCompression(f, opts)));
+      const readAsDataURL = (file) => new Promise(resolve => {
+        const r = new FileReader();
+        r.onload = (e) => resolve(e.target.result);
+        r.readAsDataURL(file);
+      });
+      const imgs = await Promise.all(compressed.map(readAsDataURL));
+      setRenewalCollateralImages(prev => [...prev, ...imgs]);
+    } catch {
+      showToast.error('Failed to process images');
+    } finally {
+      setRenewalImageUploading(false);
+    }
+  };
+
+  const removeRenewalImage = (i) =>
+    setRenewalCollateralImages(prev => prev.filter((_, idx) => idx !== i));
+
   const removeImage = (index) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
@@ -1272,7 +1305,6 @@ function RecoveryModule() {
   const [newRenewalPlan, setNewRenewalPlan] = useState('weekly');
 
   const openRenewalModal = (loan) => {
-    // Calculate current outstanding balance as default principal
     const principal = Number(loan.current_principal || loan.currentPrincipal || loan.borrowedAmount || 0);
     const isWeekly = loan.repayment_plan === 'weekly';
     const totalBalance = isWeekly ? principal + principal * 0.30 : principal + Number(loan.accrued_interest || 0);
@@ -1280,6 +1312,13 @@ function RecoveryModule() {
     setNewRenewalPlan(loan.repayment_plan || 'weekly');
     setRenewalLoan(loan);
     setShowRenewalModal(true);
+
+    // NEW — reset collateral block
+    setRenewalAddCollateral(false);
+    setRenewalCollateralType('cattle');
+    setRenewalCollateralCount('');
+    setRenewalCollateralValue('');
+    setRenewalCollateralImages([]);
   };
 
   // ---------- Original recovery handlers (unchanged) ----------
@@ -4060,6 +4099,113 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                                   Due date: {previewDueDate.toLocaleDateString()}
                                 </div>
                             
+                                <div className="mb-3 border rounded p-3 bg-light">
+                                  <div className="form-check">
+                                    <input
+                                      type="checkbox"
+                                      className="form-check-input"
+                                      id="renewalAddCollateralCheck"
+                                      checked={renewalAddCollateral}
+                                      onChange={(e) => setRenewalAddCollateral(e.target.checked)}
+                                    />
+                                    <label className="form-check-label fw-bold" htmlFor="renewalAddCollateralCheck">
+                                      <i className="fas fa-shield-alt me-1 text-primary"></i>
+                                      Add additional collateral (revaluation)
+                                    </label>
+                                    <small className="d-block text-muted ms-4 mt-1">
+                                      Current collateral:&nbsp;
+                                      <strong>{renewalLoan.collateral || 'N/A'}</strong>
+                                      {renewalLoan.collateral_value > 0 && (
+                                        <> &nbsp;({fmt(renewalLoan.collateral_value)})</>
+                                      )}
+                                      {newRenewalPrincipal > (renewalLoan.collateral_value || 0) && (
+                                        <span className="text-danger ms-1">
+                                          — new principal exceeds collateral value
+                                        </span>
+                                      )}
+                                    </small>
+                                  </div>
+                                    
+                                  {renewalAddCollateral && (
+                                    <div className="mt-3">
+                                      <div className="row g-2 mb-2">
+                                        <div className="col-6">
+                                          <label className="form-label small fw-bold">Livestock Type</label>
+                                          <select
+                                            className="form-select form-select-sm"
+                                            value={renewalCollateralType}
+                                            onChange={(e) => setRenewalCollateralType(e.target.value)}
+                                          >
+                                            <option value="cattle">Cattle</option>
+                                            <option value="goats">Goats</option>
+                                            <option value="sheep">Sheep</option>
+                                            <option value="poultry">Poultry</option>
+                                          </select>
+                                        </div>
+                                        <div className="col-6">
+                                          <label className="form-label small fw-bold">Count</label>
+                                          <input
+                                            type="number" min="1"
+                                            className="form-control form-control-sm"
+                                            value={renewalCollateralCount}
+                                            onChange={(e) => setRenewalCollateralCount(e.target.value)}
+                                            placeholder="e.g., 2"
+                                          />
+                                        </div>
+                                      </div>
+                                  
+                                      <div className="mb-2">
+                                        <label className="form-label small fw-bold">Estimated Value (KES)</label>
+                                        <input
+                                          type="number" min="0"
+                                          className="form-control form-control-sm"
+                                          value={renewalCollateralValue}
+                                          onChange={(e) => setRenewalCollateralValue(e.target.value)}
+                                          placeholder="e.g., 15000"
+                                        />
+                                      </div>
+                                  
+                                      <div className="mb-2">
+                                        <label className="form-label small fw-bold">Photos</label>
+                                        <input
+                                          type="file" multiple accept="image/*"
+                                          className="form-control form-control-sm"
+                                          onChange={handleRenewalImageUpload}
+                                          disabled={renewalImageUploading}
+                                        />
+                                        {renewalImageUploading && (
+                                          <small className="text-muted d-block mt-1">Compressing images…</small>
+                                        )}
+                                        {renewalCollateralImages.length > 0 && (
+                                          <div className="row g-1 mt-2">
+                                            {renewalCollateralImages.map((img, idx) => (
+                                              <div key={idx} className="col-3 position-relative">
+                                                <img src={img} className="img-thumbnail"
+                                                     style={{ height: '60px', objectFit: 'cover', width: '100%' }} />
+                                                <button type="button"
+                                                        className="btn btn-danger btn-sm position-absolute top-0 end-0"
+                                                        style={{ padding: '0 5px', fontSize: '11px', lineHeight: 1 }}
+                                                        onClick={() => removeRenewalImage(idx)}>×</button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      {renewalCollateralCount && (
+                                        <div className="alert alert-info py-2 mb-0 small">
+                                          <i className="fas fa-info-circle me-1"></i>
+                                          New combined collateral:&nbsp;
+                                          <strong>
+                                            {renewalLoan.collateral || '—'}
+                                            {` + ${renewalCollateralCount} ${renewalCollateralType}`}
+                                          </strong>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                            
                                 <div className="d-flex flex-column gap-2">
                                   <button
                                     className="btn btn-primary w-100"
@@ -4074,7 +4220,16 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                                             expectedReturnDate: renewalLoan.disbursement_date,
                                             balance: totalBalance,
                                             repayment_plan: newRenewalPlan,
-                                            new_principal: newRenewalPrincipal
+                                            new_principal: newRenewalPrincipal,
+                                            additionalCollateral: (renewalAddCollateral && renewalCollateralCount)
+                                            ? {
+                                                type:                    renewalCollateralType,
+                                                count:                   parseInt(renewalCollateralCount),
+                                                estimatedValue:          parseFloat(renewalCollateralValue) || 0,
+                                                previousCollateralText:  renewalLoan.collateral || 'N/A',   // e.g. "1 cattle"
+                                                previousValue:           renewalLoan.collateral_value || 0,
+                                              }
+                                            : undefined,
                                           },
                                           newRenewalPrincipal,
                                           newRenewalPlan
@@ -4096,17 +4251,32 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                                         showToast.error("Please enter a valid principal amount");
                                         return;
                                       }
+                                      if (renewalAddCollateral && (!renewalCollateralCount || parseInt(renewalCollateralCount) <= 0)) {
+                                        showToast.error("Enter the count of additional livestock");
+                                        return;
+                                      }
                                       setProcessingRenewal(true);
                                       try {
-                                        const response = await recoveryAPI.renewLoan(renewalLoan.id, {
+                                        const payload = {
                                           new_principal: newRenewalPrincipal,
-                                          new_repayment_plan: newRenewalPlan
-                                        });
+                                          new_repayment_plan: newRenewalPlan,
+                                        };
+                                        if (renewalAddCollateral && renewalCollateralCount) {
+                                          payload.additional_collateral = {
+                                            type: renewalCollateralType,
+                                            count: parseInt(renewalCollateralCount),
+                                            estimated_value: parseFloat(renewalCollateralValue) || 0,
+                                            images: renewalCollateralImages,
+                                            description: `Additional collateral added during renewal of loan #${renewalLoan.id}`,
+                                            location: renewalLoan.location || 'Isinya, Kajiado',
+                                          };
+                                        }
+                                        const response = await recoveryAPI.renewLoan(renewalLoan.id, payload);
                                         if (response.data.success) {
                                           showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
                                           setShowRenewalModal(false);
-                                          fetchData();        // refresh recovery data
-                                          fetchDirectorClients(); // refresh client list if needed
+                                          fetchData();
+                                          fetchDirectorClients();
                                         }
                                       } catch (error) {
                                         showToast.error(error.response?.data?.error || "Renewal failed");
@@ -4116,9 +4286,9 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                                     }}
                                     disabled={processingRenewal}
                                   >
-                                    {processingRenewal ? (
-                                      <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
-                                    ) : "Confirm Renewal"}
+                                    {processingRenewal
+                                      ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
+                                      : "Confirm Renewal"}
                                   </button>
                                 </div>
                               </>
@@ -4680,6 +4850,113 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                       Interest: {interestRateDisplay}<br/>
                       Due date: {previewDueDate.toLocaleDateString()}
                     </div>
+
+                    <div className="mb-3 border rounded p-3 bg-light">
+                      <div className="form-check">
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          id="renewalAddCollateralCheck"
+                          checked={renewalAddCollateral}
+                          onChange={(e) => setRenewalAddCollateral(e.target.checked)}
+                        />
+                        <label className="form-check-label fw-bold" htmlFor="renewalAddCollateralCheck">
+                          <i className="fas fa-shield-alt me-1 text-primary"></i>
+                          Add additional collateral (revaluation)
+                        </label>
+                        <small className="d-block text-muted ms-4 mt-1">
+                          Current collateral:&nbsp;
+                          <strong>{renewalLoan.collateral || 'N/A'}</strong>
+                          {renewalLoan.collateral_value > 0 && (
+                            <> &nbsp;({fmt(renewalLoan.collateral_value)})</>
+                          )}
+                          {newRenewalPrincipal > (renewalLoan.collateral_value || 0) && (
+                            <span className="text-danger ms-1">
+                              — new principal exceeds collateral value
+                            </span>
+                          )}
+                        </small>
+                      </div>
+                        
+                      {renewalAddCollateral && (
+                        <div className="mt-3">
+                          <div className="row g-2 mb-2">
+                            <div className="col-6">
+                              <label className="form-label small fw-bold">Livestock Type</label>
+                              <select
+                                className="form-select form-select-sm"
+                                value={renewalCollateralType}
+                                onChange={(e) => setRenewalCollateralType(e.target.value)}
+                              >
+                                <option value="cattle">Cattle</option>
+                                <option value="goats">Goats</option>
+                                <option value="sheep">Sheep</option>
+                                <option value="poultry">Poultry</option>
+                              </select>
+                            </div>
+                            <div className="col-6">
+                              <label className="form-label small fw-bold">Count</label>
+                              <input
+                                type="number" min="1"
+                                className="form-control form-control-sm"
+                                value={renewalCollateralCount}
+                                onChange={(e) => setRenewalCollateralCount(e.target.value)}
+                                placeholder="e.g., 2"
+                              />
+                            </div>
+                          </div>
+                      
+                          <div className="mb-2">
+                            <label className="form-label small fw-bold">Estimated Value (KES)</label>
+                            <input
+                              type="number" min="0"
+                              className="form-control form-control-sm"
+                              value={renewalCollateralValue}
+                              onChange={(e) => setRenewalCollateralValue(e.target.value)}
+                              placeholder="e.g., 15000"
+                            />
+                          </div>
+                      
+                          <div className="mb-2">
+                            <label className="form-label small fw-bold">Photos</label>
+                            <input
+                              type="file" multiple accept="image/*"
+                              className="form-control form-control-sm"
+                              onChange={handleRenewalImageUpload}
+                              disabled={renewalImageUploading}
+                            />
+                            {renewalImageUploading && (
+                              <small className="text-muted d-block mt-1">Compressing images…</small>
+                            )}
+                            {renewalCollateralImages.length > 0 && (
+                              <div className="row g-1 mt-2">
+                                {renewalCollateralImages.map((img, idx) => (
+                                  <div key={idx} className="col-3 position-relative">
+                                    <img src={img} className="img-thumbnail"
+                                         style={{ height: '60px', objectFit: 'cover', width: '100%' }} />
+                                    <button type="button"
+                                            className="btn btn-danger btn-sm position-absolute top-0 end-0"
+                                            style={{ padding: '0 5px', fontSize: '11px', lineHeight: 1 }}
+                                            onClick={() => removeRenewalImage(idx)}>×</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {renewalCollateralCount && (
+                            <div className="alert alert-info py-2 mb-0 small">
+                              <i className="fas fa-info-circle me-1"></i>
+                              New combined collateral:&nbsp;
+                              <strong>
+                                {renewalLoan.collateral || '—'}
+                                {` + ${renewalCollateralCount} ${renewalCollateralType}`}
+                              </strong>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                 
                     <div className="d-flex flex-column gap-2">
                       <button
@@ -4695,7 +4972,16 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                                 expectedReturnDate: renewalLoan.disbursement_date,
                                 balance: totalBalance,
                                 repayment_plan: newRenewalPlan,
-                                new_principal: newRenewalPrincipal
+                                new_principal: newRenewalPrincipal,
+                                additionalCollateral: (renewalAddCollateral && renewalCollateralCount)
+                                ? {
+                                    type:                    renewalCollateralType,
+                                    count:                   parseInt(renewalCollateralCount),
+                                    estimatedValue:          parseFloat(renewalCollateralValue) || 0,
+                                    previousCollateralText:  renewalLoan.collateral || 'N/A',   // e.g. "1 cattle"
+                                    previousValue:           renewalLoan.collateral_value || 0,
+                                  }
+                                : undefined,
                               },
                               newRenewalPrincipal,
                               newRenewalPlan
@@ -4717,17 +5003,32 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                             showToast.error("Please enter a valid principal amount");
                             return;
                           }
+                          if (renewalAddCollateral && (!renewalCollateralCount || parseInt(renewalCollateralCount) <= 0)) {
+                            showToast.error("Enter the count of additional livestock");
+                            return;
+                          }
                           setProcessingRenewal(true);
                           try {
-                            const response = await recoveryAPI.renewLoan(renewalLoan.id, {
+                            const payload = {
                               new_principal: newRenewalPrincipal,
-                              new_repayment_plan: newRenewalPlan
-                            });
+                              new_repayment_plan: newRenewalPlan,
+                            };
+                            if (renewalAddCollateral && renewalCollateralCount) {
+                              payload.additional_collateral = {
+                                type: renewalCollateralType,
+                                count: parseInt(renewalCollateralCount),
+                                estimated_value: parseFloat(renewalCollateralValue) || 0,
+                                images: renewalCollateralImages,
+                                description: `Additional collateral added during renewal of loan #${renewalLoan.id}`,
+                                location: renewalLoan.location || 'Isinya, Kajiado',
+                              };
+                            }
+                            const response = await recoveryAPI.renewLoan(renewalLoan.id, payload);
                             if (response.data.success) {
                               showToast.success(`Loan renewed! New loan ID: ${response.data.new_loan.id}`);
                               setShowRenewalModal(false);
-                              fetchData();        // refresh recovery data
-                              fetchDirectorClients(); // refresh client list if needed
+                              fetchData();
+                              fetchDirectorClients();
                             }
                           } catch (error) {
                             showToast.error(error.response?.data?.error || "Renewal failed");
@@ -4737,10 +5038,11 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                         }}
                         disabled={processingRenewal}
                       >
-                        {processingRenewal ? (
-                          <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
-                        ) : "Confirm Renewal"}
+                        {processingRenewal
+                          ? <><span className="spinner-border spinner-border-sm me-2"></span>Processing...</>
+                          : "Confirm Renewal"}
                       </button>
+                    
                     </div>
                   </>
                 )}

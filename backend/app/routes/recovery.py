@@ -624,12 +624,14 @@ def renew_loan_recovery(loan_id):
     try:
         from app.routes.payments import recalculate_loan
         from app.routes.admin import sync_client_assignments
+        from app.utils.cloudinary_upload import upload_base64_image
         from datetime import datetime, timedelta
         from decimal import Decimal
 
         data = request.get_json() or {}
-        new_principal = data.get('new_principal')
-        new_repayment_plan = data.get('new_repayment_plan')
+        new_principal         = data.get('new_principal')
+        new_repayment_plan    = data.get('new_repayment_plan')
+        additional_collateral = data.get('additional_collateral')   # NEW
 
         loan = db.session.get(Loan, loan_id)
         if not loan:
@@ -650,7 +652,8 @@ def renew_loan_recovery(loan_id):
             if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
                 outstanding_interest = _get_current_period_interest(loan)
             else:
-                outstanding_interest = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+                outstanding_interest = max(Decimal('0'),
+                                           loan.accrued_interest - loan.interest_paid)
             new_principal = loan.current_principal + outstanding_interest
             if new_principal <= Decimal('0.01'):
                 return jsonify({'error': 'No outstanding balance to renew'}), 400
@@ -672,90 +675,182 @@ def renew_loan_recovery(loan_id):
                 preserve_officer_id = old_assignment.officer_id
             db.session.flush()
 
+        # =====================================================================
+        # NEW: Merge collateral when a revaluation was requested
+        # =====================================================================
+        new_livestock_id       = loan.livestock_id
+        revaluation_summary    = None   # returned to the client + used by PDFs
+
+        if additional_collateral and int(additional_collateral.get('count') or 0) > 0:
+            old_lv = db.session.get(Livestock, loan.livestock_id) if loan.livestock_id else None
+
+            # Upload any newly attached photos
+            uploaded_urls = []
+            for img in (additional_collateral.get('images') or []):
+                try:
+                    uploaded_urls.append(upload_base64_image(img, folder='livestock'))
+                except Exception as e:
+                    current_app.logger.warning(f"Renewal collateral image upload failed: {e}")
+
+            new_count = int(additional_collateral.get('count') or 0)
+            new_value = Decimal(str(additional_collateral.get('estimated_value') or 0))
+            new_type  = (additional_collateral.get('type') or 'cattle').strip().lower()
+
+            if old_lv:
+                old_count  = int(old_lv.count or 0)
+                old_value  = Decimal(str(old_lv.estimated_value or 0))
+                old_type   = (old_lv.livestock_type or '').strip().lower()
+                old_photos = list(old_lv.photos or [])
+
+                combined_type = (
+                    f"{old_type}+{new_type}" if old_type and old_type != new_type
+                    else (old_type or new_type)
+                )
+                old_value_combined = old_value + new_value
+                combined = Livestock(
+                    client_id       = loan.client_id,
+                    livestock_type  = combined_type,
+                    count           = old_count + new_count,
+                    estimated_value = old_value_combined,
+                    description     = (f"Combined collateral: {old_count} {old_type}"
+                                       f" + {new_count} {new_type}"),
+                    location        = additional_collateral.get('location')
+                                        or old_lv.location or 'Isinya, Kajiado',
+                    photos          = old_photos + uploaded_urls,
+                    status          = 'active',
+                    ownership_type  = old_lv.ownership_type or 'company',
+                    investor_id     = old_lv.investor_id,
+                )
+                revaluation_summary = {
+                    'previous_type':   old_type,
+                    'previous_count':  old_count,
+                    'previous_value':  float(old_value),
+                    'added_type':      new_type,
+                    'added_count':     new_count,
+                    'added_value':     float(new_value),
+                    'combined_type':   combined_type,
+                    'combined_count':  old_count + new_count,
+                    'combined_value':  float(old_value_combined),
+                }
+            else:
+                combined = Livestock(
+                    client_id       = loan.client_id,
+                    livestock_type  = new_type,
+                    count           = new_count,
+                    estimated_value = new_value,
+                    description     = additional_collateral.get('description')
+                                        or 'Collateral added during renewal',
+                    location        = additional_collateral.get('location') or 'Isinya, Kajiado',
+                    photos          = uploaded_urls,
+                    status          = 'active',
+                    ownership_type  = 'company',
+                )
+                revaluation_summary = {
+                    'previous_type':  None,
+                    'previous_count': 0,
+                    'previous_value': 0.0,
+                    'added_type':     new_type,
+                    'added_count':    new_count,
+                    'added_value':    float(new_value),
+                    'combined_type':  new_type,
+                    'combined_count': new_count,
+                    'combined_value': float(new_value),
+                }
+
+            db.session.add(combined)
+            db.session.flush()
+            new_livestock_id = combined.id
+
         # ---- Mark old loan as renewed ----
-        loan.status = 'renewed'
-        loan.balance = Decimal('0')
+        loan.status     = 'renewed'
+        loan.balance    = Decimal('0')
         loan.amount_paid = loan.total_amount
-        loan.notes = (loan.notes or '') + f"\nRenewed on {now.isoformat()}"
+        loan.notes      = (loan.notes or '') + f"\nRenewed on {now.isoformat()}"
 
         # ---- New loan ----
         if new_repayment_plan == 'daily':
             interest_rate = Decimal('4.5')
             interest_type = 'simple'
-            due_date = now + timedelta(days=14)
+            due_date      = now + timedelta(days=14)
         else:
             interest_rate = Decimal('30.0')
             interest_type = 'compound'
-            due_date = now + timedelta(days=7)
+            due_date      = now + timedelta(days=7)
 
         new_loan = Loan(
-            client_id=loan.client_id,
-            livestock_id=loan.livestock_id,
-            principal_amount=new_principal,
-            current_principal=new_principal,
-            total_amount=new_principal,
-            balance=new_principal,
-            interest_rate=interest_rate,
-            interest_type=interest_type,
-            repayment_plan=new_repayment_plan,
-            funding_source=loan.funding_source,
-            investor_id=loan.investor_id,
-            disbursement_date=now,
-            due_date=due_date,
-            status='active',
-            collateral_text=loan.collateral_text,
-            notes=f"Renewal of loan #{loan.id} - new plan: {new_repayment_plan}",
-            created_at=now,
-            principal_paid=Decimal('0'),
-            interest_paid=Decimal('0'),
-            accrued_interest=Decimal('0'),
-            last_interest_payment_date=now,
-            interest_prepaid_period=None,
-            interest_prepaid_amount=Decimal('0'),
-            parent_loan_id=loan.id,
-            root_loan_id=loan.root_loan_id or loan.id
+            client_id                 = loan.client_id,
+            livestock_id              = new_livestock_id,     # ← updated
+            principal_amount          = new_principal,
+            current_principal         = new_principal,
+            total_amount              = new_principal,
+            balance                   = new_principal,
+            interest_rate             = interest_rate,
+            interest_type             = interest_type,
+            repayment_plan            = new_repayment_plan,
+            funding_source            = loan.funding_source,
+            investor_id               = loan.investor_id,
+            disbursement_date         = now,
+            due_date                  = due_date,
+            status                    = 'active',
+            collateral_text           = loan.collateral_text,
+            notes                     = (f"Renewal of loan #{loan.id} - "
+                                         f"new plan: {new_repayment_plan}"
+                                         + (f" | Collateral revalued: "
+                                            f"{revaluation_summary['combined_count']} "
+                                            f"{revaluation_summary['combined_type']}"
+                                            if revaluation_summary else "")),
+            created_at                = now,
+            principal_paid            = Decimal('0'),
+            interest_paid             = Decimal('0'),
+            accrued_interest          = Decimal('0'),
+            last_interest_payment_date= now,
+            interest_prepaid_period   = None,
+            interest_prepaid_amount   = Decimal('0'),
+            parent_loan_id            = loan.id,
+            root_loan_id              = loan.root_loan_id or loan.id,
         )
 
         db.session.add(new_loan)
         db.session.flush()
 
-        # =====================================================================
-        # NEW: Assign the new loan so it doesn't vanish from reports
-        # =====================================================================
+        # ---- Assign the new loan ----
         if preserve_officer_id:
             db.session.add(ClientAssignment(
-                loan_id=new_loan.id,
-                officer_id=preserve_officer_id,
-                assignment_type='manual',
-                assigned_by=get_jwt_identity(),
-                override_reason=f'Preserved manual override from renewed loan #{loan_id}',
-                is_active=True,
+                loan_id         = new_loan.id,
+                officer_id      = preserve_officer_id,
+                assignment_type = 'manual',
+                assigned_by     = get_jwt_identity(),
+                override_reason = f'Preserved manual override from renewed loan #{loan_id}',
+                is_active       = True,
             ))
         else:
             weekday = new_loan.disbursement_date.weekday()
             day_ass = DayAssignment.query.filter_by(day_of_week=weekday).first()
             if day_ass:
                 db.session.add(ClientAssignment(
-                    loan_id=new_loan.id,
-                    officer_id=day_ass.user_id,
-                    assignment_type='day_based',
-                    assigned_by=None,
-                    is_active=True,
+                    loan_id         = new_loan.id,
+                    officer_id      = day_ass.user_id,
+                    assignment_type = 'day_based',
+                    assigned_by     = None,
+                    is_active       = True,
                 ))
 
         txn = Transaction(
-            loan_id=loan.id,
-            transaction_type='renewal',
-            amount=new_principal,
-            payment_method='renewal',
-            notes=f'Loan renewed. New loan ID: {new_loan.id} | Plan: {new_repayment_plan}',
-            status='completed',
-            created_at=now
+            loan_id          = loan.id,
+            transaction_type = 'renewal',
+            amount           = new_principal,
+            payment_method   = 'renewal',
+            notes            = f'Loan renewed. New loan ID: {new_loan.id} | '
+                               f'Plan: {new_repayment_plan}',
+            status           = 'completed',
+            created_at       = now,
         )
         db.session.add(txn)
 
         if new_loan.livestock:
-            new_loan.livestock.description = f"Collateral for renewed loan #{new_loan.id}"
+            new_loan.livestock.description = (
+                f"Collateral for renewed loan #{new_loan.id}"
+            )
 
         db.session.commit()
 
@@ -767,30 +862,31 @@ def renew_loan_recovery(loan_id):
             amount=new_principal,
             notes=f'Loan renewed into new loan ID {new_loan.id}',
             reference=str(new_loan.id),
-            user_id=get_jwt_identity()
+            user_id=get_jwt_identity(),
         )
         record_ledger_entry(
             loan=new_loan,
             event_type='renewal_created',
             transaction=None,
             amount=new_loan.principal_amount,
-            notes=f'Renewal of loan #{loan.id} – Plan: {new_repayment_plan}',
+            notes=(f'Renewal of loan #{loan.id} – Plan: {new_repayment_plan}'
+                   + (' | Collateral revalued' if revaluation_summary else '')),
             reference=str(loan.id),
-            user_id=get_jwt_identity()
+            user_id=get_jwt_identity(),
         )
         db.session.commit()
 
-        # ---- Guarantee parity with Reports ----
         sync_client_assignments()
 
         return jsonify({
-            'success': True,
-            'message': f'Loan renewed. New loan ID: {new_loan.id}',
-            'old_loan': loan.to_dict(),
-            'new_loan': new_loan.to_dict(),
-            'new_principal': float(new_principal),
-            'new_repayment_plan': new_repayment_plan,
-            'preserved_officer_id': preserve_officer_id
+            'success':               True,
+            'message':               f'Loan renewed. New loan ID: {new_loan.id}',
+            'old_loan':              loan.to_dict(),
+            'new_loan':              new_loan.to_dict(),
+            'new_principal':         float(new_principal),
+            'new_repayment_plan':    new_repayment_plan,
+            'preserved_officer_id':  preserve_officer_id,
+            'revaluation':           revaluation_summary,   # NEW — null if none
         }), 200
 
     except Exception as e:
@@ -798,7 +894,7 @@ def renew_loan_recovery(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-                    
+                        
 @recovery_bp.route('/loan/<int:loan_id>/transactions', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])

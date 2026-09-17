@@ -4552,7 +4552,6 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
       day: '2-digit', month: '2-digit', year: 'numeric'
     });
 
-    // Calculate due date based on selected plan
     const dueDateObj = new Date();
     dueDateObj.setDate(dueDateObj.getDate() + (newPlan === 'daily' ? 14 : 7));
     const dueDateFormatted = dueDateObj.toLocaleDateString('en-GB');
@@ -4561,201 +4560,295 @@ export const generateLoanRenewalAgreementAutoPDF = async (loanData, newPrincipal
       ? '4.5% per day (simple interest)'
       : '30% per week (compound interest)';
 
+    // ---------- Title ----------
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text('LOAN RENEWAL AGREEMENT', 105, yPos, { align: 'center' });
     yPos += 8;
     yPos = addDivider(doc, yPos);
+    yPos += 4;
 
-    // Borrower Information
+    // =========================================================
+    // TWO-COLUMN ROW: Borrower Info (left) | Loan Details (right)
+    // =========================================================
+    const leftX  = 20;
+    const rightX = 115;
+
+    let leftY  = yPos;
+    let rightY = yPos;
+
+    // --- LEFT: Borrower Information ---
     doc.setFontSize(11);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Borrower Information:', leftX, leftY);
+    leftY += 6;
+
+    doc.setFontSize(10);
     doc.setTextColor(...COLORS.textDark);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Borrower Information:', 20, yPos);
-    yPos += 6;
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text('Name: ', 25, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text(loanData.name || '___________________', 25 + doc.getTextWidth('Name: '), yPos);
-    yPos += 5.5;
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text('ID Number: ', 25, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text(loanData.idNumber || '___________________', 25 + doc.getTextWidth('ID Number: '), yPos);
-    yPos += 5.5;
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text('Phone: ', 25, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text(loanData.phone || '___________________', 25 + doc.getTextWidth('Phone: '), yPos);
-    yPos += 10;
 
-    // Loan Details
-    doc.setFont('helvetica', 'bold');
-    doc.text('Loan Details:', 20, yPos);
-    yPos += 6;
-    
-    // Original Loan Amount
     doc.setFont('helvetica', 'normal');
-    doc.text('Original Loan Amount: ', 25, yPos);
-    const origLabelWidth = doc.getTextWidth('Original Loan Amount: ');
+    doc.text('Name:', leftX + 3, leftY);
     doc.setFont('helvetica', 'bold');
-    doc.text('KES ', 25 + origLabelWidth, yPos);
-    const kesWidth = doc.getTextWidth('KES ');
-    const origAmt = (loanData.borrowedAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
-    doc.text(origAmt, 25 + origLabelWidth + kesWidth, yPos);
-    yPos += 5.5;
-    
-    // New Principal Amount
-    doc.setFont('helvetica', 'normal');
-    doc.text('New Principal Amount: ', 25, yPos);
-    const newLabelWidth = doc.getTextWidth('New Principal Amount: ');
-    doc.setFont('helvetica', 'bold');
-    doc.text('KES ', 25 + newLabelWidth, yPos);
-    const newKesWidth = doc.getTextWidth('KES ');
-    doc.text(newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 }), 25 + newLabelWidth + newKesWidth, yPos);
-    yPos += 5.5;
-    
-    // Original Due Date (for reference)
-    doc.setFont('helvetica', 'normal');
-    doc.text('Original Due Date: ', 25, yPos);
-    doc.setFont('helvetica', 'bold');
-    const originalDue = loanData.expectedReturnDate ? new Date(loanData.expectedReturnDate).toLocaleDateString('en-GB') : 'N/A';
-    doc.text(originalDue, 25 + doc.getTextWidth('Original Due Date: '), yPos);
-    yPos += 10;
+    doc.text(loanData.name || '___________________',
+             leftX + 3 + doc.getTextWidth('Name: '), leftY);
+    leftY += 5.5;
 
-    // Renewal Terms heading
+    doc.setFont('helvetica', 'normal');
+    doc.text('ID Number:', leftX + 3, leftY);
     doc.setFont('helvetica', 'bold');
+    doc.text(loanData.idNumber || '___________________',
+             leftX + 3 + doc.getTextWidth('ID Number: '), leftY);
+    leftY += 5.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.text('Phone:', leftX + 3, leftY);
+    doc.setFont('helvetica', 'bold');
+    doc.text(loanData.phone || '___________________',
+             leftX + 3 + doc.getTextWidth('Phone: '), leftY);
+    leftY += 6;
+
+    // --- RIGHT: Loan Details ---
+    doc.setFontSize(11);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Loan Details:', rightX, rightY);
+    rightY += 6;
+
+    doc.setFontSize(10);
+    doc.setTextColor(...COLORS.textDark);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text('Original Loan Amount:', rightX + 3, rightY);
+    doc.setFont('helvetica', 'bold');
+    const origAmt = (loanData.borrowedAmount || 0)
+      .toLocaleString('en-US', { minimumFractionDigits: 2 });
+    doc.text(`KES ${origAmt}`,
+             rightX + 3 + doc.getTextWidth('Original Loan Amount: '), rightY);
+    rightY += 5.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.text('New Principal Amount:', rightX + 3, rightY);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`KES ${newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+             rightX + 3 + doc.getTextWidth('New Principal Amount: '), rightY);
+    rightY += 5.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.text('Original Due Date:', rightX + 3, rightY);
+    doc.setFont('helvetica', 'bold');
+    const originalDue = loanData.expectedReturnDate
+      ? new Date(loanData.expectedReturnDate).toLocaleDateString('en-GB')
+      : 'N/A';
+    doc.text(originalDue,
+             rightX + 3 + doc.getTextWidth('Original Due Date: '), rightY);
+    rightY += 6;
+
+    // Advance past whichever column finished lower
+    yPos = Math.max(leftY, rightY) + 2;
+
+    // =========================================================
+    // CONDITIONAL: Collateral Revaluation block
+    // Previous / Added / Combined are stacked in column form
+    // =========================================================
+    if (loanData.additionalCollateral) {
+      const ac = loanData.additionalCollateral;
+      const prevText  = ac.previousCollateralText || 'N/A';
+      const prevValue = ac.previousValue          || 0;
+      const addType   = ac.type                   || '—';
+      const addCount  = ac.count                  || 0;
+      const addValue  = ac.estimatedValue         || 0;
+      const combinedValue = prevValue + addValue;
+      const combinedText  = `${prevText} + ${addCount} ${addType}`;
+
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.primaryBlue);
+      doc.text('COLLATERAL REVALUATION', 105, yPos, { align: 'center' });
+      yPos += 6;
+
+      const labelX = 30;   // labels column
+      const valueX = 60;   // values column (aligned)
+
+      // ---- Previous ----
+      doc.setFontSize(10);
+      doc.setTextColor(...COLORS.textDark);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Previous:', labelX, yPos);
+      doc.setFont('helvetica', 'bold');
+      doc.text(
+        `${prevText} — KES ${prevValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        valueX, yPos
+      );
+      yPos += 5.5;
+
+      // ---- Added ----
+      doc.setFont('helvetica', 'normal');
+      doc.text('Added:', labelX, yPos);
+      doc.setFont('helvetica', 'bold');
+      doc.text(
+        `${addCount} ${addType} — KES ${addValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        valueX, yPos
+      );
+      yPos += 5.5;
+
+      // ---- Combined ----
+      doc.setFont('helvetica', 'normal');
+      doc.text('Combined:', labelX, yPos);
+      doc.setFont('helvetica', 'bold');
+      doc.text(
+        `${combinedText} — KES ${combinedValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        valueX, yPos
+      );
+      yPos += 6;
+
+      // Disclaimer
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(10);
+      doc.text(
+        'The above additional livestock is hereby pledged as part of the collateral for this renewed loan,',
+        25, yPos
+      );
+      yPos += 3.5;
+      doc.text(
+        'and shall be subject to the same default and repossession provisions as the original collateral.',
+        25, yPos
+      );
+      yPos += 5;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+    }
+
+    // =========================================================
+    // Renewal Terms
+    // =========================================================
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
     doc.setTextColor(...COLORS.primaryBlue);
     doc.text('RENEWAL TERMS', 105, yPos, { align: 'center' });
-    yPos += 8;
-    
+    yPos += 6;
+
     doc.setFontSize(10);
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'normal');
 
-    // Renewal clauses
-    doc.text("1. The Borrower acknowledges that the original loan is overdue and that the Company has agreed to renew the loan", 20, yPos);
-    yPos += 4.5;
-    doc.text("   under the following terms.", 20, yPos);
-    yPos += 5;
-    
-    doc.text("2. The Borrower shall repay the outstanding balance as follows:", 20, yPos);
-    yPos += 5;
-    
-    // New Principal
-    doc.setFont('helvetica', 'normal');
-    doc.text("   New Principal: ", 20, yPos);
-    const npLabelW = doc.getTextWidth("   New Principal: ");
-    doc.setFont('helvetica', 'bold');
-    doc.text(`KES ${newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, 20 + npLabelW, yPos);
-    yPos += 5;
-    
-    // Interest rate and plan
-    doc.setFont('helvetica', 'normal');
-    doc.text("   Interest: ", 20, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text(interestText, 20 + doc.getTextWidth("   Interest: "), yPos);
-    yPos += 5;
-    
-    // Plan-specific due date
-    doc.setFont('helvetica', 'normal');
-    doc.text("   New Due Date: ", 20, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text(dueDateFormatted, 20 + doc.getTextWidth("   New Due Date: "), yPos);
-    yPos += 5;
+    // Term items: each item can be a plain string (normal) or
+    // an object { text, bold } for custom weight.
+    const terms = [
+      { text: "1. The Borrower acknowledges that the original loan is overdue and that the Company has agreed to renew" },
+      { text: "   the loan under the following terms." },
+      { text: "2. The Borrower shall repay:" },
+      {
+        text: `   New Principal: KES ${newPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}  |  Interest: ${interestText}`,
+        bold: true
+      },
+      {
+        text: `   New Due Date: ${dueDateFormatted}`,
+        bold: true
+      },
+      { text: "3a. The interest will continue to accrue on the new principal according to the selected repayment plan." },
+    ];
 
-    doc.setFont('helvetica', 'normal');
+    if (loanData.additionalCollateral) {
+      terms.push(
+        { text: "3b. The additional collateral pledged above forms part of the security for this renewed loan and remains" },
+        { text: "    subject to the same default and repossession clauses of the original agreement." }
+      );
+    }
 
-    doc.text("3. The interest will continue to accrue on the new principal according to the selected repayment plan.", 20, yPos);
-    yPos += 5;
-    
-    doc.text("4. All terms and conditions of the original Loan Agreement (including the collateral provisions)", 20, yPos);
-    yPos += 4.5;
-    doc.text("    remain in full force and effect.", 20, yPos);
-    yPos += 5;
-    
-    doc.text("5. The Borrower agrees that failure to comply with this renewal agreement will constitute immediate default,", 20, yPos);
-    yPos += 4.5;
-    doc.text("    and the Company may take possession of the collateral livestock without further notice.", 20, yPos);
-    yPos += 5;
-    
-    doc.text("6. This renewal agreement is effective from the date signed below and supersedes the original due date.", 20, yPos);
-    yPos += 8;
+    terms.push(
+      { text: "4. All terms and conditions of the original Loan Agreement (including the collateral provisions) remain" },
+      { text: "   in full force and effect." },
+      { text: "5. The Borrower agrees that failure to comply with this renewal agreement will constitute immediate default," },
+      { text: "   and the Company may take possession of the collateral livestock without further notice." },
+      { text: "6. This renewal agreement is effective from the date signed below and supersedes the original due date." }
+    );
 
+    for (const line of terms) {
+      doc.setFont('helvetica', line.bold ? 'bold' : 'normal');
+      doc.text(line.text, 20, yPos);
+      yPos += 4.2;
+    }
+    yPos += 4;
+
+    // =========================================================
     // Signatures
-    if (yPos > 185) {
+    // =========================================================
+    if (yPos > 205) {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'agreement');
       yPos = 20;
-    } else {
-      yPos += 2;
     }
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
+    doc.setFontSize(11);
     doc.setTextColor(...COLORS.primaryBlue);
     doc.text('SIGNATURES', 105, yPos, { align: 'center' });
-    yPos += 8;
+    yPos += 6;
 
-    doc.setFontSize(10);
+    doc.setFontSize(10);           // ← was 9.5, now 10
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'bold');
     doc.text('CLIENT:', 20, yPos);
-    yPos += 5;
-    
+    yPos += 4.5;
+
     doc.setFont('helvetica', 'normal');
     doc.text(`Name: ${loanData.name || '___________________'}`, 25, yPos);
-    yPos += 4.5;
+    yPos += 4;
     doc.text('Signature: ___________________', 25, yPos);
-    yPos += 4.5;
+    yPos += 4;
     doc.text(`Date: ${formattedDate}`, 25, yPos);
-    yPos += 8;
-
-    const leftX = 20;
-    const rightX = 20 + 95;
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('FOR NAGOLIE:', 20, yPos);
     yPos += 6;
 
-    doc.setFont('helvetica', 'bold');
-    doc.text('________________________', leftX, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Role: ___________________', leftX, yPos + 5);
-    doc.text('Sign: ___________________', leftX, yPos + 9);
+    const sigLeftX  = 20;
+    const sigRightX = 115;
 
     doc.setFont('helvetica', 'bold');
-    doc.text('Name: _________________________', rightX, yPos);
+    doc.text('FOR NAGOLIE:', sigLeftX, yPos);
+    doc.text('LIVESTOCK VALUER:', sigRightX, yPos);
+    yPos += 5;
+
     doc.setFont('helvetica', 'normal');
-    doc.text('Livestock Valuer', rightX, yPos + 5);
-    doc.text('Sign: ___________________', rightX, yPos + 10);
+    doc.text('________________________', sigLeftX,  yPos);
+    doc.text('________________________', sigRightX, yPos);
+    yPos += 4;
 
-    yPos += 18;
+    doc.text('Name: ___________________', sigLeftX,  yPos);
+    doc.text('Name: ___________________', sigRightX, yPos);
+    yPos += 4;
 
-    // Stamp box
-    const stampBoxWidth = 60;
-    const stampBoxHeight = 30;
+    doc.text('Role: ___________________', sigLeftX,  yPos);
+    doc.text('Sign: ___________________', sigRightX, yPos);
+    yPos += 4;
+
+    doc.text('Sign: ___________________', sigLeftX, yPos);
+    yPos += 6;
+
+    // ---------- Stamp box ----------
+    const stampBoxWidth  = 50;
+    const stampBoxHeight = 22;
     const stampBoxX = (210 - stampBoxWidth) / 2;
     const stampBoxY = yPos;
     doc.setDrawColor(230, 235, 245);
     doc.setLineWidth(0.3);
     doc.roundedRect(stampBoxX, stampBoxY, stampBoxWidth, stampBoxHeight, 2, 2);
     doc.setTextColor(230, 235, 240);
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'italic');
-    doc.text('OFFICIAL COMPANY STAMP', stampBoxX + stampBoxWidth/2, stampBoxY + stampBoxHeight/2, { align: 'center' });
+    doc.text('OFFICIAL COMPANY STAMP',
+             stampBoxX + stampBoxWidth / 2,
+             stampBoxY + stampBoxHeight / 2,
+             { align: 'center' });
 
-    // Footer
+    // ---------- Footer ----------
     const footerY = 285;
     doc.setTextColor(...COLORS.textLight);
     doc.setFontSize(8);
     doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 20, footerY);
     doc.setTextColor(...COLORS.textDark);
-    doc.setFontSize(9);
+    doc.setFontSize(10);          // ← was 9, now 10
     doc.text('Thank you for choosing Nagolie Enterprises Ltd!', 105, footerY + 5, { align: 'center' });
 
     const fileName = `Loan_Renewal_${loanData.name?.replace(/\s+/g, '_') || 'Client'}_${formattedDate.replace(/\//g, '-')}.pdf`;
@@ -4837,6 +4930,15 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
     doc.text('Original Due Date: _________________________', 25, yPos);
     yPos += 6;
 
+    doc.text('Current Collateral: _________________________', 25, yPos);
+    yPos += 4.5;
+    doc.text('Additional Collateral Added: _________________________', 25, yPos);
+    yPos += 4.5;
+    doc.text('  Type: __________   Count: ________   Est. Value: KES __________', 25, yPos);
+    yPos += 4.5;
+    doc.text('New Combined Collateral Value: KES _________________________', 25, yPos);
+    yPos += 6;
+
     // Renewal Terms heading
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
@@ -4853,7 +4955,9 @@ export const generateManualLoanRenewalAgreementPDF = async () => {
       "2. The Borrower shall repay the outstanding balance as follows:",
       "   New Principal: KES _________________________",
       "   Interest: __________ [   ]30% per week /   [   ]4.5% per day",
-      "3. The interest will continue to accrue on the new principal according to the original loan's repayment plan.",
+      "3a. The interest will continue to accrue on the new principal according to the original loan's repayment plan.",
+      "3b. Where additional collateral has been pledged, it shall form part of the existing collateral for the",
+      "    renewed loan and remain subject to the same default provisions.",
       "4. All terms and conditions of the original Loan Agreement (including the collateral provisions)",
       "   remain in full force and effect.",
       "5. The Borrower agrees that failure to comply with this renewal agreement will constitute immediate default,",
