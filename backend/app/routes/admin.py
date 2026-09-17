@@ -2067,38 +2067,41 @@ def waive_loan(loan_id):
 
         now = datetime.utcnow()
         disbursement_date = now  # repayment starts today
+        waived_interest_type = 'compound' if original_plan == 'weekly' else 'simple'
+
 
         new_loan = Loan(
-            client_id=loan.client_id,
-            livestock_id=loan.livestock_id,
-            principal_amount=new_principal,
-            current_principal=new_principal,
-            total_amount=new_principal,
-            balance=new_principal,
-            interest_rate=Decimal('0'),
-            interest_type='simple',
-            repayment_plan='daily',
-            funding_source=loan.funding_source,
-            investor_id=loan.investor_id,
-            disbursement_date=disbursement_date,
-            due_date=disbursement_date + timedelta(days=duration_days),
-            status='active',
-            collateral_text=loan.collateral_text,
-            notes=(
+            client_id                 = loan.client_id,
+            livestock_id              = loan.livestock_id,
+            principal_amount          = new_principal,
+            current_principal         = new_principal,
+            total_amount              = new_principal,
+            balance                   = new_principal,
+            interest_rate             = Decimal('0'),          # ← 0% during waiver
+            interest_type             = waived_interest_type,  # ← keep compound/simple
+            repayment_plan            = original_plan,         # ← KEEP original plan
+            funding_source            = loan.funding_source,
+            investor_id               = loan.investor_id,
+            disbursement_date         = disbursement_date,
+            due_date                  = disbursement_date + timedelta(days=duration_days),
+            status                    = 'active',
+            collateral_text           = loan.collateral_text,
+            notes                     = (
                 f"Waiver of loan #{loan.id}. Original balance {current_balance:.2f} "
-                f"→ agreed {new_principal:.2f}. Repay within {duration_days} days."
+                f"→ agreed {new_principal:.2f}. Repay within {duration_days} days. "
+                f"Original plan preserved: {original_plan}."
             ),
-            created_at=now,
-            principal_paid=Decimal('0'),
-            interest_paid=Decimal('0'),
-            accrued_interest=Decimal('0'),
-            last_interest_payment_date=disbursement_date,
-            interest_prepaid_period=None,
-            interest_prepaid_amount=Decimal('0'),
-            parent_loan_id=loan.id,
-            root_loan_id=loan.root_loan_id or loan.id,
-            original_repayment_plan=original_plan,
-            original_interest_rate=original_rate
+            created_at                = now,
+            principal_paid            = Decimal('0'),
+            interest_paid             = Decimal('0'),
+            accrued_interest          = Decimal('0'),
+            last_interest_payment_date= disbursement_date,
+            interest_prepaid_period   = None,
+            interest_prepaid_amount   = Decimal('0'),
+            parent_loan_id            = loan.id,
+            root_loan_id              = loan.root_loan_id or loan.id,
+            original_repayment_plan   = original_plan,         # still kept for legacy rows
+            original_interest_rate    = original_rate,
         )
 
         db.session.add(new_loan)
@@ -2184,45 +2187,42 @@ def waive_loan(loan_id):
 @role_required(['admin', 'director'])
 def revert_waived_loans():
     """
-    Revert all waived loans (interest_rate == 0) whose grace period has fully
-    elapsed. Reversion happens on the day AFTER the due date.
+    Revert waived loans whose waiver period has expired.
 
-    - Daily waiver → reverts to DAILY plan with the original daily rate,
-      interest starts accruing from the revert day.
-    - Weekly waiver → reverts to WEEKLY plan with the original weekly rate,
-      interest compounds 30% at the end of the new weekly period.
-
-    In both cases, `current_principal` becomes the new base and any tracking
-    fields (accrued_interest, interest_paid, principal_paid, amount_paid) are
-    reset so accrual starts fresh from today.
+    A waiver = interest_rate 0 while keeping the ORIGINAL repayment_plan.
+    When `due_date` has been reached, we:
+      • restore the original interest_rate
+      • keep the ORIGINAL repayment_plan (weekly stays weekly, daily stays daily)
+      • set disbursement_date = now (so the client is re-keyed to TODAY)
+      • reset accrual & payment counters
+      • re-run accrual from today
+      • record a ledger entry
+      • reassign the officer for the NEW weekday
     """
     try:
         from app.routes.payments import recalculate_loan
         from datetime import datetime, timedelta
 
-        now = datetime.utcnow()
+        now   = datetime.utcnow()
         today = now.date()
 
-        # ----------------------------------------------------------------
-        # Only pick up loans whose due_date (as a DATE) is strictly BEFORE
-        # today. This prevents premature reversion on the due date itself.
-        # ----------------------------------------------------------------
+        # ⬅ FIX: use `<= now` — revert the moment the due date arrives,
+        #         not one day later.
         waived_loans = Loan.query.filter(
             Loan.status == 'active',
             Loan.interest_rate == 0,
             Loan.due_date.isnot(None),
-            db.func.date(Loan.due_date) < today
+            Loan.due_date <= now,
         ).all()
 
         reverted_count = 0
         for loan in waived_loans:
 
             # ---- 1. Determine the ORIGINAL plan & rate -------------------
+            # Prefer the snapshot fields; fall back to parent loan.
             original_plan = loan.original_repayment_plan
             original_rate = loan.original_interest_rate
 
-            # Fallback: inherit from the parent loan (for older waived rows
-            # that never got the original_* fields populated).
             if (not original_plan or not original_rate) and loan.parent_loan_id:
                 parent = db.session.get(Loan, loan.parent_loan_id)
                 if parent:
@@ -2231,17 +2231,15 @@ def revert_waived_loans():
                     if not original_rate or original_rate == 0:
                         original_rate = parent.interest_rate
 
-            # Final fallback defaults
             if not original_plan:
                 original_plan = 'weekly'
             if not original_rate or original_rate == 0:
-                original_rate = Decimal('30.0') if original_plan == 'weekly' else Decimal('4.5')
+                original_rate = (Decimal('30.0') if original_plan == 'weekly'
+                                 else Decimal('4.5'))
 
-            # ---- 2. Skip fully-paid loans --------------------------------
-            # If the client already cleared the agreed balance during the
-            # waiver period, just mark complete instead of reverting.
+            # ---- 2. Fully-paid waivers → complete, no reversion ---------
             if loan.current_principal is None or loan.current_principal <= Decimal('0.01'):
-                loan.status = 'completed'
+                loan.status  = 'completed'
                 loan.balance = Decimal('0')
                 if loan.livestock:
                     livestock = loan.livestock
@@ -2250,90 +2248,81 @@ def revert_waived_loans():
                 db.session.add(loan)
                 continue
 
-            # ---- 3. Reset the loan to the original plan ------------------
+            # ---- 3. Restore plan/rate/type ------------------------------
             loan.repayment_plan = original_plan
-            loan.interest_rate = original_rate
-            loan.interest_type = 'compound' if original_plan == 'weekly' else 'simple'
+            loan.interest_rate  = original_rate
+            loan.interest_type  = 'compound' if original_plan == 'weekly' else 'simple'
 
-            # ---- 4. Reset the date anchors so accrual starts TODAY -------
-            # This is the critical fix: without updating disbursement_date
-            # and last_interest_payment_date, `recalculate_loan` would either
-            # back-fill interest for the entire waiver period, or skip
-            # accrual entirely.
-            loan.disbursement_date = now
-            loan.last_interest_payment_date = now
-            loan.last_compounding_date = now
-            if original_plan == 'weekly':
-                loan.due_date = now + timedelta(days=7)
-            else:
-                loan.due_date = now + timedelta(days=14)
+            # ---- 4. Re-key dates so accrual restarts TODAY -------------
+            loan.disbursement_date         = now      # ⬅ FIX: client is now a "today" client
+            loan.last_interest_payment_date= now
+            loan.last_compounding_date     = now
+            loan.due_date = (now + timedelta(days=7) if original_plan == 'weekly'
+                             else now + timedelta(days=14))
 
-            # ---- 5. Reset accrual & payment tracking ---------------------
-            # The old waiver phase is closed; the new phase starts empty.
-            # Transactions remain in the DB for historical reference.
-            loan.accrued_interest = Decimal('0')
-            loan.interest_paid = Decimal('0')
-            loan.principal_paid = Decimal('0')
-            loan.amount_paid = Decimal('0')
-            loan.interest_prepaid_period = None
-            loan.interest_prepaid_amount = Decimal('0')
-            loan.balance = loan.current_principal
+            # ---- 5. Reset accrual / payment tracking --------------------
+            loan.accrued_interest         = Decimal('0')
+            loan.interest_paid            = Decimal('0')
+            loan.principal_paid           = Decimal('0')
+            loan.amount_paid              = Decimal('0')
+            loan.interest_prepaid_period  = None
+            loan.interest_prepaid_amount  = Decimal('0')
+            loan.balance                  = loan.current_principal
 
-            # ---- 6. Run accrual so day-0 interest is applied -------------
-            # For daily: adds 4.5% of principal for the revert day (day 0).
-            # For weekly: adds nothing yet — compounding happens 8 days
-            #             after the revert day.
+            # ---- 6. Apply day-0 accrual --------------------------------
             loan = recalculate_loan(loan)
 
-            # ---- 7. Record a transaction for audit trail -----------------
+            # ---- 7. Ledger + audit trail -------------------------------
             txn = Transaction(
-                loan_id=loan.id,
-                transaction_type='adjustment',
-                amount=Decimal('0'),
-                payment_method='revert',
-                notes=(
-                    f'Loan reverted from waiver to {original_plan} plan '
-                    f'at {float(original_rate)}% interest'
-                ),
-                status='completed',
-                created_at=now
+                loan_id          = loan.id,
+                transaction_type = 'adjustment',
+                amount           = Decimal('0'),
+                payment_method   = 'revert',
+                notes            = (f'Loan reverted from waiver to {original_plan} '
+                                    f'plan at {float(original_rate)}% interest'),
+                status           = 'completed',
+                created_at       = now,
             )
             db.session.add(txn)
             db.session.flush()
 
             record_ledger_entry(
-                loan=loan,
-                event_type='adjustment',
-                transaction=txn,
+                loan=loan, event_type='adjustment', transaction=txn,
                 amount=Decimal('0'),
                 notes=f'Reverted from waiver to {original_plan} plan',
-                reference='REVERT',
-                user_id=None
+                reference='REVERT', user_id=None,
             )
 
             db.session.add(loan)
             reverted_count += 1
 
             log_audit('loan_reverted', 'loan', loan.id, {
-                'original_plan': original_plan,
-                'original_rate': float(original_rate),
+                'original_plan':     original_plan,
+                'original_rate':     float(original_rate),
                 'current_principal': float(loan.current_principal),
-                'new_due_date': loan.due_date.isoformat() if loan.due_date else None,
+                'new_due_date':      loan.due_date.isoformat() if loan.due_date else None,
             })
 
-        db.session.commit()
+        # ⬅ FIX: reassign officers for the NEW weekday.
+        # Because we just moved `disbursement_date` to today,
+        # the client must now belong to the officer who owns today.
+        # sync_client_assignments() is idempotent — safe to run every call.
+        from app.routes.admin import sync_client_assignments
+        db.session.commit()                # commit loan changes first
+        sync_client_assignments()          # then reconcile assignments
+
         return jsonify({
-            'success': True,
+            'success':        True,
             'reverted_count': reverted_count,
-            'message': f'{reverted_count} loan(s) reverted from waiver to original plan'
+            'message':        f'{reverted_count} loan(s) reverted from waiver '
+                              f'to original plan',
         }), 200
 
     except Exception as e:
         db.session.rollback()
-        import traceback
-        traceback.print_exc()
+        import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+        
 # ---------------------------------------------------------------------------
 # Livestock single item (public)
 # ---------------------------------------------------------------------------
@@ -3069,7 +3058,6 @@ def _get_assignable_loans():
     return q.all()
 
 
-@admin_bp.route('/balance-suggest', methods=['POST'])
 def sync_client_assignments():
     """
     Idempotent reconciliation of ClientAssignment rows against reality.
@@ -3101,8 +3089,6 @@ def sync_client_assignments():
         )
 
     # 2. Build a live load map.
-    # Include ALL eligible officers — not just those with day assignments —
-    # so the least-loaded fallback still works when no days are mapped.
     eligible_officers = User.query.filter(
         User.role.in_(['secretary', 'client_relations_officer'])
     ).all()

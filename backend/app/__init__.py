@@ -1,3 +1,4 @@
+# app/__init__.py
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -9,6 +10,7 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 import click
+import os
 import pytz
 from flask.cli import with_appcontext
 from app.utils.extensions import socketio
@@ -19,8 +21,63 @@ migrate = Migrate()
 jwt = JWTManager()
 limiter = Limiter(key_func=get_remote_address)
 
-# Import your Config class or define it here
-from app.config import Config  # Adjust the import path as needed
+from app.config import Config
+
+
+def _start_schedulers(app):
+    """
+    Start ALL background jobs on a SINGLE scheduler instance.
+    Runs once per worker process (guarded against Flask's debug reloader).
+    """
+    # In debug mode, the reloader spawns two processes; only start in the child.
+    if app.debug and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        return
+
+    scheduler = BackgroundScheduler(timezone="UTC")
+
+    # ---- Job 1: auto-revert expired waivers (every hour) ----------------
+    def _waiver_job():
+        with app.app_context():
+            try:
+                from app.services.waiver_reverter import run_waiver_reversion
+                n = run_waiver_reversion()
+                if n:
+                    app.logger.info(f"[waiver_reversion] reverted {n} loan(s)")
+            except Exception as e:
+                app.logger.exception(f"[waiver_reversion] failed: {e}")
+
+    scheduler.add_job(
+        func=_waiver_job,
+        trigger="interval",
+        hours=1,
+        id="waiver_reversion",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # ---- Job 2: nightly reassignment sync (02:00 UTC) -------------------
+    def _assignments_job():
+        with app.app_context():
+            try:
+                from app.routes.admin import sync_client_assignments
+                sync_client_assignments()
+            except Exception as e:
+                app.logger.exception(f"[sync_assignments] failed: {e}")
+
+    scheduler.add_job(
+        func=_assignments_job,
+        trigger="cron",
+        hour=2,
+        minute=0,
+        id="sync_assignments",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+
+    scheduler.start()
+
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -31,29 +88,27 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     jwt.init_app(app)
 
-    # ---------- SINGLE CORS CONFIGURATION ----------
+    # ---------- CORS ----------
     CORS(
         app,
         origins=[
             "http://localhost:5173",
             "https://nagolie-frontend.onrender.com",
             "https://www.nagolie.com",
-            "https://nagolie.com"
+            "https://nagolie.com",
         ],
         supports_credentials=True,
         allow_headers=["Content-Type", "Authorization", "Accept"],
-        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     )
-    # ------------------------------------------------
 
-    # ---------- Global after_request CORS headers ----------
     @app.after_request
     def add_cors_headers(response):
         origin = request.headers.get('Origin')
         allowed_origins = [
             "http://localhost:5173",
             "https://www.nagolie.com",
-            "https://nagolie.com"
+            "https://nagolie.com",
         ]
         if origin in allowed_origins:
             response.headers['Access-Control-Allow-Origin'] = origin
@@ -64,15 +119,14 @@ def create_app(config_class=Config):
 
     limiter.init_app(app)
 
-    # Cloudinary configuration
     cloudinary.config(
         cloud_name=app.config['CLOUDINARY_CLOUD_NAME'],
         api_key=app.config['CLOUDINARY_API_KEY'],
         api_secret=app.config['CLOUDINARY_API_SECRET'],
-        secure=True
+        secure=True,
     )
 
-    # Register blueprints
+    # ---------- Blueprints ----------
     from app.routes.auth import auth_bp
     from app.routes.loans import loans_bp
     from app.routes.clients import clients_bp
@@ -90,7 +144,6 @@ def create_app(config_class=Config):
     from app.routes.company_profile import company_profile_bp
     from app.routes.chat import chat_bp
 
-
     app.register_blueprint(test_bp, url_prefix='/api/test')
     app.register_blueprint(biometric_bp)
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -99,7 +152,7 @@ def create_app(config_class=Config):
     app.register_blueprint(payments_bp, url_prefix='/api/payments')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(investor_bp, url_prefix='/api/investor')
-    app.register_blueprint(password_reset_bp, url_prefix='/api/auth')    
+    app.register_blueprint(password_reset_bp, url_prefix='/api/auth')
     app.register_blueprint(company_gallery_bp, url_prefix='/api/company-gallery')
     app.register_blueprint(recovery_bp, url_prefix='/api/recovery')
     app.register_blueprint(salary_bp, url_prefix='/api/salary')
@@ -108,16 +161,10 @@ def create_app(config_class=Config):
     app.register_blueprint(company_profile_bp, url_prefix='/api/company-profile')
     app.register_blueprint(chat_bp)
 
-        
     register_commands(app)
 
-    def scheduled_balance():
-        with app.app_context():
-            from app.routes.admin import refresh_day_assignments
-            refresh_day_assignments()
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(func=scheduled_balance, trigger='cron', hour=2, minute=0)
-    scheduler.start()
+    # ---------- Start background jobs (single scheduler) ----------
+    _start_schedulers(app)
 
     socketio.init_app(app, cors_allowed_origins="*")
 

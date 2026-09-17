@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, url_for
+from flask import Blueprint, request, jsonify, url_for, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember, Group, DayAssignment, PromissoryNote)
@@ -84,82 +84,143 @@ def _compute_collateral_status(loan, unpaid_interest, collateral_value):
 # ---------------------------------------------------------------------------
 
 @recovery_bp.route('', methods=['GET'])
-@cross_origin(origins="http://localhost:5173", supports_credentials=True) 
+@cross_origin(origins="http://localhost:5173", supports_credentials=True)
 @jwt_required()
-@role_required(['admin','director', 'secretary', 'accountant', 'valuer','head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
+@role_required([
+    'admin', 'director', 'secretary', 'accountant', 'valuer',
+    'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'
+])
 def get_recovery_data():
+    # ── Opportunistic reversion: cheap, index-backed, runs on an empty set most calls.
+    #    Safety net for environments where the hourly scheduler may miss a tick
+    #    (process restarts, cold starts on Render, etc.).
+    try:
+        from app.services.waiver_reverter import run_waiver_reversion
+        run_waiver_reversion()
+    except Exception as e:
+        current_app.logger.warning(f"Lazy waiver reversion failed: {e}")
+
     user_id = int(get_jwt_identity())
-    
-    flagged_subq = db.session.query(FlaggedLoan.loan_id).filter(FlaggedLoan.resolved == False).subquery()
-    
-    loans = Loan.query.options(
-        joinedload(Loan.client), joinedload(Loan.livestock)
-    ).filter(
-        Loan.status == 'active',
-        Loan.id.notin_(flagged_subq)
-    ).all()
-    
+
+    # Active loans that are NOT currently flagged for the valuer
+    flagged_subq = (
+        db.session.query(FlaggedLoan.loan_id)
+        .filter(FlaggedLoan.resolved == False)   # noqa: E712
+        .subquery()
+    )
+
+    loans = (
+        Loan.query
+        .options(joinedload(Loan.client), joinedload(Loan.livestock))
+        .filter(
+            Loan.status == 'active',
+            Loan.id.notin_(flagged_subq),
+        )
+        .all()
+    )
+
     result = {}
     today = datetime.utcnow().date()
-    
+
     for loan in loans:
         loan = recalculate_loan(loan)
         overdue_days, overdue_weeks = compute_overdue(loan, today)
-        
-        due_day = loan.disbursement_date.strftime('%A') if loan.disbursement_date else 'Monday'
+
+        due_day = (
+            loan.disbursement_date.strftime('%A')
+            if loan.disbursement_date else 'Monday'
+        )
         client = loan.client
         lv = loan.livestock
-        collateral = loan.collateral_text or (f"{lv.count} {lv.livestock_type}" if lv else '')
-        
+        collateral = loan.collateral_text or (
+            f"{lv.count} {lv.livestock_type}" if lv else ''
+        )
+
+        # ── Prepaid / weekly prepayment bookkeeping ────────────────────────
+        # (Only meaningful for weekly plans, but harmless to compute for others.)
         current_period = _get_current_period_key(loan)
-        raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        raw_weekly_interest = (
+            loan.current_principal * Decimal('0.30')
+        ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
         period_prepaid = Decimal('0')
         period_fully_paid = False
         if loan.interest_prepaid_period == current_period:
             period_prepaid = loan.interest_prepaid_amount or Decimal('0')
             period_fully_paid = period_prepaid >= raw_weekly_interest - Decimal('0.01')
-        
+
+        # ── Periodic & unpaid interest, plan-aware ─────────────────────────
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
             periodic_interest = float(raw_weekly_interest)
-            unpaid_interest = float(max(Decimal('0'), raw_weekly_interest - period_prepaid))
+            unpaid_interest = float(
+                max(Decimal('0'), raw_weekly_interest - period_prepaid)
+            )
         elif loan.repayment_plan == 'daily' and loan.interest_rate > 0:
-            periodic_interest = float((loan.current_principal * Decimal('0.045')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
-            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+            periodic_interest = float(
+                (loan.current_principal * Decimal('0.045')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+            )
+            unpaid_interest = float(
+                max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
+            )
         else:
+            # Waived (0%) — no interest accrues regardless of plan.
             periodic_interest = 0.0
             unpaid_interest = 0.0
-        
-        # Use the corrected week number helper
+
         week_number = _get_current_week_number(loan)
-        is_defaulter = Defaulter.query.filter_by(loan_id=loan.id, resolved=False).first() is not None
-        
+        is_defaulter = (
+            Defaulter.query
+            .filter_by(loan_id=loan.id, resolved=False)
+            .first() is not None
+        )
+
         if loan.due_date:
-            due = loan.due_date.date() if hasattr(loan.due_date, 'date') else loan.due_date
+            due = (
+                loan.due_date.date()
+                if hasattr(loan.due_date, 'date')
+                else loan.due_date
+            )
             days_left = (due - today).days
         else:
             days_left = 0
-        
-        is_waiver = (loan.interest_rate == 0 and loan.repayment_plan == 'daily')
+
+        # ── Waiver flag ────────────────────────────────────────────────────
+        # A waiver is defined SOLELY by 0% interest.
+        # The repayment_plan (weekly / daily) is preserved throughout the
+        # waiver window, so keying on `repayment_plan == 'daily'` was wrong.
+        is_waiver = (loan.interest_rate == 0)
+
         original_principal = None
-        if is_waiver and loan.parent_loan_id:
-            parent = db.session.get(Loan, loan.parent_loan_id)
-            if parent:
-                original_principal = float(parent.principal_amount)
-        
-        # ---------- NEW: collateral value + traffic-light status ----------
-        collateral_value = float(lv.estimated_value) if lv and lv.estimated_value else 0.0
+        if is_waiver:
+            if loan.parent_loan_id:
+                parent = db.session.get(Loan, loan.parent_loan_id)
+                if parent:
+                    original_principal = float(parent.principal_amount)
+            # Legacy waived rows without a parent: fall back to own principal.
+            if original_principal is None:
+                original_principal = float(loan.principal_amount)
+
+        # ── Collateral traffic-light ───────────────────────────────────────
+        collateral_value = (
+            float(lv.estimated_value) if lv and lv.estimated_value else 0.0
+        )
         collateral_status, next_period_total = _compute_collateral_status(
             loan, unpaid_interest, collateral_value
         )
-        
+
         result.setdefault(due_day, []).append({
             'id': loan.id,
-            'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
+            'disbursement_date': (
+                loan.disbursement_date.isoformat() + 'Z'
+                if loan.disbursement_date else None
+            ),
             'name': client.full_name if client else 'Unknown',
             'collateral': collateral,
-            'collateral_value': collateral_value,                 # NEW
-            'collateral_status': collateral_status,               # NEW: 'green' | 'orange' | 'red' | 'none'
-            'next_period_total': next_period_total,               # NEW
+            'collateral_value': collateral_value,
+            'collateral_status': collateral_status,
+            'next_period_total': next_period_total,
             'location': client.location if client else '',
             'id_number': client.id_number if client else '',
             'contacts': client.phone_number if client else '',
@@ -172,7 +233,10 @@ def get_recovery_data():
             'is_defaulter': is_defaulter,
             'repayment_plan': loan.repayment_plan,
             'interest_type': loan.interest_type,
-            'current_period_interest': float(raw_weekly_interest),
+            # ── Gated: 0 during waiver, real value otherwise ──────────────
+            'current_period_interest': (
+                float(raw_weekly_interest) if loan.interest_rate > 0 else 0.0
+            ),
             'period_interest_prepaid': float(period_prepaid),
             'period_interest_fully_paid': period_fully_paid,
             'interest_prepaid_period': loan.interest_prepaid_period,
@@ -183,10 +247,10 @@ def get_recovery_data():
             'is_waiver': is_waiver,
             'original_principal': original_principal,
         })
-    
+
     for day in result:
         result[day].sort(key=lambda x: x['name'])
-    
+
     return jsonify(result), 200
 
 # ---------------------------------------------------------------------------
@@ -621,8 +685,13 @@ def claim_ownership(loan_id):
 @role_required(['admin', 'director', 'secretary', 'head_of_it', 'deputy_director',
                 'client_relations_officer', 'hr_manager'])
 def renew_loan_recovery(loan_id):
+    """
+    Renew a loan from the Recovery module.
+    Mirrors admin.renew_loan() exactly — same plan handling, ledger entries,
+    collateral merge and assignment preservation.
+    """
     try:
-        from app.routes.payments import recalculate_loan
+        from app.routes.payments import recalculate_loan, _loan_summary
         from app.routes.admin import sync_client_assignments
         from app.utils.cloudinary_upload import upload_base64_image
         from datetime import datetime, timedelta
@@ -631,7 +700,7 @@ def renew_loan_recovery(loan_id):
         data = request.get_json() or {}
         new_principal         = data.get('new_principal')
         new_repayment_plan    = data.get('new_repayment_plan')
-        additional_collateral = data.get('additional_collateral')   # NEW
+        additional_collateral = data.get('additional_collateral')
 
         loan = db.session.get(Loan, loan_id)
         if not loan:
@@ -641,6 +710,7 @@ def renew_loan_recovery(loan_id):
 
         loan = recalculate_loan(loan)
 
+        # ---- Determine new principal ----
         if new_principal is not None:
             try:
                 new_principal = Decimal(str(new_principal))
@@ -675,16 +745,13 @@ def renew_loan_recovery(loan_id):
                 preserve_officer_id = old_assignment.officer_id
             db.session.flush()
 
-        # =====================================================================
-        # NEW: Merge collateral when a revaluation was requested
-        # =====================================================================
-        new_livestock_id       = loan.livestock_id
-        revaluation_summary    = None   # returned to the client + used by PDFs
+        # ---- Optional: merge additional collateral ----
+        new_livestock_id    = loan.livestock_id
+        revaluation_summary = None
 
         if additional_collateral and int(additional_collateral.get('count') or 0) > 0:
             old_lv = db.session.get(Livestock, loan.livestock_id) if loan.livestock_id else None
 
-            # Upload any newly attached photos
             uploaded_urls = []
             for img in (additional_collateral.get('images') or []):
                 try:
@@ -706,12 +773,12 @@ def renew_loan_recovery(loan_id):
                     f"{old_type}+{new_type}" if old_type and old_type != new_type
                     else (old_type or new_type)
                 )
-                old_value_combined = old_value + new_value
+                combined_total = old_value + new_value
                 combined = Livestock(
                     client_id       = loan.client_id,
                     livestock_type  = combined_type,
                     count           = old_count + new_count,
-                    estimated_value = old_value_combined,
+                    estimated_value = combined_total,
                     description     = (f"Combined collateral: {old_count} {old_type}"
                                        f" + {new_count} {new_type}"),
                     location        = additional_collateral.get('location')
@@ -722,15 +789,15 @@ def renew_loan_recovery(loan_id):
                     investor_id     = old_lv.investor_id,
                 )
                 revaluation_summary = {
-                    'previous_type':   old_type,
-                    'previous_count':  old_count,
-                    'previous_value':  float(old_value),
-                    'added_type':      new_type,
-                    'added_count':     new_count,
-                    'added_value':     float(new_value),
-                    'combined_type':   combined_type,
-                    'combined_count':  old_count + new_count,
-                    'combined_value':  float(old_value_combined),
+                    'previous_type':  old_type,
+                    'previous_count': old_count,
+                    'previous_value': float(old_value),
+                    'added_type':     new_type,
+                    'added_count':    new_count,
+                    'added_value':    float(new_value),
+                    'combined_type':  combined_type,
+                    'combined_count': old_count + new_count,
+                    'combined_value': float(combined_total),
                 }
             else:
                 combined = Livestock(
@@ -762,12 +829,15 @@ def renew_loan_recovery(loan_id):
             new_livestock_id = combined.id
 
         # ---- Mark old loan as renewed ----
-        loan.status     = 'renewed'
-        loan.balance    = Decimal('0')
+        loan.status      = 'renewed'
+        loan.balance     = Decimal('0')
         loan.amount_paid = loan.total_amount
-        loan.notes      = (loan.notes or '') + f"\nRenewed on {now.isoformat()}"
+        loan.notes = (loan.notes or '') + (
+            f"\nRenewed on {now.isoformat()} - new principal: {new_principal}"
+            + (" | Collateral revalued" if revaluation_summary else "")
+        )
 
-        # ---- New loan ----
+        # ---- Create new loan with chosen plan ----
         if new_repayment_plan == 'daily':
             interest_rate = Decimal('4.5')
             interest_type = 'simple'
@@ -779,7 +849,7 @@ def renew_loan_recovery(loan_id):
 
         new_loan = Loan(
             client_id                 = loan.client_id,
-            livestock_id              = new_livestock_id,     # ← updated
+            livestock_id              = new_livestock_id,
             principal_amount          = new_principal,
             current_principal         = new_principal,
             total_amount              = new_principal,
@@ -794,7 +864,8 @@ def renew_loan_recovery(loan_id):
             status                    = 'active',
             collateral_text           = loan.collateral_text,
             notes                     = (f"Renewal of loan #{loan.id} - "
-                                         f"new plan: {new_repayment_plan}"
+                                         f"original principal {loan.principal_amount} | "
+                                         f"Plan: {new_repayment_plan}"
                                          + (f" | Collateral revalued: "
                                             f"{revaluation_summary['combined_count']} "
                                             f"{revaluation_summary['combined_type']}"
@@ -879,14 +950,14 @@ def renew_loan_recovery(loan_id):
         sync_client_assignments()
 
         return jsonify({
-            'success':               True,
-            'message':               f'Loan renewed. New loan ID: {new_loan.id}',
-            'old_loan':              loan.to_dict(),
-            'new_loan':              new_loan.to_dict(),
-            'new_principal':         float(new_principal),
-            'new_repayment_plan':    new_repayment_plan,
-            'preserved_officer_id':  preserve_officer_id,
-            'revaluation':           revaluation_summary,   # NEW — null if none
+            'success':              True,
+            'message':              f'Loan renewed. New loan ID: {new_loan.id}',
+            'old_loan':             loan.to_dict(),
+            'new_loan':             new_loan.to_dict(),
+            'new_principal':        float(new_principal),
+            'new_repayment_plan':   new_repayment_plan,
+            'preserved_officer_id': preserve_officer_id,
+            'revaluation':          revaluation_summary,
         }), 200
 
     except Exception as e:
@@ -894,7 +965,7 @@ def renew_loan_recovery(loan_id):
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-                        
+                            
 @recovery_bp.route('/loan/<int:loan_id>/transactions', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'secretary', 'accountant', 'valuer', 'head_of_it', 'deputy_director', 'client_relations_officer', 'hr_manager'])
