@@ -262,17 +262,14 @@ const getLoanPeriod = (disbursementDate, repaymentPlan) => {
 };
 
 // ========== PAGE NUMBER FUNCTION FOR AGREEMENTS ==========
-export const addPageNumbers = (doc, format = 'page %d') => {
-  const totalPages = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
+export const addPageNumbers = (doc, format = 'Page %d of %p') => {
+  const total = doc.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
     doc.setPage(i);
-    const pageWidth = doc.internal.pageSize.width;
-    const pageHeight = doc.internal.pageSize.height;
-    doc.setFontSize(9);
-    doc.setTextColor(100, 100, 100);
-    doc.setFont('helvetica', 'normal');
-    const pageNumText = format.replace('%d', i);
-    doc.text(pageNumText, pageWidth / 2, pageHeight - 3, { align: 'center' });
+    const w = doc.internal.pageSize.width;
+    const h = doc.internal.pageSize.height;
+    doc.setFontSize(8); doc.setTextColor(120);
+    doc.text(format.replace('%d', i).replace('%p', total), w/2, h - 6, { align:'center' });
   }
 };
 
@@ -561,322 +558,447 @@ export const computeRunningBalances = (loan, transactions) => {
   };
 };
 
+// =============================================================
+// generateClientStatement — bank-grade A4 statement
+// =============================================================
 export const generateClientStatement = async (client, ledgerEntries = null) => {
   try {
+    // ── 1. fetch data ─────────────────────────────────────────
     let entries = ledgerEntries;
     if (!entries && client.loan_id) {
-      const response = await adminAPI.getConsolidatedStatement(client.loan_id);
-      entries = response.data;
+      const res = await adminAPI.getConsolidatedStatement(client.loan_id);
+      entries = res.data;
     }
-    if (!entries || entries.length === 0) {
+    if (!entries?.length) {
       showToast.warning('No ledger entries found for this loan.');
       return;
     }
 
-    // ---- FETCH LIVE LOAN DATA ----
-    let loanData = null;
+    let loan = null;
     try {
-      const loanResponse = await adminAPI.getLoan(client.loan_id);
-      loanData = loanResponse.data;
-    } catch (err) {
-      console.warn('Failed to fetch live loan data, using fallback client data.', err);
-      loanData = client;
-    }
+      const r = await adminAPI.getLoan(client.loan_id);
+      loan = r.data;
+    } catch { loan = client; }
 
-    const doc = new jsPDF();
-    addOptimizedWatermark(doc, 'statement');
-    let yPos = await addHeader(doc);
-
-    // ---- Generation date at top right ----
-    const now = new Date();
-    const genDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const genTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    doc.setFontSize(8);
-    doc.setTextColor(...COLORS.textLight);
-    doc.text(`Generated: ${genDate} ${genTime}`, 190, 20, { align: 'right' });
-
-    // ---- Title ----
-    doc.setTextColor(...COLORS.primaryBlue);
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CLIENT PAYMENT STATEMENT', 105, yPos, { align: 'center' });
-    yPos += 8;
-    yPos = addDivider(doc, yPos);
-
-    // ---- Client Information ----
-    doc.setTextColor(...COLORS.textDark);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CLIENT INFORMATION', 20, yPos);
-    yPos += 8;
-    const clientDetails = [
-      { label: 'Full Name:', value: loanData.client_name || client.name || 'N/A' },
-      { label: 'Phone Number:', value: client.phone || 'N/A' },
-      { label: 'ID Number:', value: String(client.idNumber || 'N/A') },
-      { label: 'Loan ID:', value: String(client.loan_id || 'N/A') }
-    ];
-    clientDetails.forEach(({ label, value }) => {
-      doc.setFont('helvetica', 'bold');
-      doc.text(label, 25, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(value), 60, yPos);
-      yPos += 6;
-    });
-    yPos += 10;
-
-    // ---- Loan Summary (using live loanData) ----
-    const currentPrincipal = loanData.current_principal || 0;
-    const originalLoanAmount = loanData.principal_amount || currentPrincipal; // <-- FIXED: use current loan's principal
-    const repaymentPlan = loanData.repayment_plan || 'weekly';
-    const interestRate = loanData.interest_rate || (repaymentPlan === 'daily' ? 4.5 : 30);
-    const amountPaid = loanData.amount_paid || 0;
-
-    // Compute outstanding interest correctly
-    let outstandingInterest = 0;
-    if (repaymentPlan === 'weekly' && loanData.interest_rate > 0) {
-      const periodInterest = loanData.current_period_interest || 0;
-      const periodPrepaid = loanData.period_interest_prepaid || 0;
-      const fullyPaid = loanData.period_interest_fully_paid || false;
-      if (!fullyPaid) {
-        outstandingInterest = Math.max(0, periodInterest - periodPrepaid);
-      }
-    } else {
-      // daily or zero interest
-      outstandingInterest = Math.max(0, (loanData.accrued_interest || 0) - (loanData.interest_paid || 0));
-    }
-
-    const outstandingPrincipal = currentPrincipal;
-    const totalOutstanding = outstandingPrincipal + outstandingInterest;
-
-    // ---- Compute status ----
-    let statusText = '';
-    if (loanData.interest_rate === 0 && loanData.repayment_plan === 'daily') {
-      statusText = 'Waived';
-    } else {
-      const overdueDays = loanData.overdue_days || 0;
-      const overdueWeeks = loanData.overdue_weeks || 0;
-      const daysLeft = loanData.days_left !== undefined ? loanData.days_left : null;
-
-      if (overdueWeeks > 0) {
-        statusText = `${overdueWeeks} week${overdueWeeks > 1 ? 's' : ''} overdue`;
-      } else if (overdueDays > 0) {
-        statusText = `${overdueDays} day${overdueDays > 1 ? 's' : ''} overdue`;
-      } else if (daysLeft === 0) {
-        statusText = 'Due Today';
-      } else if (daysLeft > 0) {
-        statusText = `${daysLeft} day${daysLeft > 1 ? 's' : ''} remaining`;
-      } else {
-        statusText = 'N/A';
-      }
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('LOAN SUMMARY', 20, yPos);
-    yPos += 8;
-    const loanDetails = [
-      { label: 'Original Loan Amount:', value: `KES ${originalLoanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Principal Amount:', value: `KES ${currentPrincipal.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-      { label: 'Interest Rate:', value: `${interestRate}% per ${repaymentPlan === 'daily' ? 'day' : 'week'}` },
-      { label: 'Amount Paid:', value: `KES ${amountPaid.toLocaleString()}` },
-      { label: 'Outstanding Principal:', value: `KES ${outstandingPrincipal.toLocaleString()}` },
-      { label: 'Outstanding Interest:', value: `KES ${outstandingInterest.toLocaleString()}` },
-      { label: 'Total Outstanding Balance:', value: `KES ${totalOutstanding.toLocaleString()}` },
-      { label: 'Disbursement Date:', value: loanData.disbursement_date ? new Date(loanData.disbursement_date).toLocaleDateString('en-GB') : 'N/A' },
-      { label: 'Due Date:', value: loanData.due_date ? new Date(loanData.due_date).toLocaleDateString('en-GB') : 'N/A' },
-      { label: 'Status:', value: statusText }
-    ];
-    loanDetails.forEach(({ label, value }) => {
-      doc.setFont('helvetica', 'bold');
-      doc.text(label, 25, yPos);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(value), 75, yPos);
-      yPos += 6;
-    });
-    yPos += 15;
-
-    // ---- Transaction History (uses entries) ----
-    if (entries.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.text('TRANSACTION HISTORY', 20, yPos);
-      yPos += 10;
-
-      const pageWidth = doc.internal.pageSize.width;
-      const margin = 20;
-      const usableWidth = pageWidth - 2 * margin;
-      const colWidths = {
-        date: 0.10 * usableWidth,
-        type: 0.18 * usableWidth,
-        method: 0.12 * usableWidth,
-        amount: 0.15 * usableWidth,
-        principal: 0.15 * usableWidth,
-        interest: 0.15 * usableWidth,
-        total: 0.15 * usableWidth,
-        period: 0.10 * usableWidth
-      };
-      const totalColWidth = Object.values(colWidths).reduce((a,b) => a+b, 0);
-      const scale = usableWidth / totalColWidth;
-      for (let k in colWidths) colWidths[k] *= scale;
-
-      const startX = margin;
-      const positions = [
-        startX,
-        startX + colWidths.date,
-        startX + colWidths.date + colWidths.type,
-        startX + colWidths.date + colWidths.type + colWidths.method,
-        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount,
-        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount + colWidths.principal,
-        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount + colWidths.principal + colWidths.interest,
-        startX + colWidths.date + colWidths.type + colWidths.method + colWidths.amount + colWidths.principal + colWidths.interest + colWidths.total
-      ];
-
-      // Header
-      doc.setFillColor(...COLORS.primaryBlue);
-      doc.setTextColor(...COLORS.white);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.rect(startX, yPos, usableWidth, 8, 'F');
-      const headers = ['Date', 'Type', 'Method', 'Amount', 'Principal', 'Interest', 'Total', 'Period'];
-      headers.forEach((h, idx) => {
-        doc.text(h, positions[idx] + 2, yPos + 5.5);
+    // ── 2. filter out adjustments, then deterministic ordering ──
+    entries = [...entries]
+      .filter(e => (e.type || '').toLowerCase() !== 'adjustment')
+      .sort((a, b) => {
+        const d = new Date(a.date) - new Date(b.date);
+        if (d) return d;
+        return (a.sequence || 0) - (b.sequence || 0);
       });
-      yPos += 8;
 
-      doc.setTextColor(...COLORS.textDark);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+    // ── 3. document + page setup ─────────────────────────────
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+    addOptimizedWatermark(doc, 'statement');
 
-      const sortedEntries = [...entries].filter(e => (e.type || '').toLowerCase() !== 'adjustment').sort((a, b) => new Date(a.date) - new Date(b.date));
-      for (let idx = 0; idx < sortedEntries.length; idx++) {
-        const entry = sortedEntries[idx];
-        const rowHeight = 7;
-        if (yPos + rowHeight > 270) {
-          doc.addPage();
-          addWatermarkToCurrentPage(doc, 'statement');
-          yPos = 20;
-          // Re-draw header
-          doc.setFillColor(...COLORS.primaryBlue);
-          doc.setTextColor(...COLORS.white);
-          doc.rect(startX, yPos, usableWidth, 8, 'F');
-          headers.forEach((h, hidx) => {
-            doc.text(h, positions[hidx] + 2, yPos + 5.5);
-          });
-          yPos += 8;
-          doc.setTextColor(...COLORS.textDark);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-        }
+    const PAGE = { w: 210, h: 297 };
+    const M    = { left: 12, right: 12, top: 16, bottom: 18 };
+    const TABLE_W = PAGE.w - M.left - M.right;   // 186 mm
 
-        if (idx % 2 === 0) {
-          doc.setFillColor(...COLORS.border);
-          doc.rect(startX, yPos, usableWidth, rowHeight, 'F');
-        }
+    // ── 4. letterhead (page 1 only) ──────────────────────────
+    let y = await drawStatementHeader(doc, loan, client);
 
-        const formatMoney = (amt) => `KES ${Number(amt).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-        const eventDate = new Date(entry.date);
-        doc.text(eventDate.toLocaleDateString('en-GB'), positions[0] + 2, yPos + 4.5);
+    // ── 5. client + loan summary card ────────────────────────
+    y = drawClientLoanCard(doc, loan, client, y);
 
-        // ---- Type ----
-        let displayType = '';
-        const eventType = entry.type;
-        const txn = entry.transaction;
-        if (eventType === 'disbursement') displayType = 'Disbursement';
-        else if (eventType === 'payment') {
-          if (txn && txn.payment_type === 'principal') displayType = 'Principal Payment';
-          else if (txn && txn.payment_type === 'interest') displayType = 'Interest Payment';
-          else displayType = 'Payment';
-        } else if (eventType === 'waiver') displayType = 'Waiver';
-        else if (eventType === 'claimed') displayType = 'Claim';
-        else if (eventType === 'renewal_merged') displayType = 'Renewal (Old Loan)';
-        else if (eventType === 'renewal_created') displayType = 'Renewal (New Loan)';
-        else if (eventType === 'adjustment') displayType = 'Adjustment';
-        else if (eventType === 'accrual') displayType = 'Interest Accrual';
-        else if (eventType === 'compound_interest') displayType = 'Compound Interest';
-        else displayType = eventType.charAt(0).toUpperCase() + eventType.slice(1);
-        doc.text(displayType, positions[1] + 2, yPos + 4.5);
+    // ── 6. running-balance table ─────────────────────────────
+    y = drawTransactionTable(doc, entries, y, M, TABLE_W);
 
-        // ---- Method ----
-        let method = '';
-        let reference = '';
-        if (txn) {
-          method = txn.payment_method ? txn.payment_method.toUpperCase() : '';
-          if (method === 'MPESA' && txn.mpesa_receipt) reference = txn.mpesa_receipt;
-          else if (method === 'CASH') reference = 'CASH';
-          else if (eventType === 'disbursement') { method = 'BANK'; reference = 'BANK'; }
-        }
-        if (!method) {
-          if (entry.reference) {
-            const refUpper = entry.reference.toUpperCase();
-            if (refUpper === 'BANK' || refUpper === 'AUTO' || refUpper === 'COMPOUND') {
-              method = refUpper;
-              reference = refUpper;
-            } else {
-              method = 'AUTO';
-              reference = 'AUTO';
-            }
-          } else {
-            method = 'AUTO';
-            reference = 'AUTO';
-          }
-        }
+    // ── 7. summary + notes + payment instructions ────────────
+    y = drawStatementFooter(doc, loan, entries, y, PAGE, M);
 
-        // Color for method
-        let methodColor = COLORS.textDark;
-        if (method === 'BANK') methodColor = COLORS.primaryBlue;
-        else if (method === 'MPESA') methodColor = COLORS.green;
-        else if (method === 'CASH') methodColor = COLORS.textDark;
-        else methodColor = COLORS.textDark;
-        doc.setTextColor(...methodColor);
-        doc.text(method, positions[2] + 2, yPos + 4.5);
-        if (method === 'MPESA' && reference) {
-          doc.setFontSize(6);
-          doc.setTextColor(...COLORS.green);
-          doc.text(reference, positions[2] + 2, yPos + 6.5);
-          doc.setFontSize(8);
-        }
-        doc.setTextColor(...COLORS.textDark);
-
-        // Amount
-        doc.text(formatMoney(entry.amount), positions[3] + 2, yPos + 4.5);
-        // Principal Balance
-        doc.text(formatMoney(entry.principalBalance), positions[4] + 2, yPos + 4.5);
-        // Interest Balance (now correctly computed by backend)
-        doc.text(formatMoney(entry.interestBalance), positions[5] + 2, yPos + 4.5);
-        // Total
-        doc.text(formatMoney(entry.totalOutstanding), positions[6] + 2, yPos + 4.5);
-
-        // ---- Period ----
-        let periodText = '';
-        if (entry.loan_disbursement_date) {
-          const loanDisbursement = new Date(entry.loan_disbursement_date);
-          const daysSince = Math.floor((eventDate - loanDisbursement) / (1000 * 60 * 60 * 24));
-          if (repaymentPlan === 'daily') {
-            periodText = `d${daysSince + 1}`;
-          } else {
-            const weekNum = Math.floor(daysSince / 7) + 1;
-            periodText = `wk ${weekNum}`;
-          }
-        }
-        doc.text(periodText, positions[7] + 2, yPos + 4.5);
-
-        yPos += rowHeight;
-      }
-    } else {
-      doc.setFont('helvetica', 'italic');
-      doc.setTextColor(...COLORS.textLight);
-      doc.text('No transactions recorded yet.', 25, yPos);
-      yPos += 10;
-    }
-
-    addFooter(doc, yPos);
-    addPageNumbers(doc, 'page %d');
-
-    const fileName = `Statement_${loanData.client_name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
-    doc.save(fileName);
-  } catch (error) {
-    console.error('Error generating client statement:', error);
+    addPageNumbers(doc, 'Page %d of %p');
+    const name = (loan.client_name || loan.name || 'Client').replace(/\s+/g, '_');
+    doc.save(`Nagolie_Statement_${name}_${new Date().toISOString().slice(0,10)}.pdf`);
+  } catch (err) {
+    console.error('Statement error:', err);
     showToast.error('Failed to generate statement');
   }
 };
+
+async function drawStatementHeader(doc, loan, client) {
+  const logo = await (async () => {
+    try { return await getLogoBase64(COMPANY_INFO.logoUrl); } catch { return null; }
+  })();
+  if (logo) {
+    doc.setFillColor(255,255,255);
+    doc.rect(12, 10, 26, 26, 'F');
+    doc.addImage(logo, 'PNG', 12, 10, 26, 26);
+  }
+  const x = logo ? 44 : 12;
+  doc.setFont('helvetica','bold'); doc.setFontSize(15);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text(COMPANY_INFO.name, x, 17);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(...COLORS.textLight);
+  doc.text(COMPANY_INFO.tagline, x, 21);
+  doc.text(`${COMPANY_INFO.address}  •  ${COMPANY_INFO.phone1}`, x, 25);
+  doc.text(`${COMPANY_INFO.email}  •  ${COMPANY_INFO.poBox}`, x, 29);
+
+  doc.setDrawColor(...COLORS.primaryBlue); doc.setLineWidth(0.6);
+  doc.line(12, 36, 198, 36);
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('OFFICIAL LOAN STATEMENT', PAGE_CENTER(), 44, { align: 'center' });
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  doc.setTextColor(...COLORS.textLight);
+  const now = new Date();
+  doc.text(
+    `Issued: ${now.toLocaleDateString('en-GB')} ${now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`,
+    198, 44, { align: 'right' }
+  );
+  return 52;
+}
+
+const PAGE_CENTER = () => 105;
+
+function drawClientLoanCard(doc, loan, client, yStart) {
+  const interestRate  = Number(loan.interest_rate ?? 0);
+  const plan          = loan.repayment_plan || 'weekly';
+  const rateLabel     =
+    interestRate === 0 ? 'Waived (0%)'
+    : plan === 'daily' ? `${interestRate}% per day`
+                       : `${interestRate}% per week`;
+
+  const original    = Number(loan.principal_amount ?? 0);
+  const currentPrin = Number(loan.current_principal ?? 0);
+  const amountPaid  = Number(loan.amount_paid ?? 0);
+
+  let outstandingInt = 0;
+  if (plan === 'weekly' && interestRate > 0) {
+    outstandingInt = Math.max(
+      0,
+      Number(loan.current_period_interest ?? 0) -
+      Number(loan.period_interest_prepaid ?? 0)
+    );
+  } else if (interestRate > 0) {
+    outstandingInt = Math.max(
+      0, Number(loan.accrued_interest ?? 0) - Number(loan.interest_paid ?? 0)
+    );
+  }
+  const totalOut = currentPrin + outstandingInt;
+
+  const cardH = 46;
+
+  box(doc, 12, yStart, 92, cardH);
+  heading(doc, 'CLIENT INFORMATION', 16, yStart + 7);
+  kv(doc, 'Client Name',    loan.client_name || loan.name || 'N/A', 16, yStart + 14);
+  kv(doc, 'Client ID',      String(loan.id_number || client.idNumber || 'N/A'), 16, yStart + 20);
+  kv(doc, 'Phone',          client.phone || loan.contacts || 'N/A', 16, yStart + 26);
+  kv(doc, 'Loan ID',        String(loan.id || client.loan_id || 'N/A'), 16, yStart + 32);
+  kv(doc, 'Disbursed On',   fmtDateLong(loan.disbursement_date), 16, yStart + 38);
+
+  box(doc, 106, yStart, 92, cardH);
+  heading(doc, 'LOAN DETAILS', 110, yStart + 7);
+  kv(doc, 'Original Amount',  money(original),     110, yStart + 14);
+  kv(doc, 'Interest Rate',    rateLabel,           110, yStart + 20);
+  kv(doc, 'Amount Paid',      money(amountPaid),   110, yStart + 26);
+  kv(doc, 'Outstanding Prin.', money(currentPrin), 110, yStart + 32);
+  kv(doc, 'Outstanding Int.',  money(outstandingInt), 110, yStart + 38);
+
+  const stripY = yStart + cardH + 3;
+  doc.setFillColor(...COLORS.primaryBlue);
+  doc.rect(12, stripY, 186, 9, 'F');
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.text('TOTAL OUTSTANDING BALANCE', 16, stripY + 6);
+  doc.text(money(totalOut), 194, stripY + 6, { align: 'right' });
+
+  return stripY + 14;
+}
+
+function box(doc,x,y,w,h){
+  doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.2);
+  doc.setFillColor(252,253,255);
+  doc.roundedRect(x, y, w, h, 1.5, 1.5, 'FD');
+}
+function heading(doc,text,x,y){
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text(text, x, y);
+}
+function kv(doc,label,value,x,y){
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(...COLORS.textLight);
+  doc.text(label, x, y);
+  doc.setFont('helvetica','bold');
+  doc.setTextColor(...COLORS.textDark);
+  doc.text(String(value), x + 34, y);
+}
+function money(v){
+  return `KES ${Number(v||0).toLocaleString('en-KE',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+}
+function fmtDateLong(d){
+  if(!d) return 'N/A';
+  const dt = new Date(d);
+  if(isNaN(dt)) return 'N/A';
+  return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+}
+
+// =============================================================
+// Transaction table
+// -------------------------------------------------------------
+// Only Type, Method and Period can wrap onto a second line.
+// Amount / Principal / Interest / Total are rendered single-line
+// with right alignment — a value like KES 13,500.00 never splits.
+// Numeric columns are widened (26 mm each) so the worst-case
+// amount (tens of millions with decimals) still fits on one line.
+// =============================================================
+function drawTransactionTable(doc, rows, yStart, M, W) {
+  const columns = [
+    { key:'date',      label:'Date',       w: 14, align:'left'  },
+    { key:'type',      label:'Type',       w: 24, align:'left'  },
+    { key:'method',    label:'Method',     w: 24, align:'left'  },
+    { key:'amount',    label:'Amount',     w: 26, align:'right' },
+    { key:'principal', label:'Principal',  w: 26, align:'right' },
+    { key:'interest',  label:'Interest',   w: 26, align:'right' },
+    { key:'total',     label:'Total',      w: 26, align:'right' },
+    { key:'period',    label:'Period',     w: 20, align:'right' },
+  ];
+  // 14+24+24+26+26+26+26+20 = 186 mm exactly
+
+  // Guarantee widths sum exactly to W (defensive — already 186)
+  const sum   = columns.reduce((a,c)=>a+c.w,0);
+  const scale = W / sum;
+  columns.forEach(c => c.w *= scale);
+
+  const headerH = 7.5;
+  const lineH   = 3.6;   // mm per wrapped text line
+  const rowPadY = 1.4;   // top/bottom padding inside a row
+  const minRowH = 6.4;   // single-line row height
+
+  // Precompute column x-offsets
+  const xCols = [];
+  let cursor = M.left;
+  columns.forEach(c => { xCols.push(cursor); cursor += c.w; });
+
+  // ── Blue header bar ────────────────────────────────────────
+  const drawHeader = (y) => {
+    doc.setFillColor(...COLORS.primaryBlue);
+    doc.rect(M.left, y, W, headerH, 'F');
+    doc.setTextColor(...COLORS.white);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+    columns.forEach((c, i) => {
+      const tx = c.align === 'right'
+        ? xCols[i] + c.w - 2
+        : xCols[i] + 2;
+      doc.text(c.label, tx, y + 5, {
+        align: c.align === 'right' ? 'right' : 'left',
+      });
+    });
+    return y + headerH;
+  };
+
+  // ── Wrapping cell (Type / Method / Period only) ───────────
+  const drawWrappingCell = (text, colIdx, rowTopY) => {
+    const col  = columns[colIdx];
+    const padX = 2;
+    const maxW = col.w - padX * 2;
+    const lines = doc.splitTextToSize(String(text ?? ''), maxW);
+    lines.forEach((ln, i) => {
+      const tx = col.align === 'right'
+        ? xCols[colIdx] + col.w - padX
+        : xCols[colIdx] + padX;
+      doc.text(ln, tx, rowTopY + rowPadY + lineH * (i + 0.7), {
+        align: col.align === 'right' ? 'right' : 'left',
+      });
+    });
+  };
+
+  // ── Single-line cell (numeric columns) ────────────────────
+  const drawSingleLineCell = (text, colIdx, rowTopY) => {
+    const col  = columns[colIdx];
+    const padX = 2;
+    const tx = col.align === 'right'
+      ? xCols[colIdx] + col.w - padX
+      : xCols[colIdx] + padX;
+    doc.text(String(text ?? ''), tx, rowTopY + rowPadY + lineH * 0.7, {
+      align: col.align === 'right' ? 'right' : 'left',
+    });
+  };
+
+  // ── Paint table ────────────────────────────────────────────
+  let y = drawHeader(yStart);
+
+  for (let i = 0; i < rows.length; i++) {
+    const r      = rows[i];
+    const t      = r.transaction || {};
+    const label  = mapEventLabel(r.type, t.payment_type);
+    const method = mapEventMethod(r, t);
+    const period = r.period || '—';
+
+    // ── Row height = tallest wrapping cell ───────────────────
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    const typeLines   = doc.splitTextToSize(label,  columns[1].w - 4).length;
+    const methodLines = doc.splitTextToSize(method, columns[2].w - 4).length;
+    const periodLines = doc.splitTextToSize(period, columns[7].w - 4).length;
+    const linesNeeded = Math.max(typeLines, methodLines, periodLines, 1);
+    const rowH        = Math.max(minRowH, rowPadY * 2 + linesNeeded * lineH + 1.0);
+
+    // ── Page break decided BEFORE drawing — no split rows ────
+    if (y + rowH > 297 - M.bottom - 22) {
+      drawSubtotalBanner(doc, y, M.left, W);
+      doc.addPage();
+      addWatermarkToCurrentPage(doc, 'statement');
+      y = M.top;
+      y = drawHeader(y);
+    }
+
+    // ── Zebra stripe ─────────────────────────────────────────
+    if (i % 2 === 0) {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(M.left, y, W, rowH, 'F');
+    }
+
+    // ── Bottom separator ─────────────────────────────────────
+    doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.1);
+    doc.line(M.left, y + rowH, M.left + W, y + rowH);
+
+    // ── Emit every cell ──────────────────────────────────────
+    doc.setFont('helvetica', r.type === 'compound_interest' ? 'bold' : 'normal');
+    doc.setFontSize(8);
+
+    // Date  — short, single line
+    doc.setTextColor(...COLORS.textDark);
+    drawSingleLineCell(fmtDateShort(r.date), 0, y);
+
+    // Type  — wraps if long
+    doc.setTextColor(...typeColor(r.type));
+    drawWrappingCell(label, 1, y);
+
+    // Method  — wraps if long
+    doc.setTextColor(...methodColor(method));
+    drawWrappingCell(method, 2, y);
+
+    // Numeric columns — single line, right-aligned
+    doc.setTextColor(...COLORS.textDark);
+    drawSingleLineCell(money(r.amount), 3, y);
+    drawSingleLineCell(money(r.principalBalance), 4, y);
+    drawSingleLineCell(money(r.interestBalance), 5, y);
+
+    // Total — highlighted blue
+    doc.setTextColor(...COLORS.primaryBlue);
+    drawSingleLineCell(money(r.totalOutstanding), 6, y);
+
+    // Period  — wraps if long
+    doc.setTextColor(...COLORS.textLight);
+    drawWrappingCell(period, 7, y);
+
+    y += rowH;
+  }
+
+  drawSubtotalBanner(doc, y, M.left, W);
+
+  return y + 4;
+}
+
+function drawSubtotalBanner(doc, y, x, w) {
+  doc.setFillColor(240, 244, 250);
+  doc.rect(x, y, w, 5.5, 'F');
+  doc.setFont('helvetica','italic'); doc.setFontSize(7);
+  doc.setTextColor(...COLORS.textLight);
+  doc.text('continued…', x + w - 2, y + 4, { align:'right' });
+}
+
+function fmtDateShort(d){
+  if(!d) return '—';
+  const dt = new Date(d);
+  if(isNaN(dt)) return '—';
+  return dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'});
+}
+function mapEventLabel(type, payType){
+  const t = (type||'').toLowerCase();
+  if (t === 'disbursement')     return 'Disbursement';
+  if (t === 'payment')          return payType === 'principal' ? 'Principal Payment'
+                                     : payType === 'interest' ? 'Interest Payment'
+                                     : 'Payment';
+  if (t === 'accrual')          return 'Interest Accrual';
+  if (t === 'compound_interest')return 'Compounded';
+  if (t === 'waiver')           return 'Waiver (Old Loan)';
+  if (t === 'waiver_created')   return 'Waiver (New Loan)';
+  if (t === 'renewal_merged')   return 'Renewal (Old Loan)';
+  if (t === 'renewal_created')  return 'Renewal (New Loan)';
+  if (t === 'claimed')          return 'Livestock Claimed';
+  if (t === 'adjustment')       return 'Adjustment';
+  return (type||'').replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
+}
+function mapEventMethod(row, t){
+  const m = (t.payment_method || row.reference || '').toLowerCase();
+  if (row.type === 'disbursement') return 'BANK';
+  if (m.includes('mpesa'))         return 'M-PESA';
+  if (m.includes('cash'))          return 'CASH';
+  if (m.includes('bank'))          return 'BANK';
+  if (row.type === 'accrual' || row.type === 'compound_interest') return 'AUTO';
+  if (row.type === 'waiver' || row.type === 'adjustment') return '—';
+  return (m || 'AUTO').toUpperCase();
+}
+function typeColor(type){
+  const t=(type||'').toLowerCase();
+  if (t === 'disbursement')      return COLORS.primaryBlue;
+  if (t === 'payment')           return [17,140,79];
+  if (t === 'compound_interest') return [180, 95, 6];
+  if (t === 'waiver' || t === 'waiver_created') return [180, 95, 6];
+  if (t === 'renewal_merged' || t === 'renewal_created') return [122, 62, 174];
+  return COLORS.textDark;
+}
+function methodColor(m){
+  if (m === 'M-PESA') return [17,140,79];
+  if (m === 'BANK')   return COLORS.primaryBlue;
+  if (m === 'AUTO')   return COLORS.textLight;
+  return COLORS.textDark;
+}
+
+function drawStatementFooter(doc, loan, entries, yStart, PAGE, M) {
+  const last = entries[entries.length - 1] || {};
+  const currentPrincipal = Number(last.principalBalance ?? loan.current_principal ?? 0);
+  const currentInterest  = Number(last.interestBalance  ?? 0);
+  const totalOutstanding = currentPrincipal + currentInterest;
+
+  if (yStart > PAGE.h - 80) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'statement');
+    yStart = M.top;
+  }
+
+  const cardY = yStart + 4;
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(M.left, cardY, 186, 30, 1.5, 1.5, 'F');
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('ACCOUNT RECONCILIATION', M.left + 4, cardY + 6);
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(...COLORS.textDark);
+  const recon = [
+    ['Outstanding Principal', currentPrincipal],
+    ['Outstanding Interest',  currentInterest],
+    ['Total Outstanding',     totalOutstanding],
+  ];
+  recon.forEach((r, i) => {
+    const yy = cardY + 12 + i * 5;
+    doc.setFont('helvetica', i === 2 ? 'bold' : 'normal');
+    doc.setTextColor(i === 2 ? COLORS.primaryBlue[0] : COLORS.textDark[0],
+                     i === 2 ? COLORS.primaryBlue[1] : COLORS.textDark[1],
+                     i === 2 ? COLORS.primaryBlue[2] : COLORS.textDark[2]);
+    doc.text(r[0], M.left + 6, yy);
+    doc.text(money(r[1]), M.left + 178, yy, { align: 'right' });
+  });
+
+  const payY = cardY + 38;
+  doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.setTextColor(...COLORS.primaryBlue);
+  doc.text('HOW TO PAY', M.left, payY);
+  doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+  doc.setTextColor(...COLORS.textDark);
+  doc.text('M-Pesa  •  Paybill 247247  •  Account 262636', M.left, payY + 5);
+  doc.text('Account Name: NAGOLIE ENTERPRISES LTD', M.left, payY + 10);
+
+}
 
 // Generate Transaction Receipt PDF
 export const generateTransactionReceipt = async (transaction) => {
@@ -8564,102 +8686,272 @@ export const generateManualOathOfSecrecyPDF = async () => {
   }
 };
 
-// ========== FINANCIAL REPORT PDF ==========
-export const generateFinancialReportPDF = async (reportData, periodLabel, chartImageData, type = 'loan', preview = false) => {
+// ============================================================================
+// FINANCIAL REPORT PDF  (loan + company, preview + download)
+// ============================================================================
+export const generateFinancialReportPDF = async (
+  reportData,
+  periodLabel,
+  chartImages = [],       // array of { data, width, height }
+  type = 'loan',
+  preview = false
+) => {
   const doc = new jsPDF();
   addOptimizedWatermark(doc, 'report');
-  let yPos = await addHeader(doc, 15);
 
-  // Title
+  let yPos = await addHeader(doc, 15);
+  const pageHeight = doc.internal.pageSize.height;
+  const pageWidth  = doc.internal.pageSize.width;
+
+  const safeAddPage = () => {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'report');
+    return 20;
+  };
+
+  // ---------- Title ----------
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
-  const title = type === 'loan' ? 'LOAN FINANCIAL REPORT' : 'COMPANY FINANCIAL REPORT';
+  const title =
+    type === 'loan' ? 'LOAN FINANCIAL REPORT' : 'COMPANY FINANCIAL REPORT';
   doc.text(title, 105, yPos, { align: 'center' });
   yPos += 8;
   yPos = addDivider(doc, yPos);
   yPos += 6;
 
-  // Period
+  // ---------- Period + generated timestamp ----------
   doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.textDark);
-  doc.text(`Period: ${periodLabel}`, 105, yPos, { align: 'center' });
+  const label = periodLabel || reportData?.period?.label || 'N/A';
+  doc.text(`Period: ${label}`, 105, yPos, { align: 'center' });
+  yPos += 4;
+  doc.setFontSize(8);
+  doc.setTextColor(...COLORS.textLight);
+  doc.text(
+    `Generated: ${new Date().toLocaleDateString('en-GB')} at ${new Date().toLocaleTimeString(
+      'en-GB',
+      { hour: '2-digit', minute: '2-digit' }
+    )}`,
+    105,
+    yPos,
+    { align: 'center' }
+  );
   yPos += 10;
+  doc.setTextColor(...COLORS.textDark);
 
-  // Summary table
-  let rows = [];
-  if (type === 'loan') {
-    rows = [
-      ['Total Money Lent', formatCurrency(reportData.total_money_lent)],
-      ['Principal Collected', formatCurrency(reportData.principal_collected)],
-      ['Interest Collected', formatCurrency(reportData.interest_collected)],
-      ['Outstanding Principal', formatCurrency(reportData.outstanding_principal)],
-      ['Outstanding Interest', formatCurrency(reportData.outstanding_interest)],
-      ['Loan Recovery Rate', `${reportData.loan_recovery_rate.toFixed(2)}%`],
-      ['Total Claimed Amount', formatCurrency(reportData.total_claimed_amount)],
-      ['Total Recovered Value', formatCurrency(reportData.total_recovered_value)],
-      ['Claims Profit/Loss', formatCurrency(reportData.claims_profit_loss)],
-      ['Total Waived Amount', formatCurrency(reportData.total_waived_amount)],
-      ['Total Bad Debt', formatCurrency(reportData.total_bad_debt)],   // ← NEW
-    ];
-  } else {
-    rows = [
-      ['Total Money In', formatCurrency(reportData.money_in.total)],
-      ['Total Money Out', formatCurrency(reportData.money_out.total)],
-      ['Revenue (In - Out)', formatCurrency(reportData.revenue)],
-    ];
-  }
+  // ---------- Chart renderer ----------
+  const renderChartSection = (image, heading, y) => {
+    if (!image || !image.data) return y;
 
-  autoTable(doc, {
-    startY: yPos,
-    head: [['Metric', 'Value']],
-    body: rows,
-    theme: 'striped',
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: COLORS.primaryBlue, textColor: 255 },
-  });
+    // Use nearly the whole printable width (A4 = 210mm, 15mm side margins)
+    const imgWidth = 180;
 
-  // Get the Y position after the table
-  const tableEndY = doc.lastAutoTable.finalY + 5;
+    // Reserve the heading line (6mm) + 6mm breathing room below
+    const headingHeight = 8;
 
-  // Chart image
-  let finalY = tableEndY;
-  if (chartImageData) {
-    const pageHeight = doc.internal.pageSize.height;
-    // Reserve 30mm for footer at the bottom
-    const maxAvailableHeight = pageHeight - tableEndY - 30;
-    const imgWidth = 170;
-    let imgHeight = (chartImageData.height / chartImageData.width) * imgWidth;
+    // Grow the chart to fill whatever room is left on this page,
+    // but never exceed 180mm wide (page width minus margins).
+    const bottomMargin = 25;   // footer + page-number buffer
+    const availableHeight = pageHeight - y - headingHeight - bottomMargin;
 
-    // If chart is too tall, scale it down to fit
-    if (imgHeight > maxAvailableHeight) {
-      const ratio = maxAvailableHeight / imgHeight;
-      imgHeight = maxAvailableHeight;
-      const scaledWidth = imgWidth * ratio;
-      doc.addImage(chartImageData.data, 'PNG', (210 - scaledWidth) / 2, tableEndY, scaledWidth, imgHeight);
-      finalY = tableEndY + imgHeight;
-    } else {
-      doc.addImage(chartImageData.data, 'PNG', 20, tableEndY, imgWidth, imgHeight);
-      finalY = tableEndY + imgHeight;
+    // Start with the image's natural aspect ratio at 180mm wide
+    let imgHeight = (image.height / image.width) * imgWidth;
+    let renderedWidth = imgWidth;
+
+    // Only shrink if the natural size would overflow the remaining space
+    if (imgHeight > availableHeight) {
+      const ratio = availableHeight / imgHeight;
+      imgHeight = availableHeight;
+      renderedWidth = imgWidth * ratio;
     }
+
+    // If the resulting height is really small (< 90mm),
+    // start a fresh page and try again — the chart deserves its own space.
+    if (imgHeight < 90) {
+      y = safeAddPage();
+      const availOnNewPage = pageHeight - y - headingHeight - bottomMargin;
+      let h = (image.height / image.width) * imgWidth;
+      let w = imgWidth;
+      if (h > availOnNewPage) {
+        const r = availOnNewPage / h;
+        h = availOnNewPage;
+        w = imgWidth * r;
+      }
+      imgHeight = h;
+      renderedWidth = w;
+    }
+
+    // Heading
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text(heading, 20, y);
+    y += headingHeight;
+    doc.setTextColor(...COLORS.textDark);
+
+    // Centered, full-width chart
+    const imgX = (pageWidth - renderedWidth) / 2;
+    doc.addImage(image.data, 'PNG', imgX, y, renderedWidth, imgHeight);
+    return y + imgHeight + 12;
+  };
+
+  // ==========================================================================
+  // LOAN REPORT
+  // ==========================================================================
+  if (type === 'loan') {
+    const rows = [
+      ['Total Money Lent',        formatCurrency(reportData.total_money_lent)],
+      ['Principal Collected',     formatCurrency(reportData.principal_collected)],
+      ['Interest Collected',      formatCurrency(reportData.interest_collected)],
+      ['Outstanding Principal',   formatCurrency(reportData.outstanding_principal)],
+      ['Outstanding Interest',    formatCurrency(reportData.outstanding_interest)],
+      ['Loan Recovery Rate',      `${Number(reportData.loan_recovery_rate || 0).toFixed(2)}%`],
+      ['Total Claimed Amount',    formatCurrency(reportData.total_claimed_amount)],
+      ['Total Recovered Value',   formatCurrency(reportData.total_recovered_value)],
+      ['Claims Profit/Loss',      formatCurrency(reportData.claims_profit_loss)],
+      ['Total Waived Amount',     formatCurrency(reportData.total_waived_amount)],
+      ['Total Bad Debt',          formatCurrency(reportData.total_bad_debt)],
+    ];
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Metric', 'Value']],
+      body: rows,
+      theme: 'striped',
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: COLORS.primaryBlue, textColor: 255, fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: 70, halign: 'right' } },
+    });
+    yPos = doc.lastAutoTable.finalY + 8;
+
+    // Loan metrics chart
+    yPos = renderChartSection(chartImages[0], 'Loan Metrics Chart', yPos);
+  }
+  // ==========================================================================
+  // COMPANY REPORT
+  // ==========================================================================
+  else {
+    const mi = reportData.money_in  || {};
+    const mo = reportData.money_out || {};
+
+    const totalIn  = Number(mi.total || 0);
+    const totalOut = Number(mo.total || 0);
+    const net      = Number(reportData.net_cash_flow ?? totalIn - totalOut);
+    const pl       = Number(reportData.profit_loss   ?? 0);
+
+    // ---- 1. Financial Summary ----
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Financial Summary', 'Amount (KES)']],
+      body: [
+        ['Total Money In',  formatCurrency(totalIn)],
+        ['Total Money Out', formatCurrency(totalOut)],
+        ['Net Cash Flow',   formatCurrency(net)],
+        ['Profit / (Loss)', formatCurrency(pl)],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 10, cellPadding: 3 },
+      headStyles: { fillColor: COLORS.primaryBlue, textColor: 255, fontStyle: 'bold' },
+      bodyStyles: { fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: 70, halign: 'right' } },
+    });
+    yPos = doc.lastAutoTable.finalY + 8;
+
+    // ---- 2. Money In Breakdown table ----
+    if (yPos > pageHeight - 80) yPos = safeAddPage();
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text('MONEY IN BREAKDOWN', 20, yPos);
+    yPos += 3;
+    doc.setTextColor(...COLORS.textDark);
+
+    const moneyInRows = [
+      ['Principal Payments',  formatCurrency(mi.principal_payments  || 0)],
+      ['Interest Payments',   formatCurrency(mi.interest_payments   || 0)],
+      ['Other Loan Payments', formatCurrency(mi.other_loan_payments || 0)],
+      ['Claims / Recoveries', formatCurrency(mi.claims_recoveries   || 0)],
+      ['Other Income',        formatCurrency(mi.other_income        || 0)],
+      [
+        { content: 'TOTAL MONEY IN', styles: { fontStyle: 'bold', textColor: COLORS.primaryBlue } },
+        { content: formatCurrency(totalIn),
+          styles: { fontStyle: 'bold', textColor: COLORS.primaryBlue, halign: 'right' } },
+      ],
+    ];
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Category', 'Amount (KES)']],
+      body: moneyInRows,
+      theme: 'striped',
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      headStyles: { fillColor: COLORS.primaryBlue, textColor: 255 },
+      columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: 70, halign: 'right' } },
+    });
+    yPos = doc.lastAutoTable.finalY + 8;
+
+    // Money In chart
+    yPos = renderChartSection(chartImages[0], 'Money In Breakdown Chart', yPos);
+
+    // ---- 3. Money Out Breakdown table ----
+    if (yPos > pageHeight - 80) yPos = safeAddPage();
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(220, 53, 69);
+    doc.text('MONEY OUT BREAKDOWN', 20, yPos);
+    yPos += 3;
+    doc.setTextColor(...COLORS.textDark);
+
+    const moneyOutRows = [
+      ['Loan Disbursements',   formatCurrency(mo.loan_disbursements || 0)],
+      ['Loan Top-ups',         formatCurrency(mo.loan_topups       || 0)],
+      ['Petty Cash',           formatCurrency(mo.petty_cash        || 0)],
+      ['Operational Expenses', formatCurrency(mo.operational       || 0)],
+      ['Salaries',             formatCurrency(mo.salaries          || 0)],
+      ['Salary Advances',      formatCurrency(mo.salary_advances   || 0)],
+      ['Investor Returns',     formatCurrency(mo.investor_returns  || 0)],
+      [
+        { content: 'TOTAL MONEY OUT',
+          styles: { fontStyle: 'bold', textColor: [220, 53, 69] } },
+        { content: formatCurrency(totalOut),
+          styles: { fontStyle: 'bold', textColor: [220, 53, 69], halign: 'right' } },
+      ],
+    ];
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Category', 'Amount (KES)']],
+      body: moneyOutRows,
+      theme: 'striped',
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      headStyles: { fillColor: [220, 53, 69], textColor: 255 },
+      columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: 70, halign: 'right' } },
+    });
+    yPos = doc.lastAutoTable.finalY + 8;
+
+    // Money Out chart
+    yPos = renderChartSection(chartImages[1], 'Money Out Breakdown Chart', yPos);
   }
 
-  // Add footer at the bottom of the page
-  // Ensure footer is placed at least 15mm from the bottom
-  const pageHeight = doc.internal.pageSize.height;
-  const footerY = Math.min(finalY + 10, pageHeight - 15);
+  // ==========================================================================
+  // Footer + page numbers
+  // ==========================================================================
+  const footerY = Math.min(yPos + 6, pageHeight - 15);
   addFooter(doc, footerY);
-
-  // Add page numbers
   addPageNumbers(doc, 'page %d');
 
-  const fileName = `Financial_Report_${type}_${periodLabel.replace(/\s/g, '_')}.pdf`;
+  const safeLabel = (label || 'report').replace(/[^\w\-]+/g, '_');
+  const fileName  = `Financial_Report_${type}_${safeLabel}.pdf`;
 
   if (preview) {
     return doc.output('blob');
-  } else {
-    doc.save(fileName);
   }
+  doc.save(fileName);
+  return null;
 };
 
 // ========== MANUAL RECOVERY REPORT PDF ==========

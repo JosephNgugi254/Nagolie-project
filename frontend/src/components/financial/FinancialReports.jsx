@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { financialAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import {
@@ -12,7 +12,7 @@ import {
   LineElement,
   PointElement,
   ArcElement,
-  Filler
+  Filler,
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import { formatCurrency, generateFinancialReportPDF } from '../admin/ReceiptPDF';
@@ -31,165 +31,185 @@ ChartJS.register(
   Filler
 );
 
+// ------------------------------------------------------------------ helpers
+function todayISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function currentMonthISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+}
+
 const FinancialReports = () => {
-  // Tab state
-  const [activeTab, setActiveTab] = useState('loan'); // 'loan', 'company', 'insights'
+  // ------------------------- state ---------------------------------------
+  const [activeTab, setActiveTab] = useState('loan'); // loan | company | insights
 
-  // Period state – weekly uses a single date (Sunday)
-  const [periodType, setPeriodType] = useState('weekly');
-  const [weekDate, setWeekDate] = useState(() => {
-    const today = new Date();
-    const day = today.getDay(); // 0=Sunday, 6=Saturday
-    const diff = today.getDate() - day; // subtract to get Sunday
-    const sunday = new Date(today);
-    sunday.setDate(diff);
-    return sunday.toISOString().split('T')[0];
-  });
-  const [monthYear, setMonthYear] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [periodType, setPeriodType] = useState('weekly'); // weekly | monthly | daily | custom
+  const [weekDate, setWeekDate]     = useState(() => todayISO());
+  const [monthYear, setMonthYear]   = useState(() => currentMonthISO());
+  const [dayDate, setDayDate]       = useState(() => todayISO());
+  const [customStart, setCustomStart] = useState(() => todayISO());
+  const [customEnd,   setCustomEnd]   = useState(() => todayISO());
 
-  // Chart type
-  const [chartType, setChartType] = useState('line');
+  const [chartType, setChartType] = useState('line'); // line | bar | pie
 
-  // Data states
-  const [loanData, setLoanData] = useState(null);
-  const [companyData, setCompanyData] = useState(null);
+  const [loanData, setLoanData]         = useState(null);
+  const [companyData, setCompanyData]   = useState(null);
   const [insightsData, setInsightsData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]           = useState(false);
 
-  // Refs for PDF capture
   const reportRef = useRef(null);
 
-  // Fetch data when filters change
+  // ------------------- central period param builder ----------------------
+  const buildParams = useCallback(() => {
+    if (periodType === 'custom') {
+      return { start_date: customStart, end_date: customEnd };
+    }
+    if (periodType === 'monthly') {
+      return { period_type: 'monthly', month: monthYear };
+    }
+    if (periodType === 'daily') {
+      return { period_type: 'daily', date: dayDate };
+    }
+    // weekly (default)
+    return { period_type: 'weekly', date: weekDate };
+  }, [periodType, weekDate, monthYear, dayDate, customStart, customEnd]);
+
+  // ---------------------- fetchers ---------------------------------------
+  const fetchLoanData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await financialAPI.getLoanReport(buildParams());
+      setLoanData(res.data);
+    } catch (e) {
+      console.error(e);
+      showToast.error('Failed to load loan report');
+    } finally {
+      setLoading(false);
+    }
+  }, [buildParams]);
+
+  const fetchCompanyData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await financialAPI.getCompanyReport(buildParams());
+      setCompanyData(res.data);
+    } catch (e) {
+      console.error(e);
+      showToast.error('Failed to load company report');
+    } finally {
+      setLoading(false);
+    }
+  }, [buildParams]);
+
+  const fetchInsights = useCallback(async () => {
+    try {
+      const res = await financialAPI.getInsights(buildParams());
+      setInsightsData(res.data);
+    } catch (e) {
+      console.error(e);
+      showToast.error('Failed to load insights');
+    }
+  }, [buildParams]);
+
+  // React to filter / tab changes
   useEffect(() => {
     if (activeTab === 'loan') fetchLoanData();
     else if (activeTab === 'company') fetchCompanyData();
     else if (activeTab === 'insights') fetchInsights();
-  }, [activeTab, periodType, weekDate, monthYear]);
+  }, [activeTab, buildParams, fetchLoanData, fetchCompanyData, fetchInsights]);
 
-  const fetchLoanData = async () => {
-    setLoading(true);
-    try {
-      const params = { period_type: periodType };
-      if (periodType === 'weekly') {
-        params.date = weekDate;
-      } else {
-        params.month = monthYear;
-      }
-      const response = await financialAPI.getLoanReport(params);
-      setLoanData(response.data);
-    } catch (error) {
-      showToast.error('Failed to load loan report');
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ---------------------- period label -----------------------------------
+  const periodLabel = useMemo(() => {
+    const fromApi =
+      (activeTab === 'loan' ? loanData?.period?.label : companyData?.period?.label) ||
+      insightsData?.period?.label;
+    if (fromApi) return fromApi;
 
-  const fetchCompanyData = async () => {
-    setLoading(true);
-    try {
-      const params = { period_type: periodType };
-      if (periodType === 'weekly') {
-        params.date = weekDate;
-      } else {
-        params.month = monthYear;
-      }
-      const response = await financialAPI.getCompanyReport(params);
-      setCompanyData(response.data);
-    } catch (error) {
-      showToast.error('Failed to load company report');
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchInsights = async () => {
-    try {
-      const response = await financialAPI.getInsights();
-      setInsightsData(response.data);
-    } catch (error) {
-      showToast.error('Failed to load insights');
-      console.error(error);
-    }
-  };
-
-  // Generate PDF report using ReceiptPDF's generateFinancialReportPDF
-  const generateReportPDF = async (preview = true) => {
-    if (!reportRef.current) return;
-    try {
-      // Capture the chart area
-      const chartElement = reportRef.current.querySelector('.chart-wrapper');
-      if (!chartElement) {
-        showToast.error('Chart not found');
-        return;
-      }
-      const canvas = await html2canvas(chartElement, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
+    if (periodType === 'monthly') {
+      const [y, m] = monthYear.split('-').map(Number);
+      return new Date(y, m - 1, 1).toLocaleString('default', {
+        month: 'long',
+        year: 'numeric',
       });
-      const imgData = canvas.toDataURL('image/png');
+    }
+    if (periodType === 'daily') {
+      return new Date(dayDate).toLocaleDateString('en-GB', {
+        day: '2-digit', month: 'long', year: 'numeric',
+      });
+    }
+    if (periodType === 'custom') {
+      return `${new Date(customStart).toLocaleDateString('en-GB')} – ${new Date(
+        customEnd
+      ).toLocaleDateString('en-GB')}`;
+    }
+    return `Week of ${new Date(weekDate).toLocaleDateString('en-GB')}`;
+  }, [
+    activeTab, loanData, companyData, insightsData,
+    periodType, monthYear, dayDate, customStart, customEnd, weekDate,
+  ]);
 
-      // Build period label
-      let periodLabel = '';
-      if (periodType === 'weekly') {
-        const start = new Date(weekDate);
-        const end = new Date(start);
-        end.setDate(end.getDate() + 6);
-        periodLabel = `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
-      } else {
-        const [year, month] = monthYear.split('-').map(Number);
-        const dateObj = new Date(year, month - 1, 1);
-        periodLabel = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
+    // ---------------------- PDF generation ---------------------------------
+  const generateReportPDF = async (preview = true) => {
+    const payload = activeTab === 'loan' ? loanData : companyData;
+    if (!payload) {
+      showToast.error('No data to generate report');
+      return;
+    }
+    if (!reportRef.current) return;
+
+    try {
+      // Capture EVERY chart wrapper.
+      //  - Loan tab   → 1 chart (the metrics chart)
+      //  - Company tab→ 2 charts (Money In, then Money Out)
+      const chartEls = reportRef.current.querySelectorAll('.chart-wrapper');
+      const chartImages = [];
+      for (const el of Array.from(chartEls)) {
+        const canvas = await html2canvas(el, {
+          scale: 3,
+          useCORS: true,
+          logging: false,
+        });
+        chartImages.push({
+          data: canvas.toDataURL('image/png'),
+          width: canvas.width,
+          height: canvas.height,
+        });
       }
 
-      // Prepare chart image data for PDF
-      const chartImageData = {
-        data: imgData,
-        width: canvas.width,
-        height: canvas.height,
-      };
-
-      // Get report data
-      const data = activeTab === 'loan' ? loanData : companyData;
-      if (!data) {
-        showToast.error('No data to generate report');
-        return;
-      }
-
-      // Generate PDF – pass preview flag
       const result = await generateFinancialReportPDF(
-        data,
-        periodLabel,
-        chartImageData,
+        payload,
+        payload.period?.label || periodLabel,
+        chartImages,
         activeTab === 'loan' ? 'loan' : 'company',
         preview
       );
 
-      if (preview) {
+      if (preview && result) {
         const url = URL.createObjectURL(result);
         window.open(url, '_blank');
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        showToast.success('Report opened in new tab (preview)');
-      } else {
+        showToast.success('Report opened in preview');
+      } else if (!preview) {
         showToast.success('Report downloaded');
       }
-    } catch (error) {
-      console.error('PDF generation error:', error);
+    } catch (err) {
+      console.error('PDF generation error:', err);
       showToast.error('Failed to generate PDF');
     }
   };
 
+  // ======================================================================
+  //                        LOAN REPORT RENDER
+  // ======================================================================
   const renderLoanContent = () => {
-    if (!loanData) return <div className="text-center">No data</div>;
+    if (!loanData) return <div className="text-center py-4">No data</div>;
     const data = loanData;
 
-    // Expanded chart metrics: Money Lent, Principal Collected, Interest Collected,
-    // Outstanding Principal, Outstanding Interest, Total Claimed, Total Waived, Bad Debt
     const chartLabels = [
       'Money Lent',
       'Principal Collected',
@@ -198,7 +218,7 @@ const FinancialReports = () => {
       'Outstanding Interest',
       'Total Claimed',
       'Total Waived',
-      'Bad Debt'
+      'Bad Debt',
     ];
     const chartValues = [
       data.total_money_lent,
@@ -210,76 +230,31 @@ const FinancialReports = () => {
       data.total_waived_amount,
       data.total_bad_debt,
     ];
-
     const chartColors = [
-      '#1e40af', // money lent
-      '#10b981', // principal collected
-      '#f59e0b', // interest collected
-      '#ef4444', // outstanding principal
-      '#8b5cf6', // outstanding interest
-      '#ec4899', // total claimed
-      '#f97316', // total waived
-      '#6b7280'  // bad debt
+      '#1e40af', '#10b981', '#f59e0b', '#ef4444',
+      '#8b5cf6', '#ec4899', '#f97316', '#6b7280',
     ];
 
-    let ChartComponent;
-    let chartProps = {
-      data: {
-        labels: chartLabels,
-        datasets: [
-          {
-            label: 'Amount (KES)',
-            data: chartValues,
-            backgroundColor: chartColors,
-            borderColor: chartColors.map(c => c),
-            borderWidth: 1,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => formatCurrency(ctx.raw),
-            },
-          },
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: (val) => formatCurrency(val),
-            },
-          },
-        },
-      },
-    };
+    let ChartComponent = Bar;
+    let chartProps;
 
     if (chartType === 'pie') {
       ChartComponent = Pie;
       chartProps = {
         data: {
           labels: chartLabels,
-          datasets: [
-            {
-              data: chartValues,
-              backgroundColor: chartColors,
-              borderColor: '#fff',
-              borderWidth: 2,
-            },
-          ],
+          datasets: [{
+            data: chartValues,
+            backgroundColor: chartColors,
+            borderColor: '#fff',
+            borderWidth: 2,
+          }],
         },
         options: {
           responsive: true,
           plugins: {
             legend: { position: 'bottom' },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => `${ctx.label}: ${formatCurrency(ctx.raw)}`,
-              },
-            },
+            tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${formatCurrency(ctx.raw)}` } },
           },
         },
       };
@@ -288,45 +263,55 @@ const FinancialReports = () => {
       chartProps = {
         data: {
           labels: chartLabels,
-          datasets: [
-            {
-              label: 'Amount (KES)',
-              data: chartValues,
-              borderColor: '#1e40af',
-              backgroundColor: 'rgba(30, 64, 175, 0.1)',
-              fill: true,
-              tension: 0.4,
-              pointBackgroundColor: chartColors,
-            },
-          ],
+          datasets: [{
+            label: 'Amount (KES)',
+            data: chartValues,
+            borderColor: '#1e40af',
+            backgroundColor: 'rgba(30, 64, 175, 0.1)',
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: chartColors,
+          }],
         },
         options: {
           responsive: true,
           plugins: {
             legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: (ctx) => formatCurrency(ctx.raw),
-              },
-            },
+            tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } },
           },
           scales: {
-            y: {
-              beginAtZero: true,
-              ticks: {
-                callback: (val) => formatCurrency(val),
-              },
-            },
+            y: { beginAtZero: true, ticks: { callback: (v) => formatCurrency(v) } },
           },
         },
       };
     } else {
       ChartComponent = Bar;
+      chartProps = {
+        data: {
+          labels: chartLabels,
+          datasets: [{
+            label: 'Amount (KES)',
+            data: chartValues,
+            backgroundColor: chartColors,
+            borderColor: chartColors,
+            borderWidth: 1,
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } },
+          },
+          scales: {
+            y: { beginAtZero: true, ticks: { callback: (v) => formatCurrency(v) } },
+          },
+        },
+      };
     }
 
     return (
       <div ref={reportRef}>
-        {/* Summary Cards */}
         <div className="row g-3 mb-4">
           <div className="col-6 col-md-3">
             <div className="card bg-light">
@@ -356,13 +341,12 @@ const FinancialReports = () => {
             <div className="card bg-light">
               <div className="card-body">
                 <h6 className="card-subtitle text-muted">Recovery Rate</h6>
-                <h4 className="card-title">{data.loan_recovery_rate.toFixed(2)}%</h4>
+                <h4 className="card-title">{Number(data.loan_recovery_rate || 0).toFixed(2)}%</h4>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Claims & Waived & Bad Debt */}
         <div className="row g-3 mb-4">
           <div className="col-6 col-md-3">
             <div className="card border-danger">
@@ -408,11 +392,10 @@ const FinancialReports = () => {
           </div>
         </div>
 
-        {/* Chart - now includes all 8 metrics */}
         <div className="card">
           <div className="card-body">
             <div className="chart-wrapper d-flex justify-content-center">
-              <div style={{ width: '100%', maxWidth: '800px', height: '350px' }}>
+              <div style={{ width: '100%', maxWidth: '900px', height: '460px' }}>
                 <ChartComponent {...chartProps} />
               </div>
             </div>
@@ -422,61 +405,53 @@ const FinancialReports = () => {
     );
   };
 
+  // ======================================================================
+  //                       COMPANY REPORT RENDER
+  // ======================================================================
   const renderCompanyContent = () => {
-    if (!companyData) return <div className="text-center">No data</div>;
+    if (!companyData) return <div className="text-center py-4">No data</div>;
     const data = companyData;
-    
-    // Prepare category arrays
+
     const moneyInCategories = [
-      { label: 'Principal Payments', value: data.money_in.principal_payments || 0 },
-      { label: 'Interest Payments', value: data.money_in.interest_payments || 0 },
-      { label: 'Claims Recoveries', value: data.money_in.claims_recoveries || 0 },
-      { label: 'Other Income', value: data.money_in.other_income || 0 },
+      { label: 'Principal Payments',   value: data.money_in.principal_payments    || 0 },
+      { label: 'Interest Payments',    value: data.money_in.interest_payments     || 0 },
+      { label: 'Other Loan Payments',  value: data.money_in.other_loan_payments   || 0 },
+      { label: 'Claims / Recoveries',  value: data.money_in.claims_recoveries     || 0 },
+      { label: 'Other Income',         value: data.money_in.other_income          || 0 },
     ];
-  
+
     const moneyOutCategories = [
-      { label: 'Loan Disbursements', value: data.money_out.loan_disbursements || 0 },
-      { label: 'Loan Top-ups', value: data.money_out.loan_topups || 0 },
-      { label: 'Petty Cash', value: data.money_out.petty_cash || 0 },
-      { label: 'Operational', value: data.money_out.operational || 0 },
-      { label: 'Salaries', value: data.money_out.salaries || 0 },
-      { label: 'Investor Returns', value: data.money_out.investor_returns || 0 },
+      { label: 'Loan Disbursements',   value: data.money_out.loan_disbursements   || 0 },
+      { label: 'Loan Top-ups',         value: data.money_out.loan_topups          || 0 },
+      { label: 'Petty Cash',           value: data.money_out.petty_cash           || 0 },
+      { label: 'Operational',          value: data.money_out.operational          || 0 },
+      { label: 'Salaries',             value: data.money_out.salaries             || 0 },
+      { label: 'Salary Advances',      value: data.money_out.salary_advances      || 0 },
+      { label: 'Investor Returns',     value: data.money_out.investor_returns     || 0 },
     ];
-  
-    // Helper to build chart props for a given dataset
+
     const buildChartProps = (labels, values, colors, label = 'Amount (KES)') => {
       const commonOptions = {
         responsive: true,
         plugins: {
           legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => formatCurrency(ctx.raw),
-            },
-          },
+          tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } },
         },
         scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: (val) => formatCurrency(val),
-            },
-          },
+          y: { beginAtZero: true, ticks: { callback: (v) => formatCurrency(v) } },
         },
       };
-    
+
       if (chartType === 'pie') {
         return {
           data: {
-            labels: labels,
-            datasets: [
-              {
-                data: values,
-                backgroundColor: colors,
-                borderColor: '#fff',
-                borderWidth: 2,
-              },
-            ],
+            labels,
+            datasets: [{
+              data: values,
+              backgroundColor: colors,
+              borderColor: '#fff',
+              borderWidth: 2,
+            }],
           },
           options: {
             responsive: true,
@@ -491,61 +466,60 @@ const FinancialReports = () => {
           },
         };
       }
-    
+
       if (chartType === 'line') {
         return {
           data: {
-            labels: labels,
-            datasets: [
-              {
-                label: label,
-                data: values,
-                borderColor: '#1e40af',
-                backgroundColor: 'rgba(30, 64, 175, 0.1)',
-                fill: true,
-                tension: 0.4,
-                pointBackgroundColor: colors,
-              },
-            ],
+            labels,
+            datasets: [{
+              label,
+              data: values,
+              borderColor: '#1e40af',
+              backgroundColor: 'rgba(30, 64, 175, 0.1)',
+              fill: true,
+              tension: 0.4,
+              pointBackgroundColor: colors,
+            }],
           },
-          options: {
-            ...commonOptions,
-            plugins: { ...commonOptions.plugins, legend: { display: false } },
-          },
+          options: commonOptions,
         };
       }
-    
-      // Bar chart (default)
+
       return {
         data: {
-          labels: labels,
-          datasets: [
-            {
-              label: label,
-              data: values,
-              backgroundColor: colors,
-              borderColor: colors.map(c => c),
-              borderWidth: 1,
-            },
-          ],
+          labels,
+          datasets: [{
+            label,
+            data: values,
+            backgroundColor: colors,
+            borderColor: colors,
+            borderWidth: 1,
+          }],
         },
         options: commonOptions,
       };
     };
-  
-    const inColors = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0'];
-    const outColors = ['#ef4444', '#f87171', '#fca5a5', '#fecaca', '#fee2e2', '#fee2e2'];
-  
-    const inLabels = moneyInCategories.map(c => c.label);
-    const inValues = moneyInCategories.map(c => c.value);
-    const outLabels = moneyOutCategories.map(c => c.label);
-    const outValues = moneyOutCategories.map(c => c.value);
-  
-    const inProps = buildChartProps(inLabels, inValues, inColors);
-    const outProps = buildChartProps(outLabels, outValues, outColors);
-  
+
+    const inColors  = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#bbf7d0'];
+    const outColors = ['#ef4444', '#f87171', '#fca5a5', '#fecaca',
+                       '#fecdd3', '#fde2e2', '#fee2e2'];
+
+    const inProps  = buildChartProps(
+      moneyInCategories.map((c) => c.label),
+      moneyInCategories.map((c) => c.value),
+      inColors
+    );
+    const outProps = buildChartProps(
+      moneyOutCategories.map((c) => c.label),
+      moneyOutCategories.map((c) => c.value),
+      outColors
+    );
+
     const ChartComponent = chartType === 'pie' ? Pie : chartType === 'line' ? Line : Bar;
-  
+
+    const netCashFlow = Number(data.net_cash_flow ?? 0);
+    const profitLoss  = Number(data.profit_loss  ?? 0);
+
     return (
       <div ref={reportRef}>
         <div className="row g-3 mb-4">
@@ -568,21 +542,21 @@ const FinancialReports = () => {
           <div className="col-6 col-md-3">
             <div className="card bg-info text-white">
               <div className="card-body">
-                <h6 className="card-subtitle">Revenue</h6>
-                <h4 className="card-title">{formatCurrency(data.revenue)}</h4>
+                <h6 className="card-subtitle">Net Cash Flow</h6>
+                <h4 className="card-title">{formatCurrency(netCashFlow)}</h4>
               </div>
             </div>
           </div>
           <div className="col-6 col-md-3">
             <div className="card bg-warning text-dark">
               <div className="card-body">
-                <h6 className="card-subtitle">Profit/Loss</h6>
-                <h4 className="card-title">{formatCurrency(data.profit_loss || data.revenue)}</h4>
+                <h6 className="card-subtitle">Profit / (Loss)</h6>
+                <h4 className="card-title">{formatCurrency(profitLoss)}</h4>
               </div>
             </div>
           </div>
         </div>
-    
+
         <div className="row">
           <div className="col-md-6 mb-4">
             <div className="card h-100">
@@ -590,7 +564,7 @@ const FinancialReports = () => {
                 <h6 className="mb-0">Money In Breakdown</h6>
               </div>
               <div className="card-body">
-                <div className="chart-wrapper" style={{ height: '280px' }}>
+                <div className="chart-wrapper" style={{ height: '380px' }}>
                   <ChartComponent {...inProps} />
                 </div>
               </div>
@@ -602,15 +576,14 @@ const FinancialReports = () => {
                 <h6 className="mb-0">Money Out Breakdown</h6>
               </div>
               <div className="card-body">
-                <div className="chart-wrapper" style={{ height: '280px' }}>
+                <div className="chart-wrapper" style={{ height: '380px' }}>
                   <ChartComponent {...outProps} />
                 </div>
               </div>
             </div>
           </div>
         </div>
-    
-        {/* Optional: a small summary table of categories */}
+
         <div className="card mt-3">
           <div className="card-body">
             <div className="row">
@@ -623,6 +596,10 @@ const FinancialReports = () => {
                       <span className="fw-bold">{formatCurrency(cat.value)}</span>
                     </li>
                   ))}
+                  <li className="d-flex justify-content-between border-top pt-2 mt-2">
+                    <span className="fw-bold text-success">TOTAL MONEY IN</span>
+                    <span className="fw-bold text-success">{formatCurrency(data.money_in.total)}</span>
+                  </li>
                 </ul>
               </div>
               <div className="col-md-6">
@@ -634,6 +611,10 @@ const FinancialReports = () => {
                       <span className="fw-bold">{formatCurrency(cat.value)}</span>
                     </li>
                   ))}
+                  <li className="d-flex justify-content-between border-top pt-2 mt-2">
+                    <span className="fw-bold text-danger">TOTAL MONEY OUT</span>
+                    <span className="fw-bold text-danger">{formatCurrency(data.money_out.total)}</span>
+                  </li>
                 </ul>
               </div>
             </div>
@@ -643,77 +624,95 @@ const FinancialReports = () => {
     );
   };
 
+  // ======================================================================
+  //                          INSIGHTS RENDER
+  // ======================================================================
   const renderInsights = () => {
-    if (!insightsData) return <div className="text-center">No insights</div>;
+    if (!insightsData) return <div className="text-center py-4">No insights</div>;
+    const prettify = (k) => k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const formatValue = (k, v) => {
+      if (typeof v === 'number' && /money|amount|cash|profit|loss/i.test(k)) {
+        return formatCurrency(v);
+      }
+      if (typeof v === 'object' && v !== null) return JSON.stringify(v);
+      return String(v);
+    };
     return (
       <div className="card">
         <div className="card-body">
           <ul className="list-group list-group-flush">
-            {Object.entries(insightsData).map(([key, value]) => (
-              <li key={key} className="list-group-item d-flex justify-content-between align-items-center">
-                <span className="text-capitalize">{key.replace(/_/g, ' ')}</span>
-                <span className="badge bg-primary rounded-pill">{value}</span>
-              </li>
-            ))}
+            {Object.entries(insightsData)
+              .filter(([k]) => k !== 'period')
+              .map(([key, value]) => (
+                <li key={key} className="list-group-item d-flex justify-content-between align-items-center">
+                  <span>{prettify(key)}</span>
+                  <span className="badge bg-primary rounded-pill">{formatValue(key, value)}</span>
+                </li>
+              ))}
           </ul>
         </div>
       </div>
     );
   };
 
+  // ======================================================================
+  //                             MAIN RENDER
+  // ======================================================================
   return (
     <div className="financial-reports">
-      {/* Tabs */}
       <ul className="nav nav-tabs mb-4">
-        <li className="nav-item">
-          <button
-            className={`nav-link ${activeTab === 'loan' ? 'active' : ''}`}
-            onClick={() => setActiveTab('loan')}
-          >
-            Loan Report
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
-            className={`nav-link ${activeTab === 'company' ? 'active' : ''}`}
-            onClick={() => setActiveTab('company')}
-          >
-            Company Report
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
-            className={`nav-link ${activeTab === 'insights' ? 'active' : ''}`}
-            onClick={() => setActiveTab('insights')}
-          >
-            Insights
-          </button>
-        </li>
+        {[
+          { key: 'loan', label: 'Loan Report' },
+          { key: 'company', label: 'Company Report' },
+          { key: 'insights', label: 'Insights' },
+        ].map((t) => (
+          <li className="nav-item" key={t.key}>
+            <button
+              className={`nav-link ${activeTab === t.key ? 'active' : ''}`}
+              onClick={() => setActiveTab(t.key)}
+            >
+              {t.label}
+            </button>
+          </li>
+        ))}
       </ul>
 
-      {/* Filters */}
+      <div className="alert alert-info py-2 d-flex align-items-center">
+        <i className="fas fa-calendar-alt me-2"></i>
+        <strong className="me-1">
+          {periodType === 'weekly'  ? 'Week:'  :
+           periodType === 'monthly' ? 'Month:' :
+           periodType === 'daily'   ? 'Day:'   : 'Range:'}
+        </strong>
+        <span>{periodLabel}</span>
+      </div>
+
       <div className="row g-3 align-items-end mb-4">
-        <div className="col-md-3">
+        <div className="col-12 col-md-4">
           <label className="form-label">Period</label>
-          <div className="btn-group w-100" role="group">
-            <button
-              className={`btn ${periodType === 'weekly' ? 'btn-primary' : 'btn-outline-primary'}`}
-              onClick={() => setPeriodType('weekly')}
-            >
-              Weekly
-            </button>
-            <button
-              className={`btn ${periodType === 'monthly' ? 'btn-primary' : 'btn-outline-primary'}`}
-              onClick={() => setPeriodType('monthly')}
-            >
-              Monthly
-            </button>
+          <div className="btn-group w-100 flex-wrap" role="group">
+            {[
+              { key: 'weekly',  label: 'Weekly'  },
+              { key: 'monthly', label: 'Monthly' },
+              { key: 'daily',   label: 'Daily'   },
+              { key: 'custom',  label: 'Custom'  },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                className={`btn btn-sm ${periodType === key ? 'btn-primary' : 'btn-outline-primary'}`}
+                onClick={() => setPeriodType(key)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="col-md-3">
-          {periodType === 'weekly' ? (
+
+        <div className="col-12 col-md-4">
+          {periodType === 'weekly' && (
             <>
-              <label className="form-label">Week (Sunday)</label>
+              <label className="form-label">Any day in the week</label>
               <input
                 type="date"
                 className="form-control"
@@ -721,7 +720,8 @@ const FinancialReports = () => {
                 onChange={(e) => setWeekDate(e.target.value)}
               />
             </>
-          ) : (
+          )}
+          {periodType === 'monthly' && (
             <>
               <label className="form-label">Month</label>
               <input
@@ -732,49 +732,74 @@ const FinancialReports = () => {
               />
             </>
           )}
+          {periodType === 'daily' && (
+            <>
+              <label className="form-label">Day</label>
+              <input
+                type="date"
+                className="form-control"
+                value={dayDate}
+                onChange={(e) => setDayDate(e.target.value)}
+              />
+            </>
+          )}
+          {periodType === 'custom' && (
+            <>
+              <label className="form-label">Range</label>
+              <div className="d-flex gap-2">
+                <input
+                  type="date"
+                  className="form-control"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                />
+                <input
+                  type="date"
+                  className="form-control"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                />
+              </div>
+            </>
+          )}
         </div>
-        <div className="col-md-3">
+
+        <div className="col-12 col-md-2">
           <label className="form-label">Chart Type</label>
           <div className="btn-group w-100" role="group">
-            <button
-              className={`btn ${chartType === 'line' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-              onClick={() => setChartType('line')}
-            >
-              Line
-            </button>
-            <button
-              className={`btn ${chartType === 'bar' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-              onClick={() => setChartType('bar')}
-            >
-              Bar
-            </button>
-            <button
-              className={`btn ${chartType === 'pie' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-              onClick={() => setChartType('pie')}
-            >
-              Pie
-            </button>
+            {['line', 'bar', 'pie'].map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={`btn btn-sm ${chartType === t ? 'btn-secondary' : 'btn-outline-secondary'}`}
+                onClick={() => setChartType(t)}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="col-md-3 d-flex gap-2">
+
+        <div className="col-12 col-md-2 d-flex gap-2">
           <button
+            type="button"
             className="btn btn-outline-primary flex-fill"
             onClick={() => generateReportPDF(true)}
-            disabled={loading}
+            disabled={loading || activeTab === 'insights'}
           >
             <i className="fas fa-eye me-1"></i> Preview
           </button>
           <button
+            type="button"
             className="btn btn-primary flex-fill"
             onClick={() => generateReportPDF(false)}
-            disabled={loading}
+            disabled={loading || activeTab === 'insights'}
           >
             <i className="fas fa-download me-1"></i> Download
           </button>
         </div>
       </div>
 
-      {/* Content */}
       {loading ? (
         <div className="text-center py-5">
           <div className="spinner-border text-primary" role="status">

@@ -1,5 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal, ROUND_HALF_UP
+
+def _now_utc():
+    return datetime.now(timezone.utc).replace(tzinfo=None) 
 
 def _get_current_week_number(loan, as_of_date=None):
     """
@@ -10,7 +13,7 @@ def _get_current_week_number(loan, as_of_date=None):
         return 1
     disb = loan.disbursement_date.date() if hasattr(loan.disbursement_date, 'date') else loan.disbursement_date
     if as_of_date is None:
-        as_of_date = datetime.now().date()
+        as_of_date = _now_utc().date()
     else:
         as_of_date = as_of_date.date() if hasattr(as_of_date, 'date') else as_of_date
     days_since = (as_of_date - disb).days

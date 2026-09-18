@@ -278,22 +278,53 @@ class Loan(db.Model):
 
 class LoanLedger(db.Model):
     __tablename__ = 'loan_ledger'
+
     id = db.Column(db.Integer, primary_key=True)
     loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False, index=True)
-    transaction_id = db.Column(db.Integer, db.ForeignKey('transactions.id'), nullable=True)   # ✅ 'transactions.id'
+    transaction_id = db.Column(db.Integer, db.ForeignKey('transactions.id'), nullable=True)
+
+    # ── NEW: chain key that survives renewals / waivers ──
+    root_loan_id = db.Column(
+        db.Integer,
+        db.ForeignKey('loans.id'),
+        nullable=True,
+        index=True,
+    )
+
     event_type = db.Column(db.String(50), nullable=False)
     event_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
-    principal_balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
-    interest_balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
-    penalty_balance = db.Column(db.Numeric(12,2), nullable=False, default=0)
-    total_outstanding = db.Column(db.Numeric(12,2), nullable=False, default=0)
-    amount = db.Column(db.Numeric(12,2), nullable=False, default=0)
+
+    # ── NEW: deterministic ordering for multiple events on the same date ──
+    sequence = db.Column(
+        db.BigInteger,
+        nullable=False,
+        default=0,
+        server_default='0',
+        index=True,
+    )
+
+    principal_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    interest_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    penalty_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    total_outstanding = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+
+    # ── NEW: persisted period label, e.g. "Day 4" or "Wk 2 (18 Sep–24 Sep)" ──
+    period_label = db.Column(db.String(32), nullable=True)
+
     notes = db.Column(db.Text, nullable=True)
     reference = db.Column(db.String(100), nullable=True)
-    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)   # ✅ 'users.id'
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    loan = db.relationship('Loan', backref=db.backref('ledger_entries', lazy='dynamic'))
+    # relationships — explicit foreign_keys because loan_id AND root_loan_id
+    # both point at loans.id
+    loan = db.relationship(
+        'Loan',
+        foreign_keys=[loan_id],
+        backref=db.backref('ledger_entries', lazy='dynamic'),
+    )
+    root_loan = db.relationship('Loan', foreign_keys=[root_loan_id])
     transaction = db.relationship('Transaction', backref='ledger_entry')
 
 class Transaction(db.Model):
@@ -1206,3 +1237,4 @@ class PromissoryNote(db.Model):
             'due_date': self.due_date.isoformat() if self.due_date else None,
             'notes': self.notes or '',
         }
+    

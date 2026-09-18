@@ -2402,62 +2402,61 @@ def get_loan_ledger(loan_id):
         'reference': e.reference,
     } for e in entries]), 200
 
-# In admin.py, update the get_consolidated_statement function
 @admin_bp.route('/loan/<int:loan_id>/consolidated-statement', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'head_of_it', 'client_relations_officer', 'hr_manager'])
+@role_required(['admin','director','secretary','head_of_it',
+                'client_relations_officer','hr_manager'])
 def get_consolidated_statement(loan_id):
     from app.models import LoanLedger, Transaction
+
     loan = db.session.get(Loan, loan_id)
     if not loan:
         return jsonify({'error': 'Loan not found'}), 404
 
-    # Find root loan
-    root_loan = loan
-    while root_loan.parent_loan_id:
-        root_loan = db.session.get(Loan, root_loan.parent_loan_id)
+    # find chain root
+    root = loan
+    while root.parent_loan_id:
+        root = db.session.get(Loan, root.parent_loan_id)
 
-    # Collect all loans in chain
-    chain_loan_ids = []
-    def collect_ids(l):
-        chain_loan_ids.append(l.id)
-        for child in Loan.query.filter_by(parent_loan_id=l.id):
-            collect_ids(child)
-    collect_ids(root_loan)
+    # gather every loan in the chain
+    chain_ids, stack = [], [root.id]
+    while stack:
+        lid = stack.pop()
+        chain_ids.append(lid)
+        stack.extend([c.id for c in Loan.query.filter_by(parent_loan_id=lid)])
 
-    # Load loans to get their disbursement dates
-    loans_map = {l.id: l for l in Loan.query.filter(Loan.id.in_(chain_loan_ids))}
-
-    entries = LoanLedger.query.filter(
-        LoanLedger.loan_id.in_(chain_loan_ids)
-    ).order_by(LoanLedger.event_date).all()
+    entries = (LoanLedger.query
+               .filter(LoanLedger.loan_id.in_(chain_ids))
+               .order_by(LoanLedger.event_date, LoanLedger.sequence, LoanLedger.id)
+               .all())
 
     txn_ids = [e.transaction_id for e in entries if e.transaction_id]
-    transactions = {t.id: t for t in Transaction.query.filter(Transaction.id.in_(txn_ids))}
+    txns = {t.id: t for t in Transaction.query.filter(Transaction.id.in_(txn_ids))}
 
-    result = []
+    out = []
     for e in entries:
-        loan_obj = loans_map.get(e.loan_id)
-        txn = transactions.get(e.transaction_id) if e.transaction_id else None
-        result.append({
+        t = txns.get(e.transaction_id)
+        out.append({
+            'id': e.id,
             'loan_id': e.loan_id,
             'date': e.event_date.isoformat(),
+            'sequence': e.sequence,
             'type': e.event_type,
             'amount': float(e.amount),
             'principalBalance': float(e.principal_balance),
             'interestBalance': float(e.interest_balance),
             'totalOutstanding': float(e.total_outstanding),
-            'notes': e.notes,
+            'period': e.period_label,
             'reference': e.reference,
-            'loan_disbursement_date': loan_obj.disbursement_date.isoformat() if loan_obj and loan_obj.disbursement_date else None,
+            'notes': e.notes,
             'transaction': {
-                'payment_type': txn.payment_type if txn else None,
-                'payment_method': txn.payment_method if txn else None,
-                'mpesa_receipt': txn.mpesa_receipt if txn else None,
-                'transaction_type': txn.transaction_type if txn else None,
-            } if txn else None
+                'payment_type':    t.payment_type if t else None,
+                'payment_method':  t.payment_method if t else None,
+                'mpesa_receipt':   t.mpesa_receipt if t else None,
+                'transaction_type':t.transaction_type if t else None,
+            } if t else None,
         })
-    return jsonify(result), 200
+    return jsonify(out), 200
 
 # ------------------- Report Management -------------------
 

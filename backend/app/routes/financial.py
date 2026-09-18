@@ -13,6 +13,12 @@ from app.utils.decorators import role_required
 from app.utils.security import log_audit
 from sqlalchemy import func, and_, or_
 import json
+from app.services.reporting_period import resolve_period, ReportingPeriod, _month_name
+from app.services.financial_aggregator import (
+    aggregate as agg_period,
+    daily_breakdown,
+    transactions_in,
+)
 
 allowed_origins = [
     'http://localhost:5173',
@@ -32,6 +38,16 @@ def get_week_range(date_str):
     start = date_obj - timedelta(days=date_obj.weekday() + 1)  # weekday: Monday=0, Sunday=6
     end = start + timedelta(days=6)
     return start, end
+
+def _resolve_period_from_request():
+    """Build a ReportingPeriod from query params. All report endpoints use this."""
+    return resolve_period(
+        request.args.get("period_type"),
+        date_str=request.args.get("date"),
+        month_str=request.args.get("month"),
+        start_date_str=request.args.get("start_date"),
+        end_date_str=request.args.get("end_date"),
+    )
 
 
 # -------------------- Petty Cash Management --------------------
@@ -171,100 +187,94 @@ def get_petty_cash_report():
     }), 200
 
 
-# -------------------- Financial Reports --------------------
-
+# ------------------------------------------------------------------ Loan report
 @financial_bp.route('/loan-report', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
 def get_loan_financial_report():
-    period_type = request.args.get('period_type', 'weekly')
-    date_param = request.args.get('date')
-    month_param = request.args.get('month')
+    try:
+        period = _resolve_period_from_request()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
 
-    if period_type == 'weekly' and date_param:
-        start_date, end_date = get_week_range(date_param)
-    elif period_type == 'monthly' and month_param:
-        try:
-            year, month = map(int, month_param.split('-'))
-            start_date = date(year, month, 1)
-            if month == 12:
-                end_date = date(year+1, 1, 1) - timedelta(days=1)
-            else:
-                end_date = date(year, month+1, 1) - timedelta(days=1)
-        except:
-            return jsonify({'error': 'Invalid month format'}), 400
-    else:
-        today = datetime.utcnow().date()
-        days_to_sunday = today.weekday() + 1
-        start_date = today - timedelta(days=days_to_sunday)
-        end_date = start_date + timedelta(days=6)
-
-    # ---- Loans disbursed in the period ----
+    # Loans disbursed in period
     loans_in_period = Loan.query.filter(
-        func.date(Loan.disbursement_date) >= start_date,
-        func.date(Loan.disbursement_date) <= end_date
+        Loan.disbursement_date >= period.query_start_utc,
+        Loan.disbursement_date < period.query_end_utc,
     ).all()
     total_lent = sum(l.principal_amount for l in loans_in_period)
 
-    # ---- Payments made in the period ----
+    # Payments made in the period
     payments = Transaction.query.filter(
         Transaction.transaction_type == 'payment',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
+        Transaction.status == 'completed',
+        Transaction.created_at >= period.query_start_utc,
+        Transaction.created_at < period.query_end_utc,
     ).all()
-    principal_collected = sum(t.amount for t in payments if t.payment_type == 'principal')
-    interest_collected = sum(t.amount for t in payments if t.payment_type == 'interest')
+    principal_collected = sum(
+        (t.amount for t in payments if t.payment_type == 'principal'),
+        Decimal('0'),
+    )
+    interest_collected = sum(
+        (t.amount for t in payments if t.payment_type == 'interest'),
+        Decimal('0'),
+    )
 
-    # ---- Outstanding principal and interest (active + bad_debt as of end_date) ----
+    # Outstanding principal and interest (active + bad_debt as of end_date)
+    as_of_dt = period.query_end_utc
     active_loans = Loan.query.filter(
         Loan.status == 'active',
-        func.date(Loan.disbursement_date) <= end_date
+        Loan.disbursement_date < as_of_dt,
     ).all()
     outstanding_principal = sum(l.current_principal for l in active_loans)
     outstanding_interest = sum(
-        max(Decimal('0'), l.accrued_interest - l.interest_paid)
-        for l in active_loans
+        (max(Decimal('0'), l.accrued_interest - l.interest_paid) for l in active_loans),
+        Decimal('0'),
     )
 
-    # ---- Bad Debt ----
+    # Bad debt
     bad_debt_loans = Loan.query.filter(
         Loan.status == 'bad_debt',
-        func.date(Loan.disbursement_date) <= end_date
+        Loan.disbursement_date < as_of_dt,
     ).all()
     bad_debt_principal = sum(l.current_principal for l in bad_debt_loans)
     bad_debt_interest = sum(
-        max(Decimal('0'), l.accrued_interest - l.interest_paid)
-        for l in bad_debt_loans
+        (max(Decimal('0'), l.accrued_interest - l.interest_paid) for l in bad_debt_loans),
+        Decimal('0'),
     )
     total_bad_debt = bad_debt_principal + bad_debt_interest
-
     outstanding_principal += bad_debt_principal
     outstanding_interest += bad_debt_interest
 
-    # ---- Claims ----
+    # Claims
     claimed_loans = Loan.query.filter(
         Loan.status == 'claimed',
-        func.date(Loan.updated_at) >= start_date,
-        func.date(Loan.updated_at) <= end_date
+        Loan.updated_at >= period.query_start_utc,
+        Loan.updated_at < period.query_end_utc,
     ).all()
-    total_claimed_amount = sum(l.principal_amount for l in claimed_loans)
+    total_claimed_amount = sum((l.principal_amount for l in claimed_loans), Decimal('0'))
     total_recovered_value = sum(
-        l.livestock.estimated_value or 0 for l in claimed_loans if l.livestock
+        (l.livestock.estimated_value or Decimal('0') for l in claimed_loans if l.livestock),
+        Decimal('0'),
     )
 
-    # ---- Waived ----
+    # Waivers
     waiver_transactions = Transaction.query.filter(
         Transaction.transaction_type == 'adjustment',
         Transaction.payment_method == 'waiver',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
+        Transaction.status == 'completed',
+        Transaction.created_at >= period.query_start_utc,
+        Transaction.created_at < period.query_end_utc,
     ).all()
-    total_waived_amount = sum(abs(t.amount) for t in waiver_transactions)
+    total_waived_amount = sum((abs(t.amount) for t in waiver_transactions), Decimal('0'))
 
     revenue = interest_collected
-    recovery_rate = (principal_collected / total_lent * 100) if total_lent > 0 else 0
+    recovery_rate = (
+        (principal_collected / total_lent * 100) if total_lent > 0 else Decimal('0')
+    )
 
     return jsonify({
+        'period': period.as_dict(),
         'total_money_lent': float(total_lent),
         'principal_collected': float(principal_collected),
         'interest_collected': float(interest_collected),
@@ -273,163 +283,47 @@ def get_loan_financial_report():
         'total_claimed_amount': float(total_claimed_amount),
         'total_recovered_value': float(total_recovered_value),
         'total_waived_amount': float(total_waived_amount),
-        'total_bad_debt': float(total_bad_debt),          # NEW
+        'total_bad_debt': float(total_bad_debt),
         'loan_revenue': float(revenue),
         'loan_recovery_rate': float(recovery_rate),
         'claims_profit_loss': float(total_recovered_value - total_claimed_amount),
-        'start_date': start_date.isoformat(),
-        'end_date': end_date.isoformat()
+        'start_date': period.start_date.isoformat(),
+        'end_date': period.end_date.isoformat(),
     }), 200
 
+# ------------------------------------------------------------------ Company report
 @financial_bp.route('/company-report', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'admin'])
+@role_required(['director', 'admin', 'head_of_it'])
 def get_company_financial_report():
-    """Company report with date filtering."""
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
+    try:
+        period = _resolve_period_from_request()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
 
-    if not start_date or not end_date:
-        today = datetime.utcnow().date()
-        start_date = today - timedelta(days=today.weekday())  # Monday
-        end_date = start_date + timedelta(days=6)
-    else:
-        try:
-            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-        except ValueError:
-            return jsonify({'error': 'Invalid date format'}), 400
-
-    # ---- Money In ----
-    principal_payments = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type == 'payment',
-        Transaction.payment_type == 'principal',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    interest_payments = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type == 'payment',
-        Transaction.payment_type == 'interest',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    claims_recoveries = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type == 'claim',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    other_income = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type == 'other_income',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    money_in = principal_payments + interest_payments + claims_recoveries + other_income
-
-    # ---- Money Out ----
-    loan_disbursements = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type == 'disbursement',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    loan_topups = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type == 'topup',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    petty_cash_expenses = db.session.query(func.sum(PettyCashExpense.amount)).filter(
-        PettyCashExpense.date >= start_date,
-        PettyCashExpense.date <= end_date
-    ).scalar() or Decimal('0')
-
-    operational_expenses = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type == 'operational',
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    salaries = db.session.query(func.sum(SalaryTransaction.amount)).filter(
-        SalaryTransaction.transaction_type == 'salary_payment',
-        func.date(SalaryTransaction.created_at) >= start_date,
-        func.date(SalaryTransaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-
-    investor_returns = db.session.query(func.sum(InvestorReturn.amount)).filter(
-        InvestorReturn.status == 'completed',
-        func.date(InvestorReturn.return_date) >= start_date,
-        func.date(InvestorReturn.return_date) <= end_date
-    ).scalar() or Decimal('0')
-
-    money_out = (loan_disbursements + loan_topups + petty_cash_expenses +
-                 operational_expenses + salaries + investor_returns)
-
-    revenue = money_in - money_out
-
-    expense_breakdown = {
-        'loan_disbursements': float(loan_disbursements),
-        'loan_topups': float(loan_topups),
-        'petty_cash': float(petty_cash_expenses),
-        'operational': float(operational_expenses),
-        'salaries': float(salaries),
-        'investor_returns': float(investor_returns)
-    }
-
-    return jsonify({
-        'money_in': {
-            'principal_payments': float(principal_payments),
-            'interest_payments': float(interest_payments),
-            'claims_recoveries': float(claims_recoveries),
-            'other_income': float(other_income),
-            'total': float(money_in)
-        },
-        'money_out': {
-            'loan_disbursements': float(loan_disbursements),
-            'loan_topups': float(loan_topups),
-            'petty_cash': float(petty_cash_expenses),
-            'operational': float(operational_expenses),
-            'salaries': float(salaries),
-            'investor_returns': float(investor_returns),
-            'total': float(money_out)
-        },
-        'revenue': float(revenue),
-        'profit_loss': float(revenue),
-        'expense_breakdown': expense_breakdown,
-        'start_date': start_date.isoformat(),
-        'end_date': end_date.isoformat()
-    }), 200
+    data = agg_period(period)
+    data['transactions'] = transactions_in(period)
+    return jsonify(data), 200
 
 
+# ------------------------------------------------------------------ Revenue analysis
 @financial_bp.route('/revenue-analysis', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
 def get_revenue_analysis():
-    """Get revenue analysis data."""
-    total_money_in = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type.in_(['payment', 'claim', 'other_income'])
-    ).scalar() or Decimal('0')
-    total_money_out = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type.in_(['disbursement', 'topup', 'operational'])
-    ).scalar() or Decimal('0')
-    total_money_out += db.session.query(func.sum(PettyCashExpense.amount)).scalar() or Decimal('0')
-    total_money_out += db.session.query(func.sum(SalaryTransaction.amount)).filter(
-        SalaryTransaction.transaction_type == 'salary_payment'
-    ).scalar() or Decimal('0')
-    total_money_out += db.session.query(func.sum(InvestorReturn.amount)).filter(
-        InvestorReturn.status == 'completed'
-    ).scalar() or Decimal('0')
-
-    net_revenue = total_money_in - total_money_out
+    try:
+        period = _resolve_period_from_request()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    data = agg_period(period)
     return jsonify({
-        'total_money_out': float(total_money_out),
-        'total_money_in': float(total_money_in),
-        'net_revenue': float(net_revenue),
-        'profit_loss': float(net_revenue)
+        'period': data['period'],
+        'total_money_in': data['money_in']['total'],
+        'total_money_out': data['money_out']['total'],
+        'net_revenue': data['net_cash_flow'],
+        'profit_loss': data['profit_loss'],
     }), 200
+
 
 
 @financial_bp.route('/claims-analysis', methods=['GET'])
@@ -475,240 +369,154 @@ def get_waived_analysis():
         'waiver_impact_on_revenue': float(total_waived)
     }), 200
 
-# -------------------- Weekly & Monthly Reports --------------------
-
+# ------------------------------------------------------------------ Weekly report
 @financial_bp.route('/weekly-report', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
 def get_weekly_report():
-    """Generate weekly report data (for Saturday reports)."""
-    today = datetime.utcnow().date()
-    days_since_saturday = (today.weekday() - 5) % 7
-    saturday = today - timedelta(days=days_since_saturday)
-    week_start = saturday - timedelta(days=6)  # Sunday
-    week_end = saturday  # Saturday
+    """Weekly report. Honours ?date= (any day in the week) or defaults to today's week."""
+    try:
+        period = _resolve_period_from_request()
+        if period.kind != 'weekly':
+            # Force weekly if user opens this endpoint directly
+            from app.services.reporting_period import resolve_period as rp
+            period = rp('weekly', date_str=period.start_date.isoformat())
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
 
-    # Money in/out for the week
-    money_in = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type.in_(['payment', 'claim', 'other_income']),
-        func.date(Transaction.created_at) >= week_start,
-        func.date(Transaction.created_at) <= week_end
-    ).scalar() or Decimal('0')
-
-    money_out = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type.in_(['disbursement', 'topup', 'operational']),
-        func.date(Transaction.created_at) >= week_start,
-        func.date(Transaction.created_at) <= week_end
-    ).scalar() or Decimal('0')
-    money_out += db.session.query(func.sum(PettyCashExpense.amount)).filter(
-        PettyCashExpense.date >= week_start,
-        PettyCashExpense.date <= week_end
-    ).scalar() or Decimal('0')
-
-    revenue = money_in - money_out
+    data = agg_period(period)
+    days = daily_breakdown(period)
 
     # Claims performance for the week
     claimed_this_week = Loan.query.filter(
         Loan.status == 'claimed',
-        func.date(Loan.updated_at) >= week_start,
-        func.date(Loan.updated_at) <= week_end
+        Loan.updated_at >= period.query_start_utc,
+        Loan.updated_at < period.query_end_utc,
     ).all()
-    claims_recovered = sum(l.livestock.estimated_value or Decimal('0') for l in claimed_this_week if l.livestock)
-    claims_owed = sum(l.principal_amount for l in claimed_this_week)
-    claims_profit_loss = claims_recovered - claims_owed
+    claims_recovered = sum(
+        (l.livestock.estimated_value or Decimal('0') for l in claimed_this_week if l.livestock),
+        Decimal('0'),
+    )
+    claims_owed = sum((l.principal_amount for l in claimed_this_week), Decimal('0'))
 
-    # Waived loans this week
     waived_this_week = Loan.query.filter(
         Loan.status == 'waived',
-        func.date(Loan.updated_at) >= week_start,
-        func.date(Loan.updated_at) <= week_end
+        Loan.updated_at >= period.query_start_utc,
+        Loan.updated_at < period.query_end_utc,
     ).all()
-    waived_amount = sum(l.principal_amount for l in waived_this_week)
+    waived_amount = sum((l.principal_amount for l in waived_this_week), Decimal('0'))
 
-    # Petty cash spending for the week
-    petty_spending = db.session.query(func.sum(PettyCashExpense.amount)).filter(
-        PettyCashExpense.date >= week_start,
-        PettyCashExpense.date <= week_end
-    ).scalar() or Decimal('0')
-
-    # Daily breakdown
-    days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-    daily_money_in = []
-    daily_money_out = []
-    for i, day_name in enumerate(days):
-        day_date = week_start + timedelta(days=i)
-        day_in = db.session.query(func.sum(Transaction.amount)).filter(
-            Transaction.transaction_type.in_(['payment', 'claim', 'other_income']),
-            func.date(Transaction.created_at) == day_date
-        ).scalar() or Decimal('0')
-        day_out = db.session.query(func.sum(Transaction.amount)).filter(
-            Transaction.transaction_type.in_(['disbursement', 'topup', 'operational']),
-            func.date(Transaction.created_at) == day_date
-        ).scalar() or Decimal('0')
-        day_out += db.session.query(func.sum(PettyCashExpense.amount)).filter(
-            PettyCashExpense.date == day_date
-        ).scalar() or Decimal('0')
-        daily_money_in.append(float(day_in))
-        daily_money_out.append(float(day_out))
-
-    return jsonify({
-        'week_start': week_start.isoformat(),
-        'week_end': week_end.isoformat(),
-        'money_in': float(money_in),
-        'money_out': float(money_out),
-        'revenue': float(revenue),
+    data.update({
+        'week_start': period.start_date.isoformat(),
+        'week_end': period.end_date.isoformat(),
         'claims_performance': {
             'total_claimed': float(claims_owed),
             'recovered_value': float(claims_recovered),
-            'profit_loss': float(claims_profit_loss)
+            'profit_loss': float(claims_recovered - claims_owed),
         },
         'waived_loans': {
             'count': len(waived_this_week),
-            'amount_waived': float(waived_amount)
+            'amount_waived': float(waived_amount),
         },
-        'petty_cash_spending': float(petty_spending),
         'daily_breakdown': {
-            'days': days,
-            'money_in': daily_money_in,
-            'money_out': daily_money_out
+            'days': [d['weekday'] for d in days],
+            'dates': [d['date'] for d in days],
+            'money_in': [d['money_in'] for d in days],
+            'money_out': [d['money_out'] for d in days],
         },
-        'executive_summary': f"Week ending {saturday.strftime('%B %d, %Y')}: Money In = KES {money_in:,.2f}, Money Out = KES {money_out:,.2f}, Revenue = KES {revenue:,.2f}."
-    }), 200
+        'executive_summary': (
+            f"Week ending {period.end_date.strftime('%B %d, %Y')}: "
+            f"Money In = KES {data['money_in']['total']:,.2f}, "
+            f"Money Out = KES {data['money_out']['total']:,.2f}, "
+            f"Net = KES {data['net_cash_flow']:,.2f}."
+        ),
+    })
+    return jsonify(data), 200
 
 
+# ------------------------------------------------------------------ Monthly report
 @financial_bp.route('/monthly-report', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
 def get_monthly_report():
-    """Generate monthly report data."""
-    year = request.args.get('year', type=int, default=datetime.utcnow().year)
-    month = request.args.get('month', type=int, default=datetime.utcnow().month)
-    start_date = date(year, month, 1)
-    if month == 12:
-        end_date = date(year+1, 1, 1) - timedelta(days=1)
-    else:
-        end_date = date(year, month+1, 1) - timedelta(days=1)
+    try:
+        period = _resolve_period_from_request()
+        if period.kind != 'monthly':
+            from app.services.reporting_period import resolve_period as rp
+            from datetime import date as _d
+            today = _d.today()
+            period = rp('monthly', month_str=f"{today.year}-{today.month:02d}")
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
 
-    # Aggregates for the month
-    money_in = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type.in_(['payment', 'claim', 'other_income']),
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
+    data = agg_period(period)
 
-    money_out = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type.in_(['disbursement', 'topup', 'operational']),
-        func.date(Transaction.created_at) >= start_date,
-        func.date(Transaction.created_at) <= end_date
-    ).scalar() or Decimal('0')
-    money_out += db.session.query(func.sum(PettyCashExpense.amount)).filter(
-        PettyCashExpense.date >= start_date,
-        PettyCashExpense.date <= end_date
-    ).scalar() or Decimal('0')
-
-    revenue = money_in - money_out
-
-    # Monthly breakdown (by month)
-    months = ['January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December']
-    monthly_in = []
-    monthly_out = []
+    # 12-month rolling series for the chart
+    from app.services.reporting_period import month_bounds
+    y = period.year or datetime.utcnow().year
+    monthly_in, monthly_out, months = [], [], []
     for m in range(1, 13):
-        m_start = date(year, m, 1)
-        if m == 12:
-            m_end = date(year+1, 1, 1) - timedelta(days=1)
-        else:
-            m_end = date(year, m+1, 1) - timedelta(days=1)
-        m_in = db.session.query(func.sum(Transaction.amount)).filter(
-            Transaction.transaction_type.in_(['payment', 'claim', 'other_income']),
-            func.date(Transaction.created_at) >= m_start,
-            func.date(Transaction.created_at) <= m_end
-        ).scalar() or Decimal('0')
-        m_out = db.session.query(func.sum(Transaction.amount)).filter(
-            Transaction.transaction_type.in_(['disbursement', 'topup', 'operational']),
-            func.date(Transaction.created_at) >= m_start,
-            func.date(Transaction.created_at) <= m_end
-        ).scalar() or Decimal('0')
-        m_out += db.session.query(func.sum(PettyCashExpense.amount)).filter(
-            PettyCashExpense.date >= m_start,
-            PettyCashExpense.date <= m_end
-        ).scalar() or Decimal('0')
-        monthly_in.append(float(m_in))
-        monthly_out.append(float(m_out))
+        ms, me = month_bounds(y, m)
+        from app.services.reporting_period import ReportingPeriod as RP
+        p = RP(kind='monthly', start_date=ms, end_date=me, label=f"{m}/{y}", month=m, year=y)
+        agg = agg_period(p)
+        months.append(_month_name(m))
+        monthly_in.append(agg['money_in']['total'])
+        monthly_out.append(agg['money_out']['total'])
 
-    return jsonify({
-        'year': year,
-        'month': month,
-        'start_date': start_date.isoformat(),
-        'end_date': end_date.isoformat(),
-        'money_in': float(money_in),
-        'money_out': float(money_out),
-        'revenue': float(revenue),
-        'monthly_breakdown': {
-            'months': months,
-            'money_in': monthly_in,
-            'money_out': monthly_out
-        }
-    }), 200
+    data['monthly_breakdown'] = {
+        'months': months,
+        'money_in': monthly_in,
+        'money_out': monthly_out,
+    }
+    return jsonify(data), 200
 
 
-# -------------------- Dashboard Summary & Insights --------------------
-
+# ------------------------------------------------------------------ Dashboard
 @financial_bp.route('/dashboard-summary', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
 def get_financial_dashboard_summary():
-    """Return summary cards for the financial dashboard."""
+    """Same numbers as Company Report for the current week — no divergence."""
+    try:
+        period = _resolve_period_from_request()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    data = agg_period(period)
+
     total_lent = db.session.query(func.sum(Loan.principal_amount)).filter(
         Loan.status.in_(['active', 'completed'])
     ).scalar() or Decimal('0')
-
     total_principal_collected = db.session.query(func.sum(Loan.principal_paid)).filter(
         Loan.status.in_(['active', 'completed'])
     ).scalar() or Decimal('0')
-
     total_interest_collected = db.session.query(func.sum(Loan.interest_paid)).filter(
         Loan.status.in_(['active', 'completed'])
     ).scalar() or Decimal('0')
-
     outstanding_principal = db.session.query(func.sum(Loan.current_principal)).filter(
         Loan.status == 'active'
     ).scalar() or Decimal('0')
-
     outstanding_interest = db.session.query(
         func.sum(Loan.accrued_interest - Loan.interest_paid)
     ).filter(Loan.status == 'active').scalar() or Decimal('0')
 
-    # ---- Bad Debt ----
     bad_debt_loans = Loan.query.filter_by(status='bad_debt').all()
     bad_debt_principal = sum(l.current_principal for l in bad_debt_loans)
     bad_debt_interest = sum(
-        max(Decimal('0'), l.accrued_interest - l.interest_paid)
-        for l in bad_debt_loans
+        (max(Decimal('0'), l.accrued_interest - l.interest_paid) for l in bad_debt_loans),
+        Decimal('0'),
     )
     total_bad_debt = bad_debt_principal + bad_debt_interest
-
-    recovery_rate = (total_principal_collected / total_lent * 100) if total_lent > 0 else 0
-
-    total_revenue = total_interest_collected
-    total_expenses = db.session.query(func.sum(Transaction.amount)).filter(
-        Transaction.transaction_type.in_(['disbursement', 'topup', 'operational'])
-    ).scalar() or Decimal('0')
-    total_expenses += db.session.query(func.sum(PettyCashExpense.amount)).scalar() or Decimal('0')
-    total_expenses += db.session.query(func.sum(SalaryTransaction.amount)).filter(
-        SalaryTransaction.transaction_type == 'salary_payment'
-    ).scalar() or Decimal('0')
-    total_expenses += db.session.query(func.sum(InvestorReturn.amount)).filter(
-        InvestorReturn.status == 'completed'
-    ).scalar() or Decimal('0')
-
-    net_profit = total_revenue - total_expenses
-
+    recovery_rate = (
+        (total_principal_collected / total_lent * 100) if total_lent > 0 else Decimal('0')
+    )
     total_waived = db.session.query(func.sum(Loan.principal_amount)).filter(
         Loan.status == 'waived'
     ).scalar() or Decimal('0')
 
     return jsonify({
+        'period': period.as_dict(),
         'loan_metrics': {
             'total_money_lent': float(total_lent),
             'total_principal_collected': float(total_principal_collected),
@@ -716,32 +524,50 @@ def get_financial_dashboard_summary():
             'outstanding_principal': float(outstanding_principal),
             'outstanding_interest': float(outstanding_interest),
             'loan_recovery_rate': float(recovery_rate),
-            'total_bad_debt': float(total_bad_debt)          # NEW
+            'total_bad_debt': float(total_bad_debt),
         },
         'company_metrics': {
-            'total_revenue': float(total_revenue),
-            'total_expenses': float(total_expenses),
-            'total_petty_cash_expenses': float(db.session.query(func.sum(PettyCashExpense.amount)).scalar() or 0),
-            'net_profit_loss': float(net_profit),
+            'money_in_total': data['money_in']['total'],
+            'money_out_total': data['money_out']['total'],
+            'net_cash_flow': data['net_cash_flow'],
+            'total_petty_cash_expenses': data['money_out']['petty_cash'],
+            'profit_loss': data['profit_loss'],
             'claims_profit_loss': 0,
-            'total_waived_amount': float(total_waived)
-        }
+            'total_waived_amount': float(total_waived),
+        },
     }), 200
 
-
+# ------------------------------------------------------------------ Insights
 @financial_bp.route('/insights', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
 def get_financial_insights():
-    """Generate automated financial insights."""
+    try:
+        period = _resolve_period_from_request()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    data = agg_period(period)
+
+    # Expense category with highest value
+    cats = {k: v for k, v in data['money_out'].items() if k != 'total'}
+    top_cat_key = max(cats, key=cats.get) if cats else None
+    friendly = {
+        'loan_disbursements': 'Loan Disbursements',
+        'loan_topups': 'Loan Top-ups',
+        'petty_cash': 'Petty Cash',
+        'operational': 'Operating Expenses',
+        'salaries': 'Salaries',
+        'salary_advances': 'Salary Advances',
+        'investor_returns': 'Investor Returns',
+    }.get(top_cat_key, 'N/A')
+
     return jsonify({
-        'highest_expense_category': 'Salaries',
-        'most_profitable_month': 'December 2025',
-        'most_expensive_month': 'January 2026',
-        'loan_recovery_rate': 75.5,
-        'claims_profit_loss_ratio': 1.2,
-        'waived_loan_percentage': 5.0,
-        'monthly_revenue_growth': 8.3,
-        'monthly_expense_growth': 4.2,
-        'petty_cash_utilization_rate': 60.0
+        'period': data['period'],
+        'highest_expense_category': friendly,
+        'highest_expense_amount': cats.get(top_cat_key, 0) if top_cat_key else 0,
+        'total_money_in': data['money_in']['total'],
+        'total_money_out': data['money_out']['total'],
+        'net_cash_flow': data['net_cash_flow'],
+        'profit_loss': data['profit_loss'],
     }), 200
+Note: _month_name 

@@ -387,36 +387,17 @@ export const financialAPI = {
   getPettyCashBalance: () => api.get('/financial/petty-cash/balance'),
   getPettyCashReport: (start, end) => api.get(`/financial/petty-cash/report?start_date=${start}&end_date=${end}`),
 
-  // Reports
-  getLoanReport: (params) => {
-  return api.get('/financial/loan-report', { params });
-  },
-  getCompanyReport: (params) => {
-    return api.get('/financial/company-report', { params });
-  },
-  getRevenueAnalysis: () => api.get('/financial/revenue-analysis'),
-  getClaimsAnalysis: () => api.get('/financial/claims-analysis'),
-  getWaivedAnalysis: () => api.get('/financial/waived-analysis'),
-  getWeeklyReport: () => api.get('/financial/weekly-report'),
-  getMonthlyReport: (year, month) => api.get(`/financial/monthly-report?year=${year}&month=${month}`),
-  getDashboardSummary: () => api.get('/financial/dashboard-summary'),
-  getInsights: () => api.get('/financial/insights'),
+  // Reports — ALL accept the same params object
+  getLoanReport: (params) => api.get('/financial/loan-report', { params }),
+  getCompanyReport: (params) => api.get('/financial/company-report', { params }),
+  getRevenueAnalysis: (params) => api.get('/financial/revenue-analysis', { params }),
+  getClaimsAnalysis: (params) => api.get('/financial/claims-analysis', { params }),
+  getWaivedAnalysis: (params) => api.get('/financial/waived-analysis', { params }),
+  getWeeklyReport: (params) => api.get('/financial/weekly-report', { params }),
+  getMonthlyReport: (params) => api.get('/financial/monthly-report', { params }),
+  getDashboardSummary: (params) => api.get('/financial/dashboard-summary', { params }),
+  getInsights: (params) => api.get('/financial/insights', { params }),
 
-  // parameterized report
-  getLoanReport: (startDate, endDate) => {
-    let url = '/financial/loan-report';
-    if (startDate && endDate) {
-      url += `?start_date=${startDate}&end_date=${endDate}`;
-    }
-    return api.get(url);
-  },
-  getCompanyReport: (startDate, endDate) => {
-    let url = '/financial/company-report';
-    if (startDate && endDate) {
-      url += `?start_date=${startDate}&end_date=${endDate}`;
-    }
-    return api.get(url);
-  },
 };
 
 export const chatAPI = {

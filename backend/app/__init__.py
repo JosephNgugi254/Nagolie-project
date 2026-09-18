@@ -35,7 +35,9 @@ def _start_schedulers(app):
 
     scheduler = BackgroundScheduler(timezone="UTC")
 
-    # ---- Job 1: auto-revert expired waivers (every hour) ----------------
+    # ==================================================================
+    # Job 1: auto-revert expired waivers (every hour)
+    # ==================================================================
     def _waiver_job():
         with app.app_context():
             try:
@@ -56,7 +58,9 @@ def _start_schedulers(app):
         coalesce=True,
     )
 
-    # ---- Job 2: nightly reassignment sync (02:00 UTC) -------------------
+    # ==================================================================
+    # Job 2: nightly reassignment sync (02:00 UTC)
+    # ==================================================================
     def _assignments_job():
         with app.app_context():
             try:
@@ -74,6 +78,52 @@ def _start_schedulers(app):
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+    )
+
+    # ==================================================================
+    # Job 3: DAILY INTEREST ACCRUAL (00:05 UTC, every day)
+    # ------------------------------------------------------------------
+    # Runs `recalculate_loan` on every active loan so that:
+    #   • Each day gets its own ledger row (no gaps when nobody logs in).
+    #   • Daily compounding fires on schedule.
+    #   • Weekly compounding fires on schedule.
+    #   • `last_interest_payment_date` and `last_accrual_recorded` stay fresh.
+    # Failures on one loan do not stop the batch.
+    # ==================================================================
+    def _daily_accrual_job():
+        with app.app_context():
+            from app.models import Loan
+            from app.routes.payments import recalculate_loan
+
+            loans = Loan.query.filter_by(status='active').all()
+            ok, failed = 0, 0
+            for loan in loans:
+                try:
+                    recalculate_loan(loan)          # mutates + writes ledger via _record_accrual
+                    db.session.commit()
+                    ok += 1
+                except Exception as e:
+                    db.session.rollback()
+                    failed += 1
+                    app.logger.exception(
+                        f"[daily_accrual] loan {loan.id} failed: {e}"
+                    )
+
+            app.logger.info(
+                f"[daily_accrual] done — ok={ok}, failed={failed}, total={len(loans)}"
+            )
+
+    scheduler.add_job(
+        func=_daily_accrual_job,
+        trigger="cron",
+        hour=0,
+        minute=5,
+        id="daily_accrual",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        # If the server was down at 00:05, run the missed job as soon as it boots.
+        misfire_grace_time=3600,
     )
 
     scheduler.start()
@@ -187,36 +237,36 @@ def register_commands(app):
         from datetime import datetime, timedelta
         from decimal import Decimal, ROUND_HALF_UP
         import pytz
-    
+
         RATE = Decimal('0.30')
         local_tz = pytz.timezone('Africa/Nairobi')
         now_local = datetime.now(local_tz)
         today = now_local.date()
-    
+
         loans = Loan.query.filter(Loan.status == 'active').all()
         print(f"Found {len(loans)} active loans.\n")
         updated_count = 0
-    
+
         for loan in loans:
             client_name = loan.client.full_name if loan.client else 'Unknown'
             print(f"Processing Loan ID {loan.id} - {client_name}")
-    
+
             disburse = loan.disbursement_date or loan.created_at
             if hasattr(disburse, 'date'):
                 disburse_date = disburse.date()
             else:
                 disburse_date = disburse
             print(f"   Disbursed: {disburse_date}")
-    
+
             transactions = Transaction.query.filter(
                 Transaction.loan_id == loan.id,
                 Transaction.transaction_type == 'payment',
                 Transaction.status == 'completed'
             ).order_by(Transaction.created_at.asc()).all()
-    
+
             principal_payments = []
             interest_payments  = []
-    
+
             for txn in transactions:
                 ptype = (txn.payment_type or '').lower()
                 txn_date = txn.created_at
@@ -226,56 +276,56 @@ def register_commands(app):
                     principal_payments.append((txn_date, txn.amount))
                 elif ptype == 'interest':
                     interest_payments.append((txn_date, txn.amount))
-    
+
             total_principal_paid = sum(a for _, a in principal_payments) if principal_payments else Decimal('0')
             total_interest_paid  = sum(a for _, a in interest_payments)  if interest_payments  else Decimal('0')
-    
+
             print(f"   Principal paid: {total_principal_paid}")
             print(f"   Interest paid:  {total_interest_paid}")
-    
+
             original_principal = loan.principal_amount
             days_since_disbursement = (today - disburse_date).days
             total_weeks = days_since_disbursement // 7
-    
+
             # Replay week by week with reducing balance
             running_principal = original_principal
             total_accrued = Decimal('0')
-    
+
             for week_num in range(1, total_weeks + 1):
                 week_start = disburse_date + timedelta(days=(week_num - 1) * 7)
                 week_end   = disburse_date + timedelta(days=week_num * 7)
-    
+
                 # Apply principal payments that fell in this week window
                 for pay_date, pay_amount in principal_payments:
                     if week_start <= pay_date < week_end:
                         running_principal -= pay_amount
                         if running_principal < Decimal('0'):
                             running_principal = Decimal('0')
-    
+
                 weekly_interest = (running_principal * RATE).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
                 total_accrued += weekly_interest
-    
+
             print(f"   Weeks replayed: {total_weeks}")
             print(f"   Total accrued (reducing balance): {total_accrued}")
-    
+
             current_principal = original_principal - total_principal_paid
             if current_principal < Decimal('0'):
                 current_principal = Decimal('0')
-    
+
             unpaid_interest = total_accrued - total_interest_paid
             if unpaid_interest < Decimal('0'):
                 unpaid_interest = Decimal('0')
-    
+
             balance = (current_principal + unpaid_interest).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
-    
+
             # ---- Set last_interest_payment_date to the start of the current week ----
             current_week_start = today - timedelta(days=days_since_disbursement % 7)
             loan.last_interest_payment_date = datetime.combine(current_week_start, datetime.min.time())
-    
+
             # Update financial fields
             loan.current_principal = current_principal
             loan.principal_paid    = total_principal_paid
@@ -283,7 +333,7 @@ def register_commands(app):
             loan.accrued_interest  = total_accrued
             loan.balance           = balance
             loan.amount_paid       = total_principal_paid + total_interest_paid
-    
+
             print(f"   current_principal:          {loan.current_principal}")
             print(f"   accrued_interest:           {loan.accrued_interest}")
             print(f"   unpaid_interest:            {unpaid_interest}")
@@ -291,13 +341,13 @@ def register_commands(app):
             print(f"   last_interest_payment_date: {loan.last_interest_payment_date.date()}")
             print(f"   due_date (unchanged):       {loan.due_date.date()}")
             print("   ---")
-    
+
             updated_count += 1
-    
+
         db.session.commit()
         print(f"\nDone. Updated {updated_count} active loans.")
         print("Future interest will accrue on current_principal (reducing balance).")
-    
+
     @app.cli.command('fix-due-dates')
     @with_appcontext
     def fix_due_dates():
@@ -417,3 +467,48 @@ def register_commands(app):
 
         db.session.commit()
         print(f"Updated due_date for {updated} active loans to the next due date.")
+
+    # ==================================================================
+    # NEW CLI COMMAND: run the daily accrual batch on demand
+    # ------------------------------------------------------------------
+    # Use this to backfill missed days without waiting for the scheduler:
+    #     flask run-daily-accrual
+    # It applies exactly the same logic as the scheduled Job 3.
+    # ==================================================================
+    @app.cli.command('run-daily-accrual')
+    @with_appcontext
+    def run_daily_accrual_cmd():
+        """
+        Manually run the daily interest-accrual batch.
+        Iterates every active loan, applies accrual, and writes one ledger row
+        per missing day. Safe to run multiple times — accrual is idempotent
+        because it checks `last_accrual_recorded` before writing.
+        """
+        from app.models import Loan
+        from app.routes.payments import recalculate_loan
+
+        loans = Loan.query.filter_by(status='active').all()
+        print(f"Found {len(loans)} active loans.\n")
+
+        ok, failed = 0, 0
+        for loan in loans:
+            try:
+                before_p = loan.current_principal
+                before_i = loan.accrued_interest
+                recalculate_loan(loan)
+                db.session.commit()
+
+                loan_fresh = db.session.get(Loan, loan.id)
+                print(
+                    f"  Loan {loan.id:>4}  "
+                    f"P: {before_p} → {loan_fresh.current_principal}  |  "
+                    f"I: {before_i} → {loan_fresh.accrued_interest}  |  "
+                    f"balance: {loan_fresh.balance}"
+                )
+                ok += 1
+            except Exception as e:
+                db.session.rollback()
+                failed += 1
+                print(f"  Loan {loan.id:>4}  FAILED: {e}")
+
+        print(f"\nDone. ok={ok}, failed={failed}, total={len(loans)}")
