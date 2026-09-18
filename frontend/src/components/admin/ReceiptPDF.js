@@ -558,6 +558,7 @@ export const computeRunningBalances = (loan, transactions) => {
   };
 };
 
+
 // =============================================================
 // generateClientStatement — bank-grade A4 statement
 // =============================================================
@@ -578,9 +579,13 @@ export const generateClientStatement = async (client, ledgerEntries = null) => {
     try {
       const r = await adminAPI.getLoan(client.loan_id);
       loan = r.data;
-    } catch { loan = client; }
+    } catch (err) {
+      console.error('Statement: failed to fetch loan', err);
+      showToast.error('Could not load loan data — statement aborted');
+      return;
+    }
 
-    // ── 2. filter out adjustments, then deterministic ordering ──
+    // ── 2. filter adjustments + deterministic ordering ────────
     entries = [...entries]
       .filter(e => (e.type || '').toLowerCase() !== 'adjustment')
       .sort((a, b) => {
@@ -589,25 +594,51 @@ export const generateClientStatement = async (client, ledgerEntries = null) => {
         return (a.sequence || 0) - (b.sequence || 0);
       });
 
+    // ── 2b. append a synthetic "current state" row so the last
+    //       ledger row reconciles to the live loan balance ─────
+    const liveState = _computeLiveState(loan);
+    const lastEntry = entries[entries.length - 1];
+    const lastDate  = lastEntry ? new Date(lastEntry.date) : null;
+    const today     = new Date();
+    const dayGap    = lastDate
+      ? Math.floor((today - lastDate) / (1000 * 60 * 60 * 24))
+      : 0;
+
+    const lastMatchesLive =
+      lastEntry &&
+      Math.abs(Number(lastEntry.principalBalance || 0) - liveState.principal) < 0.01 &&
+      Math.abs(Number(lastEntry.interestBalance  || 0) - liveState.interest)  < 0.01;
+
+    if (!lastMatchesLive && dayGap > 0) {
+      entries.push({
+        id: 'synthetic-current',
+        loan_id: loan.id,
+        date: today.toISOString(),
+        sequence: 999999,
+        type: 'current_state',
+        amount: 0,
+        principalBalance: liveState.principal,
+        interestBalance: liveState.interest,
+        totalOutstanding: liveState.total,
+        period: '—',
+        reference: 'CURRENT',
+        notes: 'Current outstanding balance (live)',
+        transaction: null,
+      });
+    }
+
     // ── 3. document + page setup ─────────────────────────────
     const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
     addOptimizedWatermark(doc, 'statement');
 
     const PAGE = { w: 210, h: 297 };
     const M    = { left: 12, right: 12, top: 16, bottom: 18 };
-    const TABLE_W = PAGE.w - M.left - M.right;   // 186 mm
+    const TABLE_W = PAGE.w - M.left - M.right;
 
-    // ── 4. letterhead (page 1 only) ──────────────────────────
     let y = await drawStatementHeader(doc, loan, client);
-
-    // ── 5. client + loan summary card ────────────────────────
     y = drawClientLoanCard(doc, loan, client, y);
-
-    // ── 6. running-balance table ─────────────────────────────
-    y = drawTransactionTable(doc, entries, y, M, TABLE_W);
-
-    // ── 7. summary + notes + payment instructions ────────────
-    y = drawStatementFooter(doc, loan, entries, y, PAGE, M);
+    y = drawTransactionTable(doc, entries, y, M, TABLE_W, liveState);
+    y = drawStatementFooter(doc, loan, entries, y, PAGE, M, liveState);
 
     addPageNumbers(doc, 'Page %d of %p');
     const name = (loan.client_name || loan.name || 'Client').replace(/\s+/g, '_');
@@ -617,6 +648,36 @@ export const generateClientStatement = async (client, ledgerEntries = null) => {
     showToast.error('Failed to generate statement');
   }
 };
+
+// ─────────────────────────────────────────────────────────────
+// Live-state computation — the single source of truth for the
+// header, the synthetic ledger row, and the reconciliation block.
+// ─────────────────────────────────────────────────────────────
+function _computeLiveState(loan) {
+  const plan          = loan.repayment_plan || 'weekly';
+  const interestRate  = Number(loan.interest_rate ?? 0);
+  const principal     = Number(loan.current_principal ?? 0);
+
+  let interest = 0;
+  if (interestRate > 0) {
+    if (plan === 'weekly') {
+      const raw      = principal * 0.30;
+      const prepaid  = Number(loan.period_interest_prepaid ?? 0);
+      const cpi      = Number(loan.current_period_interest ?? raw);
+      interest = Math.max(0, (cpi || raw) - prepaid);
+    } else {
+      const accrued  = Number(loan.accrued_interest ?? 0);
+      const paid     = Number(loan.interest_paid ?? 0);
+      interest = Math.max(0, accrued - paid);
+    }
+  }
+
+  return {
+    principal,
+    interest,
+    total: principal + interest,
+  };
+}
 
 async function drawStatementHeader(doc, loan, client) {
   const logo = await (async () => {
@@ -635,14 +696,14 @@ async function drawStatementHeader(doc, loan, client) {
   doc.setTextColor(...COLORS.textLight);
   doc.text(COMPANY_INFO.tagline, x, 21);
   doc.text(`${COMPANY_INFO.address}  •  ${COMPANY_INFO.phone1}`, x, 25);
-  doc.text(`${COMPANY_INFO.email}  •  ${COMPANY_INFO.poBox}`, x, 29);
+  doc.text(`${COMPANY_INFO.email}  •  ${COMPANY_INFO.pobox || COMPANY_INFO.poBox}`, x, 29);
 
   doc.setDrawColor(...COLORS.primaryBlue); doc.setLineWidth(0.6);
   doc.line(12, 36, 198, 36);
 
   doc.setFont('helvetica','bold'); doc.setFontSize(13);
   doc.setTextColor(...COLORS.primaryBlue);
-  doc.text('OFFICIAL LOAN STATEMENT', PAGE_CENTER(), 44, { align: 'center' });
+  doc.text('LOAN STATEMENT', PAGE_CENTER(), 44, { align: 'center' });
   doc.setFont('helvetica','normal'); doc.setFontSize(8);
   doc.setTextColor(...COLORS.textLight);
   const now = new Date();
@@ -663,23 +724,9 @@ function drawClientLoanCard(doc, loan, client, yStart) {
     : plan === 'daily' ? `${interestRate}% per day`
                        : `${interestRate}% per week`;
 
-  const original    = Number(loan.principal_amount ?? 0);
-  const currentPrin = Number(loan.current_principal ?? 0);
-  const amountPaid  = Number(loan.amount_paid ?? 0);
-
-  let outstandingInt = 0;
-  if (plan === 'weekly' && interestRate > 0) {
-    outstandingInt = Math.max(
-      0,
-      Number(loan.current_period_interest ?? 0) -
-      Number(loan.period_interest_prepaid ?? 0)
-    );
-  } else if (interestRate > 0) {
-    outstandingInt = Math.max(
-      0, Number(loan.accrued_interest ?? 0) - Number(loan.interest_paid ?? 0)
-    );
-  }
-  const totalOut = currentPrin + outstandingInt;
+  const live         = _computeLiveState(loan);
+  const original     = Number(loan.principal_amount ?? 0);
+  const amountPaid   = Number(loan.amount_paid ?? 0);
 
   const cardH = 46;
 
@@ -693,11 +740,11 @@ function drawClientLoanCard(doc, loan, client, yStart) {
 
   box(doc, 106, yStart, 92, cardH);
   heading(doc, 'LOAN DETAILS', 110, yStart + 7);
-  kv(doc, 'Original Amount',  money(original),     110, yStart + 14);
-  kv(doc, 'Interest Rate',    rateLabel,           110, yStart + 20);
-  kv(doc, 'Amount Paid',      money(amountPaid),   110, yStart + 26);
-  kv(doc, 'Outstanding Prin.', money(currentPrin), 110, yStart + 32);
-  kv(doc, 'Outstanding Int.',  money(outstandingInt), 110, yStart + 38);
+  kv(doc, 'Original Amount',  money(original),           110, yStart + 14);
+  kv(doc, 'Interest Rate',    rateLabel,                 110, yStart + 20);
+  kv(doc, 'Amount Paid',      money(amountPaid),         110, yStart + 26);
+  kv(doc, 'Outstanding Principal', money(live.principal),    110, yStart + 32);
+  kv(doc, 'Outstanding Interest',  money(live.interest),     110, yStart + 38);
 
   const stripY = yStart + cardH + 3;
   doc.setFillColor(...COLORS.primaryBlue);
@@ -705,7 +752,7 @@ function drawClientLoanCard(doc, loan, client, yStart) {
   doc.setTextColor(...COLORS.white);
   doc.setFont('helvetica','bold'); doc.setFontSize(10);
   doc.text('TOTAL OUTSTANDING BALANCE', 16, stripY + 6);
-  doc.text(money(totalOut), 194, stripY + 6, { align: 'right' });
+  doc.text(money(live.total), 194, stripY + 6, { align: 'right' });
 
   return stripY + 14;
 }
@@ -739,15 +786,9 @@ function fmtDateLong(d){
 }
 
 // =============================================================
-// Transaction table
-// -------------------------------------------------------------
-// Only Type, Method and Period can wrap onto a second line.
-// Amount / Principal / Interest / Total are rendered single-line
-// with right alignment — a value like KES 13,500.00 never splits.
-// Numeric columns are widened (26 mm each) so the worst-case
-// amount (tens of millions with decimals) still fits on one line.
+// Transaction table — wrapping Type/Method/Period, single-line numerics
 // =============================================================
-function drawTransactionTable(doc, rows, yStart, M, W) {
+function drawTransactionTable(doc, rows, yStart, M, W, liveState) {
   const columns = [
     { key:'date',      label:'Date',       w: 14, align:'left'  },
     { key:'type',      label:'Type',       w: 24, align:'left'  },
@@ -758,79 +799,64 @@ function drawTransactionTable(doc, rows, yStart, M, W) {
     { key:'total',     label:'Total',      w: 26, align:'right' },
     { key:'period',    label:'Period',     w: 20, align:'right' },
   ];
-  // 14+24+24+26+26+26+26+20 = 186 mm exactly
 
-  // Guarantee widths sum exactly to W (defensive — already 186)
-  const sum   = columns.reduce((a,c)=>a+c.w,0);
+  const sum   = columns.reduce((a, c) => a + c.w, 0);
   const scale = W / sum;
-  columns.forEach(c => c.w *= scale);
+  columns.forEach(c => { c.w *= scale; });
 
   const headerH = 7.5;
-  const lineH   = 3.6;   // mm per wrapped text line
-  const rowPadY = 1.4;   // top/bottom padding inside a row
-  const minRowH = 6.4;   // single-line row height
+  const lineH   = 3.6;
+  const rowPadY = 1.4;
+  const minRowH = 6.4;
 
-  // Precompute column x-offsets
   const xCols = [];
   let cursor = M.left;
   columns.forEach(c => { xCols.push(cursor); cursor += c.w; });
 
-  // ── Blue header bar ────────────────────────────────────────
   const drawHeader = (y) => {
     doc.setFillColor(...COLORS.primaryBlue);
     doc.rect(M.left, y, W, headerH, 'F');
     doc.setTextColor(...COLORS.white);
     doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
     columns.forEach((c, i) => {
-      const tx = c.align === 'right'
-        ? xCols[i] + c.w - 2
-        : xCols[i] + 2;
-      doc.text(c.label, tx, y + 5, {
-        align: c.align === 'right' ? 'right' : 'left',
-      });
+      const tx = c.align === 'right' ? xCols[i] + c.w - 2 : xCols[i] + 2;
+      doc.text(c.label, tx, y + 5, { align: c.align === 'right' ? 'right' : 'left' });
     });
     return y + headerH;
   };
 
-  // ── Wrapping cell (Type / Method / Period only) ───────────
   const drawWrappingCell = (text, colIdx, rowTopY) => {
     const col  = columns[colIdx];
     const padX = 2;
     const maxW = col.w - padX * 2;
     const lines = doc.splitTextToSize(String(text ?? ''), maxW);
     lines.forEach((ln, i) => {
-      const tx = col.align === 'right'
-        ? xCols[colIdx] + col.w - padX
-        : xCols[colIdx] + padX;
+      const tx = col.align === 'right' ? xCols[colIdx] + col.w - padX : xCols[colIdx] + padX;
       doc.text(ln, tx, rowTopY + rowPadY + lineH * (i + 0.7), {
         align: col.align === 'right' ? 'right' : 'left',
       });
     });
   };
 
-  // ── Single-line cell (numeric columns) ────────────────────
   const drawSingleLineCell = (text, colIdx, rowTopY) => {
     const col  = columns[colIdx];
     const padX = 2;
-    const tx = col.align === 'right'
-      ? xCols[colIdx] + col.w - padX
-      : xCols[colIdx] + padX;
+    const tx = col.align === 'right' ? xCols[colIdx] + col.w - padX : xCols[colIdx] + padX;
     doc.text(String(text ?? ''), tx, rowTopY + rowPadY + lineH * 0.7, {
       align: col.align === 'right' ? 'right' : 'left',
     });
   };
 
-  // ── Paint table ────────────────────────────────────────────
   let y = drawHeader(yStart);
 
   for (let i = 0; i < rows.length; i++) {
-    const r      = rows[i];
-    const t      = r.transaction || {};
-    const label  = mapEventLabel(r.type, t.payment_type);
-    const method = mapEventMethod(r, t);
-    const period = r.period || '—';
+    const r          = rows[i];
+    const t          = r.transaction || {};
+    const isCurrent  = r.type === 'current_state';
+    const label      = isCurrent ? 'Current Balance' : mapEventLabel(r.type, t.payment_type);
+    const method     = isCurrent ? '—' : mapEventMethod(r, t);
+    const period     = r.period || '—';
 
-    // ── Row height = tallest wrapping cell ───────────────────
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     const typeLines   = doc.splitTextToSize(label,  columns[1].w - 4).length;
@@ -839,7 +865,6 @@ function drawTransactionTable(doc, rows, yStart, M, W) {
     const linesNeeded = Math.max(typeLines, methodLines, periodLines, 1);
     const rowH        = Math.max(minRowH, rowPadY * 2 + linesNeeded * lineH + 1.0);
 
-    // ── Page break decided BEFORE drawing — no split rows ────
     if (y + rowH > 297 - M.bottom - 22) {
       drawSubtotalBanner(doc, y, M.left, W);
       doc.addPage();
@@ -848,43 +873,43 @@ function drawTransactionTable(doc, rows, yStart, M, W) {
       y = drawHeader(y);
     }
 
-    // ── Zebra stripe ─────────────────────────────────────────
-    if (i % 2 === 0) {
+    // zebra stripes (regular rows only) — current row gets a highlight below
+    if (!isCurrent && i % 2 === 0) {
       doc.setFillColor(248, 250, 252);
       doc.rect(M.left, y, W, rowH, 'F');
     }
 
-    // ── Bottom separator ─────────────────────────────────────
-    doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.1);
-    doc.line(M.left, y + rowH, M.left + W, y + rowH);
+    // Highlighted current-state row
+    if (isCurrent) {
+      doc.setFillColor(230, 240, 255);         // soft blue
+      doc.rect(M.left, y, W, rowH, 'F');
+      doc.setDrawColor(...COLORS.primaryBlue); doc.setLineWidth(0.35);
+      doc.rect(M.left, y, W, rowH, 'S');
+    } else {
+      doc.setDrawColor(...COLORS.border); doc.setLineWidth(0.1);
+      doc.line(M.left, y + rowH, M.left + W, y + rowH);
+    }
 
-    // ── Emit every cell ──────────────────────────────────────
-    doc.setFont('helvetica', r.type === 'compound_interest' ? 'bold' : 'normal');
+    doc.setFont('helvetica', isCurrent || r.type === 'compound_interest' ? 'bold' : 'normal');
     doc.setFontSize(8);
 
-    // Date  — short, single line
     doc.setTextColor(...COLORS.textDark);
     drawSingleLineCell(fmtDateShort(r.date), 0, y);
 
-    // Type  — wraps if long
-    doc.setTextColor(...typeColor(r.type));
+    doc.setTextColor(...(isCurrent ? COLORS.primaryBlue : typeColor(r.type)));
     drawWrappingCell(label, 1, y);
 
-    // Method  — wraps if long
     doc.setTextColor(...methodColor(method));
     drawWrappingCell(method, 2, y);
 
-    // Numeric columns — single line, right-aligned
     doc.setTextColor(...COLORS.textDark);
     drawSingleLineCell(money(r.amount), 3, y);
     drawSingleLineCell(money(r.principalBalance), 4, y);
     drawSingleLineCell(money(r.interestBalance), 5, y);
 
-    // Total — highlighted blue
     doc.setTextColor(...COLORS.primaryBlue);
     drawSingleLineCell(money(r.totalOutstanding), 6, y);
 
-    // Period  — wraps if long
     doc.setTextColor(...COLORS.textLight);
     drawWrappingCell(period, 7, y);
 
@@ -924,6 +949,7 @@ function mapEventLabel(type, payType){
   if (t === 'renewal_created')  return 'Renewal (New Loan)';
   if (t === 'claimed')          return 'Livestock Claimed';
   if (t === 'adjustment')       return 'Adjustment';
+  if (t === 'current_state')    return 'Current Balance';
   return (type||'').replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
 }
 function mapEventMethod(row, t){
@@ -933,7 +959,7 @@ function mapEventMethod(row, t){
   if (m.includes('cash'))          return 'CASH';
   if (m.includes('bank'))          return 'BANK';
   if (row.type === 'accrual' || row.type === 'compound_interest') return 'AUTO';
-  if (row.type === 'waiver' || row.type === 'adjustment') return '—';
+  if (row.type === 'waiver' || row.type === 'adjustment' || row.type === 'current_state') return '—';
   return (m || 'AUTO').toUpperCase();
 }
 function typeColor(type){
@@ -943,6 +969,7 @@ function typeColor(type){
   if (t === 'compound_interest') return [180, 95, 6];
   if (t === 'waiver' || t === 'waiver_created') return [180, 95, 6];
   if (t === 'renewal_merged' || t === 'renewal_created') return [122, 62, 174];
+  if (t === 'current_state')     return COLORS.primaryBlue;
   return COLORS.textDark;
 }
 function methodColor(m){
@@ -952,11 +979,13 @@ function methodColor(m){
   return COLORS.textDark;
 }
 
-function drawStatementFooter(doc, loan, entries, yStart, PAGE, M) {
-  const last = entries[entries.length - 1] || {};
-  const currentPrincipal = Number(last.principalBalance ?? loan.current_principal ?? 0);
-  const currentInterest  = Number(last.interestBalance  ?? 0);
-  const totalOutstanding = currentPrincipal + currentInterest;
+// =============================================================
+// Reconciliation — always uses the SAME live state as the header
+// =============================================================
+function drawStatementFooter(doc, loan, entries, yStart, PAGE, M, liveState) {
+  const currentPrincipal = liveState.principal;
+  const currentInterest  = liveState.interest;
+  const totalOutstanding = liveState.total;
 
   if (yStart > PAGE.h - 80) {
     doc.addPage();
