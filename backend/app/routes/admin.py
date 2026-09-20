@@ -2212,7 +2212,7 @@ def revert_waived_loans():
             Loan.status == 'active',
             Loan.interest_rate == 0,
             Loan.due_date.isnot(None),
-            Loan.due_date <= now,
+            db.func.date(Loan.due_date) < today, 
         ).all()
 
         reverted_count = 0
