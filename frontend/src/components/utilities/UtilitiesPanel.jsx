@@ -147,7 +147,7 @@ const UtilitiesPanel = ({ userRole, restrictedMode = false }) => {
                   className={`nav-link ${activeTab === 'salary' ? 'active' : ''}`}
                   onClick={() => setActiveTab('salary')}
                 >
-                  <i className="fas fa-hand-holding-usd me-2"></i>Salary Advance
+                  <i className="fas fa-hand-holding-usd me-2"></i>Salary
                 </button>
               </li>
             )}

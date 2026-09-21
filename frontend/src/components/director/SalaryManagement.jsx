@@ -15,6 +15,10 @@ const formatMonthDisplay = (monthStr) => {
 const SalaryManagement = () => {
   const [activeTab, setActiveTab] = useState('staff');
   const [staffList, setStaffList] = useState([]);
+  const [staffTotals, setStaffTotals] = useState({
+    current_salary: 0, current_paid: 0, current_balance: 0,
+    previous_balance: 0, total_due: 0,
+  });
   const [requests, setRequests] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +56,21 @@ const SalaryManagement = () => {
     setLoading(true);
     try {
       const res = await salaryAPI.getStaffSettings(month);
-      setStaffList(res.data);
+      const payload = res.data || {};
+      // Backward-compatible: old shape was an array; new shape is { staff, totals }
+      if (Array.isArray(payload)) {
+        setStaffList(payload);
+        setStaffTotals({
+          current_salary: 0, current_paid: 0, current_balance: 0,
+          previous_balance: 0, total_due: 0,
+        });
+      } else {
+        setStaffList(payload.staff || []);
+        setStaffTotals(payload.totals || {
+          current_salary: 0, current_paid: 0, current_balance: 0,
+          previous_balance: 0, total_due: 0,
+        });
+      }
     } catch (err) {
       showToast.error('Failed to load staff list');
     } finally {
@@ -107,7 +125,7 @@ const SalaryManagement = () => {
     setLoading(true);
     try {
       await salaryAPI.setStaffSalary(editingStaff.user_id, month, parseFloat(salaryAmount));
-      showToast.success('Salary updated');
+      showToast.success('Salary updated — it will carry forward to future months');
       setEditingStaff(null);
       fetchStaff();
     } catch (err) {
@@ -247,10 +265,15 @@ const SalaryManagement = () => {
     }
   };
 
+  // ---- Money formatter ----
+  const fmtKES = (v) => `KES ${Number(v || 0).toLocaleString('en-KE', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })}`;
+
   const renderStaffTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <h6>Staff Salaries for {formatMonthDisplay(month)}</h6>
+        <h6 className="mb-0">Staff Salaries for {formatMonthDisplay(month)}</h6>
         <div>
           <button className="btn btn-sm btn-outline-secondary me-2" onClick={fetchStaff} disabled={loading}>
             <i className={`fas fa-sync ${loading ? 'fa-spin' : ''}`}></i> {loading ? 'Loading...' : 'Refresh'}
@@ -264,26 +287,46 @@ const SalaryManagement = () => {
           </button>
         </div>
       </div>
+
+      <div className="alert alert-light border small mb-3">
+        <i className="fas fa-info-circle me-1 text-primary"></i>
+        A salary stays in effect every month until you change it. Click <i className="fas fa-edit mx-1"></i>
+        to set a new amount — it applies from this month onward.
+      </div>
+
       <div className="table-responsive">
-        <table className="table table-hover">
-          <thead>
+        <table className="table table-hover align-middle">
+          <thead className="table-light">
             <tr>
               <th>Staff</th>
               <th>Role</th>
-              <th>Salary Amount</th>
-              <th>Actions</th>
+              <th className="text-end">Salary / Month</th>
+              <th className="text-end">Paid (This Month)</th>
+              <th className="text-end">Month Balance</th>
+              <th className="text-end">Previous Balance</th>
+              <th className="text-end">Total Due</th>
+              <th className="text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {staffList.map(s => (
+            {loading && staffList.length === 0 ? (
+              <tr>
+                <td colSpan="8" className="text-center py-4">
+                  <div className="spinner-border spinner-border-sm text-primary" role="status"></div>
+                </td>
+              </tr>
+            ) : staffList.length === 0 ? (
+              <tr><td colSpan="8" className="text-center text-muted py-4">No staff found.</td></tr>
+            ) : staffList.map(s => (
               <tr key={s.user_id}>
-                <td>{s.username}</td>
-                <td>{s.role}</td>
-                <td>
+                <td><strong>{s.username}</strong></td>
+                <td><span className="badge bg-light text-dark border">{s.role}</span></td>
+                <td className="text-end">
                   {editingStaff?.user_id === s.user_id ? (
                     <input
                       type="number"
-                      className="form-control form-control-sm d-inline-block w-auto"
+                      className="form-control form-control-sm d-inline-block"
+                      style={{ width: '130px' }}
                       value={salaryAmount}
                       onChange={(e) => setSalaryAmount(e.target.value)}
                       min="0"
@@ -291,10 +334,28 @@ const SalaryManagement = () => {
                       disabled={loading}
                     />
                   ) : (
-                    `KES ${s.salary_amount.toFixed(2)}`
+                    <span>
+                      {s.salary_amount > 0 ? fmtKES(s.salary_amount) : <span className="text-muted">Not set</span>}
+                      {!s.has_month_setting && s.salary_amount > 0 && (
+                        <i
+                          className="fas fa-info-circle ms-1 text-muted"
+                          title="Carried forward from a previous month"
+                        />
+                      )}
+                    </span>
                   )}
                 </td>
-                <td>
+                <td className="text-end">{fmtKES(s.current_paid)}</td>
+                <td className={`text-end ${s.current_balance > 0 ? 'text-danger fw-bold' : 'text-success'}`}>
+                  {fmtKES(s.current_balance)}
+                </td>
+                <td className={`text-end ${s.previous_balance > 0 ? 'text-warning fw-bold' : 'text-muted'}`}>
+                  {fmtKES(s.previous_balance)}
+                </td>
+                <td className={`text-end ${s.total_due > 0 ? 'text-danger fw-bold' : 'text-success fw-bold'}`}>
+                  {fmtKES(s.total_due)}
+                </td>
+                <td className="text-center">
                   {editingStaff?.user_id === s.user_id ? (
                     <>
                       <button className="btn btn-sm btn-success me-1" onClick={handleSaveSalary} disabled={loading}>
@@ -313,6 +374,7 @@ const SalaryManagement = () => {
                           setSalaryAmount(s.salary_amount.toString());
                         }}
                         disabled={loading}
+                        title="Change salary (applies from this month onward)"
                       >
                         <i className="fas fa-edit"></i>
                       </button>
@@ -320,6 +382,7 @@ const SalaryManagement = () => {
                         className="btn btn-sm btn-outline-info me-1"
                         onClick={() => handleGenerateReport(s)}
                         disabled={loading || generatingReport}
+                        title="Download PDF report"
                       >
                         {generatingReport ? (
                           <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
@@ -331,6 +394,7 @@ const SalaryManagement = () => {
                         className="btn btn-sm btn-outline-success"
                         onClick={() => openDirectPaymentModal(s.user_id)}
                         disabled={loading}
+                        title="Record salary payment"
                       >
                         <i className="fas fa-money-bill-wave"></i> Pay
                       </button>
@@ -340,6 +404,19 @@ const SalaryManagement = () => {
               </tr>
             ))}
           </tbody>
+          {staffList.length > 0 && (
+            <tfoot className="table-secondary fw-bold">
+              <tr>
+                <td colSpan="2">Totals ({staffList.length} staff)</td>
+                <td className="text-end">{fmtKES(staffTotals.current_salary)}</td>
+                <td className="text-end">{fmtKES(staffTotals.current_paid)}</td>
+                <td className="text-end">{fmtKES(staffTotals.current_balance)}</td>
+                <td className="text-end">{fmtKES(staffTotals.previous_balance)}</td>
+                <td className="text-end text-danger">{fmtKES(staffTotals.total_due)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
@@ -634,6 +711,23 @@ const SalaryManagement = () => {
               </select>
             )}
           </div>
+
+          {/* Show the selected staff member's outstanding figures */}
+          {directPaymentData.userId && (() => {
+            const s = staffList.find(x => x.user_id === directPaymentData.userId);
+            if (!s) return null;
+            return (
+              <div className="alert alert-light border small mb-3">
+                <div className="d-flex justify-content-between"><span>Salary / Month:</span><strong>{fmtKES(s.salary_amount)}</strong></div>
+                <div className="d-flex justify-content-between"><span>Paid (This Month):</span><strong>{fmtKES(s.current_paid)}</strong></div>
+                <div className="d-flex justify-content-between"><span>Month Balance:</span><strong className={s.current_balance > 0 ? 'text-danger' : 'text-success'}>{fmtKES(s.current_balance)}</strong></div>
+                <div className="d-flex justify-content-between"><span>Previous Balance:</span><strong className={s.previous_balance > 0 ? 'text-warning' : 'text-muted'}>{fmtKES(s.previous_balance)}</strong></div>
+                <hr className="my-1" />
+                <div className="d-flex justify-content-between"><span><strong>Total Due:</strong></span><strong className={s.total_due > 0 ? 'text-danger' : 'text-success'}>{fmtKES(s.total_due)}</strong></div>
+              </div>
+            );
+          })()}
+
           <div className="mb-3">
             <label className="form-label">Amount (KES) <span className="text-danger">*</span></label>
             <input
@@ -647,6 +741,25 @@ const SalaryManagement = () => {
               required
               disabled={directPaymentProcessing}
             />
+            {directPaymentData.userId && (() => {
+              const s = staffList.find(x => x.user_id === directPaymentData.userId);
+              if (!s) return null;
+              const max = Math.max(s.total_due, 0);
+              return (
+                <small className="text-muted">
+                  Maximum outstanding: {fmtKES(max)}
+                  {max > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-link btn-sm p-0 ms-2"
+                      onClick={() => setDirectPaymentData({ ...directPaymentData, amount: max.toString() })}
+                    >
+                      Pay full balance
+                    </button>
+                  )}
+                </small>
+              );
+            })()}
           </div>
           <div className="mb-3">
             <label className="form-label">Payment Method <span className="text-danger">*</span></label>
