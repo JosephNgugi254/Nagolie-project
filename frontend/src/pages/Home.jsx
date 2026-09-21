@@ -514,7 +514,7 @@ function Home() {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/admin/livestock/${livestockId}`);
+      const response = await fetch(`${API_BASE}/public/livestock/${livestockId}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }

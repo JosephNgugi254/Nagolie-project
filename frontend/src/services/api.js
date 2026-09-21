@@ -120,8 +120,7 @@ export const adminAPI = {
   getApplications: () => api.get("/admin/applications"),
   getClients: () => api.get("/admin/clients"),
   getLivestock: (page = 1, per_page = 10) => api.get(`/admin/livestock?page=${page}&per_page=${per_page}`),
-  getPublicLivestockGallery: (page = 1, per_page = 12) => api.get(`/admin/livestock/gallery?page=${page}&per_page=${per_page}`),
-  getTransactions: () => api.get("/admin/transactions"),
+  getPublicLivestockGallery: (page = 1, per_page = 12) => api.get(`/public/livestock/gallery?page=${page}&per_page=${per_page}`),  getTransactions: () => api.get("/admin/transactions"),
   getApprovedLoans: () => api.get("/admin/approved-loans"),
   getPaymentStats: () => api.get("/admin/payment-stats"),
   approveApplication: (id, fundingData = {}) => api.post(`/admin/applications/${id}/approve`, {

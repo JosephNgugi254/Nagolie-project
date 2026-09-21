@@ -23,6 +23,12 @@ import os
 import cloudinary.uploader
 from flask import url_for, send_file
 import io
+from app.services.livestock_gallery import (
+    build_admin_gallery,
+    build_public_gallery,
+    is_gallery_visible,
+    serialize_public_single,
+)
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -798,244 +804,13 @@ def get_payment_stats():
 @role_required(['admin', 'director', 'hr_manager'])
 def get_all_livestock():
     try:
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 10, type=int)
-        
-        # Get all livestock with their related data - use joinedload to load client eagerly
-        pag = Livestock.query.options(
-            joinedload(Livestock.client),
-            joinedload(Livestock.investor)
-        ).filter(
-            Livestock.status == 'active'
-        ).paginate(page=page, per_page=per_page, error_out=False)
-        
-        today = datetime.now().date()
-        items = []
-        
-        for item in pag.items:
-            description = item.description or 'Available for purchase'
-            actual_location = item.location or 'Isinya, Kajiado'
-            investor_name = item.investor.name if item.investor else None
-            
-            # Find the associated loan
-            associated_loan = None
-            if item.client_id or item.id:
-                associated_loan = Loan.query.filter_by(
-                    livestock_id=item.id
-                ).order_by(Loan.created_at.desc()).first()
-            
-            # Check if livestock is from a claimed loan
-            is_claimed = False
-            client_name = None
-            
-            if associated_loan and associated_loan.status == 'claimed':
-                is_claimed = True
-                # Get client name from the loan's client relationship
-                if associated_loan.client:
-                    client_name = associated_loan.client.full_name
-                # Fallback: check if livestock has client loaded
-                elif item.client:
-                    client_name = item.client.full_name
-            
-            # Determine if this is from a completed loan (skip completed loans)
-            is_completed = associated_loan and associated_loan.status == 'completed'
-            
-            # Skip livestock that belong to completed loans
-            if is_completed:
-                continue
-            
-            # Determine status based on loan association
-            if item.client_id is None and not associated_loan:
-                # Admin added livestock or livestock not tied to any loan - available for purchase
-                available_info = 'Available now'
-                days_remaining = 0
-                is_admin_added = True
-                description = 'Available for purchase'
-                
-            elif is_claimed:
-                # Claimed livestock - show the client name from the loan
-                available_info = 'Claimed - Available now'
-                days_remaining = 0
-                if client_name:
-                    description = f"Claimed from {client_name}"
-                else:
-                    description = "Claimed from Unknown"
-                is_admin_added = False
-                
-            elif associated_loan and associated_loan.status == 'active':
-                # Active loan livestock - collateral
-                client_name_for_desc = item.client.full_name if item.client else associated_loan.client.full_name if associated_loan.client else 'Unknown'
-                description = f"Collateral for {client_name_for_desc}"
-                is_admin_added = False
-                if associated_loan.due_date:
-                    due = associated_loan.due_date.date() if hasattr(associated_loan.due_date, 'date') else associated_loan.due_date
-                    days_remaining = (due - today).days
-                    if days_remaining > 0:
-                        available_info = f'Available in {days_remaining} days'
-                    elif days_remaining == 0:
-                        available_info = 'Due Today'
-                    else:
-                        available_info = 'Available (overdue)'
-                        days_remaining = 0
-                else:
-                    available_info = 'Available after repayment'
-                    days_remaining = 7
-            else:
-                # No active loan, should be available
-                available_info = 'Available now'
-                days_remaining = 0
-                is_admin_added = True
-                description = 'Available for purchase'
-            
-            items.append({
-                'id': item.id,
-                'title': f"{item.livestock_type.capitalize()} - {item.count} head",
-                'type': item.livestock_type,
-                'count': item.count,
-                'price': float(item.estimated_value) if item.estimated_value else 0,
-                'description': description,
-                'images': item.photos or [],
-                'availableInfo': available_info,
-                'daysRemaining': days_remaining,
-                'location': actual_location,
-                'status': item.status,
-                'isAdminAdded': is_admin_added,
-                'ownership_type': item.ownership_type or 'company',
-                'investor_name': investor_name,
-                'is_claimed': is_claimed
-            })
-            
-        return jsonify({
-            'items': items,
-            'total': pag.total,
-            'pages': pag.pages,
-            'current_page': page,
-            'per_page': per_page
-        }), 200
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        page     = max(1, request.args.get('page', 1, type=int))
+        per_page = max(1, request.args.get('per_page', 10, type=int))
+        return jsonify(build_admin_gallery(page=page, per_page=per_page)), 200
+    except Exception:
+        import traceback; traceback.print_exc()
+        return jsonify({'error': 'Failed to load livestock'}), 500
     
-@admin_bp.route('/livestock/gallery', methods=['GET'])
-@cross_origin(origins="*")
-def get_public_livestock_gallery():
-    try:
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 12, type=int)
-        all_lv = Livestock.query.filter(Livestock.status == 'active').all()
-        today = datetime.now().date()
-        result = []
-        
-        # Get all loan IDs that are completed (NOT claimed)
-        completed_loan_ids = db.session.query(Loan.id).filter(
-            Loan.status == 'completed'
-        ).all()
-        completed_loan_ids = [l[0] for l in completed_loan_ids]
-        
-        for item in all_lv:
-            # Find the associated loan - query by livestock_id
-            associated_loan = Loan.query.filter_by(livestock_id=item.id).first()
-            
-            # Skip livestock that are associated with COMPLETED loans only
-            # Claimed livestock should remain
-            if associated_loan and associated_loan.status == 'completed':
-                continue
-            
-            desc = str(item.description or '').strip()
-            if not desc or desc in ('NaN', 'None'):
-                desc = 'Livestock for purchase'
-            if '|' in desc:
-                desc = desc.split('|', 1)[0].strip()
-                
-            loc = str(item.location or '').strip()
-            if not loc or loc in ('NaN', 'None'):
-                loc = 'Isinya, Kajiado'
-            if '|' in loc:
-                p1, p2 = [p.strip() for p in loc.split('|', 1)]
-                kw = ['isinya', 'kajiado', 'town', 'county', 'moonlight', 'kwa', 'timo']
-                loc = p2 if any(k in p2.lower() for k in kw) else (p1 if any(k in p1.lower() for k in kw) else 'Isinya, Kajiado')
-            if 'available' in loc.lower():
-                loc = 'Isinya, Kajiado'
-                
-            available_info = 'Available now'
-            days_remaining = 0
-            include = False
-            
-            if item.client_id is None:
-                # Admin added livestock - show as available
-                include = True
-                desc = 'Available for purchase'
-            else:
-                # Check if associated with a loan
-                if not associated_loan:
-                    # No loan, livestock should be available
-                    include = True
-                    desc = 'Available for purchase'
-                elif associated_loan.status == 'claimed':
-                    # Claimed loan - show as available
-                    include = True
-                    desc = 'Available for purchase'
-                    available_info = 'Available now'
-                elif associated_loan.status == 'active':
-                    # Active loan - show collateral status
-                    include = True
-                    # Check if overdue
-                    if associated_loan.due_date:
-                        due = associated_loan.due_date.date() if hasattr(associated_loan.due_date, 'date') else associated_loan.due_date
-                        days_remaining = (due - today).days
-                        if days_remaining > 0:
-                            available_info = f'Available in {days_remaining} days'
-                            desc = 'Livestock for purchase'
-                        elif days_remaining == 0:
-                            available_info = 'Due Today'
-                            desc = 'Livestock for purchase'
-                        else:
-                            # Overdue - show as available
-                            available_info = 'Available now'
-                            desc = 'Available for purchase'
-                            days_remaining = 0
-                    else:
-                        available_info = 'Available after repayment'
-                        desc = 'Livestock for purchase'
-                        days_remaining = 7
-                else:
-                    # Other status - skip
-                    continue
-            
-            if not include:
-                continue
-                
-            result.append({
-                'id': item.id,
-                'title': f"{item.livestock_type.capitalize()} - {item.count} head",
-                'type': item.livestock_type,
-                'count': item.count,
-                'price': float(item.estimated_value) if item.estimated_value else 0,
-                'description': desc,
-                'images': item.photos or [],
-                'availableInfo': available_info,
-                'daysRemaining': days_remaining,
-                'location': loc
-            })
-            
-        result.sort(key=lambda x: (0 if 'now' in x['availableInfo'].lower() else 1, x['daysRemaining']))
-        total = len(result)
-        start = (page - 1) * per_page
-        
-        return jsonify({
-            'items': result[start:start + per_page],
-            'total': total,
-            'pages': (total + per_page - 1) // per_page,
-            'current_page': page,
-            'per_page': per_page
-        }), 200
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': 'Failed to load gallery'}), 500
     
 @admin_bp.route('/transactions', methods=['GET'])
 @jwt_required()
@@ -1087,7 +862,6 @@ def add_livestock():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-
 
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
 @jwt_required()
@@ -2330,54 +2104,10 @@ def revert_waived_loans():
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['GET'])
 @cross_origin(origins="*")
 def get_single_livestock(livestock_id):
-    try:
-        item = db.session.get(Livestock, livestock_id)
-        if not item or item.status != 'active':
-            return jsonify({'error': 'Livestock not found'}), 404
-        desc = str(item.description or '').strip()
-        if not desc or desc in ('NaN', 'None') or 'claimed' in desc.lower():
-            desc = 'Livestock for purchase'
-        if '|' in desc:
-            desc = desc.split('|', 1)[0].strip()
-        loc = str(item.location or '').strip()
-        if not loc or loc in ('NaN', 'None'):
-            loc = 'Isinya, Kajiado'
-        if '|' in loc:
-            p1, p2 = [p.strip() for p in loc.split('|', 1)]
-            kw = ['isinya', 'kajiado', 'town', 'county', 'moonlight', 'kwa', 'timo']
-            loc = p2 if any(k in p2.lower() for k in kw) else (p1 if any(k in p1.lower() for k in kw) else 'Isinya, Kajiado')
-        if 'available' in loc.lower() or 'claimed' in loc.lower():
-            loc = 'Isinya, Kajiado'
-        assoc = Loan.query.filter_by(livestock_id=item.id).order_by(Loan.created_at.desc()).first()
-        if assoc and 'Collateral for' in desc:
-            desc = 'Livestock for purchase'
-        available_info = 'Available now'
-        days_remaining = 0
-        if assoc and assoc.status == 'active' and assoc.due_date:
-            due = assoc.due_date.date() if hasattr(assoc.due_date, 'date') else assoc.due_date
-            today = datetime.now().date()
-            days_remaining = (due - today).days
-            if days_remaining > 0:
-                available_info = f'Available in {days_remaining} days'
-            else:
-                available_info = 'Available now'
-        return jsonify({
-            'item': {
-                'id': item.id,
-                'title': f"{item.livestock_type.capitalize()} - {item.count} head",
-                'type': item.livestock_type,
-                'count': item.count,
-                'price': float(item.estimated_value) if item.estimated_value else 0,
-                'description': desc,
-                'images': item.photos or [],
-                'availableInfo': available_info,
-                'daysRemaining': days_remaining,
-                'location': loc
-            }
-        }), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+    item = db.session.get(Livestock, livestock_id)
+    if not item or not is_gallery_visible(item):
+        return jsonify({'error': 'Livestock not found'}), 404
+    return jsonify({'item': serialize_public_single(item)}), 200
 # ---------------------------------------------------------------------------
 # Loan statement endpoints (new)
 # ---------------------------------------------------------------------------

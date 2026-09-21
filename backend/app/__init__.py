@@ -193,6 +193,7 @@ def create_app(config_class=Config):
     from app.routes.staff import staff_bp
     from app.routes.company_profile import company_profile_bp
     from app.routes.chat import chat_bp
+    from app.routes.public import public_bp
 
     app.register_blueprint(test_bp, url_prefix='/api/test')
     app.register_blueprint(biometric_bp)
@@ -210,6 +211,7 @@ def create_app(config_class=Config):
     app.register_blueprint(staff_bp)
     app.register_blueprint(company_profile_bp, url_prefix='/api/company-profile')
     app.register_blueprint(chat_bp)
+    app.register_blueprint(public_bp, url_prefix='/api/public')
 
     register_commands(app)
 

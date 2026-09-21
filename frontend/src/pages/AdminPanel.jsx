@@ -1727,7 +1727,7 @@ useEffect(() => {
       let item = livestock.find(l => l.id.toString() === livestockId);
       if (!item) {
         try {
-          const res = await fetch(`${API_BASE}/admin/livestock/${livestockId}`);
+          const res = await fetch(`${API_BASE}/public/livestock/${livestockId}`);
           const data = await res.json();
           if (data.item) {
             item = data.item;
@@ -2499,24 +2499,15 @@ Thank you for choosing us.`;
 
 // Helper function to determine if a string looks like a description
   const isDescription = (str) => {
-    const lowerStr = str.toLowerCase();
-    return (
-      lowerStr.includes('cow') ||
-      lowerStr.includes('goat') ||
-      lowerStr.includes('sheep') ||
-      lowerStr.includes('chicken') ||
-      lowerStr.includes('poultry') ||
-      lowerStr.includes('bull') ||
-      lowerStr.includes('calf') ||
-      lowerStr.includes('healthy') ||
-      lowerStr.includes('good') ||
-      lowerStr.includes('excellent') ||
-      lowerStr.includes('nice') ||
-      lowerStr.includes('quality') ||
+    if (!str) return false;
+    const lowerStr = String(str).toLowerCase();
+    const typeMatch =
+      /\b(cow|goat|sheep|chicken|poultry|bull|calf|cattle|duck|rabbit|pig|turkey|goose)s?\b/.test(lowerStr);
+    const phraseMatch =
       lowerStr.includes('available for') ||
       lowerStr.includes('for sale') ||
-      lowerStr.includes('for purchase')
-    );
+      lowerStr.includes('for purchase');
+    return typeMatch || phraseMatch;
   };
 
   const handleUpdateLivestock = async (e) => {
