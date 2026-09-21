@@ -1526,37 +1526,37 @@ useEffect(() => {
   const testApiConnection = async () => {
     try {
       console.log("Testing API connection...")
-    
+      
+      // Check authentication first
       if (!isAuthenticated()) {
         console.log("User is not authenticated, skipping API test");
         return false;
       }
-    
-      // ✅ Accept whatever key AuthContext actually uses
-      const token =
-        localStorage.getItem('token') ||
-        sessionStorage.getItem('token') ||
-        localStorage.getItem('admin_token') ||
-        sessionStorage.getItem('admin_token');
-    
+      
+      // Check token
+      const token = sessionStorage.getItem("admin_token") || localStorage.getItem("admin_token")
       if (!token) {
-        console.log("No auth token found, skipping API test");
+        console.log("No token found, skipping API test");
         return false;
       }
+      
+      console.log("Stored admin token exists, testing connection...")
     
-      console.log("Auth token exists, testing connection...")
+      // Use adminAPI instead of direct fetch
       const response = await adminAPI.test()
       console.log("Test endpoint response data:", response.data)
       return true
     } catch (error) {
       console.error("API connection test failed:", error)
+      
+      // If it's a 401, clear tokens and redirect
       if (error.response?.status === 401) {
-        // Clear whichever keys exist
-        ['token','admin_token','admin_user','user'].forEach(k => {
-          localStorage.removeItem(k);
-          sessionStorage.removeItem(k);
-        });
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_user");
+        sessionStorage.removeItem("admin_token");
+        sessionStorage.removeItem("admin_user");
       }
+      
       return false
     }
   }
