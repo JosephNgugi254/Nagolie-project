@@ -2633,6 +2633,24 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                                 { header: "ID Number", field: "idNumber" },
                                 { header: "Loan Amount", render: row => fmt(row.loanAmount) },
                                 { header: "Payment Plan", render: row => row.repayment_plan === 'daily' ? 'Daily (4.5%)' : 'Weekly (30%)' },
+                                
+                                ...((userRole === 'director' || user?.username?.toLowerCase() === 'annie')
+                                  ? []
+                                  : [{
+                                      header: "Approved By",
+                                      field: "approvedBy",
+                                      render: (row) => (
+                                        <div>
+                                          <div className="fw-semibold">{row.approvedBy || 'N/A'}</div>
+                                          {row.approvedAt && (
+                                            <small className="text-muted">
+                                              {new Date(row.approvedAt).toLocaleString()}
+                                            </small>
+                                          )}
+                                        </div>
+                                      ),
+                                    }]
+                                ),
                                 { header: "Actions", render: row => (
                                   <div className="btn-group btn-group-sm">
                                     <button className="btn btn-outline-info" onClick={() => {

@@ -984,7 +984,8 @@ def get_loan_transactions(loan_id):
             'method': t.payment_method,
             'status': t.status,
             'notes': t.notes,
-            'mpesa_receipt': t.mpesa_receipt
+            'mpesa_receipt': t.mpesa_receipt,
+            'reference': t.reference,
         } for t in transactions]
         return jsonify(result), 200
     except Exception as e:

@@ -333,15 +333,21 @@ const formatTransactionType = (type, paymentType) => {
 
 const formatPaymentMethod = (method, transactionType = '') => {
   if (!method && !transactionType) return 'N/A';
- 
-  // If transaction type is disbursement, return BANK
-  if ((transactionType || '').toLowerCase() === 'disbursement') {
+
+  const m = (method || '').toLowerCase();
+  const t = (transactionType || '').toLowerCase();
+
+  // ── Disbursement: honour the actual recorded method ──────────────
+  if (t === 'disbursement') {
+    if (m === 'cash') return 'CASH';
+    if (m === 'bank') return 'BANK';
+    // Legacy rows (no method recorded) — keep old behaviour
     return 'BANK';
   }
- 
-  const methodUpper = method ? method.toUpperCase() : '';
-  if (methodUpper === 'DISBURSEMENT') return 'BANK';
-  return methodUpper || 'N/A';
+
+  // Other legacy handling
+  if (m === 'disbursement') return 'BANK';
+  return (method || '').toUpperCase() || 'N/A';
 };
 
 const formatStatus = (status) => {
@@ -350,38 +356,34 @@ const formatStatus = (status) => {
 };
 
 const getTransactionReference = (transaction) => {
-  const method = (transaction.method || '').toUpperCase();
+  const method = (transaction.method || transaction.payment_method || '').toUpperCase();
   const paymentType = transaction.payment_type || transaction.paymentType || '';
-  const transactionType = (transaction.type || '').toLowerCase();
-  // If transaction type is disbursement, return BANK
+  const transactionType = (transaction.type || transaction.transaction_type || '').toLowerCase();
+  const bankRef = (transaction.reference || transaction.bank_reference || '').trim();
+
+  // ── Disbursement: prefer the actual bank ref code, fall back to method ──
   if (transactionType === 'disbursement') {
+    if (method === 'CASH') return 'CASH';
+    if (bankRef) return bankRef;              // ← bank ref code, e.g. KCB-2024-...
     return 'BANK';
   }
+
   if (method === 'MPESA' && transaction.mpesa_receipt) {
-    // Include payment type in M-Pesa reference
-    if (paymentType) {
-      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
-      return `${transaction.mpesa_receipt}`;
-    }
     return transaction.mpesa_receipt;
-  } else if (method === 'CASH') {
-    // Include payment type in cash reference
-    if (paymentType) {
-      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
-      return `CASH`;
-    }
-    return 'CASH';
-  } else if (method === 'DISBURSEMENT') {
-    // Handle disbursement as Bank reference
-    return 'BANK';
-  } else {
-    // Include payment type in generic reference
-    if (paymentType) {
-      const paymentTypeFormatted = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
-      return `${paymentTypeFormatted} Payment - TXN-${transaction.id}`;
-    }
-    return `TXN-${transaction.id}`;
   }
+  if (method === 'CASH') {
+    return 'CASH';
+  }
+  if (method === 'BANK' || method === 'BANK TRANSFER') {
+    return bankRef || 'BANK';
+  }
+
+  // Generic fallback
+  if (paymentType) {
+    const label = paymentType.charAt(0).toUpperCase() + paymentType.slice(1);
+    return `${label} Payment - TXN-${transaction.id}`;
+  }
+  return `TXN-${transaction.id}`;
 };
 
 export const addFooter = (doc, yPos) => {
@@ -953,15 +955,28 @@ function mapEventLabel(type, payType){
   return (type||'').replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase());
 }
 function mapEventMethod(row, t){
-  const m = (t.payment_method || row.reference || '').toLowerCase();
-  if (row.type === 'disbursement') return 'BANK';
+  const txnMethod  = ((t?.payment_method) || '').toLowerCase();
+  const ledgerRef  = (row.reference || '').trim();
+  const ledgerRefL = ledgerRef.toLowerCase();
+
+  // ── Disbursement: show BANK + ref, or CASH ──────────────────────
+  if (row.type === 'disbursement') {
+    if (txnMethod === 'cash' || ledgerRefL === 'cash') return 'CASH';
+    if (ledgerRef && ledgerRefL !== 'bank' && ledgerRefL !== 'bank transfer') {
+      return `BANK\n${ledgerRef}`;     // wraps nicely onto a 2nd line
+    }
+    return 'BANK';
+  }
+
+  const m = (txnMethod || ledgerRef || '').toLowerCase();
   if (m.includes('mpesa'))         return 'M-PESA';
   if (m.includes('cash'))          return 'CASH';
-  if (m.includes('bank'))          return 'BANK';
+  if (m.includes('bank'))          return ledgerRef ? `BANK\n${ledgerRef}` : 'BANK';
   if (row.type === 'accrual' || row.type === 'compound_interest') return 'AUTO';
   if (row.type === 'waiver' || row.type === 'adjustment' || row.type === 'current_state') return '—';
   return (m || 'AUTO').toUpperCase();
 }
+
 function typeColor(type){
   const t=(type||'').toLowerCase();
   if (t === 'disbursement')      return COLORS.primaryBlue;
@@ -1054,6 +1069,10 @@ export const generateTransactionReceipt = async (transaction) => {
     // Get payment_type from transaction - check multiple possible field names
     const paymentType = transaction.payment_type || transaction.paymentType || '';
   
+    const txnTypeLower = (transaction.type || transaction.transaction_type || '').toLowerCase();
+    const txnMethodLower = (transaction.method || transaction.payment_method || '').toLowerCase();
+    const bankRef = (transaction.reference || transaction.bank_reference || '').trim();
+
     const details = [
       { label: 'Transaction ID:', value: String(transaction.id || 'N/A') },
       { label: 'Date:', value: transaction.date ? new Date(transaction.date).toLocaleDateString('en-GB') : 'N/A' },
@@ -1061,29 +1080,45 @@ export const generateTransactionReceipt = async (transaction) => {
       { label: 'Transaction Type:', value: formatTransactionType(transaction.type, paymentType) },
       { label: 'Amount:', value: `KES ${Number(transaction.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
       { label: 'Payment Method:', value: formatPaymentMethod(transaction.method, transaction.type) },
-      { label: 'Status:', value: formatStatus(transaction.status) }
     ];
+
+    // ── NEW: Bank Reference row (only when a bank disbursement has a ref) ──
+    if (txnTypeLower === 'disbursement' && txnMethodLower === 'bank' && bankRef) {
+      details.push({ label: 'Bank Reference:', value: bankRef, highlightBank: true });
+    }
+
+    // ── Cash disbursement: show a plain note so the receipt is unambiguous ──
+    if (txnTypeLower === 'disbursement' && txnMethodLower === 'cash') {
+      details.push({ label: 'Disbursed Via:', value: 'Cash on hand', highlightBank: false });
+    }
+
+    details.push({ label: 'Status:', value: formatStatus(transaction.status) });
     
     // Render details with proper spacing
-    details.forEach(({ label, value }) => {
-      doc.setTextColor(...COLORS.textDark);
+    details.forEach(({ label, value, highlightBank }) => {
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, 25, yPos);
+    doc.setFont('helvetica', 'normal');
+
+    const methodLower = (transaction.method || transaction.payment_method || '').toLowerCase();
+    const isDisbursement = (transaction.type || transaction.transaction_type || '').toLowerCase() === 'disbursement';
+
+    let valueColor = COLORS.textDark;
+    if (label === 'Payment Method:') {
+      valueColor = methodLower === 'mpesa' ? COLORS.green
+                 : isDisbursement        ? COLORS.primaryBlue
+                 : COLORS.textDark;
+    } else if (highlightBank) {
+      // Bank reference — use primary blue so it stands out on the receipt
+      valueColor = COLORS.primaryBlue;
       doc.setFont('helvetica', 'bold');
-      doc.text(label, 25, yPos);
-      doc.setFont('helvetica', 'normal');
-     
-      // Special coloring for Payment Method
-      if (label === 'Payment Method:') {
-        const methodLower = (transaction.method || '').toLowerCase();
-        const isDisbursement = (transaction.type || '').toLowerCase() === 'disbursement';
-        const methodColor = methodLower === 'mpesa' ? COLORS.green : isDisbursement ? COLORS.primaryBlue : COLORS.textDark;
-        doc.setTextColor(...methodColor);
-      } else {
-        doc.setTextColor(...COLORS.textDark);
-      }
-     
-      doc.text(String(value), 70, yPos);
-      yPos += 8;
-    });
+    }
+
+    doc.setTextColor(...valueColor);
+    doc.text(String(value), 70, yPos);
+    yPos += 8;
+  });
     
     // Add M-Pesa reference if applicable
     if (transaction.method?.toLowerCase() === 'mpesa' && transaction.mpesa_receipt) {
@@ -5753,9 +5788,11 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.rect(startX, yPos, 170, 8, 'F');
-    doc.text('Date', startX + 2, yPos + 5.5);
-    doc.text('Type', startX + 50, yPos + 5.5);
-    doc.text('Amount (KES)', startX + 100, yPos + 5.5);
+    doc.text('Date',            startX + 2,   yPos + 5.5);
+    doc.text('Type',            startX + 28,  yPos + 5.5);
+    doc.text('Method',          startX + 72,  yPos + 5.5);
+    doc.text('Reference',       startX + 105, yPos + 5.5);
+    doc.text('Amount (KES)',    startX + 140, yPos + 5.5);
     yPos += 8;
 
     doc.setTextColor(...COLORS.textDark);
@@ -5770,9 +5807,11 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
         doc.setTextColor(...COLORS.white);
         doc.setFont('helvetica', 'bold');
         doc.rect(startX, yPos, 170, 8, 'F');
-        doc.text('Date', startX + 2, yPos + 5.5);
-        doc.text('Type', startX + 50, yPos + 5.5);
-        doc.text('Amount (KES)', startX + 100, yPos + 5.5);
+        doc.text('Date',            startX + 2,   yPos + 5.5);
+        doc.text('Type',            startX + 28,  yPos + 5.5);
+        doc.text('Method',          startX + 72,  yPos + 5.5);
+        doc.text('Reference',       startX + 105, yPos + 5.5);
+        doc.text('Amount (KES)',    startX + 140, yPos + 5.5);
         yPos += 8;
         doc.setTextColor(...COLORS.textDark);
         doc.setFont('helvetica', 'normal');
@@ -5783,20 +5822,37 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
       }
       const date = formatDate(txn.date || txn.created_at);
       let type = txn.transaction_type || txn.type || '';
-      if (type === 'payment') {
-        type = txn.payment_type ? `${txn.payment_type} Payment` : 'Payment';
-      } else if (type === 'disbursement') {
-        type = 'Disbursement';
-      } else if (type === 'topup') {
-        type = 'Top-up';
-      } else if (type === 'adjustment') {
-        type = 'Adjustment';
-      }
+      if (type === 'payment') { type = txn.payment_type ? `${txn.payment_type} Payment` : 'Payment'; }
+      else if (type === 'disbursement') { type = 'Disbursement'; }
+      else if (type === 'topup')        { type = 'Top-up'; }
+      else if (type === 'adjustment')   { type = 'Adjustment'; }
+
       const amount = txn.amount || 0;
-      doc.text(date, startX + 2, yPos + 4.5);
-      doc.text(type, startX + 50, yPos + 4.5);
-      doc.text(formatMoney(amount), startX + 100, yPos + 4.5);
-      yPos += 7;
+
+      // ── NEW: derive method + reference for every row ──────────────
+      const txnMethodLower = (txn.payment_method || txn.method || '').toLowerCase();
+      const bankRef        = (txn.reference || txn.bank_reference || '').trim();
+      const isDisb         = (txn.transaction_type || txn.type || '').toLowerCase() === 'disbursement';
+
+      let methodLabel = (txn.payment_method || txn.method || 'CASH').toUpperCase();
+      if (isDisb) methodLabel = txnMethodLower === 'cash' ? 'CASH' : 'BANK TRANSFER';
+
+      let refLabel = '—';
+      if (isDisb) {
+        refLabel = txnMethodLower === 'cash' ? 'CASH' : (bankRef || 'BANK TRANSFER');
+      } else if (txnMethodLower === 'mpesa') {
+        refLabel = txn.mpesa_receipt || 'M-PESA';
+      } else if (txnMethodLower === 'cash') {
+        refLabel = 'CASH';
+      } else if (bankRef) {
+        refLabel = bankRef;
+      }
+
+      doc.text(date,        startX + 2,   yPos + 4.5);
+      doc.text(type,        startX + 28,  yPos + 4.5);
+      doc.text(methodLabel, startX + 72,  yPos + 4.5);
+      doc.text(refLabel,    startX + 105, yPos + 4.5);
+      doc.text(formatMoney(amount), startX + 140, yPos + 4.5);
     });
   } else {
     doc.setFont('helvetica', 'italic');

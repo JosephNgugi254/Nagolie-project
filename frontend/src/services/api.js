@@ -124,8 +124,10 @@ export const adminAPI = {
   getApprovedLoans: () => api.get("/admin/approved-loans"),
   getPaymentStats: () => api.get("/admin/payment-stats"),
   approveApplication: (id, fundingData = {}) => api.post(`/admin/applications/${id}/approve`, {
-    funding_source: fundingData.funding_source || 'company',
-    investor_id: fundingData.investor_id || null
+    funding_source:         fundingData.funding_source         || 'company',
+    investor_id:            fundingData.investor_id            || null,
+    disbursement_method:    fundingData.disbursement_method    || 'bank',
+    disbursement_reference: fundingData.disbursement_reference || '',
   }),
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
   sendReminder: (data) => api.post("/admin/send-reminder", data),

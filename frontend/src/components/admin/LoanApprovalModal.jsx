@@ -3,6 +3,8 @@
 
 import { useState, useEffect } from "react"
 import Modal from "../common/Modal"
+import Toast, { showToast } from "../common/Toast"
+
 
 function LoanApprovalModal({ 
   isOpen, 
@@ -16,6 +18,9 @@ function LoanApprovalModal({
   const [selectedInvestor, setSelectedInvestor] = useState('')
   const [filteredInvestors, setFilteredInvestors] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
+
+  const [disbursementMethod, setDisbursementMethod] = useState('bank'); // default = bank
+  const [disbursementRef, setDisbursementRef]       = useState('');
   
   // Add state for investor stats
   const [investorStats, setInvestorStats] = useState({})
@@ -70,9 +75,17 @@ function LoanApprovalModal({
       return;
     }
 
+    if (disbursementMethod === 'bank' && !disbursementRef.trim()) {
+    showToast.error('Reference code is required for bank transfers');
+    return;
+  }
+
     onApprove(application.id, {
       funding_source: fundingSource,
-      investor_id: fundingSource === 'investor' ? selectedInvestor : null
+      investor_id: fundingSource === 'investor' ? selectedInvestor : null,
+
+      disbursement_method:    disbursementMethod,                   // 'bank' | 'cash'
+      disbursement_reference: disbursementMethod === 'bank'? disbursementRef.trim().toUpperCase(): '',
     });
   };
 
@@ -139,6 +152,7 @@ function LoanApprovalModal({
           </small>
         </div>
       </div>
+
 
       {fundingSource === 'investor' && (
         <div className="mb-3">
@@ -226,6 +240,47 @@ function LoanApprovalModal({
               <strong>Remaining After Loan:</strong> {formatCurrency(investorStats.available - parseFloat(application.loanAmount))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ---------- Disbursement Method ---------- */}
+      <div className="mb-3">
+        <label className="form-label fw-bold">
+          Disbursement Method <span className="text-danger">*</span>
+        </label>
+        <select
+          className="form-select"
+          value={disbursementMethod}
+          onChange={(e) => {
+            setDisbursementMethod(e.target.value);
+            if (e.target.value === 'cash') setDisbursementRef(''); // clear ref on cash
+          }}
+          disabled={loading}
+        >
+          <option value="bank">Bank Transfer</option>
+          <option value="cash">Cash</option>
+        </select>
+      </div>
+        
+      {/* ---------- Bank Reference (only when bank) ---------- */}
+      {disbursementMethod === 'bank' && (
+        <div className="mb-3">
+          <label className="form-label fw-bold">
+            Bank Reference Code <span className="text-danger">*</span>
+          </label>
+          <input
+            type="text"
+            className="form-control"
+            value={disbursementRef}
+            onChange={(e) => setDisbursementRef(e.target.value)}
+            placeholder="e.g. KCB-2024-0912-88421"
+            required
+            disabled={loading}
+            style={{ textTransform: 'uppercase' }}
+          />
+          <small className="text-muted">
+            Enter the bank transfer / cheque reference number.
+          </small>
         </div>
       )}
 

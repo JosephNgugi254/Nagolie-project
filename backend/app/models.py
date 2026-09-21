@@ -222,17 +222,21 @@ class Loan(db.Model):
     interest_prepaid_period = db.Column(db.String(20), nullable=True)
     interest_prepaid_amount = db.Column(db.Numeric(10, 2), default=Decimal('0'))
 
-    # NEW: loan hierarchy (for renewals and waivers)
+    # loan hierarchy (for renewals and waivers)
     parent_loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=True)
     root_loan_id   = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=True, index=True)
 
-    # NEW: last date when an accrual was recorded (to avoid duplicate ledger entries)
+    # last date when an accrual was recorded (to avoid duplicate ledger entries)
     last_accrual_recorded = db.Column(db.DateTime, nullable=True)
 
     last_compounding_date = db.Column(db.DateTime, nullable=True)
 
 
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # approval audit
+    approved_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
 
 
 
@@ -241,6 +245,8 @@ class Loan(db.Model):
     livestock = db.relationship('Livestock', backref='loan', lazy='joined')
     payments = db.relationship('Payment', backref='loan', lazy='dynamic', cascade='all, delete-orphan')
     comments = db.relationship('Comment', back_populates='loan', lazy='dynamic', cascade='all, delete-orphan')
+    approver = db.relationship('User', foreign_keys=[approved_by])
+
     
     def to_dict(self):
         return {
@@ -274,6 +280,9 @@ class Loan(db.Model):
             'parent_loan_id': self.parent_loan_id,
             'root_loan_id': self.root_loan_id,
             'last_compounding_date': self.last_compounding_date.isoformat() if self.last_compounding_date else None,
+            'approved_by': self.approved_by,
+            'approved_by_name': self.approver.username if self.approver else None,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
         }
 
 class LoanLedger(db.Model):
@@ -346,6 +355,7 @@ class Transaction(db.Model):
     merchant_request_id = db.Column(db.String(50))
     checkout_request_id = db.Column(db.String(50))
     phone_number = db.Column(db.String(20))
+    reference = db.Column(db.String(100), nullable=True)
     
     # Relationships
     loan = db.relationship('Loan', backref=db.backref('transactions', lazy=True))
@@ -372,7 +382,8 @@ class Transaction(db.Model):
             'checkout_request_id': self.checkout_request_id,
             'phone_number': self.phone_number,
             'date': created_at_iso,
-            'investor_name': self.investor.name if self.investor else None
+            'investor_name': self.investor.name if self.investor else None,
+            'reference': self.reference,
         }
 
 class Payment(db.Model):

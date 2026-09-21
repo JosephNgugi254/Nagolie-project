@@ -72,6 +72,7 @@ function AdminPanel() {
   const [livestockSearch, setLivestockSearch] = useState("");
   const [livestockTypeFilter, setLivestockTypeFilter] = useState("all");
   const [livestockStatusFilter, setLivestockStatusFilter] = useState("all");
+  
 
   const handleUsernameChange = async (e) => {
     e.preventDefault();
@@ -3658,6 +3659,20 @@ Thank you for choosing us.`;
                                         ? 'Daily (4.5%)' 
                                         : 'Weekly (30%)'
                                     )},
+                                    {
+                                      header: "Approved By",
+                                      field: "approvedBy",
+                                      render: (row) => (
+                                        <div>
+                                          <div className="fw-semibold">{row.approvedBy || 'N/A'}</div>
+                                          {row.approvedAt && (
+                                            <small className="text-muted">
+                                              {new Date(row.approvedAt).toLocaleString()}
+                                            </small>
+                                          )}
+                                        </div>
+                                      ),
+                                    },
                                     {
                                       header: "Actions",
                                       render: (row) => (

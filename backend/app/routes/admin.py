@@ -409,12 +409,22 @@ def get_applications():
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST'])
 @jwt_required()
-@role_or_username_required(allowed_roles=['admin','director'], allowed_usernames=['Annie'])
+@role_or_username_required(allowed_roles=['admin', 'director'], allowed_usernames=['Annie'])
 def approve_application(loan_id):
     try:
         data           = request.get_json()
         funding_source = data.get('funding_source', 'company')
         investor_id    = data.get('investor_id')
+
+        # ---------- NEW: disbursement method + reference ----------
+        disbursement_method    = (data.get('disbursement_method') or 'bank').strip().lower()
+        disbursement_reference = (data.get('disbursement_reference') or '').strip()
+
+        if disbursement_method not in ('bank', 'cash'):
+            return jsonify({'error': 'disbursement_method must be "bank" or "cash"'}), 400
+        if disbursement_method == 'bank' and not disbursement_reference:
+            return jsonify({'error': 'Reference code is required for bank transfers'}), 400
+        # ----------------------------------------------------------
 
         loan = db.session.get(Loan, loan_id)
         if not loan:
@@ -437,37 +447,52 @@ def approve_application(loan_id):
             if loan.principal_amount > available_balance:
                 return jsonify({'error': f'Insufficient funds. Available: {float(available_balance):.2f}'}), 400
 
-        now = datetime.utcnow()
+        now        = datetime.utcnow()
+        approver_id = int(get_jwt_identity())
+
         loan.status            = 'active'
         loan.disbursement_date = now
+
+        # ---------- NEW: stamp approver ----------
+        loan.approved_by = approver_id
+        loan.approved_at = now
+        # ----------------------------------------
 
         if loan.repayment_plan == 'daily':
             loan.interest_rate = Decimal('4.5')
             loan.interest_type = 'simple'
-            loan.due_date = now + timedelta(days=14)
+            loan.due_date      = now + timedelta(days=14)
         else:
             loan.interest_rate = Decimal('30.0')
             loan.interest_type = 'compound'
-            loan.due_date = now + timedelta(days=7)
+            loan.due_date      = now + timedelta(days=7)
 
-        loan.total_amount              = loan.principal_amount
-        loan.balance                   = loan.principal_amount
-        loan.current_principal         = loan.principal_amount
-        loan.principal_paid            = Decimal('0')
-        loan.interest_paid             = Decimal('0')
-        loan.accrued_interest          = Decimal('0')
-        loan.amount_paid               = Decimal('0')
+        loan.total_amount               = loan.principal_amount
+        loan.balance                    = loan.principal_amount
+        loan.current_principal          = loan.principal_amount
+        loan.principal_paid             = Decimal('0')
+        loan.interest_paid              = Decimal('0')
+        loan.accrued_interest           = Decimal('0')
+        loan.amount_paid                = Decimal('0')
         loan.last_interest_payment_date = now
 
         loan.funding_source = funding_source
         if funding_source == 'investor' and investor:
             loan.investor_id = investor.id
 
+        # ---------- UPDATED: transaction records method + reference ----------
         txn = Transaction(
-            loan_id=loan.id, transaction_type='disbursement',
-            amount=loan.principal_amount, payment_method='cash',
-            notes=f'Loan approved. Plan: {loan.repayment_plan}. Funding: {funding_source}',
-            status='completed', created_at=now
+            loan_id=loan.id,
+            transaction_type='disbursement',
+            amount=loan.principal_amount,
+            payment_method=disbursement_method,                      # 'bank' | 'cash'
+            reference=(disbursement_reference
+                       if disbursement_method == 'bank' else None),  # bank ref code
+            notes=f'Loan approved. Plan: {loan.repayment_plan}. '
+                  f'Funding: {funding_source}. Method: {disbursement_method}',
+            status='completed',
+            created_at=now,
+            created_by=approver_id,                                  # who did it
         )
         db.session.add(txn)
 
@@ -480,44 +505,40 @@ def approve_application(loan_id):
 
         db.session.commit()
 
-        # ========== Recalculate to apply first-day interest ==========
+        # First-day interest
         from app.routes.payments import recalculate_loan
         loan = recalculate_loan(loan)
         db.session.commit()
 
-        # ========== Record ledger entry ==========
+        # ---------- UPDATED: ledger carries the real reference ----------
         record_ledger_entry(
             loan=loan,
             event_type='disbursement',
             transaction=txn,
             amount=loan.principal_amount,
-            notes=f'Loan disbursed. Plan: {loan.repayment_plan}',
-            reference='BANK',
-            user_id=get_jwt_identity()
+            notes=f'Loan disbursed via {disbursement_method}. Plan: {loan.repayment_plan}',
+            reference=(disbursement_reference if disbursement_method == 'bank' else 'CASH'),
+            user_id=approver_id,
         )
         db.session.commit()
 
-        # ========== NEW: Auto-assign to officer for the disbursement day ==========
+        # Auto-assign to officer for the disbursement day
         from app.models import DayAssignment, ClientAssignment
-
-        weekday = loan.disbursement_date.weekday()  # Monday=0, Sunday=6
+        weekday = loan.disbursement_date.weekday()
         day_assignment = DayAssignment.query.filter_by(day_of_week=weekday).first()
 
         if day_assignment:
-            # Check if an active assignment already exists (should not happen for a new loan)
             existing = ClientAssignment.query.filter_by(loan_id=loan.id, is_active=True).first()
             if not existing:
-                new_assignment = ClientAssignment(
+                db.session.add(ClientAssignment(
                     loan_id=loan.id,
                     officer_id=day_assignment.user_id,
                     assignment_type='day_based',
-                    assigned_by=None,        # system generated
-                    is_active=True
-                )
-                db.session.add(new_assignment)
+                    assigned_by=None,
+                    is_active=True,
+                ))
                 db.session.commit()
         else:
-            # Optional: log a warning – no officer assigned to this weekday
             current_app.logger.warning(
                 f"No officer assigned to weekday {weekday} for loan {loan.id}"
             )
@@ -526,6 +547,8 @@ def approve_application(loan_id):
             'client': loan.client.full_name if loan.client else '?',
             'amount': float(loan.principal_amount),
             'plan': loan.repayment_plan,
+            'disbursement_method': disbursement_method,
+            'disbursement_reference': disbursement_reference or None,
         })
 
         return jsonify({
@@ -533,14 +556,15 @@ def approve_application(loan_id):
             'message': 'Loan approved successfully',
             'loan': loan.to_dict(),
             'transaction': txn.to_dict(),
-            'investor_available_balance': float(available_balance - loan.principal_amount) if available_balance is not None else None
+            'investor_available_balance': float(available_balance - loan.principal_amount)
+                if available_balance is not None else None
         }), 200
 
     except Exception as e:
         db.session.rollback()
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+        
 # ---------------------------------------------------------------------------
 # Reject application (unchanged)
 # ---------------------------------------------------------------------------
@@ -824,14 +848,24 @@ def get_all_transactions():
             receipt = 'N/A'
             if t.payment_method == 'mpesa' and t.mpesa_receipt:
                 receipt = t.mpesa_receipt
+            elif t.payment_method == 'bank':
+                receipt = t.reference or 'Bank Transfer'
             elif t.payment_method == 'cash':
                 receipt = 'Cash'
             result.append({
-                'id': t.id, 'date': t.created_at.isoformat() if t.created_at else None,
-                'clientName': cn, 'type': t.transaction_type, 'payment_type': t.payment_type,
-                'amount': float(t.amount), 'method': t.payment_method or 'cash',
-                'status': t.status or 'completed', 'receipt': receipt,
-                'notes': t.notes or '', 'mpesa_receipt': t.mpesa_receipt, 'loan_id': t.loan_id
+                'id': t.id,
+                'date': t.created_at.isoformat() if t.created_at else None,
+                'clientName': cn,
+                'type': t.transaction_type,
+                'payment_type': t.payment_type,
+                'amount': float(t.amount),
+                'method': t.payment_method or 'cash',
+                'status': t.status or 'completed',
+                'receipt': receipt,
+                'reference': t.reference,           
+                'notes': t.notes or '',
+                'mpesa_receipt': t.mpesa_receipt,
+                'loan_id': t.loan_id,
             })
         return jsonify(result), 200
     except Exception as e:
@@ -1092,33 +1126,59 @@ def process_topup(loan_id):
 @role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
 def get_approved_loans():
     try:
+        approver = db.aliased(User)
+
         loans = db.session.query(
-            Loan.id, Loan.principal_amount, Loan.disbursement_date, Loan.notes, Loan.repayment_plan,
-            Client.full_name.label('client_name'), Client.phone_number, Client.id_number,
+            Loan.id, Loan.principal_amount, Loan.disbursement_date, Loan.notes,
+            Loan.repayment_plan, Loan.approved_at,
+            Client.full_name.label('client_name'),
+            Client.phone_number, Client.id_number,
             Client.location.label('client_location'),
             Livestock.livestock_type, Livestock.count, Livestock.estimated_value,
             Livestock.photos, Livestock.location.label('livestock_location'),
-            Livestock.production_classification
+            Livestock.production_classification,
+            approver.username.label('approved_by_username'),
         ).join(Client, Loan.client_id == Client.id
         ).outerjoin(Livestock, Loan.livestock_id == Livestock.id
+        ).outerjoin(approver, Loan.approved_by == approver.id
         ).filter(Loan.status == 'active'
         ).order_by(Loan.disbursement_date.desc()).limit(100).all()
+
+        # Fallback for legacy rows: pull creator of the disbursement txn
+        legacy_ids = [l.id for l in loans if not l.approved_by_username]
+        legacy_map = {}
+        if legacy_ids:
+            rows = (db.session.query(Transaction.loan_id, User.username)
+                    .join(User, Transaction.created_by == User.id)
+                    .filter(Transaction.loan_id.in_(legacy_ids),
+                            Transaction.transaction_type == 'disbursement')
+                    .all())
+            legacy_map = {lid: uname for lid, uname in rows}
+
         return jsonify([{
             'id': l.id,
             'date': l.disbursement_date.isoformat() if l.disbursement_date else None,
-            'name': l.client_name, 'phone': l.phone_number, 'idNumber': l.id_number,
+            'name': l.client_name,
+            'phone': l.phone_number,
+            'idNumber': l.id_number,
             'loanAmount': float(l.principal_amount),
-            'livestockType': l.livestock_type or 'N/A', 'livestockCount': l.count or 0,
+            'livestockType': l.livestock_type or 'N/A',
+            'livestockCount': l.count or 0,
             'estimatedValue': float(l.estimated_value) if l.estimated_value else 0,
             'location': l.client_location or l.livestock_location or 'N/A',
             'additionalInfo': l.notes or 'None provided',
-            'photos': l.photos or [], 'status': 'active',
+            'photos': l.photos or [],
+            'status': 'active',
             'repayment_plan': l.repayment_plan or 'weekly',
-            'production_classification': l.production_classification or 'Unspecified'
+            'production_classification': l.production_classification or 'Unspecified',
+            # ---------- NEW ----------
+            'approvedBy': l.approved_by_username or legacy_map.get(l.id, 'N/A'),
+            'approvedAt': (l.approved_at.isoformat() + 'Z') if l.approved_at else None,
         } for l in loans]), 200
     except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({'error': 'Failed to load approved loans'}), 500
-
+    
 # ---------------------------------------------------------------------------
 # Investor routes (unchanged)
 # ---------------------------------------------------------------------------
@@ -2866,3 +2926,48 @@ def sync_client_assignments():
             ))
 
     db.session.commit()
+
+
+# ---------------------------------------------------------------------------
+# One-time backfill: default legacy loans to the Director user account
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/backfill-approvers', methods=['POST'])
+@jwt_required()
+@role_required(['admin'])
+def backfill_approvers():
+    """
+    Point every legacy loan that has no approver at the Director account.
+    Its username shows as "Director" in the Approved Loans table.
+    Loans approved from today onward are stamped by approve_application()
+    with the actual approver's id — so this never touches them.
+    """
+    now = datetime.utcnow()
+
+    # Find the Director user (role = 'director')
+    director = (
+        User.query
+        .filter(User.role == 'director')
+        .order_by(User.created_at.asc())
+        .first()
+    )
+    if not director:
+        return jsonify({
+            'success': False,
+            'error':   'No Director account exists — create one first.'
+        }), 400
+
+    legacy_loans = Loan.query.filter(Loan.approved_by.is_(None)).all()
+
+    for loan in legacy_loans:
+        loan.approved_by = director.id
+        loan.approved_at = loan.approved_at or loan.disbursement_date or now
+
+    db.session.commit()
+
+    return jsonify({
+        'success':              True,
+        'total_missing_before': len(legacy_loans),
+        'updated':              len(legacy_loans),
+        'fallback_username':    director.username,   # will print "Director"
+    }), 200
