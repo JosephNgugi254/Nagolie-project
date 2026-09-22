@@ -5775,84 +5775,173 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
 
   // ========== PAYMENT HISTORY ==========
   const startX = 20;
-  if (transactions && transactions.length > 0) {
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...COLORS.primaryBlue);
-    doc.text('PAYMENT HISTORY', 20, yPos);
-    yPos += 8;
-
-    const sortedTxns = [...transactions].filter(txn => {const type = (txn.transaction_type || txn.type || '').toLowerCase();return type !== 'adjustment';})
-    .sort((a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at));
+  const tableWidth = 170;
+  
+  // ---- Column definitions (widths total 170mm) ----
+  const historyCols = [
+    { key: 'date',      label: 'Date',        x: 0,    w: 24 },
+    { key: 'type',      label: 'Type',        x: 24,   w: 32 },
+    { key: 'method',    label: 'Method',      x: 56,   w: 26 },
+    { key: 'reference', label: 'Reference',   x: 82,   w: 48 },
+    { key: 'amount',    label: 'Amount (KES)',x: 130,  w: 40, align: 'right' },
+  ];
+  
+  const drawHistoryHeader = (y) => {
     doc.setFillColor(...COLORS.primaryBlue);
     doc.setTextColor(...COLORS.white);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
-    doc.rect(startX, yPos, 170, 8, 'F');
-    doc.text('Date',            startX + 2,   yPos + 5.5);
-    doc.text('Type',            startX + 28,  yPos + 5.5);
-    doc.text('Method',          startX + 72,  yPos + 5.5);
-    doc.text('Reference',       startX + 105, yPos + 5.5);
-    doc.text('Amount (KES)',    startX + 140, yPos + 5.5);
+    doc.rect(startX, y, tableWidth, 8, 'F');
+    historyCols.forEach(col => {
+      const tx = col.align === 'right'
+        ? startX + col.x + col.w - 2
+        : startX + col.x + 2;
+      doc.text(col.label, tx, y + 5.5,
+        col.align === 'right' ? { align: 'right' } : {});
+    });
+    return y + 8;
+  };
+  
+  // ---- Helper: clip a string to a maximum mm width ----
+  const clip = (text, maxWidth) => {
+    let t = String(text ?? '');
+    if (doc.getTextWidth(t) <= maxWidth) return t;
+    while (t.length > 0 && doc.getTextWidth(t + '…') > maxWidth) {
+      t = t.slice(0, -1);
+    }
+    return t + '…';
+  };
+  
+  // ---- Helper: clean type label (no more "Principal Payment Payment") ----
+  const buildTypeLabel = (txn) => {
+    const txType = (txn.transaction_type || txn.type || '').toLowerCase();
+    const payType = (txn.payment_type || '').toLowerCase().replace(/\s*payment$/i, '').trim();
+  
+    if (txType === 'payment') {
+      if (payType === 'principal') return 'Principal';
+      if (payType === 'interest')  return 'Interest';
+      if (payType) return payType.charAt(0).toUpperCase() + payType.slice(1);
+      return 'Payment';
+    }
+    const map = {
+      disbursement: 'Disbursement',
+      topup:        'Top-up',
+      adjustment:   'Adjustment',
+      claim:        'Claim',
+      renewal:      'Renewal',
+      waiver:       'Waiver',
+    };
+    if (map[txType]) return map[txType];
+    if (txType) return txType.charAt(0).toUpperCase() + txType.slice(1);
+    return '—';
+  };
+  
+  // ---- Helper: clean method label ----
+  const buildMethodLabel = (txn) => {
+    const txType = (txn.transaction_type || txn.type || '').toLowerCase();
+    const method = (txn.payment_method || txn.method || 'cash').toLowerCase();
+    if (txType === 'disbursement') {
+      return method === 'cash' ? 'CASH' : 'BANK';
+    }
+    return method.toUpperCase();
+  };
+  
+  // ---- Helper: clean reference ----
+  const buildReferenceLabel = (txn) => {
+    const txType  = (txn.transaction_type || txn.type || '').toLowerCase();
+    const method  = (txn.payment_method || txn.method || '').toLowerCase();
+    const bankRef = (txn.reference || txn.bank_reference || '').trim();
+  
+    if (txType === 'disbursement') {
+      return method === 'cash' ? 'CASH' : (bankRef || 'BANK');
+    }
+    if (method === 'mpesa') return txn.mpesa_receipt || 'M-PESA';
+    if (method === 'cash')  return 'CASH';
+    if (bankRef) return bankRef;
+    return '—';
+  };
+  
+  if (transactions && transactions.length > 0) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(11);
+    doc.text('PAYMENT HISTORY', 20, yPos);
     yPos += 8;
-
+  
+    const sortedTxns = [...transactions]
+      .filter(txn => {
+        const t = (txn.transaction_type || txn.type || '').toLowerCase();
+        return t !== 'adjustment';
+      })
+      .sort((a, b) =>
+        new Date(a.date || a.created_at) - new Date(b.date || b.created_at)
+      );
+    
+    yPos = drawHistoryHeader(yPos);
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'normal');
-
+    doc.setFontSize(9);
+    
     sortedTxns.forEach((txn, idx) => {
+      // ---- Page break with header re-draw ----
       if (yPos > 250) {
         doc.addPage();
         addWatermarkToCurrentPage(doc, 'invoice');
         yPos = 20;
-        doc.setFillColor(...COLORS.primaryBlue);
-        doc.setTextColor(...COLORS.white);
-        doc.setFont('helvetica', 'bold');
-        doc.rect(startX, yPos, 170, 8, 'F');
-        doc.text('Date',            startX + 2,   yPos + 5.5);
-        doc.text('Type',            startX + 28,  yPos + 5.5);
-        doc.text('Method',          startX + 72,  yPos + 5.5);
-        doc.text('Reference',       startX + 105, yPos + 5.5);
-        doc.text('Amount (KES)',    startX + 140, yPos + 5.5);
-        yPos += 8;
+        yPos = drawHistoryHeader(yPos);
         doc.setTextColor(...COLORS.textDark);
         doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
       }
+    
+      // ---- Zebra stripe ----
       if (idx % 2 === 0) {
         doc.setFillColor(...COLORS.border);
-        doc.rect(startX, yPos, 170, 7, 'F');
+        doc.rect(startX, yPos, tableWidth, 7, 'F');
       }
-      const date = formatDate(txn.date || txn.created_at);
-      let type = txn.transaction_type || txn.type || '';
-      if (type === 'payment') { type = txn.payment_type ? `${txn.payment_type} Payment` : 'Payment'; }
-      else if (type === 'disbursement') { type = 'Disbursement'; }
-      else if (type === 'topup')        { type = 'Top-up'; }
-      else if (type === 'adjustment')   { type = 'Adjustment'; }
+    
+      // ---- Build values ----
+      const cellValues = {
+        date:      formatDate(txn.date || txn.created_at),
+        type:      buildTypeLabel(txn),
+        method:    buildMethodLabel(txn),
+        reference: buildReferenceLabel(txn),
+        amount:    formatMoney(txn.amount || 0),
+      };
+    
+      const rowY = yPos + 4.5;
 
-      const amount = txn.amount || 0;
+      // Detect M-Pesa for this row (affects Method + Reference colour only)
+      const txnMethod = (txn.payment_method || txn.method || '').toLowerCase();
+      const isMpesa   = txnMethod === 'mpesa';
 
-      // ── NEW: derive method + reference for every row ──────────────
-      const txnMethodLower = (txn.payment_method || txn.method || '').toLowerCase();
-      const bankRef        = (txn.reference || txn.bank_reference || '').trim();
-      const isDisb         = (txn.transaction_type || txn.type || '').toLowerCase() === 'disbursement';
+      historyCols.forEach(col => {
+        const maxW = col.w - 4;
+        const display = clip(cellValues[col.key], maxW);
 
-      let methodLabel = (txn.payment_method || txn.method || 'CASH').toUpperCase();
-      if (isDisb) methodLabel = txnMethodLower === 'cash' ? 'CASH' : 'BANK TRANSFER';
+        // Reset to default dark before every cell
+        doc.setTextColor(...COLORS.textDark);
 
-      let refLabel = '—';
-      if (isDisb) {
-        refLabel = txnMethodLower === 'cash' ? 'CASH' : (bankRef || 'BANK TRANSFER');
-      } else if (txnMethodLower === 'mpesa') {
-        refLabel = txn.mpesa_receipt || 'M-PESA';
-      } else if (txnMethodLower === 'cash') {
-        refLabel = 'CASH';
-      } else if (bankRef) {
-        refLabel = bankRef;
-      }
+        // Green for Method + Reference when the row is M-Pesa
+        if (isMpesa && (col.key === 'method' || col.key === 'reference')) {
+          doc.setTextColor(...COLORS.green);
+          doc.setFont('helvetica', 'bold');   // small pop for readability
+        } else {
+          doc.setFont('helvetica', 'normal');
+        }
 
-      doc.text(date,        startX + 2,   yPos + 4.5);
-      doc.text(type,        startX + 28,  yPos + 4.5);
-      doc.text(methodLabel, startX + 72,  yPos + 4.5);
-      doc.text(refLabel,    startX + 105, yPos + 4.5);
-      doc.text(formatMoney(amount), startX + 140, yPos + 4.5);
+        if (col.align === 'right') {
+          doc.text(display, startX + col.x + col.w - 2, rowY, { align: 'right' });
+        } else {
+          doc.text(display, startX + col.x + 2, rowY);
+        }
+      });
+
+      // Reset to normal after the row so the next row starts clean
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.textDark);
+
+      yPos += 7;
     });
   } else {
     doc.setFont('helvetica', 'italic');
