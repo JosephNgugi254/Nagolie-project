@@ -1792,6 +1792,37 @@ export const generateLoanAgreementPDF = async (application) => {
     }
     yPos += 5;
 
+        // ===== ADDITIONAL FARMER INFORMATION =====
+    doc.setFont('helvetica', 'bold');
+    doc.text('Marital Status:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    const msX = valueX;
+    drawCheckboxSmall(msX, yPos - 3);
+    doc.text('Single', msX + 6, yPos);
+    const marriedX = msX + 32;
+    drawCheckboxSmall(marriedX, yPos - 3);
+    doc.text('Married', marriedX + 6, yPos);
+    const otherMsX = marriedX + 35;
+    drawCheckboxSmall(otherMsX, yPos - 3);
+    doc.text('Other', otherMsX + 6, yPos);
+    yPos += rowH;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Spouse Details:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: __________________________  Phone: __________________________', valueX, yPos);
+    yPos += rowH;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Other Income Source:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('________________________', valueX, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Status:', valueX + 58, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('____________________', valueX + 76, yPos);
+    yPos += rowH;
+
     // ===== INTEREST BREAKDOWN SECTION (UPDATED) =====
     const breakdownPercentages = [
       { label: 'Operational Fee', pct: 0.15 },
@@ -2633,6 +2664,37 @@ export const generateManualLoanAgreementPDF = async () => {
     drawCheckboxSmall(dailyX, yPos - 3);
     doc.text('Daily', dailyX + 6, yPos);
     yPos += 5;
+
+    // ===== ADDITIONAL FARMER INFORMATION =====
+    doc.setFont('helvetica', 'bold');
+    doc.text('Marital Status:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    const msX = valueX;
+    drawCheckboxSmall(msX, yPos - 3);
+    doc.text('Single', msX + 6, yPos);
+    const marriedX = msX + 32;
+    drawCheckboxSmall(marriedX, yPos - 3);
+    doc.text('Married', marriedX + 6, yPos);
+    const otherMsX = marriedX + 35;
+    drawCheckboxSmall(otherMsX, yPos - 3);
+    doc.text('Other', otherMsX + 6, yPos);
+    yPos += rowH;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Spouse Details:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Name: __________________________  Phone: __________________________', valueX, yPos);
+    yPos += rowH;
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Other Income Source:', labelX, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('________________________', valueX, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Status:', valueX + 58, yPos);
+    doc.setFont('helvetica', 'normal');
+    doc.text('____________________', valueX + 76, yPos);
+    yPos += rowH;
 
     // ===== MANUAL INTEREST BREAKDOWN (blank amounts) =====
     doc.setFont('helvetica', 'bold');
