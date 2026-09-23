@@ -9,6 +9,7 @@ from app.utils.security import log_audit, role_required
 from app.utils.decorators import role_required
 from app.services.ledger import record_ledger_entry
 from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
+from collections import defaultdict
 
 
 payments_bp = Blueprint('payments', __name__)
@@ -733,4 +734,222 @@ def check_payment_status():
         return jsonify({'success': False, 'error': str(e), 'payment_status': 'error'}), 500
 
 
-__all__ = ['recalculate_loan', '_apply_payment', '_loan_summary']
+# ===========================================================================
+# Historical loan state reconstruction
+# ---------------------------------------------------------------------------
+# Answers: "As of <as_of>, what is this loan's outstanding principal and
+# unpaid interest?" — by replaying disbursement, compounding and payments
+# up to that date instead of reading the live row fields.
+# ===========================================================================
+
+def _txns_upto(loan, as_of):
+    """Return all completed transactions for a loan on or before `as_of`."""
+    return Transaction.query.filter(
+        Transaction.loan_id == loan.id,
+        Transaction.status == 'completed',
+        Transaction.created_at <= as_of,
+    ).all()
+
+
+def _simulate_daily(loan, as_of_date, txns):
+    """
+    Pure replay of a daily loan up to `as_of_date`.
+    Returns (principal, unpaid_interest). Does not mutate `loan`.
+    """
+    disb = (
+        loan.disbursement_date.date()
+        if hasattr(loan.disbursement_date, 'date')
+        else loan.disbursement_date
+    )
+    if disb > as_of_date:
+        return Decimal('0'), Decimal('0')
+
+    # Waiver / 0% – no interest ever accrues.
+    if not loan.interest_rate or loan.interest_rate == 0:
+        principal = Decimal(str(loan.principal_amount or 0))
+        for t in txns:
+            if t.payment_type == 'principal':
+                principal -= t.amount
+        return max(Decimal('0'), principal), Decimal('0')
+
+    daily_rate = Decimal('0.045')
+    due_date = disb + timedelta(days=7)
+
+    # Bucket payments by day (payments reduce balances from the NEXT day).
+    principal_pmts = defaultdict(lambda: Decimal('0'))
+    interest_pmts = defaultdict(lambda: Decimal('0'))
+    for t in txns:
+        d = t.created_at.date() if hasattr(t.created_at, 'date') else t.created_at
+        if t.payment_type == 'principal':
+            principal_pmts[d] += t.amount
+        elif t.payment_type == 'interest':
+            interest_pmts[d] += t.amount
+
+    principal = Decimal(str(loan.principal_amount or 0))
+    accrued = Decimal('0')
+    interest_paid = Decimal('0')
+
+    # Day 0 — interest added immediately.
+    accrued += (principal * daily_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    day_one_date = disb + timedelta(days=1)
+    current_date = disb + timedelta(days=1)
+    first_compounding = due_date + timedelta(days=1)
+
+    while current_date <= as_of_date:
+        # Compounding fires on day 8 and every 7 days thereafter.
+        if current_date >= first_compounding and \
+           (current_date - first_compounding).days % 7 == 0:
+            net = max(Decimal('0'), accrued - interest_paid)
+            if net > 0:
+                principal += net
+                accrued = max(Decimal('0'), accrued - net)
+                interest_paid = Decimal('0')
+
+        # Interest is skipped on day 1 only.
+        if current_date != day_one_date:
+            accrued += (principal * daily_rate).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+
+        # Apply that day's payments.
+        if current_date in principal_pmts:
+            principal -= principal_pmts[current_date]
+            if principal < 0:
+                principal = Decimal('0')
+        if current_date in interest_pmts:
+            interest_paid += interest_pmts[current_date]
+
+        current_date += timedelta(days=1)
+
+    unpaid = max(Decimal('0'), accrued - interest_paid)
+    return principal, unpaid
+
+
+def _simulate_weekly(loan, as_of_date, txns):
+    """
+    Pure replay of a weekly loan up to `as_of_date`.
+    Returns (principal, unpaid_interest). Does not mutate `loan`.
+
+    Weekly plans capitalise interest every 7 days; unpaid interest is
+    normally zero because it has been rolled into principal.
+    """
+    disb = (
+        loan.disbursement_date.date()
+        if hasattr(loan.disbursement_date, 'date')
+        else loan.disbursement_date
+    )
+    if disb > as_of_date:
+        return Decimal('0'), Decimal('0')
+
+    if not loan.interest_rate or loan.interest_rate == 0:
+        principal = Decimal(str(loan.principal_amount or 0))
+        for t in txns:
+            if t.payment_type == 'principal':
+                principal -= t.amount
+        return max(Decimal('0'), principal), Decimal('0')
+
+    weekly_rate = Decimal('0.30')
+
+    principal = Decimal(str(loan.principal_amount or 0))
+    interest_paid = Decimal('0')
+
+    principal_pmts = defaultdict(lambda: Decimal('0'))
+    interest_pmts = defaultdict(lambda: Decimal('0'))
+    for t in txns:
+        d = t.created_at.date() if hasattr(t.created_at, 'date') else t.created_at
+        if t.payment_type == 'principal':
+            principal_pmts[d] += t.amount
+        elif t.payment_type == 'interest':
+            interest_pmts[d] += t.amount
+
+    # Walk week by week. Compounding fires at midnight of the day AFTER each due date.
+    current_due = disb + timedelta(days=7)
+    while current_due + timedelta(days=1) <= as_of_date:
+        week_interest = (principal * weekly_rate).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        # Apply any interest payments made during this week before compounding.
+        # (Simplification: payments between the previous due date and this one.)
+        prev_due = current_due - timedelta(days=7)
+        for d, amt in list(interest_pmts.items()):
+            if prev_due < d <= current_due:
+                interest_paid += amt
+                interest_pmts[d] = Decimal('0')
+
+        net = max(Decimal('0'), week_interest - interest_paid)
+        principal += net
+        interest_paid = Decimal('0')
+
+        # Apply principal payments that occurred during this week.
+        for d, amt in list(principal_pmts.items()):
+            if prev_due < d <= current_due:
+                principal -= amt
+                principal_pmts[d] = Decimal('0')
+        if principal < 0:
+            principal = Decimal('0')
+
+        current_due += timedelta(days=7)
+
+    # Any remaining interest payments since the last due date.
+    for amt in interest_pmts.values():
+        interest_paid += amt
+    for amt in principal_pmts.values():
+        principal -= amt
+    if principal < 0:
+        principal = Decimal('0')
+
+    # Weekly interest is fully capitalised → unpaid interest is 0.
+    return principal, Decimal('0')
+
+
+def loan_state_as_of(loan, as_of):
+    """
+    Reconstruct (outstanding_principal, unpaid_interest) for a loan as of
+    `as_of` — a datetime (aware or naive) or date.
+
+    Does NOT touch the loan row and does NOT call recalculate_loan.
+    Safe to call from report endpoints for any historical period.
+    """
+    if not loan or not loan.disbursement_date:
+        return Decimal('0'), Decimal('0')
+
+    # Normalise as_of to a date.
+    if isinstance(as_of, datetime):
+        as_of_date = as_of.date()
+    elif isinstance(as_of, date):
+        as_of_date = as_of
+    else:
+        as_of_date = date.today()
+
+    disb = (
+        loan.disbursement_date.date()
+        if hasattr(loan.disbursement_date, 'date')
+        else loan.disbursement_date
+    )
+    if disb > as_of_date:
+        return Decimal('0'), Decimal('0')
+
+    # Freeze bad-debt loans at the moment they were flagged.
+    if loan.status == 'bad_debt':
+        frozen = getattr(loan, 'status_changed_at', None) or loan.updated_at
+        if frozen:
+            frozen_date = frozen.date() if hasattr(frozen, 'date') else frozen
+            if frozen_date < as_of_date:
+                as_of_date = frozen_date
+
+    txns = _txns_upto(loan, datetime.combine(as_of_date, datetime.max.time()))
+
+    if loan.repayment_plan == 'daily' and loan.interest_rate and loan.interest_rate > 0:
+        return _simulate_daily(loan, as_of_date, txns)
+    elif loan.repayment_plan == 'weekly' and loan.interest_rate and loan.interest_rate > 0:
+        return _simulate_weekly(loan, as_of_date, txns)
+    else:
+        # Waived or unknown plan — just principal minus principal payments.
+        principal = Decimal(str(loan.principal_amount or 0))
+        for t in txns:
+            if t.payment_type == 'principal':
+                principal -= t.amount
+        return max(Decimal('0'), principal), Decimal('0')
+
+__all__ = ['recalculate_loan', '_apply_payment', '_loan_summary', 'loan_state_as_of']

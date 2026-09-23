@@ -19,6 +19,7 @@ from app.services.financial_aggregator import (
     daily_breakdown,
     transactions_in,
 )
+from app.routes.payments import loan_state_as_of
 
 allowed_origins = [
     'http://localhost:5173',
@@ -187,7 +188,6 @@ def get_petty_cash_report():
     }), 200
 
 
-# ------------------------------------------------------------------ Loan report
 @financial_bp.route('/loan-report', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
@@ -197,14 +197,16 @@ def get_loan_financial_report():
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
 
-    # Loans disbursed in period
+    # ---- Flow: loans disbursed in the period ------------------------------
     loans_in_period = Loan.query.filter(
         Loan.disbursement_date >= period.query_start_utc,
         Loan.disbursement_date < period.query_end_utc,
     ).all()
-    total_lent = sum(l.principal_amount for l in loans_in_period)
+    total_lent = sum(
+        (l.principal_amount for l in loans_in_period), Decimal('0')
+    )
 
-    # Payments made in the period
+    # ---- Flow: payments made during the period ----------------------------
     payments = Transaction.query.filter(
         Transaction.transaction_type == 'payment',
         Transaction.status == 'completed',
@@ -220,45 +222,52 @@ def get_loan_financial_report():
         Decimal('0'),
     )
 
-    # Outstanding principal and interest (active + bad_debt as of end_date)
+    # ---- Stock: reconstruct outstanding as of period end ------------------
+    # Every loan that existed on or before period_end counts, regardless of
+    # status, so that a day/week/month report reflects the true book at that
+    # moment in time.
     as_of_dt = period.query_end_utc
-    active_loans = Loan.query.filter(
-        Loan.status == 'active',
-        Loan.disbursement_date < as_of_dt,
-    ).all()
-    outstanding_principal = sum(l.current_principal for l in active_loans)
-    outstanding_interest = sum(
-        (max(Decimal('0'), l.accrued_interest - l.interest_paid) for l in active_loans),
-        Decimal('0'),
-    )
 
-    # Bad debt
-    bad_debt_loans = Loan.query.filter(
-        Loan.status == 'bad_debt',
+    loans_up_to_end = Loan.query.filter(
         Loan.disbursement_date < as_of_dt,
     ).all()
-    bad_debt_principal = sum(l.current_principal for l in bad_debt_loans)
-    bad_debt_interest = sum(
-        (max(Decimal('0'), l.accrued_interest - l.interest_paid) for l in bad_debt_loans),
-        Decimal('0'),
-    )
+
+    outstanding_principal = Decimal('0')
+    outstanding_interest  = Decimal('0')
+    bad_debt_principal    = Decimal('0')
+    bad_debt_interest     = Decimal('0')
+
+    for loan in loans_up_to_end:
+        p, i = loan_state_as_of(loan, as_of_dt)
+
+        if loan.status == 'active' or loan.status == 'completed':
+            outstanding_principal += p
+            outstanding_interest  += i
+        elif loan.status == 'bad_debt':
+            bad_debt_principal += p
+            bad_debt_interest  += i
+            # Bad debt also contributes to the "outstanding" headline figures.
+            outstanding_principal += p
+            outstanding_interest  += i
+
     total_bad_debt = bad_debt_principal + bad_debt_interest
-    outstanding_principal += bad_debt_principal
-    outstanding_interest += bad_debt_interest
 
-    # Claims
+    # ---- Claims in period -------------------------------------------------
     claimed_loans = Loan.query.filter(
         Loan.status == 'claimed',
         Loan.updated_at >= period.query_start_utc,
         Loan.updated_at < period.query_end_utc,
     ).all()
-    total_claimed_amount = sum((l.principal_amount for l in claimed_loans), Decimal('0'))
+    total_claimed_amount = sum(
+        (l.principal_amount for l in claimed_loans), Decimal('0')
+    )
     total_recovered_value = sum(
-        (l.livestock.estimated_value or Decimal('0') for l in claimed_loans if l.livestock),
+        (l.livestock.estimated_value or Decimal('0')
+         for l in claimed_loans if l.livestock),
         Decimal('0'),
     )
 
-    # Waivers
+    # ---- Waivers in period ------------------------------------------------
     waiver_transactions = Transaction.query.filter(
         Transaction.transaction_type == 'adjustment',
         Transaction.payment_method == 'waiver',
@@ -266,11 +275,14 @@ def get_loan_financial_report():
         Transaction.created_at >= period.query_start_utc,
         Transaction.created_at < period.query_end_utc,
     ).all()
-    total_waived_amount = sum((abs(t.amount) for t in waiver_transactions), Decimal('0'))
+    total_waived_amount = sum(
+        (abs(t.amount) for t in waiver_transactions), Decimal('0')
+    )
 
     revenue = interest_collected
     recovery_rate = (
-        (principal_collected / total_lent * 100) if total_lent > 0 else Decimal('0')
+        (principal_collected / total_lent * 100)
+        if total_lent > 0 else Decimal('0')
     )
 
     return jsonify({
@@ -485,32 +497,43 @@ def get_financial_dashboard_summary():
 
     data = agg_period(period)
 
-    total_lent = db.session.query(func.sum(Loan.principal_amount)).filter(
-        Loan.status.in_(['active', 'completed'])
-    ).scalar() or Decimal('0')
-    total_principal_collected = db.session.query(func.sum(Loan.principal_paid)).filter(
-        Loan.status.in_(['active', 'completed'])
-    ).scalar() or Decimal('0')
-    total_interest_collected = db.session.query(func.sum(Loan.interest_paid)).filter(
-        Loan.status.in_(['active', 'completed'])
-    ).scalar() or Decimal('0')
-    outstanding_principal = db.session.query(func.sum(Loan.current_principal)).filter(
-        Loan.status == 'active'
-    ).scalar() or Decimal('0')
-    outstanding_interest = db.session.query(
-        func.sum(Loan.accrued_interest - Loan.interest_paid)
-    ).filter(Loan.status == 'active').scalar() or Decimal('0')
+    as_of_dt = period.query_end_utc
 
-    bad_debt_loans = Loan.query.filter_by(status='bad_debt').all()
-    bad_debt_principal = sum(l.current_principal for l in bad_debt_loans)
-    bad_debt_interest = sum(
-        (max(Decimal('0'), l.accrued_interest - l.interest_paid) for l in bad_debt_loans),
-        Decimal('0'),
-    )
+    # Every loan that existed by period end.
+    loans_up_to_end = Loan.query.filter(
+        Loan.disbursement_date < as_of_dt,
+    ).all()
+
+    total_lent = Decimal('0')
+    total_principal_collected = Decimal('0')
+    total_interest_collected = Decimal('0')
+    outstanding_principal = Decimal('0')
+    outstanding_interest = Decimal('0')
+    bad_debt_principal = Decimal('0')
+    bad_debt_interest = Decimal('0')
+
+    for loan in loans_up_to_end:
+        # Lifetime totals only count loans that are / were real book loans.
+        if loan.status in ('active', 'completed'):
+            total_lent += loan.principal_amount
+            total_principal_collected += loan.principal_paid
+            total_interest_collected += loan.interest_paid
+
+        p, i = loan_state_as_of(loan, as_of_dt)
+
+        if loan.status in ('active', 'completed'):
+            outstanding_principal += p
+            outstanding_interest  += i
+        elif loan.status == 'bad_debt':
+            bad_debt_principal += p
+            bad_debt_interest  += i
+
     total_bad_debt = bad_debt_principal + bad_debt_interest
     recovery_rate = (
-        (total_principal_collected / total_lent * 100) if total_lent > 0 else Decimal('0')
+        (total_principal_collected / total_lent * 100)
+        if total_lent > 0 else Decimal('0')
     )
+
     total_waived = db.session.query(func.sum(Loan.principal_amount)).filter(
         Loan.status == 'waived'
     ).scalar() or Decimal('0')

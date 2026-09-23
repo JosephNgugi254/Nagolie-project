@@ -44,6 +44,16 @@ function currentMonthISO() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 }
 
+// Simple stable hash so the chart re-mounts whenever the underlying
+// dataset or the active filter changes. Cheap and deterministic.
+function dataSignature(obj) {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return String(Math.random());
+  }
+}
+
 const FinancialReports = () => {
   // ------------------------- state ---------------------------------------
   const [activeTab, setActiveTab] = useState('loan'); // loan | company | insights
@@ -61,6 +71,9 @@ const FinancialReports = () => {
   const [companyData, setCompanyData]   = useState(null);
   const [insightsData, setInsightsData] = useState(null);
   const [loading, setLoading]           = useState(false);
+
+  // Bumped every successful fetch so charts forcibly re-mount.
+  const [fetchNonce, setFetchNonce] = useState(0);
 
   const reportRef = useRef(null);
 
@@ -85,6 +98,7 @@ const FinancialReports = () => {
     try {
       const res = await financialAPI.getLoanReport(buildParams());
       setLoanData(res.data);
+      setFetchNonce((n) => n + 1);
     } catch (e) {
       console.error(e);
       showToast.error('Failed to load loan report');
@@ -98,6 +112,7 @@ const FinancialReports = () => {
     try {
       const res = await financialAPI.getCompanyReport(buildParams());
       setCompanyData(res.data);
+      setFetchNonce((n) => n + 1);
     } catch (e) {
       console.error(e);
       showToast.error('Failed to load company report');
@@ -110,6 +125,7 @@ const FinancialReports = () => {
     try {
       const res = await financialAPI.getInsights(buildParams());
       setInsightsData(res.data);
+      setFetchNonce((n) => n + 1);
     } catch (e) {
       console.error(e);
       showToast.error('Failed to load insights');
@@ -153,7 +169,7 @@ const FinancialReports = () => {
     periodType, monthYear, dayDate, customStart, customEnd, weekDate,
   ]);
 
-    // ---------------------- PDF generation ---------------------------------
+  // ---------------------- PDF generation ---------------------------------
   const generateReportPDF = async (preview = true) => {
     const payload = activeTab === 'loan' ? loanData : companyData;
     if (!payload) {
@@ -163,9 +179,6 @@ const FinancialReports = () => {
     if (!reportRef.current) return;
 
     try {
-      // Capture EVERY chart wrapper.
-      //  - Loan tab   → 1 chart (the metrics chart)
-      //  - Company tab→ 2 charts (Money In, then Money Out)
       const chartEls = reportRef.current.querySelectorAll('.chart-wrapper');
       const chartImages = [];
       for (const el of Array.from(chartEls)) {
@@ -210,6 +223,20 @@ const FinancialReports = () => {
     if (!loanData) return <div className="text-center py-4">No data</div>;
     const data = loanData;
 
+    // Signature changes whenever any value or the period changes.
+    const chartKey = `loan-${chartType}-${dataSignature({
+      m: data.total_money_lent,
+      p: data.principal_collected,
+      i: data.interest_collected,
+      op: data.outstanding_principal,
+      oi: data.outstanding_interest,
+      c: data.total_claimed_amount,
+      w: data.total_waived_amount,
+      bd: data.total_bad_debt,
+      period: data.period?.label,
+      nonce: fetchNonce,
+    })}`;
+
     const chartLabels = [
       'Money Lent',
       'Principal Collected',
@@ -235,6 +262,13 @@ const FinancialReports = () => {
       '#8b5cf6', '#ec4899', '#f97316', '#6b7280',
     ];
 
+    // Only chart the categories that are non-zero AND relevant to this period.
+    // Flows (lent/collected/waived/claimed) change per-period; stocks
+    // (outstanding/bad debt) are as-of the period end.
+    const visibleLabels = chartLabels;
+    const visibleValues = chartValues;
+    const visibleColors = chartColors;
+
     let ChartComponent = Bar;
     let chartProps;
 
@@ -242,18 +276,24 @@ const FinancialReports = () => {
       ChartComponent = Pie;
       chartProps = {
         data: {
-          labels: chartLabels,
+          labels: visibleLabels,
           datasets: [{
-            data: chartValues,
-            backgroundColor: chartColors,
+            data: visibleValues,
+            backgroundColor: visibleColors,
             borderColor: '#fff',
             borderWidth: 2,
           }],
         },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           plugins: {
             legend: { position: 'bottom' },
+            title: {
+              display: true,
+              text: `Loan Report — ${periodLabel}`,
+              font: { size: 14, weight: '600' },
+            },
             tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${formatCurrency(ctx.raw)}` } },
           },
         },
@@ -262,21 +302,27 @@ const FinancialReports = () => {
       ChartComponent = Line;
       chartProps = {
         data: {
-          labels: chartLabels,
+          labels: visibleLabels,
           datasets: [{
             label: 'Amount (KES)',
-            data: chartValues,
+            data: visibleValues,
             borderColor: '#1e40af',
             backgroundColor: 'rgba(30, 64, 175, 0.1)',
             fill: true,
             tension: 0.4,
-            pointBackgroundColor: chartColors,
+            pointBackgroundColor: visibleColors,
           }],
         },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           plugins: {
             legend: { display: false },
+            title: {
+              display: true,
+              text: `Loan Report — ${periodLabel}`,
+              font: { size: 14, weight: '600' },
+            },
             tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } },
           },
           scales: {
@@ -288,19 +334,25 @@ const FinancialReports = () => {
       ChartComponent = Bar;
       chartProps = {
         data: {
-          labels: chartLabels,
+          labels: visibleLabels,
           datasets: [{
             label: 'Amount (KES)',
-            data: chartValues,
-            backgroundColor: chartColors,
-            borderColor: chartColors,
+            data: visibleValues,
+            backgroundColor: visibleColors,
+            borderColor: visibleColors,
             borderWidth: 1,
           }],
         },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           plugins: {
             legend: { display: false },
+            title: {
+              display: true,
+              text: `Loan Report — ${periodLabel}`,
+              font: { size: 14, weight: '600' },
+            },
             tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } },
           },
           scales: {
@@ -396,7 +448,7 @@ const FinancialReports = () => {
           <div className="card-body">
             <div className="chart-wrapper d-flex justify-content-center">
               <div style={{ width: '100%', maxWidth: '900px', height: '460px' }}>
-                <ChartComponent {...chartProps} />
+                <ChartComponent key={chartKey} {...chartProps} />
               </div>
             </div>
           </div>
@@ -430,11 +482,17 @@ const FinancialReports = () => {
       { label: 'Investor Returns',     value: data.money_out.investor_returns     || 0 },
     ];
 
-    const buildChartProps = (labels, values, colors, label = 'Amount (KES)') => {
+    const buildChartProps = (labels, values, colors, title) => {
       const commonOptions = {
         responsive: true,
+        maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
+          title: {
+            display: true,
+            text: title,
+            font: { size: 14, weight: '600' },
+          },
           tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.raw) } },
         },
         scales: {
@@ -455,8 +513,14 @@ const FinancialReports = () => {
           },
           options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
               legend: { position: 'bottom' },
+              title: {
+                display: true,
+                text: title,
+                font: { size: 14, weight: '600' },
+              },
               tooltip: {
                 callbacks: {
                   label: (ctx) => `${ctx.label}: ${formatCurrency(ctx.raw)}`,
@@ -472,7 +536,7 @@ const FinancialReports = () => {
           data: {
             labels,
             datasets: [{
-              label,
+              label: 'Amount (KES)',
               data: values,
               borderColor: '#1e40af',
               backgroundColor: 'rgba(30, 64, 175, 0.1)',
@@ -489,7 +553,7 @@ const FinancialReports = () => {
         data: {
           labels,
           datasets: [{
-            label,
+            label: 'Amount (KES)',
             data: values,
             backgroundColor: colors,
             borderColor: colors,
@@ -507,15 +571,29 @@ const FinancialReports = () => {
     const inProps  = buildChartProps(
       moneyInCategories.map((c) => c.label),
       moneyInCategories.map((c) => c.value),
-      inColors
+      inColors,
+      `Money In — ${periodLabel}`
     );
     const outProps = buildChartProps(
       moneyOutCategories.map((c) => c.label),
       moneyOutCategories.map((c) => c.value),
-      outColors
+      outColors,
+      `Money Out — ${periodLabel}`
     );
 
     const ChartComponent = chartType === 'pie' ? Pie : chartType === 'line' ? Line : Bar;
+
+    // Re-mount both charts whenever the dataset or period changes.
+    const inKey = `in-${chartType}-${dataSignature({
+      values: moneyInCategories.map((c) => c.value),
+      period: periodLabel,
+      nonce: fetchNonce,
+    })}`;
+    const outKey = `out-${chartType}-${dataSignature({
+      values: moneyOutCategories.map((c) => c.value),
+      period: periodLabel,
+      nonce: fetchNonce,
+    })}`;
 
     const netCashFlow = Number(data.net_cash_flow ?? 0);
     const profitLoss  = Number(data.profit_loss  ?? 0);
@@ -565,7 +643,7 @@ const FinancialReports = () => {
               </div>
               <div className="card-body">
                 <div className="chart-wrapper" style={{ height: '380px' }}>
-                  <ChartComponent {...inProps} />
+                  <ChartComponent key={inKey} {...inProps} />
                 </div>
               </div>
             </div>
@@ -577,7 +655,7 @@ const FinancialReports = () => {
               </div>
               <div className="card-body">
                 <div className="chart-wrapper" style={{ height: '380px' }}>
-                  <ChartComponent {...outProps} />
+                  <ChartComponent key={outKey} {...outProps} />
                 </div>
               </div>
             </div>
@@ -677,14 +755,22 @@ const FinancialReports = () => {
         ))}
       </ul>
 
-      <div className="alert alert-info py-2 d-flex align-items-center">
-        <i className="fas fa-calendar-alt me-2"></i>
-        <strong className="me-1">
-          {periodType === 'weekly'  ? 'Week:'  :
-           periodType === 'monthly' ? 'Month:' :
-           periodType === 'daily'   ? 'Day:'   : 'Range:'}
-        </strong>
-        <span>{periodLabel}</span>
+      <div className="alert alert-info py-2 d-flex align-items-center justify-content-between">
+        <div className="d-flex align-items-center">
+          <i className="fas fa-calendar-alt me-2"></i>
+          <strong className="me-1">
+            {periodType === 'weekly'  ? 'Week:'  :
+             periodType === 'monthly' ? 'Month:' :
+             periodType === 'daily'   ? 'Day:'   : 'Range:'}
+          </strong>
+          <span>{periodLabel}</span>
+        </div>
+        {loading && (
+          <span className="text-muted small">
+            <span className="spinner-border spinner-border-sm me-1" role="status" />
+            Refreshing…
+          </span>
+        )}
       </div>
 
       <div className="row g-3 align-items-end mb-4">
@@ -800,7 +886,7 @@ const FinancialReports = () => {
         </div>
       </div>
 
-      {loading ? (
+      {loading && !loanData && !companyData && !insightsData ? (
         <div className="text-center py-5">
           <div className="spinner-border text-primary" role="status">
             <span className="visually-hidden">Loading...</span>
