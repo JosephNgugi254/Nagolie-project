@@ -5731,42 +5731,55 @@ export const downloadLetterPDF = async (data) => {
 
 const getSignatureByUser = (user) => {
   if (!user) return { name: 'Shadrack Kesumet', title: 'Director' };
-  const role = user.role;
+
+  const role     = (user.role     || '').toLowerCase();
   const username = (user.username || '').toLowerCase();
+
+  // Client Relations Officer
+  if (role === 'client_relations_officer') {
+    if (username === 'annie') return { name: 'Ann Ndura',      title: 'Client Relations Officer' };
+    if (username === 'lucie') return { name: 'Lucy Nyambura',  title: 'Client Relations Officer' };
+  }
 
   // Director
   if (role === 'director') {
-    if (username === 'director') return { name: 'Shadrack Kesumet', title: 'Director' };
+    if (username === 'director')  return { name: 'Shadrack Kesumet',   title: 'Director' };
     if (username === 'millicent') return { name: 'Millicent Mantaine', title: 'Deputy Director' };
     return { name: 'Shadrack Kesumet', title: 'Director' };
   }
-  // Deputy Director (also role director)
+
+  // Deputy Director
   if (role === 'deputy_director') {
     return { name: 'Millicent Mantaine', title: 'Deputy Director' };
   }
+
   // Secretary
   if (role === 'secretary') {
     return { name: 'Gladys Sakinoi', title: 'Secretary' };
   }
+
   // Accountant
   if (role === 'accountant') {
     return { name: 'Gideon Matunta', title: 'Head Accountant' };
   }
+
   // Head of IT
   if (role === 'head_of_it') {
     return { name: 'Joseph Ngugi', title: 'Head of I.T' };
   }
 
-  //hr manager
-  if (role == 'hr_manager') {
-    return {name: 'Terry Kintei' , title: 'Human Resource Manager'}
+  // HR Manager
+  if (role === 'hr_manager') {
+    return { name: 'Terry Kintei', title: 'Human Resource Manager' };
   }
+
   // Valuer
   if (role === 'valuer') {
     if (username === 'robert') return { name: 'Robert Kalama', title: 'Valuer' };
     if (username === 'george') return { name: 'George Marite', title: 'Senior Valuer' };
     return { name: 'George Marite', title: 'Senior Valuer' };
   }
+
   // Default
   return { name: 'Shadrack Kesumet', title: 'Director' };
 };

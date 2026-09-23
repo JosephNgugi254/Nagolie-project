@@ -112,7 +112,7 @@ const LetterWriter = ({ userRole }) => {
         re: re.trim(),
         body: body.trim(),
         date: new Date().toLocaleDateString('en-GB'),
-        user: userRole,
+        user: user || { role: userRole, username: userRole },
       });
     } catch (error) {
       console.error(error);
@@ -137,7 +137,7 @@ const LetterWriter = ({ userRole }) => {
         re: re.trim(),
         body: body.trim(),
         date: new Date().toLocaleDateString('en-GB'),
-        user: userRole,
+        user: user || { role: userRole, username: userRole },
       });
       showToast.success('Letter downloaded as PDF');
     } catch (error) {
