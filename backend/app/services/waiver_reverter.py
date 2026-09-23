@@ -28,12 +28,13 @@ def run_waiver_reversion():
     from app.routes.payments import recalculate_loan
 
     now = datetime.now(UTC).replace(tzinfo=None)  # naive-UTC, matches existing DB columns
+    today = now.date()
 
     waived = Loan.query.filter(
         Loan.status == 'active',
         Loan.interest_rate == 0,
         Loan.due_date.isnot(None),
-        Loan.due_date <= now,
+        db.func.date(Loan.due_date) < today,
     ).all()
 
     if not waived:

@@ -234,8 +234,7 @@ def _accrue_weekly(loan, today, last_date, save=True):
 
     # Process every completed week whose compounding moment has arrived
     while current_due + timedelta(days=1) <= today:
-        week_start = current_due - timedelta(days=6)
-        days_since_disbursement = (week_start - disb).days
+        days_since_disbursement = (current_due - disb).days
         week_num = days_since_disbursement // 7
         period_key = f"{disb.isoformat()}-W{week_num}"
 
