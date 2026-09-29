@@ -3345,6 +3345,12 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       day: '2-digit', month: '2-digit', year: 'numeric'
     });
 
+    // ── NEW: resolve Next of Kin values (support both camelCase and snake_case) ──
+    const nokName         = loanData?.nextOfKinName         || loanData?.next_of_kin_name         || '';
+    const nokId           = loanData?.nextOfKinIdNumber     || loanData?.next_of_kin_id           || '';
+    const nokRelationship = loanData?.nextOfKinRelationship || loanData?.next_of_kin_relationship || '';
+    const nokPhone        = loanData?.nextOfKinPhone        || loanData?.next_of_kin_phone        || '';
+
     // Main Title
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(16);
@@ -3383,7 +3389,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
     doc.text("Loan Amount:", 20, yPos);
     doc.setFont('helvetica', 'normal');
     const loanAmount = loanData?.loanAmount
-      ? `KSh ${loanData.loanAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+      ? `KSh ${Number(loanData.loanAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
       : '___________________';
     doc.text(loanAmount, 55, yPos);
 
@@ -3444,33 +3450,33 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
     doc.setFontSize(11);
     doc.setTextColor(...COLORS.textDark);
 
-    // First row: Full Name and ID Number
+    // ── NEW: Full Name and ID Number (auto-filled) ──
     doc.setFont('helvetica', 'bold');
     doc.text("Full Name:", 20, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("__________________________", 55, yPos);
+    doc.text(nokName || "__________________________", 55, yPos);
 
     doc.setFont('helvetica', 'bold');
     doc.text("ID Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("_________________", 150, yPos);
+    doc.text(nokId || "_________________", 150, yPos);
 
     yPos += 10;
 
-    // Second row: Relationship and Phone Number
+    // ── NEW: Relationship and Phone Number (auto-filled) ──
     doc.setFont('helvetica', 'bold');
     doc.text("Relationship:", 20, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("__________________________", 55, yPos);
+    doc.text(nokRelationship || "__________________________", 55, yPos);
 
     doc.setFont('helvetica', 'bold');
     doc.text("Phone Number:", 120, yPos);
     doc.setFont('helvetica', 'normal');
-    doc.text("_________________", 150, yPos);
+    doc.text(nokPhone || "_________________", 150, yPos);
 
     yPos += 10;
 
-    // Third row: signature and date
+    // Third row: signature and date (remains blank — signed by hand)
     doc.setFont('helvetica', 'bold');
     doc.text("Signature:", 20, yPos);
     doc.setFont('helvetica', 'normal');
@@ -3541,7 +3547,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
     doc.setFontSize(9);
     doc.text(COMPANY_INFO.tagline, 105, 285, { align: 'center' });
 
-    // ========== PAGE 2: TERMS AND CONDITIONS (updated with new clause 5 & 5.1) ==========
+    // ========== PAGE 2: TERMS AND CONDITIONS ==========
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'agreement');
     yPos = 20;
@@ -3563,9 +3569,7 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
     doc.text('TERMS AND CONDITIONS', 105, yPos, { align: 'center' });
     yPos += 8;
 
-    // Updated termGroups with new Clause 5 and 5.1
     const termGroups = [
-      // 1. Agreement Overview
       [
         { text: "1. Agreement Overview", heading: true },
         "This Livestock Financing Agreement (\"Agreement\") is entered into between the applicant (\"Recipient\") and",
@@ -3573,7 +3577,6 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "  by the specified livestock, which shall become the property of Nagolie Enterprises Ltd until the loan is fully repaid.",
         ""
       ],
-      // 2. Ownership Transfer and Custody (without 2.3)
       [
         { text: "2. Ownership Transfer and Custody", heading: true },
         "Upon disbursement of the loan, legal ownership of the specified livestock transfers to Nagolie Enterprises Ltd,",
@@ -3599,7 +3602,6 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "  action to secure the Company's property and recover losses without legal impediment.",
         ""
       ],
-      // 3. Repayment Terms and Interest (both plans, plain text)
       [
         { text: "3. Repayment Terms and Interest", heading: true },
         "The loan is repayable under one of the following plans selected by the Recipient at the time of disbursement",
@@ -3637,7 +3639,6 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "must be agreed upon in writing by both parties, specifying the new repayment date.",
         ""
       ],
-      // 4. Loan Settlement and Ownership Return
       [
         { text: "4. Loan Settlement and Ownership Return", heading: true },
         "Upon full repayment of the loan principal plus agreed interest:",
@@ -3645,7 +3646,6 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "- All rights and responsibilities regarding the livestock return to the Recipient",
         ""
       ],
-      // 5. Livestock Valuation & Value Chain Classification (updated)
       [
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
@@ -3664,7 +3664,6 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "recovery strategy in the event of default.",
         ""
       ],
-      // 6. Default and Remedies
       [
         { text: "6. Default and Remedies", heading: true },
         "Failure to repay the loan by the due date (including any agreed extension) shall constitute default, entitling",
@@ -3677,14 +3676,12 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
         "- Charge interest on overdue amounts at the prevailing market rate",
         ""
       ],
-      // 7. Governing Law
       [
         { text: "7. Governing Law", heading: true },
         "This agreement shall be governed by and construed in accordance with the laws of Kenya. Any disputes arising",
         "  from this agreement shall be subject to the exclusive jurisdiction of the courts of Kenya.",
         ""
       ],
-      // 8. Entire Agreement
       [
         { text: "8. Entire Agreement", heading: true },
         "This document constitutes the entire agreement between the parties and supersedes all prior discussions,",
@@ -3694,7 +3691,6 @@ export const generateNextOfKinConsentPDF = async (loanData) => {
       ]
     ];
 
-    // Render term groups
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...COLORS.textDark);

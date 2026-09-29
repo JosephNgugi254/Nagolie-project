@@ -190,6 +190,7 @@ function Home() {
         notes: formData.notes || '',
         photos: formData.photos || [],
         repaymentPlan: formData.repaymentPlan,
+        nextOfKin: formData.nextOfKin,
         production_classification: formData.productionClassification, 
       }
 

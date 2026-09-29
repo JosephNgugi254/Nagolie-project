@@ -396,12 +396,17 @@ def get_applications():
                 'photos': lv.photos if lv and lv.photos else [],
                 'status': app.status,
                 'repayment_plan': app.repayment_plan or 'weekly',
-                'production_classification': lv.production_classification if lv else ''
+                'production_classification': lv.production_classification if lv else '',
+
+                # ── NEW: Next of Kin ──
+                'nextOfKinName':         (c.next_of_kin_name         if c else '') or '',
+                'nextOfKinIdNumber':     (c.next_of_kin_id           if c else '') or '',
+                'nextOfKinRelationship': (c.next_of_kin_relationship if c else '') or '',
+                'nextOfKinPhone':        (c.next_of_kin_phone        if c else '') or '',
             })
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 
 # ---------------------------------------------------------------------------
 # Approve application (with ledger entry)
@@ -609,7 +614,6 @@ def get_all_clients():
 
             active_loan = recalculate_loan(active_loan, save=False)
             overdue_days, overdue_weeks = compute_overdue(active_loan, today)
-            db.session.commit()
 
             current_principal = active_loan.current_principal or active_loan.principal_amount
             principal_paid = active_loan.principal_paid or Decimal('0')
@@ -1134,6 +1138,11 @@ def get_approved_loans():
             Client.full_name.label('client_name'),
             Client.phone_number, Client.id_number,
             Client.location.label('client_location'),
+            # ── NEW: Next of Kin columns ──
+            Client.next_of_kin_name,
+            Client.next_of_kin_id,
+            Client.next_of_kin_relationship,
+            Client.next_of_kin_phone,
             Livestock.livestock_type, Livestock.count, Livestock.estimated_value,
             Livestock.photos, Livestock.location.label('livestock_location'),
             Livestock.production_classification,
@@ -1171,14 +1180,19 @@ def get_approved_loans():
             'status': 'active',
             'repayment_plan': l.repayment_plan or 'weekly',
             'production_classification': l.production_classification or 'Unspecified',
-            # ---------- NEW ----------
             'approvedBy': l.approved_by_username or legacy_map.get(l.id, 'N/A'),
             'approvedAt': (l.approved_at.isoformat() + 'Z') if l.approved_at else None,
+
+            # ── NEW: Next of Kin ──
+            'nextOfKinName':         l.next_of_kin_name         or '',
+            'nextOfKinIdNumber':     l.next_of_kin_id           or '',
+            'nextOfKinRelationship': l.next_of_kin_relationship or '',
+            'nextOfKinPhone':        l.next_of_kin_phone        or '',
         } for l in loans]), 200
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': 'Failed to load approved loans'}), 500
-    
+        
 # ---------------------------------------------------------------------------
 # Investor routes (unchanged)
 # ---------------------------------------------------------------------------

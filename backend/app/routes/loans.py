@@ -221,21 +221,33 @@ def update_loan_status(loan_id):
 def apply_for_loan():
     """Public endpoint for loan applications"""
     data = request.json
-   
     print("Received loan application data:", data)
-   
+
     # Validate required fields
     required_fields = ['full_name', 'phone_number', 'id_number', 'loan_amount', 'livestock_type']
     for field in required_fields:
         if not data.get(field):
             return jsonify({'error': f'Missing required field: {field}'}), 400
-   
+
+    # ── NEW: Next of Kin — all four are mandatory ─────────────────────
+    nok = data.get('nextOfKin') or {}
+    nok_name         = (nok.get('fullName')     or '').strip()
+    nok_id           = (nok.get('idNumber')     or '').strip()
+    nok_relationship = (nok.get('relationship') or '').strip()
+    nok_phone        = (nok.get('phoneNumber')  or '').strip()
+
+    if not all([nok_name, nok_id, nok_relationship, nok_phone]):
+        return jsonify({
+            'error': 'Next of Kin details (Full Name, ID Number, Relationship, Phone Number) are all required'
+        }), 400
+    # ──────────────────────────────────────────────────────────────────
+
     try:
         # Upload photos to Cloudinary if provided
         photo_urls = []
         if data.get('photos'):
             from app.utils.cloudinary_upload import upload_base64_image
-            
+
             for img in data['photos']:
                 try:
                     url = upload_base64_image(img, folder='loan_applications')
@@ -243,31 +255,41 @@ def apply_for_loan():
                 except Exception as upload_error:
                     print(f"Failed to upload one loan photo: {str(upload_error)}")
                     continue
-        
+
         # Check if client already exists
         client = Client.query.filter_by(id_number=data['id_number']).first()
-        
+
         # Get location from data or use default
         location = data.get('location', 'Isinya, Kajiado')
-       
+
         if not client:
             client = Client(
                 full_name=data['full_name'],
                 phone_number=data['phone_number'],
                 id_number=data['id_number'],
                 email=data.get('email', ''),
-                location=location
+                location=location,
+                # NEW: Next of Kin
+                next_of_kin_name=nok_name,
+                next_of_kin_id=nok_id,
+                next_of_kin_relationship=nok_relationship,
+                next_of_kin_phone=nok_phone,
             )
             db.session.add(client)
             db.session.flush()
         else:
-            client.full_name = data['full_name']
+            client.full_name    = data['full_name']
             client.phone_number = data['phone_number']
-            client.email = data.get('email', client.email)
-            client.location = location
+            client.email        = data.get('email', client.email)
+            client.location     = location
+            # NEW: refresh NOK on every new application
+            client.next_of_kin_name         = nok_name
+            client.next_of_kin_id           = nok_id
+            client.next_of_kin_relationship = nok_relationship
+            client.next_of_kin_phone        = nok_phone
             db.session.add(client)
             db.session.flush()
-       
+
         # Create livestock record
         livestock = Livestock(
             client_id=client.id,
@@ -276,20 +298,20 @@ def apply_for_loan():
             estimated_value=Decimal(str(data.get('estimated_value', 0))),
             location=location,
             photos=photo_urls,
-            production_classification = data.get('productionClassification') or data.get('production_classification', '') 
+            production_classification = data.get('productionClassification') or data.get('production_classification', '')
         )
         db.session.add(livestock)
         db.session.flush()
-       
+
         # ===== CRITICAL: define principal_amount FIRST =====
         principal_amount = Decimal(str(data['loan_amount']))
-        
+
         # ===== Handle repayment plan =====
         repayment_plan = data.get('repaymentPlan', 'weekly')
         print(f"RAW repayment_plan from request: {repayment_plan}")
         if repayment_plan not in ['weekly', 'daily']:
             repayment_plan = 'weekly'
-        
+
         # Calculate due date and interest based on plan
         if repayment_plan == 'daily':
             due_date = datetime.now() + timedelta(days=14)
@@ -301,9 +323,9 @@ def apply_for_loan():
             interest_rate = Decimal('30.0')
             total_interest = principal_amount * (interest_rate / 100)
             total_amount = principal_amount + total_interest
-        
+
         print(f"After validation: {repayment_plan} | Total Amount: {total_amount}")
-       
+
         # Create loan application
         loan = Loan(
             client_id=client.id,
@@ -324,9 +346,9 @@ def apply_for_loan():
         )
         db.session.add(loan)
         db.session.commit()
-       
+
         print(f"Loan application created: ID {loan.id} | Plan: {repayment_plan} | Due: {due_date}")
-       
+
         return jsonify({
             'success': True,
             'message': 'Loan application submitted successfully',
@@ -338,7 +360,7 @@ def apply_for_loan():
             'client_name': client.full_name,
             'photos_uploaded': len(photo_urls)
         }), 201
-       
+
     except Exception as e:
         db.session.rollback()
         print(f"Error creating loan application: {str(e)}")
@@ -348,7 +370,7 @@ def apply_for_loan():
             'success': False,
             'error': f'Failed to create loan application: {str(e)}'
         }), 500
-            
+                
 @loans_bp.route('/<int:loan_id>/reject', methods=['POST'])
 @jwt_required()
 @role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])

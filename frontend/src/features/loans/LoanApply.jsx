@@ -29,6 +29,20 @@ function LoanApply({ onSubmit }) {
   const [uploading, setUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // ── Next of Kin state ──────────────────────────────────────────────
+  const [nextOfKin, setNextOfKin] = useState({
+    fullName: "",
+    idNumber: "",
+    relationship: "",
+    phoneNumber: "",
+  })
+
+  const handleNextOfKinChange = (e) => {
+    const { name, value } = e.target
+    setNextOfKin(prev => ({ ...prev, [name]: value }))
+  }
+  // ───────────────────────────────────────────────────────────────────
+
   const getSelectStyle = () => ({
     width: '100%',
     fontSize: window.innerWidth < 768 ? '14px' : '16px',
@@ -244,6 +258,18 @@ function LoanApply({ onSubmit }) {
       return
     }
 
+    // ── Next of Kin validation (all four required) ─────────────────────
+    if (
+      !nextOfKin.fullName.trim() ||
+      !nextOfKin.idNumber.trim() ||
+      !nextOfKin.relationship.trim() ||
+      !nextOfKin.phoneNumber.trim()
+    ) {
+      alert("Please complete all Next of Kin details (Full Name, ID Number, Relationship, Phone Number).")
+      return
+    }
+    // ───────────────────────────────────────────────────────────────────
+
     const submissionData = {
       fullName: formData.fullName,
       phoneNumber: formData.phoneNumber,
@@ -258,11 +284,22 @@ function LoanApply({ onSubmit }) {
       notes: formData.notes,
       photos: photos,
       repaymentPlan: formData.repaymentPlan,
+
+      // ── Next of Kin payload ──────────────────────────────────────────
+      nextOfKin: {
+        fullName:     nextOfKin.fullName.trim(),
+        idNumber:     nextOfKin.idNumber.trim(),
+        relationship: nextOfKin.relationship.trim(),
+        phoneNumber:  nextOfKin.phoneNumber.trim(),
+      },
+      // ─────────────────────────────────────────────────────────────────
     }
 
     setIsSubmitting(true)
     try {
       await onSubmit(submissionData)
+
+      // ── Reset ALL form state ONLY after successful submission ────────
       setFormData({
         fullName: "",
         phoneNumber: "",
@@ -280,6 +317,8 @@ function LoanApply({ onSubmit }) {
       setMainCategory("")
       setProductionClassification("")
       setPhotos([])
+      setNextOfKin({ fullName: "", idNumber: "", relationship: "", phoneNumber: "" })
+      // ─────────────────────────────────────────────────────────────────
     } catch (error) {
       console.error("Submission error:", error)
     } finally {
@@ -413,6 +452,60 @@ function LoanApply({ onSubmit }) {
         <div className="mb-3">
           <label htmlFor="notes" className="form-label">Additional Information</label>
           <textarea className="form-control" id="notes" name="notes" rows="3" value={formData.notes} onChange={handleChange} placeholder="Any additional information (optional)" />
+        </div>
+
+        {/* ── NEXT OF KIN DETAILS ── */}
+        <div className="mt-4 mb-3 p-3 border rounded" style={{ background: "#f8f9fa" }}>
+          <h6 className="fw-bold mb-3" style={{ color: "#1e40af" }}>
+            <i className="fas fa-user-friends me-2"></i>Next of Kin Details
+          </h6>
+          <p className="text-muted small mb-3">
+            All four fields are required. This information will be printed on the Next of Kin Consent Form.
+          </p>
+
+          <div className="row">
+            <div className="col-md-6">
+              <FormInput
+                label="Full Name"
+                name="fullName"
+                value={nextOfKin.fullName}
+                onChange={handleNextOfKinChange}
+                required
+              />
+            </div>
+            <div className="col-md-6">
+              <FormInput
+                label="ID Number"
+                name="idNumber"
+                value={nextOfKin.idNumber}
+                onChange={handleNextOfKinChange}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="row">
+            <div className="col-md-6">
+              <FormInput
+                label="Relationship"
+                name="relationship"
+                value={nextOfKin.relationship}
+                onChange={handleNextOfKinChange}
+                placeholder="e.g Spouse / Parent / Sibling"
+                required
+              />
+            </div>
+            <div className="col-md-6">
+              <FormInput
+                label="Phone Number"
+                name="phoneNumber"
+                type="tel"
+                value={nextOfKin.phoneNumber}
+                onChange={handleNextOfKinChange}
+                required
+              />
+            </div>
+          </div>
         </div>
 
         <div className="mb-3 form-check">

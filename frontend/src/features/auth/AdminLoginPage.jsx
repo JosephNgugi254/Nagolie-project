@@ -214,7 +214,7 @@ function AdminLoginPage() {
                   <div className="mt-3 text-center">
                     <p className="text-muted">
                       Having trouble? Contact support at 
-                      <a href="mailto:nagolieenterprises@gmail.com" className="ms-1">nagolieenterprises@gmail.com</a>
+                      <a href="mailto:nagolieenterprisesltd@gmail.com" className="ms-1">nagolieenterprisesltd@gmail.com</a>
                     </p>
                   </div>
                 </div>

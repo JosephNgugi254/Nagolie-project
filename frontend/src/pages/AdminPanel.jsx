@@ -4438,6 +4438,41 @@ Thank you for choosing us.`;
               </div>
             </div>
           </div>
+          {/* ── NEXT OF KIN (read-only) ── */}
+          <div className="row mt-3">
+            <div className="col-12">
+              <div className="card border-primary">
+                <div className="card-header bg-primary text-white py-2">
+                  <i className="fas fa-user-friends me-2"></i>
+                  <strong>Next of Kin</strong>
+                </div>
+                <div className="card-body py-2">
+                  <div className="row">
+                    <div className="col-md-6">
+                      <p className="mb-1">
+                        <strong>Full Name:</strong>{" "}
+                        {selectedApplication.nextOfKinName || <span className="text-muted">N/A</span>}
+                      </p>
+                      <p className="mb-1">
+                        <strong>ID Number:</strong>{" "}
+                        {selectedApplication.nextOfKinIdNumber || <span className="text-muted">N/A</span>}
+                      </p>
+                    </div>
+                    <div className="col-md-6">
+                      <p className="mb-1">
+                        <strong>Relationship:</strong>{" "}
+                        {selectedApplication.nextOfKinRelationship || <span className="text-muted">N/A</span>}
+                      </p>
+                      <p className="mb-1">
+                        <strong>Phone:</strong>{" "}
+                        {selectedApplication.nextOfKinPhone || <span className="text-muted">N/A</span>}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           {selectedApplication.status === "pending" && (
             <div className="mt-4 d-flex gap-2">
               <button

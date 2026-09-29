@@ -119,7 +119,11 @@ class Client(db.Model):
     email = db.Column(db.String(120))
     location = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+    next_of_kin_name         = db.Column(db.String(120), nullable=True)
+    next_of_kin_id           = db.Column(db.String(20),  nullable=True)
+    next_of_kin_relationship = db.Column(db.String(50),  nullable=True)
+    next_of_kin_phone        = db.Column(db.String(20),  nullable=True)
+
     # Relationships
     loans = db.relationship('Loan', backref='client', lazy='dynamic', cascade='all, delete-orphan')
     livestock = db.relationship('Livestock', backref='client', lazy='dynamic', cascade='all, delete-orphan')
@@ -132,9 +136,14 @@ class Client(db.Model):
             'id_number': self.id_number,
             'email': self.email,
             'location': self.location,
+            
+            'next_of_kin_name':         self.next_of_kin_name,
+            'next_of_kin_id':           self.next_of_kin_id,
+            'next_of_kin_relationship': self.next_of_kin_relationship,
+            'next_of_kin_phone':        self.next_of_kin_phone,
             'created_at': self.created_at.isoformat()
         }
-
+    
 class Livestock(db.Model):
     __tablename__ = 'livestock'
     
