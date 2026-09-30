@@ -106,7 +106,7 @@ def _record_accrual(loan, amount, notes, event_date, save=True, event_type='accr
         loan.last_accrual_recorded = event_date
 
 # ---------------------------------------------------------------------------
-# Daily accrual  (unchanged logic — only the weekly function is fixed)
+# Daily accrual  
 # ---------------------------------------------------------------------------
 def _accrue_daily(loan, today, last_date, save=True):
     """
@@ -117,6 +117,10 @@ def _accrue_daily(loan, today, last_date, save=True):
     - On day 7 (due date), total interest = 7 × daily_rate.
     - Compounding: day after due date and every 7 days thereafter,
       capitalises any unpaid interest BEFORE adding that day's interest.
+
+    FIX: The first due date is ALWAYS `disbursement + 7 days`, regardless of
+    what is stored in `loan.due_date`. The stored due_date is stamped +14 days
+    at approval time and must NOT be used to compute the compounding moment.
     """
     if not loan.disbursement_date:
         return loan
@@ -128,7 +132,9 @@ def _accrue_daily(loan, today, last_date, save=True):
         loan.last_interest_payment_date = datetime.combine(disb, datetime.min.time())
 
     daily_rate = Decimal('0.045')
-    due_date = loan.due_date.date() if loan.due_date else disb + timedelta(days=7)
+
+    # FIX: derive the first due date from disbursement, not from loan.due_date.
+    first_due = disb + timedelta(days=7)
 
     # ---- Day‑zero interest (added once) ----
     if loan.last_interest_payment_date.date() == disb and loan.accrued_interest == 0:
@@ -149,8 +155,8 @@ def _accrue_daily(loan, today, last_date, save=True):
     day_one_date = disb + timedelta(days=1)   # the "skip" day
 
     while current_date <= today:
-        # ---- Compounding check: day after due date and every 7 days thereafter ----
-        first_compounding = due_date + timedelta(days=1)   # day 8
+        # ---- Compounding check: day after first due date and every 7 days thereafter ----
+        first_compounding = first_due + timedelta(days=1)   # day 8
         if current_date >= first_compounding and (current_date - first_compounding).days % 7 == 0:
             net_to_capitalise = max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
             if net_to_capitalise > 0:
@@ -171,6 +177,12 @@ def _accrue_daily(loan, today, last_date, save=True):
                 loan.interest_prepaid_period = None
                 loan.interest_prepaid_amount = Decimal('0')
                 loan.last_compounding_date = current_date
+
+                # FIX: roll the due date forward by 7 days from the compounding day
+                loan.due_date = datetime.combine(
+                    current_date + timedelta(days=6),
+                    datetime.min.time()
+                )
 
         # ---- Add daily interest? ----
         # Skip interest on day 1 only.
@@ -216,8 +228,7 @@ def _get_second_sunday(disbursement_date):
         second_sunday = first_sunday + timedelta(days=7)
         return second_sunday
 
-# ---------------------------------------------------------------------------
-# Weekly accrual  ← THE FIXED FUNCTION
+# Weekly accrual  
 # ---------------------------------------------------------------------------
 def _accrue_weekly(loan, today, last_date, save=True):
     """
