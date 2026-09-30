@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, url_for, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
-from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember, Group, DayAssignment, PromissoryNote)
+from app.models import (Loan, Client, Livestock, User, Comment, PrivateMessage, Defaulter, Transaction, UserLoanCommentRead, ClientAssignment, ReportComment, FlaggedLoan, FlaggedLoanNote, CallLog, GroupReadStatus, GroupMember, Group, DayAssignment, PromissoryNote, ReportApproval)
 from app.utils.decorators import role_required, role_or_username_required
 from app.routes.payments import recalculate_loan, _apply_payment, _loan_summary
 from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest, _get_current_week_number
@@ -1025,61 +1025,68 @@ def delete_private_message(message_id):
 @jwt_required()
 @role_required(['secretary', 'client_relations_officer'])
 def get_my_assigned_clients():
-    officer_id = int(get_jwt_identity())
-    report_date = request.args.get('date')
-    if report_date:
+    officer_id      = int(get_jwt_identity())
+    report_date_str = request.args.get('date')
+
+    if report_date_str:
         try:
-            report_date = datetime.strptime(report_date, '%Y-%m-%d').date()
-        except:
+            report_date = datetime.strptime(report_date_str, '%Y-%m-%d').date()
+        except Exception:
             return jsonify({'error': 'Invalid date format'}), 400
     else:
         report_date = datetime.utcnow().date()
 
     from app.routes.admin import get_assigned_clients_for_user
-    assigned = get_assigned_clients_for_user(officer_id)
+    assigned = get_assigned_clients_for_user(officer_id, report_date=report_date)
 
-    today = datetime.utcnow().date()
-    for client in assigned:
-        snapshot = ReportComment.query.filter_by(
-            loan_id=client['loan_id'],
+    # Enrich each row with the director's per-client remark
+    for row in assigned:
+        snap = ReportComment.query.filter_by(
+            loan_id=row['loan_id'],
             officer_id=officer_id,
-            report_date=report_date
+            report_date=report_date,
         ).first()
+        row['director_remark']    = (snap.director_remark if snap and snap.director_remark else '')
+        row['director_remark_at'] = (snap.director_remark_at.isoformat()
+                                     if snap and snap.director_remark_at else None)
+        row['director_remark_by'] = (snap.director_remarker.username
+                                     if snap and snap.director_remarker else None)
 
-        if report_date < today:
-            # Past date: always use snapshot if available
-            if snapshot:
-                client['current_principal'] = float(snapshot.current_principal) if snapshot.current_principal is not None else client['current_principal']
-                client['unpaid_interest'] = float(snapshot.unpaid_interest) if snapshot.unpaid_interest is not None else client['unpaid_interest']
-                client['total_balance'] = float(snapshot.total_balance) if snapshot.total_balance is not None else client['total_balance']
-                client['comment'] = snapshot.comment
-            else:
-                client['comment'] = ''
-        else:
-            # Today: use live data, but keep comment if any
-            client['comment'] = snapshot.comment if snapshot else ''
+    # Report-level approval row
+    approval = ReportApproval.query.filter_by(
+        officer_id=officer_id, report_date=report_date
+    ).first()
 
     from app.models import DayAssignment
-    day_assignments = DayAssignment.query.filter_by(user_id=officer_id).all()
-    assigned_days = [da.day_of_week for da in day_assignments]
+    assigned_days = [da.day_of_week
+                     for da in DayAssignment.query.filter_by(user_id=officer_id).all()]
 
-    # ✅ CORS is now handled globally – no manual headers needed
-    return jsonify({'clients': assigned, 'assigned_days': assigned_days}), 200
+    return jsonify({
+        'clients': assigned,
+        'assigned_days': assigned_days,
+        'approval': {
+            'status':          approval.status if approval else 'pending',
+            'general_remarks': approval.general_remarks if approval else '',
+            'approved_by':     approval.approver.username if approval and approval.approver else None,
+            'approved_at':     approval.approved_at.isoformat() if approval and approval.approved_at else None,
+            'updated_at':      approval.updated_at.isoformat() if approval else None,
+        },
+    }), 200
 
 @recovery_bp.route('/reports/comment', methods=['POST'])
 @jwt_required()
 @role_required(['secretary', 'client_relations_officer'])
 def save_report_comment():
-    officer_id = int(get_jwt_identity())
-    data = request.json
-    loan_id = data.get('loan_id')
-    comment_text = data.get('comment', '')
-    # Accept report_date from request, default to today if not provided
+    officer_id      = int(get_jwt_identity())
+    data            = request.json or {}
+    loan_id         = data.get('loan_id')
+    comment_text    = data.get('comment', '')
     report_date_str = data.get('report_date')
+
     if report_date_str:
         try:
             report_date = datetime.strptime(report_date_str, '%Y-%m-%d').date()
-        except:
+        except Exception:
             return jsonify({'error': 'Invalid report_date format'}), 400
     else:
         report_date = datetime.utcnow().date()
@@ -1088,34 +1095,39 @@ def save_report_comment():
         return jsonify({'error': 'loan_id required'}), 400
 
     loan = db.session.get(Loan, loan_id)
-    if not loan or loan.status != 'active':
-        return jsonify({'error': 'Loan not found or not active'}), 404
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
 
-    # Compute unpaid interest as of the report_date
-    from app.routes.payments import compute_historical_unpaid_interest
-    unpaid_interest = float(compute_historical_unpaid_interest(loan, report_date))
-    current_principal = float(loan.current_principal)
-    total_balance = current_principal + unpaid_interest
+    # Reconstruct historical state — never read live row fields
+    from app.routes.payments import loan_state_as_of
+    principal_dec, interest_dec = loan_state_as_of(loan, report_date)
+    current_principal = float(principal_dec)
+    unpaid_interest   = float(interest_dec)
+    total_balance     = current_principal + unpaid_interest
 
-    # Upsert snapshot for this officer/loan/report_date
-    comment = ReportComment.query.filter_by(
-        loan_id=loan_id, officer_id=officer_id, report_date=report_date
+    snap = ReportComment.query.filter_by(
+        loan_id=loan_id,
+        officer_id=officer_id,
+        report_date=report_date,
     ).first()
-    if comment:
-        comment.comment = comment_text
-        comment.updated_at = datetime.utcnow()
-    else:
-        comment = ReportComment(
-            loan_id=loan_id, officer_id=officer_id,
-            report_date=report_date, comment=comment_text
-        )
-        db.session.add(comment)
 
-    comment.current_principal = current_principal
-    comment.unpaid_interest = unpaid_interest
-    comment.total_balance = total_balance
-    comment.interest_rate = float(loan.interest_rate)
-    comment.repayment_plan = loan.repayment_plan
+    if snap:
+        snap.comment     = comment_text
+        snap.updated_at  = datetime.utcnow()
+    else:
+        snap = ReportComment(
+            loan_id=loan_id,
+            officer_id=officer_id,
+            report_date=report_date,
+            comment=comment_text,
+        )
+        db.session.add(snap)
+
+    snap.current_principal = current_principal
+    snap.unpaid_interest   = unpaid_interest
+    snap.total_balance     = total_balance
+    snap.interest_rate     = float(loan.interest_rate or 0)
+    snap.repayment_plan    = loan.repayment_plan
 
     db.session.commit()
     return jsonify({'success': True}), 200
@@ -1624,11 +1636,65 @@ def get_notification_data():
                 'latest_at': latest.created_at.isoformat() + 'Z' if latest.created_at else None,
             }
 
+    director_remarks = []
+    me = db.session.get(User, uid)
+    if me and me.role in ('secretary', 'client_relations_officer'):
+        # Per-client remarks directed at this officer
+        rows = (
+            ReportComment.query
+            .filter(
+                ReportComment.officer_id == uid,
+                ReportComment.director_remark.isnot(None),
+                ReportComment.director_remark != '',
+            )
+            .order_by(ReportComment.director_remark_at.desc())
+            .all()
+        )
+        for r in rows:
+            if not r.director_remark_at:
+                continue
+            loan = r.loan
+            client_name = loan.client.full_name if loan and loan.client else 'Client'
+            director_remarks.append({
+                'loan_id':        r.loan_id,
+                'report_date':    r.report_date.isoformat(),
+                'client_name':    client_name,
+                'remark':         r.director_remark,
+                'latest_at':      r.director_remark_at.isoformat() + 'Z',
+            })
+
+        # General remarks per report
+        approvals = (
+            ReportApproval.query
+            .filter(
+                ReportApproval.officer_id == uid,
+                ReportApproval.general_remarks.isnot(None),
+                ReportApproval.general_remarks != '',
+            )
+            .all()
+        )
+        for a in approvals:
+            if not a.updated_at:
+                continue
+            director_remarks.append({
+                'loan_id':        None,
+                'report_date':    a.report_date.isoformat(),
+                'client_name':    '(General)',
+                'remark':         a.general_remarks,
+                'latest_at':      a.updated_at.isoformat() + 'Z',
+            })
+            current_app.logger.info(
+                f"[notif-data] uid={uid} role={me.role if me else '?'} "
+                f"remarks_returned={len(director_remarks)} "
+                f"signatures={[r['loan_id'] for r in director_remarks]}"
+            )
+
     return jsonify({
         'messages': list(msg_groups.values()),
         'group_messages': group_msgs_list,
         'comments': list(comment_groups.values()),
         'applications': apps_data,
+        'director_remarks': director_remarks, 
     }), 200
 
 @recovery_bp.route('/loan/<int:loan_id>/promissory-notes', methods=['GET'])

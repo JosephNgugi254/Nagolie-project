@@ -42,28 +42,20 @@ def compute_overdue(loan, today=None):
         return 0, overdue_weeks
 
 def compute_historical_unpaid_interest(loan, as_of_date):
-    if loan.repayment_plan == 'daily' and loan.interest_rate > 0:
-        disb = loan.disbursement_date.date() if loan.disbursement_date else None
-        if not disb:
-            return Decimal('0')
-        days = (as_of_date - disb).days + 1
-        if days <= 0:
-            return Decimal('0')
-        total_accrued = loan.current_principal * Decimal('0.045') * days
-        from app import db
-        from app.models import Transaction
-        from sqlalchemy import func
-        paid = db.session.query(func.sum(Transaction.amount)).filter(
-            Transaction.loan_id == loan.id,
-            Transaction.transaction_type == 'payment',
-            Transaction.payment_type == 'interest',
-            Transaction.created_at <= as_of_date,
-            Transaction.status == 'completed'
-        ).scalar() or Decimal('0')
-        return max(Decimal('0'), total_accrued - paid)
-    else:
-        from app.routes.payments import _get_current_period_interest
-        return _get_current_period_interest(loan)
+    """
+    Return unpaid interest for `loan` as of `as_of_date`.
+
+    Delegates to loan_state_as_of() — the same replay engine used by the
+    report endpoints — so every historical figure in the system is derived
+    from a single authoritative source.
+    """
+    from datetime import date as date_cls
+    if isinstance(as_of_date, datetime):
+        as_of_date = as_of_date.date()
+    elif not isinstance(as_of_date, date_cls):
+        as_of_date = date_cls.today()
+    _, unpaid = loan_state_as_of(loan, as_of_date)
+    return unpaid
 
 # ---------------------------------------------------------------------------
 # Core interest-accrual engine

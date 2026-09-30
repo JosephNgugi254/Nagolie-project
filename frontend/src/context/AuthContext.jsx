@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useContext, useState, useEffect, useMemo } from "react"
 import { authAPI } from "../services/api"
 
 
@@ -196,7 +196,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const value = useMemo(() => ({
     user,
     userRole,
     login,
@@ -204,9 +204,10 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated,
     hasRole,
     loading,
-    setInvestorSession, 
+    setInvestorSession,
     updateUserData,
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [user, userRole, loading]);
 
   console.log("AuthContext value:", { 
     user: !!user, 

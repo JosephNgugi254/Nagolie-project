@@ -196,6 +196,37 @@ export const adminAPI = {
 
   // refresh in report management
   syncClientAssignments: () => api.post('/admin/sync-assignments'),
+
+    // Director report approval + remarks
+  getDirectorReportView: (officerId, date) =>
+    api.get(`/admin/reports/director-view?officer_id=${officerId}&date=${date}`),
+
+  setDirectorClientRemark: (officerId, reportDate, loanId, remark) =>
+    api.post('/admin/reports/director-remark', {
+      officer_id:  officerId,
+      report_date: reportDate,
+      loan_id:     loanId,
+      remark,
+    }),
+
+  setDirectorGeneralRemark: (officerId, reportDate, generalRemarks) =>
+    api.post('/admin/reports/director-general-remark', {
+      officer_id:       officerId,
+      report_date:      reportDate,
+      general_remarks:  generalRemarks,
+    }),
+
+  approveReport: (officerId, reportDate) =>
+    api.post('/admin/reports/approve', {
+      officer_id:  officerId,
+      report_date: reportDate,
+    }),
+
+  unapproveReport: (officerId, reportDate) =>
+    api.post('/admin/reports/unapprove', {
+      officer_id:  officerId,
+      report_date: reportDate,
+    }),
   
 };
 

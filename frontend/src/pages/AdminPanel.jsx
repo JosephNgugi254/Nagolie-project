@@ -1525,41 +1525,28 @@ useEffect(() => {
   
   const testApiConnection = async () => {
     try {
-      console.log("Testing API connection...")
-      
-      // Check authentication first
-      if (!isAuthenticated()) {
-        console.log("User is not authenticated, skipping API test");
-        return false;
-      }
-      
-      // Check token
-      const token = sessionStorage.getItem("admin_token") || localStorage.getItem("admin_token")
-      if (!token) {
-        console.log("No token found, skipping API test");
-        return false;
-      }
-      
-      console.log("Stored admin token exists, testing connection...")
+      if (!isAuthenticated()) return false;
     
-      // Use adminAPI instead of direct fetch
-      const response = await adminAPI.test()
-      console.log("Test endpoint response data:", response.data)
-      return true
+      // Accept the unified key first; keep admin_token for legacy sessions.
+      const token =
+        localStorage.getItem('token') ||
+        localStorage.getItem('admin_token') ||
+        sessionStorage.getItem('admin_token');
+    
+      if (!token) return false;
+    
+      await adminAPI.test();
+      return true;
     } catch (error) {
-      console.error("API connection test failed:", error)
-      
-      // If it's a 401, clear tokens and redirect
       if (error.response?.status === 401) {
-        localStorage.removeItem("admin_token");
-        localStorage.removeItem("admin_user");
-        sessionStorage.removeItem("admin_token");
-        sessionStorage.removeItem("admin_user");
+        // Transient — token may not have attached yet on the very first request
+        console.warn('Admin test returned 401 (transient)');
+      } else {
+        console.error('API connection test failed:', error);
       }
-      
-      return false
+      return false;
     }
-  }
+  };  
 
   const fetchApprovedLoans = useCallback(async () => {
     setApprovedLoansLoading(true)
@@ -1586,47 +1573,45 @@ useEffect(() => {
 
   // Staggered data loading implementation(MAIN DATA INITIALIZATION)
   useEffect(() => {
+    // ── Guards: only run when auth is fully settled and user is admin ──
+    if (authLoading) return;
+    if (!isAuthenticated()) return;
+    if (!user || userRole !== 'admin') return;
+
     const initializeData = async () => {
-      if (isAuthenticated) {
-        console.log("User is authenticated, initializing data...")
-        const connectionOk = await testApiConnection()
-        if (connectionOk) {
-          console.log("API connection successful, fetching data...")
-          try {
-            // Load critical data first
-            await fetchDashboardData()
-            await fetchClients()
-            await fetchPaymentStats() 
-            await fetchApplications()
-            await fetchInvestors()
+      const connectionOk = await testApiConnection();
+      if (connectionOk) {
+        try {
+          await fetchDashboardData();
+          await fetchClients();
+          await fetchPaymentStats();
+          await fetchApplications();
+          await fetchInvestors();
 
-            // Then load heavier datasets with delay
-            setTimeout(() => {
-              fetchLivestock(1, false)
-              fetchApprovedLoans()
-              fetchTransactions()
-            }, 1000)
-
-          } catch (error) {
-            console.error("Error fetching data:", error)
-            showToast.error("Failed to load data from server")
-          }
-        } else {
-          console.error("API connection failed, data not loaded")
-          showToast.error("Unable to connect to server. Please check if the backend is running.")
+          setTimeout(() => {
+            fetchLivestock(1, false);
+            fetchApprovedLoans();
+            fetchTransactions();
+          }, 1000);
+        } catch (error) {
+          console.error('Error fetching data:', error);
+          showToast.error('Failed to load data from server');
         }
+      } else {
+        // Downgraded from console.error + toast → warn only.
+        // This branch is hit during transient login races and is not fatal.
+        console.warn('Admin test call did not succeed — initial data load skipped');
       }
-    }
+    };
 
-    initializeData()
+    initializeData();
 
-    // After the initial fetchApplications call, add an interval
     const interval = setInterval(() => {
-      fetchApplications()
-    }, 30000) // check every 30 seconds
+      fetchApplications();
+    }, 30000);
 
-    return () => clearInterval(interval)
-  }, [isAuthenticated])
+    return () => clearInterval(interval);
+  }, [authLoading, user?.id, userRole, isAuthenticated]);  
   
 
   const fetchDashboardData = useCallback(async () => {

@@ -152,8 +152,8 @@ class Livestock(db.Model):
     investor_id = db.Column(db.Integer, db.ForeignKey('investors.id'), nullable=True)
     livestock_type = db.Column(db.String(50), nullable=False)
     count = db.Column(db.Integer, nullable=False)
-    estimated_value = db.Column(db.Numeric(10, 2), nullable=False)
-    valuation_value = db.Column(db.Numeric(10, 2))
+    estimated_value = db.Column(db.Numeric(15, 2), nullable=False)
+    valuation_value = db.Column(db.Numeric(15, 2))
     # SEPARATE FIELDS for description and location
     description = db.Column(db.Text, default='Available for purchase')
     location = db.Column(db.Text, default='Isinya, Kajiado')
@@ -193,22 +193,22 @@ class Loan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
     livestock_id = db.Column(db.Integer, db.ForeignKey('livestock.id'))
-    principal_amount = db.Column(db.Numeric(10, 2), nullable=False)
+    principal_amount = db.Column(db.Numeric(15, 2), nullable=False)
     interest_rate = db.Column(db.Numeric(5, 2), default=30.0)
-    total_amount = db.Column(db.Numeric(10, 2), nullable=False)
-    amount_paid = db.Column(db.Numeric(10, 2), default=0)
-    balance = db.Column(db.Numeric(10, 2), nullable=False)
+    total_amount = db.Column(db.Numeric(15, 2), nullable=False)
+    amount_paid = db.Column(db.Numeric(15, 2), default=0)
+    balance = db.Column(db.Numeric(15, 2), nullable=False)
     # NEW: Track total accrued interest over life of loan (simple, no compounding)
-    accrued_interest = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    accrued_interest = db.Column(db.Numeric(15, 2), default=0, nullable=False)
 
     # NEW: Track funding source
     funding_source = db.Column(db.String(20), default='company')  # 'company' or 'investor'
     investor_id = db.Column(db.Integer, db.ForeignKey('investors.id'), nullable=True)
     
     # NEW: Track principal and interest separately
-    principal_paid = db.Column(db.Numeric(10, 2), default=0)
-    interest_paid = db.Column(db.Numeric(10, 2), default=0)
-    current_principal = db.Column(db.Numeric(10, 2), nullable=False)  # Remaining principal
+    principal_paid = db.Column(db.Numeric(15, 2), default=0)
+    interest_paid = db.Column(db.Numeric(15, 2), default=0)
+    current_principal = db.Column(db.Numeric(15, 2), nullable=False)  # Remaining principal
     # NEW FIELD: Track interest paid in current 7-day period
     disbursement_date = db.Column(db.DateTime)
     due_date = db.Column(db.DateTime, nullable=False)
@@ -229,7 +229,7 @@ class Loan(db.Model):
 
     # AddED TO ALLOW PRE PROCESSING INTEREST BEFORE DUE DTE
     interest_prepaid_period = db.Column(db.String(20), nullable=True)
-    interest_prepaid_amount = db.Column(db.Numeric(10, 2), default=Decimal('0'))
+    interest_prepaid_amount = db.Column(db.Numeric(15, 2), default=Decimal('0'))
 
     # loan hierarchy (for renewals and waivers)
     parent_loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=True)
@@ -321,11 +321,11 @@ class LoanLedger(db.Model):
         index=True,
     )
 
-    principal_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
-    interest_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
-    penalty_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0)
-    total_outstanding = db.Column(db.Numeric(12, 2), nullable=False, default=0)
-    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0)
+    principal_balance = db.Column(db.Numeric(15, 2), nullable=False, default=0)
+    interest_balance = db.Column(db.Numeric(15, 2), nullable=False, default=0)
+    penalty_balance = db.Column(db.Numeric(15, 2), nullable=False, default=0)
+    total_outstanding = db.Column(db.Numeric(15, 2), nullable=False, default=0)
+    amount = db.Column(db.Numeric(15, 2), nullable=False, default=0)
 
     # ── NEW: persisted period label, e.g. "Day 4" or "Wk 2 (18 Sep–24 Sep)" ──
     period_label = db.Column(db.String(32), nullable=True)
@@ -353,7 +353,7 @@ class Transaction(db.Model):
     investor_id = db.Column(db.Integer, db.ForeignKey('investors.id'), nullable=True)  # NEW: For investor transactions
     transaction_type = db.Column(db.String(20), nullable=False)  # disbursement, payment, topup, adjustment, investor_topup, investor_adjustment, investor_return
     payment_type = db.Column(db.String(20))  # principal, interest, investment, return
-    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
     payment_method = db.Column(db.String(20))
     mpesa_receipt = db.Column(db.String(50))
     notes = db.Column(db.Text)
@@ -401,7 +401,7 @@ class Payment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
     phone_number = db.Column(db.String(20), nullable=False)
-    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
     payment_type = db.Column(db.String(20))  # NEW: principal or interest
     merchant_request_id = db.Column(db.String(100))
     checkout_request_id = db.Column(db.String(100), unique=True, index=True)
@@ -465,13 +465,13 @@ class Investor(db.Model):
     id_number = db.Column(db.String(20), unique=True, nullable=False, index=True)
     
     # CHANGED: Store original investment separately
-    initial_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Original amount
-    current_investment = db.Column(db.Numeric(12, 2), nullable=False)  # NEW: Current total (initial + topups)
-    total_topups = db.Column(db.Numeric(12, 2), default=0)  # NEW: Track total topups
+    initial_investment = db.Column(db.Numeric(15, 2), nullable=False)  # NEW: Original amount
+    current_investment = db.Column(db.Numeric(15, 2), nullable=False)  # NEW: Current total (initial + topups)
+    total_topups = db.Column(db.Numeric(15, 2), default=0)  # NEW: Track total topups
     
     invested_date = db.Column(db.DateTime, default=datetime.utcnow)
     expected_return_date = db.Column(db.DateTime)
-    total_returns_received = db.Column(db.Numeric(12, 2), default=0)
+    total_returns_received = db.Column(db.Numeric(15, 2), default=0)
     last_return_date = db.Column(db.DateTime)
     next_return_date = db.Column(db.DateTime)
     agreement_document = db.Column(db.Text)
@@ -479,10 +479,10 @@ class Investor(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    outstanding_returns = db.Column(db.Numeric(12, 2), default=0)  # NEW
+    outstanding_returns = db.Column(db.Numeric(15, 2), default=0)  # NEW
     
     # NEW: prepaid credit for future periods
-    credit_balance = db.Column(db.Numeric(12, 2), default=0)
+    credit_balance = db.Column(db.Numeric(15, 2), default=0)
     
     user = db.relationship('User', foreign_keys=[user_id], back_populates='investor_profile', overlaps="investor,investor_user")
     investor_user = db.relationship('User', foreign_keys=[user_id], back_populates='investor', overlaps="investor_profile,user")
@@ -576,14 +576,14 @@ class InvestorReturn(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     investor_id = db.Column(db.Integer, db.ForeignKey('investors.id'), nullable=False)
-    amount = db.Column(db.Numeric(12, 2), nullable=False)  # 40% of investment
+    amount = db.Column(db.Numeric(15, 2), nullable=False)  # 40% of investment
     return_date = db.Column(db.DateTime, nullable=False)
     payment_method = db.Column(db.String(20), default='mpesa')  # mpesa, bank, cash
     mpesa_receipt = db.Column(db.String(50))
     notes = db.Column(db.Text)
     status = db.Column(db.String(20), default='completed')  # completed, pending, failed
     is_early_withdrawal = db.Column(db.Boolean, default=False)  # NEW: Track early withdrawals
-    early_withdrawal_fee = db.Column(db.Numeric(12, 2), default=0)  # NEW: Fee amount
+    early_withdrawal_fee = db.Column(db.Numeric(15, 2), default=0)  # NEW: Fee amount
     transaction_type = db.Column(db.String(50), default='return')  # 'return', 'topup', 'adjustment_up', 'adjustment_down'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -828,18 +828,66 @@ class ReportComment(db.Model):
     report_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
     comment = db.Column(db.Text, nullable=False)
 
-    # NEW: financial snapshot fields
-    current_principal = db.Column(db.Numeric(12, 2), nullable=True)
-    unpaid_interest = db.Column(db.Numeric(12, 2), nullable=True)
-    total_balance = db.Column(db.Numeric(12, 2), nullable=True)
+    # financial snapshot fields
+    current_principal = db.Column(db.Numeric(15, 2), nullable=True)
+    unpaid_interest = db.Column(db.Numeric(15, 2), nullable=True)
+    total_balance = db.Column(db.Numeric(15, 2), nullable=True)
     interest_rate = db.Column(db.Numeric(5, 2), nullable=True)
     repayment_plan = db.Column(db.String(20), nullable=True)
+
+    # ─── NEW: Director's per-client remark ───
+    director_remark    = db.Column(db.Text, nullable=True)
+    director_remark_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    director_remark_at = db.Column(db.DateTime, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # ─── Relationships ───
+    # NOTE: two FKs to users.id now exist (officer_id, director_remark_by),
+    # so we MUST specify foreign_keys explicitly on both relationships.
     loan = db.relationship('Loan', backref='report_comments')
-    officer = db.relationship('User', backref='report_comments')
+    officer = db.relationship(
+        'User',
+        foreign_keys=[officer_id],
+        backref='report_comments',
+    )
+    director_remarker = db.relationship(
+        'User',
+        foreign_keys=[director_remark_by],
+    )
+
+class ReportApproval(db.Model):
+    """
+    One row per (officer_id, report_date).
+    Tracks the director's approval status of the day's report for that
+    officer, plus the report-level general remarks.
+
+    status: 'pending' | 'approved'
+    """
+    __tablename__ = 'report_approvals'
+
+    id = db.Column(db.Integer, primary_key=True)
+    officer_id  = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    report_date = db.Column(db.Date, nullable=False, index=True)
+
+    general_remarks = db.Column(db.Text, nullable=True)
+
+    status      = db.Column(db.String(20), nullable=False, default='pending')
+    approved_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('officer_id', 'report_date', name='uq_report_approval'),
+    )
+
+    # ─── Relationships ───
+    # Again, two FKs to users.id → explicit foreign_keys required.
+    officer  = db.relationship('User', foreign_keys=[officer_id])
+    approver = db.relationship('User', foreign_keys=[approved_by])
 
 class FlaggedLoan(db.Model):
     __tablename__ = 'flagged_loans'
@@ -920,7 +968,7 @@ class StaffSalarySetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     month = db.Column(db.String(7), nullable=False)          # 'YYYY-MM'
-    salary_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    salary_amount = db.Column(db.Numeric(15, 2), nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -941,7 +989,7 @@ class SalaryAdvanceRequest(db.Model):
     __tablename__ = 'salary_advance_requests'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
     note = db.Column(db.Text, nullable=False)
     status = db.Column(db.String(20), default='pending')     # pending, approved, rejected, paid
     requested_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -973,7 +1021,7 @@ class SalaryTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     month = db.Column(db.String(7), nullable=False)
-    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
     transaction_type = db.Column(db.String(20), nullable=False)  # 'advance', 'salary_payment'
     reference = db.Column(db.String(50), nullable=True)
     payment_method = db.Column(db.String(20), nullable=True)
@@ -1042,7 +1090,7 @@ class CallLog(db.Model):
 class PettyCashFunding(db.Model):
     __tablename__ = 'petty_cash_fundings'
     id = db.Column(db.Integer, primary_key=True)
-    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
     funded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     funded_at = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)
@@ -1065,7 +1113,7 @@ class PettyCashExpense(db.Model):
     __tablename__ = 'petty_cash_expenses'
     id = db.Column(db.Integer, primary_key=True)
     description = db.Column(db.String(255), nullable=False)
-    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
     date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
     recorded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     notes = db.Column(db.Text)
@@ -1153,7 +1201,6 @@ class Group(db.Model):
             data['members'] = [m.to_dict() for m in self.members]
         return data
 
-
 class GroupMember(db.Model):
     __tablename__ = 'group_members'
 
@@ -1179,7 +1226,6 @@ class GroupMember(db.Model):
             'is_active': self.is_active
         }
     
-
 class GroupReadStatus(db.Model):
     __tablename__ = 'group_read_status'
     id = db.Column(db.Integer, primary_key=True)
@@ -1223,7 +1269,6 @@ class FlaggedLoanNote(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
     
-# app/models.py
 class PromissoryNote(db.Model):
     __tablename__ = 'promissory_notes'
 
@@ -1257,4 +1302,3 @@ class PromissoryNote(db.Model):
             'due_date': self.due_date.isoformat() if self.due_date else None,
             'notes': self.notes or '',
         }
-    

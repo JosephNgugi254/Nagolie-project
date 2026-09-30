@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from app import db
-from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, ReportComment, FlaggedLoan, Role, MenuItem, RoleMenuItem, PettyCashExpense, PettyCashFunding , MessageAttachment
+from app.models import Client, Loan, Livestock, Transaction, User, Investor, InvestorReturn, DayAssignment, ClientAssignment, ReportComment, ReportApproval, FlaggedLoan, Role, MenuItem, RoleMenuItem, PettyCashExpense, PettyCashFunding , MessageAttachment
 from app.utils.security import admin_required, log_audit
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy import func
@@ -82,59 +82,77 @@ def _days_left_label(loan, today):
 
 def create_daily_snapshots(as_of_date=None):
     """
-    Create a ReportComment snapshot for every active loan for the given date.
-    If as_of_date is None, use yesterday.
+    Persist per-officer daily closing snapshots for the given date.
+
+    Values are reconstructed with loan_state_as_of() — never from the live
+    loan row — so the snapshot represents the true close-of-business state.
+
+    If a snapshot already exists, it is left untouched (immutability).
+    Legacy rows with NULL financials are backfilled only once.
     """
+    from app.routes.payments import loan_state_as_of
+
     if as_of_date is None:
         as_of_date = datetime.utcnow().date() - timedelta(days=1)
     else:
         as_of_date = as_of_date.date() if hasattr(as_of_date, 'date') else as_of_date
 
-    loans = Loan.query.filter_by(status='active').all()
+    # Any loan that already existed on as_of_date (regardless of today's status)
+    loans = Loan.query.filter(
+        Loan.disbursement_date.isnot(None),
+        db.func.date(Loan.disbursement_date) <= as_of_date,
+    ).all()
 
+    # Reconstruct once per loan
+    loan_values = {}
     for loan in loans:
-        loan = recalculate_loan(loan, save=False)
+        principal_dec, interest_dec = loan_state_as_of(loan, as_of_date)
+        loan_values[loan.id] = (
+            float(principal_dec),
+            float(interest_dec),
+            float(loan.interest_rate or 0),
+            loan.repayment_plan,
+        )
 
-        # Compute unpaid interest using the correct logic
-        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            period_key = _get_current_period_key(loan, as_of_date)
-            raw_interest = (loan.current_principal * Decimal('0.30')).quantize(
-                Decimal('0.01'), rounding=ROUND_HALF_UP
-            )
-            prepaid = Decimal('0')
-            if loan.interest_prepaid_period == period_key:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-            unpaid_interest = float(max(Decimal('0'), raw_interest - prepaid))
-        else:
-            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+    # Persist per active assignment
+    assignments = ClientAssignment.query.filter_by(is_active=True).all()
+    for ass in assignments:
+        values = loan_values.get(ass.loan_id)
+        if values is None:
+            continue
+        principal, interest, rate, plan = values
 
-        current_principal = float(loan.current_principal)
-        total_balance = current_principal + unpaid_interest
-
-        # Check if snapshot already exists for this loan/date
         existing = ReportComment.query.filter_by(
-            loan_id=loan.id,
-            report_date=as_of_date
+            loan_id=ass.loan_id,
+            officer_id=ass.officer_id,
+            report_date=as_of_date,
         ).first()
+
         if existing:
+            # Backfill only if a legacy row has NULL financials
+            if existing.current_principal is None:
+                existing.current_principal = principal
+                existing.unpaid_interest = interest
+                existing.total_balance = principal + interest
+                existing.interest_rate = rate
+                existing.repayment_plan = plan
             continue
 
-        snapshot = ReportComment(
-            loan_id=loan.id,
-            officer_id=None,
+        db.session.add(ReportComment(
+            loan_id=ass.loan_id,
+            officer_id=ass.officer_id,
             report_date=as_of_date,
             comment='',
-            current_principal=current_principal,
-            unpaid_interest=unpaid_interest,
-            total_balance=total_balance,
-            interest_rate=float(loan.interest_rate),
-            repayment_plan=loan.repayment_plan,
-            created_at=datetime.utcnow()
-        )
-        db.session.add(snapshot)
+            current_principal=principal,
+            unpaid_interest=interest,
+            total_balance=principal + interest,
+            interest_rate=rate,
+            repayment_plan=plan,
+            created_at=datetime.utcnow(),
+        ))
 
     db.session.commit()
-    
+
 # ---------- assignment sync engine ----------
 def _get_assignable_loans():
     """Active loans that should appear in officer reports.
@@ -144,7 +162,6 @@ def _get_assignable_loans():
     if flagged_ids:
         q = q.filter(~Loan.id.in_(flagged_ids))
     return q.all()
-
 
 @admin_bp.route('/balance-suggest', methods=['POST'])
 @jwt_required()
@@ -313,42 +330,112 @@ def suggest_balanced_distribution():
 def refresh_day_assignments():
     sync_client_assignments()
 
-def get_assigned_clients_for_user(user_id):
-    from app.utils.interest_helpers import _get_current_period_key, _get_current_period_interest
+def get_assigned_clients_for_user(user_id, report_date=None):
+    """
+    Return assigned clients for one officer.
 
-    assignments = ClientAssignment.query.filter_by(
-        officer_id=user_id,
-        is_active=True
-    ).options(joinedload(ClientAssignment.loan).joinedload(Loan.client)).all()
+    report_date controls the values:
+      • None or today  → live state (recalculate_loan)
+      • Past date       → reconstructed via loan_state_as_of() (or a stored
+                          ReportComment snapshot if present)
+
+    A loan is included in a historical report whenever it existed on
+    report_date — even if it has since been renewed / waived / claimed —
+    so historical reports never silently lose rows.
+    """
+    from app.utils.interest_helpers import _get_current_period_interest
+    from app.routes.payments import loan_state_as_of
+    from datetime import date as date_cls
+
+    today = datetime.utcnow().date()
+    if report_date is None:
+        report_date = today
+    elif hasattr(report_date, 'date') and not isinstance(report_date, date_cls):
+        report_date = report_date.date()
+
+    is_historical = report_date < today
+
+    assignments = (
+        ClientAssignment.query
+        .filter_by(officer_id=user_id, is_active=True)
+        .options(joinedload(ClientAssignment.loan).joinedload(Loan.client))
+        .all()
+    )
+
     result = []
     for ass in assignments:
         loan = ass.loan
+        if loan is None:
+            continue
+
         flagged = FlaggedLoan.query.filter_by(loan_id=loan.id, resolved=False).first()
         if flagged:
             continue
-        client = loan.client
-        if not client or loan.status != 'active':
-            continue
-        loan = recalculate_loan(loan, save=False)
 
-        # --- Correct unpaid interest ---
-        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            # _get_current_period_interest already subtracts prepaid, so use it directly
-            unpaid_interest = float(_get_current_period_interest(loan))
+        client = loan.client
+        if not client:
+            continue
+
+        # Loans that were not yet disbursed on report_date didn't exist
+        disb = loan.disbursement_date.date() if loan.disbursement_date else None
+        if not disb or disb > report_date:
+            continue
+
+        # Skip loans that were never active
+        if loan.status in ('pending', 'rejected'):
+            continue
+
+        if is_historical:
+            snapshot = ReportComment.query.filter_by(
+                loan_id=loan.id,
+                report_date=report_date,
+            ).first()
+
+            if snapshot and snapshot.current_principal is not None:
+                current_principal = float(snapshot.current_principal)
+                unpaid_interest   = float(snapshot.unpaid_interest or 0)
+                comment_text      = snapshot.comment or ''
+            else:
+                principal_dec, interest_dec = loan_state_as_of(loan, report_date)
+                current_principal = float(principal_dec)
+                unpaid_interest   = float(interest_dec)
+                comment_text      = ''
         else:
-            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+            # LIVE — today's report
+            live = recalculate_loan(loan, save=False)
+            if live.repayment_plan == 'weekly' and live.interest_rate > 0:
+                unpaid_interest = float(_get_current_period_interest(live))
+            else:
+                unpaid_interest = float(max(
+                    Decimal('0'),
+                    live.accrued_interest - live.interest_paid,
+                ))
+            current_principal = float(live.current_principal)
+
+            snap = ReportComment.query.filter_by(
+                loan_id=loan.id,
+                officer_id=user_id,
+                report_date=report_date,
+            ).first()
+            comment_text = snap.comment if snap else ''
+
+        total_balance = current_principal + unpaid_interest
+        rate          = float(loan.interest_rate or 0)
 
         result.append({
-            'loan_id': loan.id,
-            'client_name': client.full_name,
-            'phone': client.phone_number,
-            'current_principal': float(loan.current_principal),
-            'unpaid_interest': unpaid_interest,
-            'total_balance': float(loan.current_principal + Decimal(str(unpaid_interest))),
-            'interest_rate': float(loan.interest_rate),
-            'repayment_plan': loan.repayment_plan,
-            'comment': ''
+            'loan_id':           loan.id,
+            'client_name':       client.full_name,
+            'phone':             client.phone_number,
+            'current_principal': current_principal,
+            'unpaid_interest':   unpaid_interest,
+            'total_balance':     total_balance,
+            'interest_rate':     rate,
+            'repayment_plan':    loan.repayment_plan,
+            'is_waiver':         rate == 0,
+            'comment':           comment_text,
+            'report_date':       report_date.isoformat(), 
         })
+
     return result
 
 # ---------------------------------------------------------------------------
@@ -2651,85 +2738,21 @@ def client_assignment_search():
 @jwt_required()
 @role_required(['admin', 'director', 'head_of_it', 'hr_manager'])
 def get_officer_report():
-    officer_id = request.args.get('officer_id')
+    officer_id      = request.args.get('officer_id')
     report_date_str = request.args.get('date')
     if not officer_id or not report_date_str:
         return jsonify({'error': 'officer_id and date required'}), 400
     try:
         report_date = datetime.strptime(report_date_str, '%Y-%m-%d').date()
-    except:
+    except Exception:
         return jsonify({'error': 'Invalid date format'}), 400
 
     officer = db.session.get(User, officer_id)
     if not officer or officer.role not in ['secretary', 'client_relations_officer']:
         return jsonify({'error': 'Invalid officer'}), 400
 
-    assignments = ClientAssignment.query.filter_by(
-        officer_id=officer_id,
-        is_active=True
-    ).options(joinedload(ClientAssignment.loan).joinedload(Loan.client)).all()
-
-    result = []
-    today = datetime.utcnow().date()
-    for ass in assignments:
-        loan = ass.loan
-        if not loan or loan.status != 'active':
-            continue
-        client = loan.client
-        if not client:
-            continue
-
-        # For past dates, we only need the snapshot – no recalculation needed
-        if report_date < today:
-            snapshot = ReportComment.query.filter_by(
-                loan_id=loan.id,
-                officer_id=officer_id,
-                report_date=report_date
-            ).first()
-            if snapshot:
-                current_principal = float(snapshot.current_principal) if snapshot.current_principal is not None else 0
-                unpaid_interest = float(snapshot.unpaid_interest) if snapshot.unpaid_interest is not None else 0
-                total_balance = float(snapshot.total_balance) if snapshot.total_balance is not None else 0
-                comment_text = snapshot.comment
-            else:
-                # No snapshot – fallback to live (should not happen if cron runs)
-                loan = recalculate_loan(loan, save=False)
-                if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-                    unpaid_interest = float(_get_current_period_interest(loan))
-                else:
-                    unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
-                current_principal = float(loan.current_principal)
-                total_balance = current_principal + unpaid_interest
-                comment_text = ''
-        else:
-            # Today: use live data, but include comment if any
-            loan = recalculate_loan(loan, save=False)
-            if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-                unpaid_interest = float(_get_current_period_interest(loan))
-            else:
-                unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
-            current_principal = float(loan.current_principal)
-            total_balance = current_principal + unpaid_interest
-            comment = ReportComment.query.filter_by(
-                loan_id=loan.id,
-                officer_id=officer_id,
-                report_date=report_date
-            ).first()
-            comment_text = comment.comment if comment else ''
-
-        result.append({
-            'loan_id': loan.id,
-            'client_name': client.full_name,
-            'phone': client.phone_number,
-            'current_principal': current_principal,
-            'unpaid_interest': unpaid_interest,
-            'total_balance': total_balance,
-            'interest_rate': float(loan.interest_rate),
-            'repayment_plan': loan.repayment_plan,
-            'comment': comment_text,
-        })
-
-    return jsonify(result), 200
+    # Shared helper now handles live vs. historical correctly
+    return jsonify(get_assigned_clients_for_user(int(officer_id), report_date=report_date)), 200
 
 @admin_bp.route('/loans/<int:loan_id>', methods=['GET'])
 @jwt_required()
@@ -2985,3 +3008,359 @@ def backfill_approvers():
         'updated':              len(legacy_loans),
         'fallback_username':    director.username,   # will print "Director"
     }), 200
+
+@admin_bp.route('/reports/backfill-snapshots', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def backfill_snapshots():
+    """
+    Backfill ReportComment snapshots from immutable Transaction history.
+    Body: { "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }
+
+    Safe to run repeatedly — never overwrites an existing non-NULL snapshot.
+    Use for the transition period only; going forward, /close-day does this
+    automatically.
+    """
+    data         = request.get_json() or {}
+    start_str    = data.get('start_date')
+    end_str      = data.get('end_date')
+
+    if not start_str or not end_str:
+        return jsonify({'error': 'start_date and end_date required'}), 400
+
+    try:
+        start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
+        end_date   = datetime.strptime(end_str,   '%Y-%m-%d').date()
+    except Exception:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    if end_date < start_date:
+        return jsonify({'error': 'end_date before start_date'}), 400
+
+    created = 0
+    skipped = 0
+
+    current = start_date
+    while current <= end_date:
+        # Skip today (still live)
+        if current >= datetime.utcnow().date():
+            break
+
+        from app.routes.payments import loan_state_as_of
+
+        loans = Loan.query.filter(
+            Loan.disbursement_date.isnot(None),
+            db.func.date(Loan.disbursement_date) <= current,
+        ).all()
+
+        for loan in loans:
+            principal_dec, interest_dec = loan_state_as_of(loan, current)
+            principal = float(principal_dec)
+            interest  = float(interest_dec)
+
+            # Only snapshot against the currently active officer
+            ass = ClientAssignment.query.filter_by(
+                loan_id=loan.id, is_active=True
+            ).first()
+            if not ass:
+                continue
+
+            exists = ReportComment.query.filter_by(
+                loan_id=loan.id,
+                officer_id=ass.officer_id,
+                report_date=current,
+            ).first()
+
+            if exists:
+                if exists.current_principal is None:
+                    exists.current_principal = principal
+                    exists.unpaid_interest   = interest
+                    exists.total_balance     = principal + interest
+                    exists.interest_rate     = float(loan.interest_rate or 0)
+                    exists.repayment_plan    = loan.repayment_plan
+                    created += 1
+                else:
+                    skipped += 1
+                continue
+
+            db.session.add(ReportComment(
+                loan_id=loan.id,
+                officer_id=ass.officer_id,
+                report_date=current,
+                comment='',
+                current_principal=principal,
+                unpaid_interest=interest,
+                total_balance=principal + interest,
+                interest_rate=float(loan.interest_rate or 0),
+                repayment_plan=loan.repayment_plan,
+                created_at=datetime.utcnow(),
+            ))
+            created += 1
+
+        current += timedelta(days=1)
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'created_or_backfilled': created,
+        'skipped_existing':      skipped,
+        'range': f'{start_str} → {end_str}',
+    }), 200
+
+@admin_bp.route('/reports/close-day', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def close_day_report():
+    """
+    Materialise yesterday's closing snapshots.
+    Idempotent — safe to call multiple times.
+    """
+    yesterday = datetime.utcnow().date() - timedelta(days=1)
+    create_daily_snapshots(yesterday)
+    return jsonify({'success': True, 'closed': yesterday.isoformat()}), 200
+
+
+# ===========================================================================
+# Director approval + remarks on daily loan reports
+# ===========================================================================
+
+@admin_bp.route('/reports/director-view', methods=['GET'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def director_report_view():
+    """
+    Return the full report for (officer_id, report_date) PLUS:
+      • each client's `director_remark`
+      • the report-level general remarks and status
+    Uses `get_assigned_clients_for_user()` so live/historical replay
+    rules match the officer-facing endpoint exactly.
+    """
+    officer_id = request.args.get('officer_id')
+    date_str   = request.args.get('date')
+    if not officer_id or not date_str:
+        return jsonify({'error': 'officer_id and date required'}), 400
+    try:
+        report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except Exception:
+        return jsonify({'error': 'Invalid date format'}), 400
+
+    officer = db.session.get(User, int(officer_id))
+    if not officer or officer.role not in ['secretary', 'client_relations_officer']:
+        return jsonify({'error': 'Invalid officer'}), 400
+
+    # Base rows (same helper used by the officer view)
+    rows = get_assigned_clients_for_user(int(officer_id), report_date=report_date)
+
+    # Merge in any per-client director remark stored on ReportComment
+    for r in rows:
+        snap = ReportComment.query.filter_by(
+            loan_id=r['loan_id'],
+            officer_id=int(officer_id),
+            report_date=report_date,
+        ).first()
+        r['director_remark']    = (snap.director_remark   if snap and snap.director_remark   else '')
+        r['director_remark_at'] = (snap.director_remark_at.isoformat()
+                                   if snap and snap.director_remark_at else None)
+        r['director_remark_by'] = (snap.director_remarker.username
+                                   if snap and snap.director_remarker else None)
+
+    # Report-level approval row
+    approval = ReportApproval.query.filter_by(
+        officer_id=int(officer_id), report_date=report_date
+    ).first()
+
+    return jsonify({
+        'clients': rows,
+        'approval': {
+            'status':           approval.status if approval else 'pending',
+            'general_remarks':  approval.general_remarks if approval else '',
+            'approved_by':      approval.approver.username if approval and approval.approver else None,
+            'approved_at':      approval.approved_at.isoformat() if approval and approval.approved_at else None,
+            'updated_at':       approval.updated_at.isoformat() if approval else None,
+        },
+    }), 200
+
+
+@admin_bp.route('/reports/director-remark', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def set_director_client_remark():
+    """
+    Upsert the director's remark for one client on one officer's report.
+    Body: { officer_id, report_date, loan_id, remark }
+    """
+    data = request.get_json() or {}
+    officer_id  = data.get('officer_id')
+    date_str    = data.get('report_date')
+    loan_id     = data.get('loan_id')
+    remark      = (data.get('remark') or '').strip()
+
+    if not all([officer_id, date_str, loan_id]):
+        return jsonify({'error': 'officer_id, report_date, loan_id required'}), 400
+    try:
+        report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except Exception:
+        return jsonify({'error': 'Invalid date'}), 400
+
+    # ---- HARD GUARD: officer must be a real secretary / CRO ----
+    officer = db.session.get(User, int(officer_id))
+    if not officer or officer.role not in ['secretary', 'client_relations_officer']:
+        current_app.logger.warning(
+            f"[director-remark] refused: officer_id={officer_id} "
+            f"is not a valid officer (role={getattr(officer,'role',None)})"
+        )
+        return jsonify({'error': 'Invalid officer_id'}), 400
+
+    loan = db.session.get(Loan, int(loan_id))
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
+
+    snap = ReportComment.query.filter_by(
+        loan_id=int(loan_id),
+        officer_id=int(officer_id),
+        report_date=report_date,
+    ).first()
+
+    if not snap:
+        from app.routes.payments import loan_state_as_of
+        principal_dec, interest_dec = loan_state_as_of(loan, report_date)
+        snap = ReportComment(
+            loan_id=int(loan_id),
+            officer_id=int(officer_id),
+            report_date=report_date,
+            comment='',
+            current_principal=float(principal_dec),
+            unpaid_interest=float(interest_dec),
+            total_balance=float(principal_dec) + float(interest_dec),
+            interest_rate=float(loan.interest_rate or 0),
+            repayment_plan=loan.repayment_plan,
+        )
+        db.session.add(snap)
+        db.session.flush()
+
+    snap.director_remark    = remark if remark else None
+    snap.director_remark_by = int(get_jwt_identity()) if remark else None
+    snap.director_remark_at = datetime.utcnow() if remark else None
+
+    db.session.commit()
+
+    # ---- Diagnostic log — verify this in your server console ----
+    current_app.logger.info(
+        f"[director-remark] saved: officer_id={officer_id} ({officer.username}), "
+        f"loan_id={loan_id}, report_date={report_date}, remark_len={len(remark)}"
+    )
+
+    return jsonify({
+        'success': True,
+        'director_remark': snap.director_remark or '',
+        'director_remark_at': snap.director_remark_at.isoformat() if snap.director_remark_at else None,
+    }), 200
+
+@admin_bp.route('/reports/director-general-remark', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def set_director_general_remark():
+    """
+    Upsert the general remarks for one officer's report.
+    Body: { officer_id, report_date, general_remarks }
+    """
+    data = request.get_json() or {}
+    officer_id  = data.get('officer_id')
+    date_str    = data.get('report_date')
+    general     = (data.get('general_remarks') or '').strip()
+
+    if not all([officer_id, date_str]):
+        return jsonify({'error': 'officer_id and report_date required'}), 400
+    try:
+        report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except Exception:
+        return jsonify({'error': 'Invalid date'}), 400
+
+    approval = ReportApproval.query.filter_by(
+        officer_id=int(officer_id), report_date=report_date
+    ).first()
+    if not approval:
+        approval = ReportApproval(
+            officer_id=int(officer_id),
+            report_date=report_date,
+            status='pending',
+        )
+        db.session.add(approval)
+
+    approval.general_remarks = general if general else None
+    db.session.commit()
+    return jsonify({'success': True, 'general_remarks': approval.general_remarks or ''}), 200
+
+
+@admin_bp.route('/reports/approve', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def approve_report():
+    """
+    Mark the (officer, report_date) report as APPROVED.
+    Body: { officer_id, report_date }
+    Idempotent.
+    """
+    data = request.get_json() or {}
+    officer_id  = data.get('officer_id')
+    date_str    = data.get('report_date')
+
+    if not all([officer_id, date_str]):
+        return jsonify({'error': 'officer_id and report_date required'}), 400
+    try:
+        report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except Exception:
+        return jsonify({'error': 'Invalid date'}), 400
+
+    approval = ReportApproval.query.filter_by(
+        officer_id=int(officer_id), report_date=report_date
+    ).first()
+    if not approval:
+        approval = ReportApproval(
+            officer_id=int(officer_id),
+            report_date=report_date,
+            status='pending',
+        )
+        db.session.add(approval)
+
+    approval.status      = 'approved'
+    approval.approved_by = int(get_jwt_identity())
+    approval.approved_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'status': 'approved',
+        'approved_by': approval.approver.username if approval.approver else None,
+        'approved_at': approval.approved_at.isoformat(),
+    }), 200
+
+
+@admin_bp.route('/reports/unapprove', methods=['POST'])
+@jwt_required()
+@role_required(['admin', 'director'])
+def unapprove_report():
+    """
+    Revert an approved report back to pending. Body: { officer_id, report_date }
+    """
+    data = request.get_json() or {}
+    officer_id  = data.get('officer_id')
+    date_str    = data.get('report_date')
+    if not all([officer_id, date_str]):
+        return jsonify({'error': 'officer_id and report_date required'}), 400
+    try:
+        report_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except Exception:
+        return jsonify({'error': 'Invalid date'}), 400
+
+    approval = ReportApproval.query.filter_by(
+        officer_id=int(officer_id), report_date=report_date
+    ).first()
+    if not approval:
+        return jsonify({'success': True, 'status': 'pending'}), 200
+
+    approval.status      = 'pending'
+    approval.approved_by = None
+    approval.approved_at = None
+    db.session.commit()
+    return jsonify({'success': True, 'status': 'pending'}), 200

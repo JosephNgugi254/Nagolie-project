@@ -357,7 +357,8 @@ function RecoveryModule() {
   const lastAlertedCommentCountsRef = useRef({});   // { loanId: lastCount }
   const lastAlertedMessagesCountRef  = useRef(0);
   const lastAlertedAppsCountRef      = useRef(0);
-
+  const lastAlertedRemarksCountRef = useRef(0);
+  const remarksInitializedRef     = useRef(false);
   const commentUnreadsInitializedRef = useRef(false);
   const messagesUnreadInitializedRef = useRef(false);
   const applicationsInitializedRef   = useRef(false);
@@ -462,10 +463,10 @@ function RecoveryModule() {
       if (!applicationsInitializedRef.current) {
         // 🔔 First fetch after login — sound once if there are pending apps.
         applicationsInitializedRef.current = true;
-        if (newPendingCount > 0) playSound();
+        if (newPendingCount > 0) playSound(false, 'applications');
       } else if (newPendingCount > lastAlertedAppsCountRef.current) {
         // Subsequent polls — only when a new application arrived.
-        playSound();
+        playSound(false, 'applications');
       }
 
       lastAlertedAppsCountRef.current = newPendingCount;
@@ -1477,21 +1478,30 @@ function RecoveryModule() {
   const formatClockTime = (date) => date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   const formatClockDate = (date) => date.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   
-  const audioRef = useRef(null);
   const lastSoundPlayedRef = useRef(0);
 
-  const playSound = () => {
+  const playSound = (force = false, source = 'unknown') => {
     const now = Date.now();
-    //Swallow any sound within 2s of the last one — makes 3 channels(messages / comments / applications) → 1 ding.
-    if (now - lastSoundPlayedRef.current < 2000) return;
+    if (!force && now - lastSoundPlayedRef.current < 2000) {
+      console.log(`[sound] throttled (source=${source})`);
+      return;
+    }
     lastSoundPlayedRef.current = now;
 
-    if (!audioRef.current) {
-      audioRef.current = new Audio('/notification-sound.mp3');
+    try {
+      // Fresh element every call — avoids any "already playing" stale state
+      // on the shared audioRef that was swallowing the remark ding.
+      const audio = new Audio('/notification-sound.mp3');
+      audio.volume = 1.0;
+      const p = audio.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => console.log(`[sound] played (source=${source}, force=${force})`))
+         .catch(err => console.warn(`[sound] play failed (source=${source}):`, err));
+      }
+    } catch (err) {
+      console.warn(`[sound] exception (source=${source}):`, err);
     }
-    audioRef.current.currentTime = 0;      // rewind so re-triggers play from start
-    audioRef.current.play().catch(() => {});
-  };
+  };  
 
   // ---------- Notification helpers ----------
 const persistDismissedNotifs = () => {
@@ -1557,7 +1567,17 @@ const handleNotificationClick = (n) => {
   } else if (n.type === 'application') {
     setDirectorSection('applications');
     setApplicationsTab('pending');
+  } else if (n.type === 'director_remark') {
+    // Navigate to the reports panel — the officer's own report
+    setDirectorSection('reports');
+    // Pass the report date so the ReportsPanel can auto-jump to it
+    sessionStorage.setItem('reportJumpToDate', n.actionData.report_date);
+    // If the officer needs to open a specific client, store that too
+    if (n.actionData.loan_id) {
+      sessionStorage.setItem('reportJumpToLoanId', String(n.actionData.loan_id));
+    }
   }
+
 };
 
 const clearAllNotifications = () => {
@@ -1579,7 +1599,7 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
         //First fetch after login — sound once if ANY unread comments exist.
         commentUnreadsInitializedRef.current = true;
         const hasAnyUnread = Object.values(nc).some(count => (count || 0) > 0);
-        if (hasAnyUnread) playSound();
+        if (hasAnyUnread) playSound(false, 'comments');
       } else {
         // Subsequent polls — sound only if the count went UP on any loan.
         let hasNew = false;
@@ -1588,7 +1608,7 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
           const prev = lastAlertedCommentCountsRef.current[id] || 0;
           if (curr > prev) hasNew = true;
         });
-        if (hasNew) playSound();
+        if (hasNew) playSound(false, 'comments');
       }
 
       // Always update the baseline so the next comparison is meaningful.
@@ -1620,10 +1640,10 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
       if (!messagesUnreadInitializedRef.current) {
         //First fetch after login — sound once if there is any unread.
         messagesUnreadInitializedRef.current = true;
-        if (current > 0) playSound();
+        if (current > 0) playSound(false, 'messages');
       } else if (current > lastAlertedMessagesCountRef.current) {
         // Subsequent polls — only when new messages arrived.
-        playSound();
+        playSound(false, 'messages');
       }
       lastAlertedMessagesCountRef.current = current;
 
@@ -1825,8 +1845,10 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
   }, []);
 
   useEffect(() => {
-    initialNotifLoadRef.current = true;
-    seenNotifsRef.current = {};
+    initialNotifLoadRef.current  = true;
+    seenNotifsRef.current        = {};
+    remarksInitializedRef.current = false;
+    lastAlertedRemarksCountRef.current = 0;
   }, [user?.id]);
 
   useEffect(() => {
@@ -1953,6 +1975,21 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
         });
       }
 
+            // NEW: Director remarks notifications (officer-side)
+      (payload.director_remarks || []).forEach(dr => {
+        list.push({
+          id: `drm-${dr.report_date}-${dr.loan_id ?? 'g'}`,
+          signature: `drm:${dr.report_date}:${dr.loan_id ?? 'g'}`,
+          type: 'director_remark',
+          title: dr.loan_id
+            ? `New director remark on ${dr.client_name}'s report`
+            : `New general remark on your report (${dr.report_date})`,
+          count: 1,
+          latest_at: dr.latest_at,
+          actionData: { report_date: dr.report_date, loan_id: dr.loan_id },
+        });
+      });
+
       // Most recent first
       list.sort((a, b) => new Date(b.latest_at) - new Date(a.latest_at));
 
@@ -1970,13 +2007,33 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
       initialNotifLoadRef.current = false;
 
       if (!isInitialLoad) {
+        // ---- Floating cards (unchanged behaviour) ----
+        let hasNew = false;
         visible.forEach(n => {
           const seenAt = seenNotifsRef.current[n.signature];
           if (!seenAt || new Date(n.latest_at) > new Date(seenAt)) {
             addFloatingNotif(n);
+            hasNew = true;
           }
         });
+        if (hasNew) playSound(false, 'notif-poll');   // throttle is fine for non-remark types
       }
+
+      // ---- Dedicated remark sound (parallel to fetchUnreadCount) ----
+      const remarkCount = visible.filter(n => n.type === 'director_remark').length;
+      if (!remarksInitializedRef.current) {
+        remarksInitializedRef.current = true;
+        if (remarkCount > 0) {
+          console.log(`[remark-sound] initial load, count=${remarkCount} → forced`);
+          playSound(true, 'remark-initial');
+        }
+      } else if (remarkCount > lastAlertedRemarksCountRef.current) {
+        console.log(`[remark-sound] count ${lastAlertedRemarksCountRef.current} → ${remarkCount} → forced`);
+        playSound(true, 'remark');
+      } else {
+        console.log(`[remark-sound] no change (count=${remarkCount})`);
+      }
+      lastAlertedRemarksCountRef.current = remarkCount;
 
       // Record what we've seen so we don't re-float the same activity
       visible.forEach(n => {
@@ -2112,13 +2169,17 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                       ? 'message'
                       : n.type === 'comment'
                         ? 'comment'
-                        : 'application';
+                        : n.type === 'director_remark'
+                          ? 'comment'
+                          : 'application';
                   const iconName =
                     n.type === 'message' || n.type === 'group_message'
                       ? 'fa-envelope'
                       : n.type === 'comment'
                         ? 'fa-comment'
-                        : 'fa-file-alt';
+                        : n.type === 'director_remark'
+                          ? 'fa-user-tie'
+                          : 'fa-file-alt';
                   return (
                     <div
                       key={n.id}
@@ -2248,6 +2309,7 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                 onOpenUtilities={handleOpenUtilities}
                 userRole={userRole}
                 pendingApplications={pendingApplicationsCount}
+                reportsNotifications={notifications.filter(n => n.type === 'director_remark').length}
                 user={user} 
               />
             </div>
@@ -5670,13 +5732,17 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                 ? 'message'
                 : f.type === 'comment'
                   ? 'comment'
-                  : 'application';
+                  : f.type === 'director_remark'
+                    ? 'comment'
+                    : 'application';
             const iconName =
               f.type === 'message' || f.type === 'group_message'
                 ? 'fa-envelope'
                 : f.type === 'comment'
                   ? 'fa-comment'
-                  : 'fa-file-alt';
+                  : f.type === 'director_remark'
+                    ? 'fa-user-tie'
+                    : 'fa-file-alt';
             return (
               <div
                 key={f.floatId}

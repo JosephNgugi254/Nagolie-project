@@ -13,6 +13,7 @@ function RecoverySidebar({
   onOpenUtilities,
   userRole,
   pendingApplications = 0,
+  reportsNotifications = 0,
   user,
 }) {
   const { menuItems, loading } = useUserMenu();
@@ -59,6 +60,9 @@ function RecoverySidebar({
               )}
               {item.key === "applications" && pendingApplications > 0 && (
                 <span className="badge bg-danger ms-2">{pendingApplications}</span>
+              )}
+              {item.key === "reports" && reportsNotifications > 0 && (
+                <span className="badge bg-danger ms-2">{reportsNotifications}</span>
               )}
             </a>
           </li>

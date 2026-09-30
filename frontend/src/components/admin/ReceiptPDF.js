@@ -7804,13 +7804,20 @@ export const generateClientRelationsOfficerContractPDF = async () => {
   }
 };
 
-// ========== OFFICER REPORT PDF (fixed layout, correct figures, proper pagination) ==========
-export const generateOfficerReportPDF = async (clients, officer, reportDate, assignedDaysString, download = false) => {
+// ========== OFFICER REPORT PDF (with Director's remarks column + general remarks) ==========
+export const generateOfficerReportPDF = async (
+  clients,
+  officer,
+  reportDate,
+  assignedDaysString,
+  download = false,
+  approval = null,           // { generalRemarks } only — nothing else is read
+) => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   addOptimizedWatermark(doc, 'report');
   let yPos = await addHeader(doc, 10);
 
-  // Title
+  // ---- Title ----
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
@@ -7819,30 +7826,35 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
   yPos = addDivider(doc, yPos);
   yPos += 5;
 
-  // Officer, Assigned Days, Report Date
+  // ---- Officer / Days / Date ----
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.textDark);
+  doc.setFont('helvetica', 'bold');
   doc.text(`Officer: ${officer.username} (${officer.role})`, 20, yPos);
   doc.text(`Assigned Days: ${assignedDaysString || 'None'}`, 20, yPos + 5);
   doc.text(`Report Date: ${new Date(reportDate).toLocaleDateString('en-GB')}`, 150, yPos);
+
   yPos += 12;
 
-  // Table configuration
+  // ============ TABLE CONFIG (6 cols) ============
+  // Column widths = [#, Name, Principal, Interest, Officer Comment, Director Remark]
+  // Interest column widened (17 → 18%) so "Total: KES 100,000.00" fits on one line.
+  // Officer Comment column narrowed (39 → 22%) to make the room.
   const margin = { left: 8, right: 8 };
   const pageWidth = doc.internal.pageSize.width;
   const tableWidth = pageWidth - margin.left - margin.right;
-  const colPercents = [5, 21, 18, 17, 39];
-  let colWidths = colPercents.map(p => tableWidth * p / 100);
-  if (colWidths[0] < 8) colWidths[0] = 8;
-  if (colWidths[1] < 38) colWidths[1] = 38;
-  colWidths[4] = tableWidth - colWidths.slice(0,4).reduce((a,b)=>a+b,0);
 
-  const headers = ['#', 'Client Name', 'Principal (KES)', 'Interest (KES)', 'Comments'];
+  const colPercents = [5, 19, 16, 17, 22, 21];    // sums to 100
+  let colWidths = colPercents.map(p => (tableWidth * p) / 100);
+  if (colWidths[0] < 8) colWidths[0] = 8;
+  if (colWidths[1] < 34) colWidths[1] = 34;
+  colWidths[5] = tableWidth - colWidths.slice(0, 5).reduce((a, b) => a + b, 0);
+
+  const headers = ['#', 'Client Name', 'Principal (KES)', 'Interest (KES)', 'Officer Comment', "Director's Remarks"];
   let startX = margin.left;
   const headerHeight = 8;
 
-  // Helper: draw header (blue fill, white text, thin border)
   const drawHeader = (y) => {
     doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.2);
@@ -7861,15 +7873,15 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
   drawHeader(yPos);
   yPos += headerHeight;
 
-  // Rows – each row height is calculated based on comment lines, but minimum 20mm
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.textDark);
+
   clients.forEach((client, idx) => {
     const commentLines = doc.splitTextToSize(client.comment || '', colWidths[4] - 4);
-    // Minimum row height = 20mm (enough for 2 lines: name+plan, principal+interest+total)
-    const rowHeight = Math.max(20, 5 + commentLines.length * 4.5);
+    const remarkLines  = doc.splitTextToSize(client.director_remark || '', colWidths[5] - 4);
+    const maxLines = Math.max(commentLines.length, remarkLines.length);
+    const rowHeight = Math.max(20, 5 + maxLines * 4.5);
 
-    // Check page break
     if (yPos + rowHeight > 280) {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'report');
@@ -7880,7 +7892,7 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
       doc.setTextColor(...COLORS.textDark);
     }
 
-    // Background (alternating)
+    // zebra stripes
     if (idx % 2 === 0) {
       doc.setFillColor(...COLORS.border);
       doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
@@ -7889,7 +7901,7 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
       doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
     }
 
-    // Draw thin black borders for each cell
+    // cell borders
     doc.setLineWidth(0.2);
     let cx = startX;
     for (let i = 0; i < colWidths.length; i++) {
@@ -7897,33 +7909,30 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
       cx += colWidths[i];
     }
 
-    // ---------- Row content ----------
-    // Column 0: Index
+    // col 0: index
     doc.text((idx + 1).toString(), startX + 3, yPos + 8);
 
-    // Column 1: Client name + Plan badge (Daily/Weekly) in blue, unless waived
+    // col 1: name + plan
     const nameX = startX + colWidths[0] + 2;
     doc.text(client.client_name, nameX, yPos + 8);
     if (client.interest_rate !== 0) {
-      const planText = client.repayment_plan === 'daily' ? 'Daily' : 'Weekly';
       doc.setTextColor(...COLORS.primaryBlue);
       doc.setFontSize(8);
-      doc.text(planText, nameX, yPos + 14);
+      doc.text(client.repayment_plan === 'daily' ? 'Daily' : 'Weekly', nameX, yPos + 14);
       doc.setTextColor(...COLORS.textDark);
       doc.setFontSize(10);
     }
 
-    // Column 2: Principal
+    // col 2: principal
     const principalX = startX + colWidths[0] + colWidths[1] + 2;
     doc.text(formatCurrency(client.current_principal), principalX, yPos + 10);
 
-    // Column 3: Interest + Total below (blue)
+    // col 3: interest + total
     const interestX = startX + colWidths[0] + colWidths[1] + colWidths[2] + 2;
     if (client.interest_rate === 0) {
       doc.text('waived', interestX, yPos + 10);
     } else {
       doc.text(formatCurrency(client.unpaid_interest), interestX, yPos + 10);
-      // Total = principal + unpaid_interest
       const total = client.current_principal + client.unpaid_interest;
       doc.setTextColor(...COLORS.primaryBlue);
       doc.setFontSize(8);
@@ -7932,17 +7941,51 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
       doc.setFontSize(10);
     }
 
-    // Column 4: Comments (multi-line, top‑aligned)
+    // col 4: officer comment
+    const commentX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2;
     let commentY = yPos + 4.5;
-    commentLines.forEach(line => {
-      doc.text(line, startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, commentY);
-      commentY += 4.5;
-    });
+    commentLines.forEach(line => { doc.text(line, commentX, commentY); commentY += 4.5; });
+
+    // col 5: director remark
+    const remarkX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 2;
+    let remarkY = yPos + 4.5;
+    if (remarkLines.length === 0) {
+      doc.setTextColor(150, 150, 150);
+      doc.setFont('helvetica', 'italic');
+      doc.text('—', remarkX, remarkY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.textDark);
+    } else {
+      remarkLines.forEach(line => { doc.text(line, remarkX, remarkY); remarkY += 4.5; });
+    }
 
     yPos += rowHeight;
   });
 
-  // ---------- Signatures & Stamp ----------
+  // ============ DIRECTOR'S GENERAL REMARKS ============
+  if (approval && approval.generalRemarks) {
+    yPos += 8;
+    if (yPos > 240) { doc.addPage(); addWatermarkToCurrentPage(doc, 'report'); yPos = 20; }
+
+    doc.setFillColor(...COLORS.primaryBlue);
+    doc.rect(startX, yPos, tableWidth, 6, 'F');
+    doc.setTextColor(...COLORS.white);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text("DIRECTOR'S GENERAL REMARKS", startX + 2, yPos + 4.5);
+    doc.setTextColor(...COLORS.textDark);
+    yPos += 6;
+
+    const bodyLines = doc.splitTextToSize(approval.generalRemarks, tableWidth - 4);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    bodyLines.forEach(line => {
+      doc.text(line, startX + 2, yPos + 4);
+      yPos += 4.5;
+    });
+  }
+
+  // ============ SIGNATURE LINES (unchanged from the original) ============
   yPos += 15;
   if (yPos > 270) {
     doc.addPage();
@@ -7950,26 +7993,29 @@ export const generateOfficerReportPDF = async (clients, officer, reportDate, ass
     yPos = 20;
   }
 
-  doc.setFont('helvetica', 'bold');
-  doc.text('Prepared by:', 20, yPos);
-  doc.text(`${officer.username} (${officer.role})`, 50, yPos);
-  doc.text('Signature: ___________________', 120, yPos);
-  yPos += 15;
-
-  if (yPos > 270) {
-    doc.addPage();
-    addWatermarkToCurrentPage(doc, 'report');
-    yPos = 20;
-  }
-
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text('Approved by Director:', 20, yPos);
+  doc.text('Prepared by:', 10, yPos);
   doc.setFont('helvetica', 'bold');
-  doc.text('Shadrack Kesumet', 70, yPos);
+  doc.text(`${officer.username} (${officer.role})`, 40, yPos);
   doc.text('Signature: ___________________', 120, yPos);
   yPos += 15;
 
-  // ---- Stamp box with page break protection ----
+  if (yPos > 270) {
+    doc.addPage();
+    addWatermarkToCurrentPage(doc, 'report');
+    yPos = 20;
+  }
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Approved by Director:', 10, yPos);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Shadrack Kesumet', 50, yPos);
+  doc.text('Signature: ___________________', 120, yPos);
+  yPos += 15;
+
+  // ---- Stamp box (unchanged from the original) ----
   const stampWidth = 50, stampHeight = 30;
   if (yPos + stampHeight + 15 > 290) {
     doc.addPage();
