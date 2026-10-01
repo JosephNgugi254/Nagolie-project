@@ -52,12 +52,49 @@ const SalaryManagement = () => {
   const [generatingReport, setGeneratingReport] = useState(false);
   const [generatingReceipt, setGeneratingReceipt] = useState(false);
 
+  // ---------------------------------------------------------------------------
+  // Current user & role-based capability flags
+  // ---------------------------------------------------------------------------
+  const currentUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || '{}');
+    } catch {
+      return {};
+    }
+  })();
+
+  const currentUserId = Number(currentUser.id);
+  const currentUsername = (currentUser.username || '').toLowerCase();
+  const currentRole = currentUser.role || '';
+
+  // Acting-HR = Annie (matches backend ACTING_HR_USERNAMES)
+  const isActingHR = currentUsername === 'annie';
+
+  // Who can EDIT salary settings? Director + HR Manager only.
+  const canEditSalary = ['director', 'hr_manager'].includes(currentRole);
+
+  // Who can APPROVE / REJECT advance requests? Director + HR Manager only.
+  const canApproveRequests = ['director', 'hr_manager'].includes(currentRole);
+
+  // Who can PAY an advance or a salary? Director + Annie.
+  const canPay = currentRole === 'director' || isActingHR;
+
+  // Does the given target row belong to the current user?
+  const isSelf = (targetUserId) => Number(targetUserId) === currentUserId;
+
+  // Can the current user act on this specific row?
+  // - Editing salary: director/hr only (blocks Annie completely)
+  const canEditThisStaff = (staff) => canEditSalary && !isSelf(staff.user_id);
+  const canPayThisStaff = (staff) => canPay && !(isActingHR && isSelf(staff.user_id));
+
+  // ---------------------------------------------------------------------------
+  // Data fetchers
+  // ---------------------------------------------------------------------------
   const fetchStaff = async () => {
     setLoading(true);
     try {
       const res = await salaryAPI.getStaffSettings(month);
       const payload = res.data || {};
-      // Backward-compatible: old shape was an array; new shape is { staff, totals }
       if (Array.isArray(payload)) {
         setStaffList(payload);
         setStaffTotals({
@@ -117,6 +154,9 @@ const SalaryManagement = () => {
     }
   }, [transactionSearch, transactionDate]);
 
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
   const handleSaveSalary = async () => {
     if (!editingStaff || parseFloat(salaryAmount) < 0) {
       showToast.error('Invalid salary amount');
@@ -270,6 +310,9 @@ const SalaryManagement = () => {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   })}`;
 
+  // ---------------------------------------------------------------------------
+  // Render: Staff Salaries tab
+  // ---------------------------------------------------------------------------
   const renderStaffTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -278,21 +321,31 @@ const SalaryManagement = () => {
           <button className="btn btn-sm btn-outline-secondary me-2" onClick={fetchStaff} disabled={loading}>
             <i className={`fas fa-sync ${loading ? 'fa-spin' : ''}`}></i> {loading ? 'Loading...' : 'Refresh'}
           </button>
-          <button
-            className="btn btn-sm btn-success"
-            onClick={() => openDirectPaymentModal(null)}
-            disabled={loading}
-          >
-            <i className="fas fa-money-bill-wave"></i> Quick Pay
-          </button>
+          {canPay && (
+            <button
+              className="btn btn-sm btn-success"
+              onClick={() => openDirectPaymentModal(null)}
+              disabled={loading}
+            >
+              <i className="fas fa-money-bill-wave"></i> Quick Pay
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="alert alert-light border small mb-3">
-        <i className="fas fa-info-circle me-1 text-primary"></i>
-        A salary stays in effect every month until you change it. Click <i className="fas fa-edit mx-1"></i>
-        to set a new amount — it applies from this month onward.
-      </div>
+      {canEditSalary ? (
+        <div className="alert alert-light border small mb-3">
+          <i className="fas fa-info-circle me-1 text-primary"></i>
+          A salary stays in effect every month until you change it. Click <i className="fas fa-edit mx-1"></i>
+          to set a new amount — it applies from this month onward.
+        </div>
+      ) : (
+        <div className="alert alert-light border small mb-3">
+          <i className="fas fa-info-circle me-1 text-primary"></i>
+          You have read-only access to salaries. Editing and setting salary amounts is reserved for the
+          Director and HR Manager. You can still record payments for other staff.
+        </div>
+      )}
 
       <div className="table-responsive">
         <table className="table table-hover align-middle">
@@ -319,7 +372,12 @@ const SalaryManagement = () => {
               <tr><td colSpan="8" className="text-center text-muted py-4">No staff found.</td></tr>
             ) : staffList.map(s => (
               <tr key={s.user_id}>
-                <td><strong>{s.username}</strong></td>
+                <td>
+                  <strong>{s.username}</strong>
+                  {isSelf(s.user_id) && (
+                    <span className="badge bg-info text-dark ms-2 small">You</span>
+                  )}
+                </td>
                 <td><span className="badge bg-light text-dark border">{s.role}</span></td>
                 <td className="text-end">
                   {editingStaff?.user_id === s.user_id ? (
@@ -367,17 +425,26 @@ const SalaryManagement = () => {
                     </>
                   ) : (
                     <>
+                      {/* Edit — director & hr_manager only */}
                       <button
                         className="btn btn-sm btn-outline-primary me-1"
                         onClick={() => {
                           setEditingStaff(s);
                           setSalaryAmount(s.salary_amount.toString());
                         }}
-                        disabled={loading}
-                        title="Change salary (applies from this month onward)"
+                        disabled={loading || !canEditThisStaff(s)}
+                        title={
+                          !canEditSalary
+                            ? 'Only Director and HR Manager can edit salaries'
+                            : isSelf(s.user_id)
+                              ? 'You cannot edit your own salary'
+                              : 'Change salary (applies from this month onward)'
+                        }
                       >
                         <i className="fas fa-edit"></i>
                       </button>
+
+                      {/* PDF report — everyone with access */}
                       <button
                         className="btn btn-sm btn-outline-info me-1"
                         onClick={() => handleGenerateReport(s)}
@@ -390,11 +457,19 @@ const SalaryManagement = () => {
                           <i className="fas fa-file-pdf"></i>
                         )}
                       </button>
+
+                      {/* Pay — director + Annie, but not on self */}
                       <button
                         className="btn btn-sm btn-outline-success"
                         onClick={() => openDirectPaymentModal(s.user_id)}
-                        disabled={loading}
-                        title="Record salary payment"
+                        disabled={loading || !canPayThisStaff(s)}
+                        title={
+                          !canPay
+                            ? 'You do not have permission to record salary payments'
+                            : isSelf(s.user_id)
+                              ? 'You cannot record a salary payment for yourself'
+                              : 'Record salary payment'
+                        }
                       >
                         <i className="fas fa-money-bill-wave"></i> Pay
                       </button>
@@ -422,6 +497,9 @@ const SalaryManagement = () => {
     </div>
   );
 
+  // ---------------------------------------------------------------------------
+  // Render: Advance Requests tab
+  // ---------------------------------------------------------------------------
   const renderRequestsTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -443,63 +521,96 @@ const SalaryManagement = () => {
             </tr>
           </thead>
           <tbody>
-            {requests.map(req => (
-              <tr key={req.id}>
-                <td>{req.username}</td>
-                <td>KES {req.amount.toFixed(2)}</td>
-                <td>{formatMonthDisplay(req.month)}</td>
-                <td>
-                  <span className={`badge bg-${req.status === 'pending' ? 'warning' : req.status === 'approved' ? 'info' : req.status === 'paid' ? 'success' : 'danger'}`}>
-                    {req.status}
-                  </span>
-                </td>
-                <td>{req.note}</td>
-                <td>
-                  {req.status === 'pending' && (
-                    <>
+            {requests.length === 0 ? (
+              <tr><td colSpan="6" className="text-center text-muted py-4">No advance requests.</td></tr>
+            ) : requests.map(req => {
+              const rowIsSelf = isSelf(req.user_id);
+              const canPayThisRequest =
+                canPay && !(isActingHR && rowIsSelf);
+
+              return (
+                <tr key={req.id}>
+                  <td>
+                    {req.username}
+                    {rowIsSelf && (
+                      <span className="badge bg-info text-dark ms-2 small">You</span>
+                    )}
+                  </td>
+                  <td>KES {req.amount.toFixed(2)}</td>
+                  <td>{formatMonthDisplay(req.month)}</td>
+                  <td>
+                    <span className={`badge bg-${req.status === 'pending' ? 'warning' : req.status === 'approved' ? 'info' : req.status === 'paid' ? 'success' : 'danger'}`}>
+                      {req.status}
+                    </span>
+                  </td>
+                  <td>{req.note}</td>
+                  <td>
+                    {req.status === 'pending' && (
+                      <>
+                        {/* Approve/Reject — director & hr_manager only */}
+                        <button
+                          className="btn btn-sm btn-success me-1"
+                          onClick={() => handleProcessRequest(req.id, 'approve')}
+                          disabled={processing || !canApproveRequests}
+                          title={!canApproveRequests ? 'Only Director and HR Manager can approve advance requests' : 'Approve'}
+                        >
+                          {processing
+                            ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            : 'Approve'}
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => openRejectModal(req.id)}
+                          disabled={processing || !canApproveRequests}
+                          title={!canApproveRequests ? 'Only Director and HR Manager can reject advance requests' : 'Reject'}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+
+                    {req.status === 'approved' && (
                       <button
-                        className="btn btn-sm btn-success me-1"
-                        onClick={() => handleProcessRequest(req.id, 'approve')}
-                        disabled={processing}
+                        className="btn btn-sm btn-primary"
+                        onClick={() => {
+                          setSelectedRequest(req);
+                          setShowPayModal(true);
+                          setMpesaRef('');
+                          setPaymentMethod('mpesa');
+                          setPayNotes('');
+                        }}
+                        disabled={processing || !canPayThisRequest}
+                        title={
+                          !canPay
+                            ? 'You do not have permission to pay advance requests'
+                            : (isActingHR && rowIsSelf)
+                              ? 'You cannot pay your own advance'
+                              : 'Pay this advance'
+                        }
                       >
-                        {processing ? <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> : 'Approve'}
+                        <i className="fas fa-money-bill-wave"></i> Pay
                       </button>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => openRejectModal(req.id)}
-                        disabled={processing}
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
-                  {req.status === 'approved' && (
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={() => {
-                        setSelectedRequest(req);
-                        setShowPayModal(true);
-                        setMpesaRef('');
-                        setPaymentMethod('mpesa');
-                        setPayNotes('');
-                      }}
-                      disabled={processing}
-                    >
-                      <i className="fas fa-money-bill-wave"></i> Pay
-                    </button>
-                  )}
-                  {req.status === 'paid' && (
-                    <span className="text-muted">Paid</span>
-                  )}
-                </td>
-              </tr>
-            ))}
+                    )}
+
+                    {req.status === 'paid' && (
+                      <span className="text-muted">Paid</span>
+                    )}
+                    {req.status === 'rejected' && (
+                      <span className="text-muted">Rejected</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </div>
   );
 
+  // ---------------------------------------------------------------------------
+  // Render: Transactions tab
+  // ---------------------------------------------------------------------------
   const renderTransactionsTab = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -550,7 +661,12 @@ const SalaryManagement = () => {
               transactions.map(t => (
                 <tr key={t.id}>
                   <td>{new Date(t.created_at).toLocaleDateString()}</td>
-                  <td>{t.username || 'N/A'}</td>
+                  <td>
+                    {t.username || 'N/A'}
+                    {isSelf(t.user_id) && (
+                      <span className="badge bg-info text-dark ms-2 small">You</span>
+                    )}
+                  </td>
                   <td>
                     <span className={`badge ${t.transaction_type === 'advance' ? 'bg-info' : 'bg-primary'}`}>
                       {t.transaction_type === 'advance' ? 'Advance' : 'Salary Payment'}
@@ -582,9 +698,19 @@ const SalaryManagement = () => {
     </div>
   );
 
+  // ---------------------------------------------------------------------------
+  // Main render
+  // ---------------------------------------------------------------------------
   return (
     <div className="salary-management">
-      <h4 className="mb-3">Salary Management</h4>
+      <h4 className="mb-3">
+        Salary Management
+        {isActingHR && (
+          <span className="badge bg-warning text-dark ms-2 small align-middle">
+            Acting HR
+          </span>
+        )}
+      </h4>
       <ul className="nav nav-tabs mb-4">
         <li className="nav-item">
           <button className={`nav-link ${activeTab === 'staff' ? 'active' : ''}`} onClick={() => setActiveTab('staff')}>
@@ -705,9 +831,12 @@ const SalaryManagement = () => {
                 disabled={directPaymentProcessing}
               >
                 <option value="">-- Choose Staff --</option>
-                {staffList.map(s => (
-                  <option key={s.user_id} value={s.user_id}>{s.username} ({s.role})</option>
-                ))}
+                {/* Annie must never see herself in the dropdown */}
+                {staffList
+                  .filter(s => !(isActingHR && isSelf(s.user_id)))
+                  .map(s => (
+                    <option key={s.user_id} value={s.user_id}>{s.username} ({s.role})</option>
+                  ))}
               </select>
             )}
           </div>

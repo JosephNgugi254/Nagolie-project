@@ -491,7 +491,7 @@ function LoanApply({ onSubmit }) {
                 name="relationship"
                 value={nextOfKin.relationship}
                 onChange={handleNextOfKinChange}
-                placeholder="e.g Spouse / Parent / Sibling"
+                placeholder="e.g Spouse / Parent / Sibling / son / daughter"
                 required
               />
             </div>

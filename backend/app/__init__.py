@@ -126,8 +126,47 @@ def _start_schedulers(app):
         misfire_grace_time=3600,
     )
 
-    scheduler.start()
+        # ==================================================================
+    
+    #    # ==================================================================
+    # Job 4: EOD snapshot freeze (every day at 21:00 UTC = 00:00 EAT)
+    # ------------------------------------------------------------------
+    # Freezes the day that has just ended (yesterday in EAT terms).
+    # Idempotent — already-finalized days are left alone.
+    # ==================================================================
+    def _eod_snapshot_job():
+        with app.app_context():
+            try:
+                from datetime import timedelta
+                from app.routes.admin import create_daily_snapshots
+                from app.utils.time import today_eat
 
+                target = today_eat() - timedelta(days=1)
+                result = create_daily_snapshots(target)
+
+                app.logger.info(
+                    f"[eod_snapshot] date={result['date']} "
+                    f"created={result['created']} "
+                    f"finalized={result['finalized']} "
+                    f"skipped={result['skipped']} "
+                    f"total_pairs={result['total_pairs']}"
+                )
+            except Exception as e:
+                app.logger.exception(f"[eod_snapshot] failed: {e}")
+
+    scheduler.add_job(
+        func=_eod_snapshot_job,
+        trigger="cron",
+        hour=21,
+        minute=0,
+        id="eod_snapshot",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+
+    scheduler.start()
 
 def create_app(config_class=Config):
     app = Flask(__name__)

@@ -822,40 +822,44 @@ class ClientAssignment(db.Model):
 
 class ReportComment(db.Model):
     __tablename__ = 'report_comments'
-    id = db.Column(db.Integer, primary_key=True)
-    loan_id = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False)
-    officer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    report_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
-    comment = db.Column(db.Text, nullable=False)
 
-    # financial snapshot fields
-    current_principal = db.Column(db.Numeric(15, 2), nullable=True)
-    unpaid_interest = db.Column(db.Numeric(15, 2), nullable=True)
-    total_balance = db.Column(db.Numeric(15, 2), nullable=True)
-    interest_rate = db.Column(db.Numeric(5, 2), nullable=True)
-    repayment_plan = db.Column(db.String(20), nullable=True)
+    id         = db.Column(db.Integer, primary_key=True)
+    loan_id    = db.Column(db.Integer, db.ForeignKey('loans.id'), nullable=False, index=True)
+    officer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    report_date = db.Column(db.Date, nullable=False, index=True)
 
-    # ─── NEW: Director's per-client remark ───
+    # ── editable-in-place fields (never part of the frozen snapshot) ──
+    comment         = db.Column(db.Text, default='')             # officer's follow-up notes
     director_remark    = db.Column(db.Text, nullable=True)
     director_remark_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     director_remark_at = db.Column(db.DateTime, nullable=True)
 
+    # ── frozen financial snapshot ──
+    current_principal = db.Column(db.Numeric(15, 2), nullable=True)
+    unpaid_interest   = db.Column(db.Numeric(15, 2), nullable=True)
+    total_balance     = db.Column(db.Numeric(15, 2), nullable=True)
+    interest_rate     = db.Column(db.Numeric(5, 2),  nullable=True)
+    repayment_plan    = db.Column(db.String(20),     nullable=True)
+    client_name       = db.Column(db.String(120),    nullable=True)
+    phone             = db.Column(db.String(20),     nullable=True)
+
+    # ── freeze flag ──
+    # Once True, the financial columns and report_date + loan_id + officer_id
+    # MUST NOT change. Only `comment` and `director_remark*` may be updated.
+    finalized   = db.Column(db.Boolean, default=False, server_default=db.text('false'), nullable=False, index=True)
+    finalized_at = db.Column(db.DateTime, nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # ─── Relationships ───
-    # NOTE: two FKs to users.id now exist (officer_id, director_remark_by),
-    # so we MUST specify foreign_keys explicitly on both relationships.
+    __table_args__ = (
+        db.UniqueConstraint('loan_id', 'officer_id', 'report_date',
+                            name='uq_report_comment_identity'),
+    )
+
     loan = db.relationship('Loan', backref='report_comments')
-    officer = db.relationship(
-        'User',
-        foreign_keys=[officer_id],
-        backref='report_comments',
-    )
-    director_remarker = db.relationship(
-        'User',
-        foreign_keys=[director_remark_by],
-    )
+    officer = db.relationship('User', foreign_keys=[officer_id], backref='report_comments')
+    director_remarker = db.relationship('User', foreign_keys=[director_remark_by])
 
 class ReportApproval(db.Model):
     """

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import joinedload
 import io
+from app.utils.time import now_eat, today_eat
 from flask import send_file
 from app.models import MessageAttachment
 from app.services.ledger import record_ledger_entry
@@ -1034,23 +1035,11 @@ def get_my_assigned_clients():
         except Exception:
             return jsonify({'error': 'Invalid date format'}), 400
     else:
-        report_date = datetime.utcnow().date()
+        from app.utils.time import today_eat
+        report_date = today_eat()
 
     from app.routes.admin import get_assigned_clients_for_user
     assigned = get_assigned_clients_for_user(officer_id, report_date=report_date)
-
-    # Enrich each row with the director's per-client remark
-    for row in assigned:
-        snap = ReportComment.query.filter_by(
-            loan_id=row['loan_id'],
-            officer_id=officer_id,
-            report_date=report_date,
-        ).first()
-        row['director_remark']    = (snap.director_remark if snap and snap.director_remark else '')
-        row['director_remark_at'] = (snap.director_remark_at.isoformat()
-                                     if snap and snap.director_remark_at else None)
-        row['director_remark_by'] = (snap.director_remarker.username
-                                     if snap and snap.director_remarker else None)
 
     # Report-level approval row
     approval = ReportApproval.query.filter_by(
@@ -1077,6 +1066,12 @@ def get_my_assigned_clients():
 @jwt_required()
 @role_required(['secretary', 'client_relations_officer'])
 def save_report_comment():
+    """
+    Save the officer's follow-up note for (loan, officer, date).
+
+    Never touches director_remark* or the frozen financial columns.
+    If the row is finalized, only `comment` changes.
+    """
     officer_id      = int(get_jwt_identity())
     data            = request.json or {}
     loan_id         = data.get('loan_id')
@@ -1089,7 +1084,8 @@ def save_report_comment():
         except Exception:
             return jsonify({'error': 'Invalid report_date format'}), 400
     else:
-        report_date = datetime.utcnow().date()
+        from app.utils.time import today_eat
+        report_date = today_eat()
 
     if not loan_id:
         return jsonify({'error': 'loan_id required'}), 400
@@ -1098,39 +1094,32 @@ def save_report_comment():
     if not loan:
         return jsonify({'error': 'Loan not found'}), 404
 
-    # Reconstruct historical state — never read live row fields
-    from app.routes.payments import loan_state_as_of
-    principal_dec, interest_dec = loan_state_as_of(loan, report_date)
-    current_principal = float(principal_dec)
-    unpaid_interest   = float(interest_dec)
-    total_balance     = current_principal + unpaid_interest
-
-    snap = ReportComment.query.filter_by(
+    row = ReportComment.query.filter_by(
         loan_id=loan_id,
         officer_id=officer_id,
         report_date=report_date,
     ).first()
 
-    if snap:
-        snap.comment     = comment_text
-        snap.updated_at  = datetime.utcnow()
-    else:
-        snap = ReportComment(
+    if row is None:
+        # Create a partial row with no financials yet.
+        # The EOD job (or a subsequent live save) will fill them in.
+        row = ReportComment(
             loan_id=loan_id,
             officer_id=officer_id,
             report_date=report_date,
             comment=comment_text,
         )
-        db.session.add(snap)
-
-    snap.current_principal = current_principal
-    snap.unpaid_interest   = unpaid_interest
-    snap.total_balance     = total_balance
-    snap.interest_rate     = float(loan.interest_rate or 0)
-    snap.repayment_plan    = loan.repayment_plan
+        db.session.add(row)
+    else:
+        # Only the `comment` column is written here.
+        # Frozen financials and director_remark are left untouched.
+        row.comment = comment_text
 
     db.session.commit()
-    return jsonify({'success': True}), 200
+    return jsonify({
+        'success': True,
+        'comment': row.comment or '',
+    }), 200
 
 @recovery_bp.route('/flag-loan/<int:loan_id>', methods=['POST'])
 @jwt_required()

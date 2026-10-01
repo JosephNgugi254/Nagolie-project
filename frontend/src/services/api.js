@@ -227,6 +227,19 @@ export const adminAPI = {
       officer_id:  officerId,
       report_date: reportDate,
     }),
+
+  closeDay: (startDate, endDate, force = false) =>
+  api.post('/admin/reports/close-day', {
+    start_date: startDate,
+    end_date: endDate,
+    force,
+  }),
+
+  auditReports: (startDate, endDate) =>
+    api.get(`/admin/reports/audit?start_date=${startDate}&end_date=${endDate}`),
+  
+  repairReports: (startDate, endDate) =>
+    api.post('/admin/reports/repair', { start_date: startDate, end_date: endDate, force: true }),
   
 };
 

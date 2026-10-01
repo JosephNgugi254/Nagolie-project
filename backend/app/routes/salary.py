@@ -6,13 +6,32 @@ from decimal import Decimal
 from collections import defaultdict
 from app import db
 from app.models import User, StaffSalarySetting, SalaryAdvanceRequest, SalaryTransaction, PrivateMessage
-from app.utils.decorators import role_required
+from app.utils.decorators import role_required, role_or_username_required
 from app.utils.security import log_audit
 import logging
 
 logger = logging.getLogger(__name__)
 
 salary_bp = Blueprint('salary', __name__, url_prefix='/api/salary')
+
+
+# ---------------------------------------------------------------------------
+# Acting-HR override (Annie) — same pattern used elsewhere in the app
+# ---------------------------------------------------------------------------
+ACTING_HR_USERNAMES = ['Annie']
+
+
+def _is_acting_hr(user):
+    """True when the given user is the acting-HR (Annie)."""
+    return user is not None and (user.username or '') in ACTING_HR_USERNAMES
+
+
+def _is_self(target_user_id, current_user_id):
+    """True when an action would target the acting user's own account."""
+    try:
+        return int(target_user_id) == int(current_user_id)
+    except (TypeError, ValueError):
+        return False
 
 
 def get_current_month():
@@ -60,8 +79,123 @@ def _month_iter(start_month, end_month):
             y += 1
 
 
+# ---------------------------------------------------------------------------
+# FIFO payment allocation helpers
+#
+# Salary payments are applied OLDEST-MONTH-FIRST. A 35,000 payment made in
+# October while June–September are still short will first clear June, then
+# July, then August, then September, and only the remainder touches October.
+# This matches real-world expectations for arrears.
+# ---------------------------------------------------------------------------
+
+def _collect_salary_and_txns(user_id, settings, transactions):
+    """Normalize settings and transactions to sorted, user-filtered lists."""
+    if settings is None:
+        settings = (
+            StaffSalarySetting.query
+            .filter_by(user_id=user_id)
+            .order_by(StaffSalarySetting.month)
+            .all()
+        )
+    else:
+        settings = sorted(
+            [s for s in settings if s.user_id == user_id],
+            key=lambda s: s.month,
+        )
+
+    if transactions is None:
+        transactions = SalaryTransaction.query.filter_by(user_id=user_id).all()
+    else:
+        transactions = [t for t in transactions if t.user_id == user_id]
+
+    return settings, transactions
+
+
+def _fifo_allocate(settings, transactions, target_month):
+    """
+    Distribute all payments FIFO against the salary schedule up to target_month.
+
+    Returns a dict:
+        months             : ['YYYY-MM', ...] from first activity → target_month
+        salary_by_month    : {month: Decimal}
+        paid_by_month      : {month: Decimal}  — FIFO-allocated paid amount
+        advances_by_month  : {month: Decimal}  — advances tagged to that month
+                                                  (reporting concern; allocation
+                                                   itself is still FIFO)
+        overpayment        : Decimal           — payments beyond total salary owed
+    """
+    zero = Decimal('0')
+
+    candidate_months = [s.month for s in settings] + [t.month for t in transactions]
+    if not candidate_months:
+        return None
+
+    start_month = min(candidate_months)
+    if start_month > target_month:
+        return None
+
+    def salary_for(m):
+        applicable = [s for s in settings if s.month <= m]
+        return applicable[-1].salary_amount if applicable else zero
+
+    months = list(_month_iter(start_month, target_month))
+    salary_by_month = {m: salary_for(m) for m in months}
+    remaining_by_month = {m: salary_by_month[m] for m in months}
+
+    paid_by_month = defaultdict(lambda: zero)
+    advances_by_month = defaultdict(lambda: zero)
+
+    # Chronological order: when the payment was actually made.
+    # Fallback to tagged month if created_at is missing, so we don't lose ordering.
+    sorted_txns = sorted(
+        transactions,
+        key=lambda t: (t.created_at or datetime.min, t.month or ''),
+    )
+
+    overpayment = zero
+
+    for t in sorted_txns:
+        amt = t.amount or zero
+        if amt <= zero:
+            continue
+
+        # Advances are REPORTED against their tagged month, but their
+        # allocation still cascades FIFO like any other payment.
+        if t.transaction_type == 'advance':
+            advances_by_month[t.month] += amt
+
+        # Cascade: oldest unpaid month first
+        for m in months:
+            if amt <= zero:
+                break
+            owed = remaining_by_month[m]
+            if owed <= zero:
+                continue
+            applied = min(amt, owed)
+            paid_by_month[m] += applied
+            remaining_by_month[m] -= applied
+            amt -= applied
+
+        # Leftover after clearing all owed salary → overpayment / credit
+        if amt > zero:
+            overpayment += amt
+
+    return {
+        'months':            months,
+        'salary_by_month':   salary_by_month,
+        'paid_by_month':     paid_by_month,
+        'advances_by_month': advances_by_month,
+        'overpayment':       overpayment,
+    }
+
+
 def compute_staff_breakdown(user_id, target_month, settings=None, transactions=None):
-    """Salary breakdown for one staff member up to `target_month` inclusive."""
+    """Salary breakdown for one staff member up to `target_month` inclusive.
+
+    Payments are applied FIFO (oldest unpaid month first), so an arrears-clearing
+    payment made in a later month settles earlier shortfalls before touching
+    the current month.
+    """
     zero = Decimal('0')
     empty = {
         'current_salary': 0.0, 'current_advances': 0.0, 'current_paid': 0.0,
@@ -69,121 +203,89 @@ def compute_staff_breakdown(user_id, target_month, settings=None, transactions=N
         'total_owed': 0.0, 'total_paid': 0.0, 'total_due': 0.0,
     }
 
-    if settings is None:
-        settings = StaffSalarySetting.query.filter_by(user_id=user_id).order_by(StaffSalarySetting.month).all()
-    else:
-        settings = sorted([s for s in settings if s.user_id == user_id], key=lambda s: s.month)
-
-    if transactions is None:
-        transactions = SalaryTransaction.query.filter_by(user_id=user_id).all()
-    else:
-        transactions = [t for t in transactions if t.user_id == user_id]
-
+    settings, transactions = _collect_salary_and_txns(user_id, settings, transactions)
     if not settings and not transactions:
         return empty
 
-    candidate_months = [s.month for s in settings] + [t.month for t in transactions]
-    start_month = min(candidate_months)
-    if start_month > target_month:
+    state = _fifo_allocate(settings, transactions, target_month)
+    if state is None or not state['months']:
         return empty
 
-    def salary_for(m):
-        applicable = [s for s in settings if s.month <= m]
-        return applicable[-1].salary_amount if applicable else zero
+    months            = state['months']
+    salary_by_month   = state['salary_by_month']
+    paid_by_month     = state['paid_by_month']
+    advances_by_month = state['advances_by_month']
 
-    paid_by_month = defaultdict(lambda: zero)
-    advances_by_month = defaultdict(lambda: zero)
-    for t in transactions:
-        paid_by_month[t.month] += t.amount
-        if t.transaction_type == 'advance':
-            advances_by_month[t.month] += t.amount
+    current_salary   = salary_by_month.get(target_month, zero)
+    current_paid     = paid_by_month.get(target_month, zero)
+    current_advances = advances_by_month.get(target_month, zero)
 
-    total_owed = zero
-    total_paid = zero
-    previous_owed = zero
-    previous_paid = zero
-    current_salary = zero
-    current_paid = zero
-    current_advances = zero
+    previous_owed = sum((salary_by_month[m] for m in months if m < target_month), zero)
+    previous_paid = sum((paid_by_month[m]   for m in months if m < target_month), zero)
 
-    for m in _month_iter(start_month, target_month):
-        salary = salary_for(m)
-        paid = paid_by_month.get(m, zero)
-        total_owed += salary
-        total_paid += paid
-        if m == target_month:
-            current_salary = salary
-            current_paid = paid
-            current_advances = advances_by_month.get(m, zero)
-        else:
-            previous_owed += salary
-            previous_paid += paid
+    total_owed = sum((salary_by_month[m] for m in months), zero)
+    total_paid = sum((paid_by_month[m]   for m in months), zero)
 
     return {
-        'current_salary': float(current_salary),
+        'current_salary':   float(current_salary),
         'current_advances': float(current_advances),
-        'current_paid': float(current_paid),
-        'current_balance': float(current_salary - current_paid),
+        'current_paid':     float(current_paid),
+        'current_balance':  float(current_salary - current_paid),
         'previous_balance': float(previous_owed - previous_paid),
-        'total_owed': float(total_owed),
-        'total_paid': float(total_paid),
-        'total_due': float(total_owed - total_paid),
+        'total_owed':       float(total_owed),
+        'total_paid':       float(total_paid),
+        'total_due':        float(total_owed - total_paid),
     }
 
 
 def compute_monthly_breakdown(user_id, target_month, settings=None, transactions=None):
-    """Per-month salary/paid/balance list from first activity up to target_month."""
-    if settings is None:
-        settings = StaffSalarySetting.query.filter_by(user_id=user_id).order_by(StaffSalarySetting.month).all()
-    else:
-        settings = sorted([s for s in settings if s.user_id == user_id], key=lambda s: s.month)
+    """Per-month salary/paid/balance list from first activity up to target_month.
 
-    if transactions is None:
-        transactions = SalaryTransaction.query.filter_by(user_id=user_id).all()
-    else:
-        transactions = [t for t in transactions if t.user_id == user_id]
-
-    candidate_months = [s.month for s in settings] + [t.month for t in transactions]
-    if not candidate_months:
-        return []
-    start_month = min(candidate_months)
-    if start_month > target_month:
+    `paid` is FIFO-allocated, so earlier months get settled before later ones.
+    """
+    settings, transactions = _collect_salary_and_txns(user_id, settings, transactions)
+    if not settings and not transactions:
         return []
 
-    def salary_for(m):
-        applicable = [s for s in settings if s.month <= m]
-        return applicable[-1].salary_amount if applicable else Decimal('0')
+    state = _fifo_allocate(settings, transactions, target_month)
+    if state is None:
+        return []
 
-    paid_by_month = defaultdict(lambda: Decimal('0'))
-    advances_by_month = defaultdict(lambda: Decimal('0'))
-    for t in transactions:
-        paid_by_month[t.month] += t.amount
-        if t.transaction_type == 'advance':
-            advances_by_month[t.month] += t.amount
+    months            = state['months']
+    salary_by_month   = state['salary_by_month']
+    paid_by_month     = state['paid_by_month']
+    advances_by_month = state['advances_by_month']
 
     result = []
     running_balance = Decimal('0')
-    for m in _month_iter(start_month, target_month):
-        salary = salary_for(m)
-        paid = paid_by_month.get(m, Decimal('0'))
-        advances = advances_by_month.get(m, Decimal('0'))
+    for m in months:
+        salary = salary_by_month.get(m, Decimal('0'))
+        paid   = paid_by_month.get(m, Decimal('0'))
+        adv    = advances_by_month.get(m, Decimal('0'))
         balance = salary - paid
         running_balance += balance
         result.append({
-            'month': m,
-            'salary': float(salary),
-            'advances': float(advances),
-            'paid': float(paid),
-            'balance': float(balance),
+            'month':           m,
+            'salary':          float(salary),
+            'advances':        float(adv),
+            'paid':            float(paid),
+            'balance':         float(balance),
             'running_balance': float(running_balance),
         })
     return result
 
+# ---------------------------------------------------------------------------
+# Staff salary settings
+#   • GET  → director, hr_manager, Annie   (read-only for Annie)
+#   • POST → director, hr_manager ONLY     (Annie CANNOT edit salaries)
+# ---------------------------------------------------------------------------
 
-# ---------- Staff salary settings (director & hr_manager only) ----------
 @salary_bp.route('/staff-settings', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'hr_manager'])
+@role_or_username_required(
+    allowed_roles=['director', 'hr_manager'],
+    allowed_usernames=ACTING_HR_USERNAMES,
+)
 def get_staff_settings():
     """Staff with effective salary + full breakdown for a month + totals."""
     try:
@@ -234,9 +336,13 @@ def get_staff_settings():
 
 @salary_bp.route('/staff-settings', methods=['POST'])
 @jwt_required()
-@role_required(['director'])
+@role_required(['director', 'hr_manager'])          # ← Annie CANNOT edit salaries
 def set_staff_salary():
-    """Create/update the salary setting for a specific month."""
+    """Create/update the salary setting for a specific month.
+
+    Editing salaries is strictly director / hr_manager.
+    Annie (acting HR) has read-only access to the salaries tab.
+    """
     try:
         data = request.json
         user_id = data.get('user_id')
@@ -267,7 +373,14 @@ def set_staff_salary():
         return jsonify({'error': 'Internal server error'}), 500
 
 
-# ---------- Advance requests (staff can create, director/hr can view all) ----------
+# ---------------------------------------------------------------------------
+# Advance requests
+#   • GET   /advance-requests           → staff see own; director/hr/Annie see ALL
+#   • POST  /advance-requests           → any staff can create
+#   • PUT   /<id>/process               → director, hr_manager ONLY (Annie blocked)
+#   • POST  /<id>/pay                   → director + Annie (Annie can't pay her own)
+# ---------------------------------------------------------------------------
+
 @salary_bp.route('/advance-requests', methods=['GET'])
 @jwt_required()
 def get_advance_requests():
@@ -277,8 +390,11 @@ def get_advance_requests():
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        if user.role in ['director', 'hr_manager']:
-            requests = SalaryAdvanceRequest.query.order_by(SalaryAdvanceRequest.requested_at.desc()).all()
+        # Directors, HR managers, and acting-HR (Annie) see everything.
+        if user.role in ['director', 'hr_manager'] or _is_acting_hr(user):
+            requests = SalaryAdvanceRequest.query.order_by(
+                SalaryAdvanceRequest.requested_at.desc()
+            ).all()
         else:
             requests = (
                 SalaryAdvanceRequest.query
@@ -355,7 +471,7 @@ def create_advance_request():
 
 @salary_bp.route('/advance-requests/<int:request_id>/process', methods=['PUT'])
 @jwt_required()
-@role_required(['director', 'hr_manager'])
+@role_required(['director', 'hr_manager'])          # ← Annie CANNOT approve/reject
 def process_advance_request(request_id):
     try:
         data = request.json
@@ -427,9 +543,19 @@ def process_advance_request(request_id):
 
 @salary_bp.route('/advance-requests/<int:request_id>/pay', methods=['POST'])
 @jwt_required()
-@role_required(['director'])
+@role_or_username_required(
+    allowed_roles=['director'],
+    allowed_usernames=ACTING_HR_USERNAMES,          # ← Annie CAN pay advances
+)
 def pay_advance_request(request_id):
+    """Director and acting-HR (Annie) can pay approved advances.
+
+    Annie may NOT pay her own advance — server-enforced.
+    """
     try:
+        current_user_id = int(get_jwt_identity())
+        me = User.query.get(current_user_id)
+
         data = request.json
         mpesa_ref = data.get('mpesa_reference', '').strip()
         payment_method = data.get('payment_method', 'mpesa')
@@ -441,6 +567,10 @@ def pay_advance_request(request_id):
         if req.status != 'approved':
             return jsonify({'error': 'Request must be approved before payment'}), 400
 
+        # Acting-HR (Annie) must not pay her own advance.
+        if _is_acting_hr(me) and _is_self(req.user_id, current_user_id):
+            return jsonify({'error': 'You cannot process payment for your own advance'}), 403
+
         txn = SalaryTransaction(
             user_id=req.user_id,
             month=req.month,
@@ -449,7 +579,7 @@ def pay_advance_request(request_id):
             reference=mpesa_ref if payment_method == 'mpesa' else None,
             payment_method=payment_method,
             notes=notes,
-            created_by=int(get_jwt_identity()),
+            created_by=current_user_id,
             advance_request_id=req.id
         )
         db.session.add(txn)
@@ -472,12 +602,23 @@ def pay_advance_request(request_id):
         return jsonify({'error': 'Internal server error'}), 500
 
 
-# ---------- Direct salary payment (director only) ----------
+# ---------------------------------------------------------------------------
+# Direct salary payment
+#   • director → can pay anyone
+#   • Annie    → can pay anyone EXCEPT herself (server-enforced)
+# ---------------------------------------------------------------------------
+
 @salary_bp.route('/salary-payment', methods=['POST'])
 @jwt_required()
-@role_required(['director'])
+@role_or_username_required(
+    allowed_roles=['director'],
+    allowed_usernames=ACTING_HR_USERNAMES,
+)
 def record_salary_payment():
     try:
+        current_user_id = int(get_jwt_identity())
+        me = User.query.get(current_user_id)
+
         data = request.json
         user_id = data.get('user_id')
         month = data.get('month', get_current_month())
@@ -488,6 +629,10 @@ def record_salary_payment():
 
         if not user_id or amount <= 0:
             return jsonify({'error': 'Invalid data'}), 400
+
+        # Acting-HR (Annie) must not pay herself.
+        if _is_acting_hr(me) and _is_self(user_id, current_user_id):
+            return jsonify({'error': 'You cannot record a salary payment for yourself'}), 403
 
         setting = resolve_salary_setting(user_id, month)
         if not setting:
@@ -501,7 +646,7 @@ def record_salary_payment():
             reference=reference,
             payment_method=payment_method,
             notes=notes,
-            created_by=int(get_jwt_identity())
+            created_by=current_user_id
         )
         db.session.add(txn)
         db.session.commit()
@@ -517,7 +662,10 @@ def record_salary_payment():
         return jsonify({'error': 'Internal server error'}), 500
 
 
-# ---------- Staff stats (any staff, including head_of_it) ----------
+# ---------------------------------------------------------------------------
+# Staff self-service stats
+# ---------------------------------------------------------------------------
+
 @salary_bp.route('/my-stats', methods=['GET'])
 @jwt_required()
 def my_salary_stats():
@@ -569,10 +717,16 @@ def my_salary_stats():
         return jsonify({'error': 'Internal server error'}), 500
 
 
-# ---------- Report data (director & hr_manager only) ----------
+# ---------------------------------------------------------------------------
+# Staff report PDF data (director, hr_manager, Annie)
+# ---------------------------------------------------------------------------
+
 @salary_bp.route('/staff-report/<int:user_id>', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'hr_manager'])
+@role_or_username_required(
+    allowed_roles=['director', 'hr_manager'],
+    allowed_usernames=ACTING_HR_USERNAMES,
+)
 def get_staff_report_data(user_id):
     try:
         month = request.args.get('month', get_current_month())
@@ -616,10 +770,17 @@ def get_staff_report_data(user_id):
         return jsonify({'error': 'Internal server error'}), 500
 
 
-# ---------- Transactions listing (director & hr_manager only) ----------
+# ---------------------------------------------------------------------------
+# Transactions listing (director, hr_manager, Annie)
+#   Annie sees EVERYTHING, including her own rows.
+# ---------------------------------------------------------------------------
+
 @salary_bp.route('/transactions', methods=['GET'])
 @jwt_required()
-@role_required(['director', 'hr_manager'])
+@role_or_username_required(
+    allowed_roles=['director', 'hr_manager'],
+    allowed_usernames=ACTING_HR_USERNAMES,
+)
 def get_salary_transactions():
     """
     Get all salary transactions with optional filters.

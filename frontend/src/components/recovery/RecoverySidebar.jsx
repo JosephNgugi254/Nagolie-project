@@ -1,6 +1,20 @@
 "use client";
 
+import { useMemo } from 'react';
 import { useUserMenu } from '../hooks/useUserMenu';
+
+// Menu item to inject for the acting-HR (Annie) only.
+// Matches the definition in seed_menus_and_roles.py so ordering/icons are consistent.
+const ACTING_HR_SALARY_MENU_ITEM = {
+  key: 'salaries',
+  label: 'Salaries',
+  icon: 'fa-wallet',
+  path: '/admin/salaries',
+  order: 95,
+};
+
+// Keep this in sync with the backend ACTING_HR_USERNAMES list.
+const ACTING_HR_USERNAMES = ['annie'];
 
 function RecoverySidebar({
   activeSection,
@@ -18,7 +32,30 @@ function RecoverySidebar({
 }) {
   const { menuItems, loading } = useUserMenu();
 
-  const filteredMenuItems = menuItems;
+  // Resolve the current user — prefer the prop, fall back to localStorage.
+  const currentUser = useMemo(() => {
+    if (user) return user;
+    try {
+      return JSON.parse(localStorage.getItem('user') || '{}');
+    } catch {
+      return {};
+    }
+  }, [user]);
+
+  const isActingHR = ACTING_HR_USERNAMES.includes(
+    (currentUser.username || '').toLowerCase()
+  );
+
+  // Only Annie gets the extra menu item, and only if the backend
+  // didn't already return it (e.g. she later gets an hr_manager role).
+  const filteredMenuItems = useMemo(() => {
+    if (!isActingHR) return menuItems;
+    if (menuItems.some((m) => m.key === 'salaries')) return menuItems;
+
+    const merged = [...menuItems, ACTING_HR_SALARY_MENU_ITEM];
+    merged.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+    return merged;
+  }, [menuItems, isActingHR]);
 
   if (loading) {
     return (
