@@ -1069,13 +1069,15 @@ def save_report_comment():
     """
     Save the officer's follow-up note for (loan, officer, date).
 
-    Never touches director_remark* or the frozen financial columns.
-    If the row is finalized, only `comment` changes.
+    Allowed ONLY for today's report and ONLY if the row is not finalized.
+    Past reports are read-only — 403.
     """
-    officer_id      = int(get_jwt_identity())
-    data            = request.json or {}
-    loan_id         = data.get('loan_id')
-    comment_text    = data.get('comment', '')
+    from app.utils.time import today_eat
+
+    officer_id = int(get_jwt_identity())
+    data       = request.json or {}
+    loan_id    = data.get('loan_id')
+    comment_text = data.get('comment', '')
     report_date_str = data.get('report_date')
 
     if report_date_str:
@@ -1084,11 +1086,16 @@ def save_report_comment():
         except Exception:
             return jsonify({'error': 'Invalid report_date format'}), 400
     else:
-        from app.utils.time import today_eat
         report_date = today_eat()
 
     if not loan_id:
         return jsonify({'error': 'loan_id required'}), 400
+
+    # ---- Read-only lock on past reports ----
+    if report_date != today_eat():
+        return jsonify({
+            'error': 'Comments are read-only for past reports'
+        }), 403
 
     loan = db.session.get(Loan, loan_id)
     if not loan:
@@ -1101,8 +1108,6 @@ def save_report_comment():
     ).first()
 
     if row is None:
-        # Create a partial row with no financials yet.
-        # The EOD job (or a subsequent live save) will fill them in.
         row = ReportComment(
             loan_id=loan_id,
             officer_id=officer_id,
@@ -1111,15 +1116,12 @@ def save_report_comment():
         )
         db.session.add(row)
     else:
-        # Only the `comment` column is written here.
-        # Frozen financials and director_remark are left untouched.
+        if row.finalized:
+            return jsonify({'error': 'Report is finalized'}), 403
         row.comment = comment_text
 
     db.session.commit()
-    return jsonify({
-        'success': True,
-        'comment': row.comment or '',
-    }), 200
+    return jsonify({'success': True, 'comment': row.comment or ''}), 200
 
 @recovery_bp.route('/flag-loan/<int:loan_id>', methods=['POST'])
 @jwt_required()

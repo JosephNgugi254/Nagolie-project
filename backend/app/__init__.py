@@ -128,44 +128,61 @@ def _start_schedulers(app):
 
         # ==================================================================
     
-    #    # ==================================================================
-    # Job 4: EOD snapshot freeze (every day at 21:00 UTC = 00:00 EAT)
-    # ------------------------------------------------------------------
-    # Freezes the day that has just ended (yesterday in EAT terms).
-    # Idempotent — already-finalized days are left alone.
     # ==================================================================
-    def _eod_snapshot_job():
+    # Job 4: HOURLY REFRESH OF TODAY'S SNAPSHOTS
+    # ------------------------------------------------------------------
+    # Keeps today's ReportComment rows in sync with the live Recovery
+    # Module without ever recomputing a past day.
+    # ==================================================================
+    def _hourly_refresh_job():
+        with app.app_context():
+            try:
+                from app.routes.admin import refresh_today_snapshots
+                result = refresh_today_snapshots()
+                app.logger.info(f"[snapshot_refresh] {result}")
+            except Exception as e:
+                app.logger.exception(f"[snapshot_refresh] failed: {e}")
+    
+    scheduler.add_job(
+        func=_hourly_refresh_job,
+        trigger="cron",
+        minute=0,                    # top of every hour
+        id="snapshot_refresh",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
+    )
+    
+    # ==================================================================
+    # Job 5: MIDNIGHT EAT FREEZE  (21:00 UTC = 00:00 EAT)
+    # ------------------------------------------------------------------
+    # Marks yesterday's rows finalized. No recompute.
+    # ==================================================================
+    def _midnight_freeze_job():
         with app.app_context():
             try:
                 from datetime import timedelta
-                from app.routes.admin import create_daily_snapshots
+                from app.routes.admin import freeze_day_snapshots
                 from app.utils.time import today_eat
-
+    
                 target = today_eat() - timedelta(days=1)
-                result = create_daily_snapshots(target)
-
-                app.logger.info(
-                    f"[eod_snapshot] date={result['date']} "
-                    f"created={result['created']} "
-                    f"finalized={result['finalized']} "
-                    f"skipped={result['skipped']} "
-                    f"total_pairs={result['total_pairs']}"
-                )
+                result = freeze_day_snapshots(target)
+                app.logger.info(f"[snapshot_freeze] {result}")
             except Exception as e:
-                app.logger.exception(f"[eod_snapshot] failed: {e}")
-
+                app.logger.exception(f"[snapshot_freeze] failed: {e}")
+    
     scheduler.add_job(
-        func=_eod_snapshot_job,
+        func=_midnight_freeze_job,
         trigger="cron",
-        hour=21,
+        hour=21,                     # 21:00 UTC = 00:00 EAT
         minute=0,
-        id="eod_snapshot",
+        id="snapshot_freeze",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,
     )
-
     scheduler.start()
 
 def create_app(config_class=Config):

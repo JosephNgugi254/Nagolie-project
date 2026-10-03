@@ -5,6 +5,17 @@ import { adminAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import { generateOfficerReportPDF } from '../admin/ReceiptPDF';
 
+// ── EAT "today" — Africa/Nairobi is UTC+3, no DST ──
+const todayEAT = () => {
+  const nowMs = Date.now();
+  const eatMs = nowMs + 3 * 60 * 60 * 1000;      // shift into EAT wall-clock
+  const d = new Date(eatMs);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 const DAY_MAP = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const formatAmount = (val) =>
@@ -22,7 +33,7 @@ const LoanReports = () => {
 
   const [officers, setOfficers] = useState([]);
   const [selectedOfficerId, setSelectedOfficerId] = useState('');
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
+  const [reportDate, setReportDate] = useState(todayEAT());
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -240,7 +251,7 @@ const LoanReports = () => {
                 type="date"
                 className="form-control"
                 value={reportDate}
-                max={new Date().toISOString().split('T')[0]}
+                max={todayEAT()}
                 onChange={(e) => setReportDate(e.target.value)}
               />
             </div>
@@ -294,7 +305,7 @@ const LoanReports = () => {
         </div>
       </div>
 
-      {/* Client lookup (unchanged) */}
+      {/* Client lookup */}
       {showSearch && (
         <div className="card mt-4">
           <div className="card-header bg-secondary text-white d-flex justify-content-between align-items-center">

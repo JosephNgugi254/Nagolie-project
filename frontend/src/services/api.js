@@ -237,9 +237,7 @@ export const adminAPI = {
 
   auditReports: (startDate, endDate) =>
     api.get(`/admin/reports/audit?start_date=${startDate}&end_date=${endDate}`),
-  
-  repairReports: (startDate, endDate) =>
-    api.post('/admin/reports/repair', { start_date: startDate, end_date: endDate, force: true }),
+
   
 };
 

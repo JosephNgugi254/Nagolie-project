@@ -5,6 +5,19 @@ import { recoveryAPI } from '../../services/api';
 import { showToast } from '../common/Toast';
 import { generateOfficerReportPDF } from '../admin/ReceiptPDF';
 
+// ── EAT "today" — Africa/Nairobi is UTC+3, no DST ──
+// Returns a YYYY-MM-DD string in EAT wall-clock.
+// Avoids the UTC bug where toISOString() rolls the date over at 03:00 EAT.
+const todayEAT = () => {
+  const nowMs = Date.now();
+  const eatMs = nowMs + 3 * 60 * 60 * 1000;      // shift into EAT wall-clock
+  const d = new Date(eatMs);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
 const formatAmount = (val) =>
   Number(val || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
 
@@ -19,7 +32,7 @@ const ReportsPanel = () => {
   const { user } = useAuth();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
+  const [reportDate, setReportDate] = useState(todayEAT());
   const [assignedDaysString, setAssignedDaysString] = useState('');
   const [approval, setApproval] = useState({
     status: 'pending', general_remarks: '', approved_by: null, approved_at: null,
@@ -29,12 +42,9 @@ const ReportsPanel = () => {
   const fetchingRef = useRef(false);
   const saveTimeouts = useRef({});
 
-  const isPastReport = (() => {
-    const today = new Date().toISOString().split('T')[0];
-    return reportDate < today;
-  })();
+  const isPastReport = reportDate < todayEAT();
 
-    const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
     setLoading(true);
@@ -140,6 +150,7 @@ const ReportsPanel = () => {
             className="form-control form-control-sm bg-light"
             style={{ maxWidth: 170 }}
             value={reportDate}
+            max={todayEAT()}
             onChange={(e) => setReportDate(e.target.value)}
           />
         </div>
