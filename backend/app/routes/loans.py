@@ -248,13 +248,26 @@ def apply_for_loan():
         if data.get('photos'):
             from app.utils.cloudinary_upload import upload_base64_image
 
-            for img in data['photos']:
+            for idx, img in enumerate(data['photos']):
+                if not img:
+                    continue
                 try:
                     url = upload_base64_image(img, folder='loan_applications')
+                    if not url:
+                        return jsonify({
+                            'success': False,
+                            'error': f'Photo #{idx+1} upload returned no URL — application not created'
+                        }), 502
                     photo_urls.append(url)
-                except Exception as upload_error:
-                    print(f"Failed to upload one loan photo: {str(upload_error)}")
-                    continue
+                except Exception as e:
+                    current_app.logger.exception(
+                        f"[apply_for_loan] photo #{idx+1} upload failed"
+                    )
+                    return jsonify({
+                        'success': False,
+                        'error': f'Photo #{idx+1} could not be uploaded. Please retry.',
+                        'details': str(e),
+                    }), 502
 
         # Check if client already exists
         client = Client.query.filter_by(id_number=data['id_number']).first()

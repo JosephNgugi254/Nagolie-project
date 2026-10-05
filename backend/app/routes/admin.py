@@ -24,6 +24,7 @@ import os
 import cloudinary.uploader
 from flask import url_for, send_file
 import io
+from app.utils.cloudinary_upload import upload_base64_image
 from app.services.livestock_gallery import (
     build_admin_gallery,
     build_public_gallery,
@@ -1084,61 +1085,174 @@ def get_all_transactions():
 
 @admin_bp.route('/livestock', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'hr_manager'])
+@role_required(['admin', 'director', 'valuer'])  # adjust roles to match your app
 def add_livestock():
+    data = request.get_json() or {}
+
     try:
-        data = request.json
-        desc = data.get('description', '').strip() or generate_livestock_description(data.get('type', '').capitalize(), data.get('count', 1))
+        # ------------------------------------------------------------
+        # 1. Validate required fields (adjust to your model)
+        # ------------------------------------------------------------
+        required = ['livestock_type', 'client_id']
+        missing = [f for f in required if not data.get(f)]
+        if missing:
+            return jsonify({
+                'error': f'Missing required fields: {", ".join(missing)}'
+            }), 400
+
+        # ------------------------------------------------------------
+        # 2. Upload images FIRST — fail loudly if anything breaks
+        # ------------------------------------------------------------
         image_urls = []
-        if data.get('images'):
-            from app.utils.cloudinary_upload import upload_base64_image
-            for img in data['images']:
-                try:
-                    image_urls.append(upload_base64_image(img, folder='livestock'))
-                except Exception as e:
-                    print(f"Image upload failed: {e}")
-        lv = Livestock(client_id=None, livestock_type=data['type'], count=data['count'],
-                       estimated_value=Decimal(str(data['price'])), description=desc,
-                       location=data.get('location', 'Isinya, Kajiado'), photos=image_urls, status='active')
+        upload_errors = []
+
+        for idx, img in enumerate(data.get('images') or []):
+            if not img:
+                continue
+
+            # Already-uploaded URL (e.g. user kept an existing photo)
+            if isinstance(img, str) and img.startswith('http'):
+                image_urls.append(img)
+                continue
+
+            try:
+                url = upload_base64_image(img, folder='livestock')
+                if url:
+                    image_urls.append(url)
+                else:
+                    upload_errors.append(f'image #{idx + 1}: empty URL')
+            except Exception as e:
+                current_app.logger.exception(
+                    f"[add_livestock] image #{idx + 1} upload failed"
+                )
+                upload_errors.append(f'image #{idx + 1}: {e}')
+
+        if upload_errors:
+            current_app.logger.error(
+                "[add_livestock] Cloudinary failures: " + "; ".join(upload_errors)
+            )
+            return jsonify({
+                'error': 'One or more images could not be uploaded. Nothing was saved.',
+                'details': upload_errors,
+            }), 502
+
+        # ------------------------------------------------------------
+        # 3. Create the Livestock record
+        # ------------------------------------------------------------
+        lv = Livestock(
+            livestock_type=data.get('livestock_type'),
+            breed=data.get('breed'),
+            age=data.get('age'),
+            weight=data.get('weight'),
+            price=data.get('price'),
+            description=data.get('description'),
+            client_id=data.get('client_id'),
+            photos=image_urls,          # model field is `photos`
+            # add any other fields your model needs
+        )
+
         db.session.add(lv)
         db.session.commit()
-        return jsonify({'success': True, 'message': 'Added', 'livestock': lv.to_dict()}), 201
+
+        return jsonify({
+            'success': True,
+            'id': lv.id,
+            'photos': lv.photos,
+        }), 201
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT'])
+        current_app.logger.exception("[add_livestock] failed")
+        return jsonify({
+            'error': 'Failed to create livestock',
+            'details': str(e),
+        }), 500
+    
+@admin_bp.route('/livestock/<int:livestock_id>', methods=['PUT', 'PATCH'])
 @jwt_required()
-@role_required(['admin', 'director', 'hr_manager'])
+@role_required(['admin', 'director', 'valuer'])  # adjust roles to match your app
 def update_livestock(livestock_id):
+    lv = db.session.get(Livestock, livestock_id)
+    if not lv:
+        return jsonify({'error': 'Livestock not found'}), 404
+
+    data = request.get_json() or {}
+
     try:
-        lv = db.session.get(Livestock, livestock_id)
-        if not lv:
-            return jsonify({'error': 'Not found'}), 404
-        data = request.json
-        if 'type'        in data: lv.livestock_type   = data['type']
-        if 'count'       in data: lv.count             = data['count']
-        if 'price'       in data: lv.estimated_value   = Decimal(str(data['price']))
-        if 'description' in data: lv.description       = data['description'].strip()
-        if 'location'    in data: lv.location          = data['location'].strip()
+        # ------------------------------------------------------------
+        # 1. Handle images if the client sent them
+        # ------------------------------------------------------------
         if 'images' in data:
-            from app.utils.cloudinary_upload import upload_base64_image
-            urls = []
-            for img in data['images']:
+            incoming = data.get('images') or []
+            final_urls = []
+            upload_errors = []
+
+            for idx, img in enumerate(incoming):
+                if not img:
+                    continue
+
+                # Keep existing Cloudinary URLs
                 if isinstance(img, str) and img.startswith('http'):
-                    urls.append(img)
-                else:
-                    try:
-                        urls.append(upload_base64_image(img, folder='livestock'))
-                    except Exception as e:
-                        print(f"Image upload failed: {e}")
-            lv.photos = urls
+                    final_urls.append(img)
+                    continue
+
+                try:
+                    url = upload_base64_image(img, folder='livestock')
+                    if not url:
+                        upload_errors.append(f'image #{idx + 1}: empty URL')
+                    else:
+                        final_urls.append(url)
+                except Exception as e:
+                    current_app.logger.exception(
+                        f"[update_livestock] image #{idx + 1} upload failed for lv={livestock_id}"
+                    )
+                    upload_errors.append(f'image #{idx + 1}: {e}')
+
+            if upload_errors:
+                current_app.logger.error(
+                    f"[update_livestock] Cloudinary failures for lv={livestock_id}: "
+                    + "; ".join(upload_errors)
+                )
+                return jsonify({
+                    'error': 'One or more images could not be uploaded. Nothing was saved.',
+                    'details': upload_errors,
+                }), 502
+
+            # Only overwrite photos if every upload succeeded
+            lv.photos = final_urls
+
+        # ------------------------------------------------------------
+        # 2. Update other fields if present
+        # ------------------------------------------------------------
+        for field in [
+            'livestock_type',
+            'breed',
+            'age',
+            'weight',
+            'price',
+            'description',
+            'client_id',
+        ]:
+            if field in data:
+                setattr(lv, field, data[field])
+
         db.session.commit()
-        return jsonify({'success': True, 'livestock': lv.to_dict()}), 200
+
+        return jsonify({
+            'success': True,
+            'id': lv.id,
+            'photos': lv.photos,
+        }), 200
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
+        current_app.logger.exception(
+            f"[update_livestock] failed for lv={livestock_id}"
+        )
+        return jsonify({
+            'error': 'Failed to update livestock',
+            'details': str(e),
+        }), 500
 
 @admin_bp.route('/livestock/<int:livestock_id>', methods=['DELETE'])
 @jwt_required()
