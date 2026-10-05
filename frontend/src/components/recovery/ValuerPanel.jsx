@@ -9,23 +9,42 @@ import { generateValuerReportFromData, generateLoanInvoicePDF } from '../admin/R
 import PaymentModal from './PaymentModal';
 
 /**
+ * Which roles may VIEW the flagged-clients panel at all.
+ * Keep this list in sync with the backend decorator on
+ * `GET /api/recovery/flagged-clients`.
+ */
+const CAN_VIEW_FLAGGED = (user) => {
+  if (!user) return false;
+  const role = (user.role || '').toLowerCase();
+  const username = (user.username || '').toLowerCase();
+  return (
+    ['valuer', 'admin', 'director', 'hr_manager'].includes(role) ||
+    username === 'annie'
+  );
+};
+
+/**
  * ValuerPanel props:
  *  - editable   (default true)  → show the notes textarea, allow saving own notes
  *  - monitorMode(default false) → read ALL valuers' notes for each flagged loan (read-only)
  *  - canResolve (default null)  → show the Resolve button. If null, falls back to `editable`.
  *
  * Typical usage:
- *   <ValuerPanel />                                      // valuer: writes own notes, can resolve
+ *   <ValuerPanel />                                          // valuer: writes own notes, can resolve
  *   <ValuerPanel editable={false} monitorMode canResolve />  // Annie: reads all notes, can resolve
  */
 const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }) => {
   const { user, userRole } = useAuth();
 
+  // ── Access guard ────────────────────────────────────────────────────────
+  const canView = CAN_VIEW_FLAGGED(user);
+
   // Default canResolve to `editable` if not explicitly provided
   const canResolveFinal = canResolve === null ? editable : canResolve;
 
   const [flaggedClients, setFlaggedClients] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Only start in "loading" if we're actually going to fetch
+  const [loading, setLoading] = useState(canView);
   const [selectedClient, setSelectedClient] = useState(null);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [reportComments, setReportComments] = useState([]);
@@ -69,17 +88,24 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
   };
 
   // ────────────────────────────── Data loading ───────────────────────────
-  // Fetch flagged clients
+  // Fetch flagged clients (SKIPPED ENTIRELY for users who can't view them)
   const fetchFlagged = useCallback(async () => {
+    if (!canView) return;                    // ← hard stop, no request
     try {
       const res = await recoveryAPI.getFlaggedClients();
       setFlaggedClients(res.data || []);
     } catch (err) {
-      showToast.error('Failed to load flagged clients');
+      const status = err.response?.status;
+      // 401/403 = permission issue, already handled by the outer guard.
+      // Do NOT spam the user with a toast they can't act on.
+      if (status !== 401 && status !== 403) {
+        showToast.error('Failed to load flagged clients');
+      }
+      setFlaggedClients([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canView]);
 
   useEffect(() => {
     fetchFlagged();
@@ -87,6 +113,7 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
 
   // Monitor mode → fetch every valuer's notes for every flagged loan
   useEffect(() => {
+    if (!canView) return;                    // ← same guard here
     if (!monitorMode) return;
     const run = async () => {
       setLoadingAllNotes(true);
@@ -94,14 +121,18 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
         const res = await recoveryAPI.getAllValuerNotes();
         setAllValuerNotes(res.data || {});
       } catch (err) {
-        console.error('Failed to load all valuer notes', err);
-        showToast.error('Failed to load valuer notes');
+        const status = err.response?.status;
+        if (status !== 401 && status !== 403) {
+          console.error('Failed to load all valuer notes', err);
+          showToast.error('Failed to load valuer notes');
+        }
+        setAllValuerNotes({});
       } finally {
         setLoadingAllNotes(false);
       }
     };
     run();
-  }, [monitorMode]);
+  }, [monitorMode, canView]);
 
   // Auto-set branch filter based on logged-in valuer's default_branch
   useEffect(() => {
@@ -237,6 +268,23 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
     userRole === 'deputy_director' ||
     userRole === 'hr_manager'
   );
+
+  // ────────────────────────── Access-restricted view ─────────────────────
+  // If the current user is not allowed to see flagged clients, render a
+  // graceful placeholder instead of trying (and failing) to fetch.
+  if (!canView) {
+    return (
+      <div className="card shadow-sm">
+        <div className="card-body text-center py-5">
+          <i className="fas fa-lock fa-3x text-muted mb-3"></i>
+          <h5 className="text-muted">Access restricted</h5>
+          <p className="text-muted mb-0">
+            Recovery reports are visible to Valuers, Directors, HR and Annie only.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // ─────────────────────────────── Render ────────────────────────────────
   if (loading) {

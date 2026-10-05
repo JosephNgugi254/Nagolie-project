@@ -75,7 +75,7 @@ def seed():
                              'payment-stats', 'transactions', 'reports', 'utilities', 'settings'],
             'accountant': ['recovery', 'reports', 'inbox', 'utilities', 'settings'],
             'valuer': ['recovery', 'reports', 'inbox','utilities', 'settings'],
-            'head_of_it': ['recovery', 'inbox','loan-reports', 'financial-reports', 'settings', 'utilities'],
+            'head_of_it': ['recovery', 'inbox', 'settings', 'utilities'],
             'deputy_director': ['recovery', 'reports', 'inbox', 'settings', 'utilities'],
             'hr_manager': ['overview', 'recovery', 'inbox', 'applications', 'payment-stats',
                    'transactions', 'gallery', 'report-management','loan-reports','salaries', 'utilities', 'settings'],

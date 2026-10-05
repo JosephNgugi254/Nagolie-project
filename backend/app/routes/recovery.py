@@ -1202,7 +1202,7 @@ def resolve_flag(loan_id):
 @recovery_bp.route('/flagged-clients', methods=['GET'])
 @jwt_required()
 @role_or_username_required(
-    allowed_roles=['valuer', 'admin', 'director', 'hr_manager'],
+    allowed_roles=['valuer', 'admin', 'director', 'hr_manager' , 'head_of_it'],
     allowed_usernames=['Annie']
 )
 def get_flagged_clients():
