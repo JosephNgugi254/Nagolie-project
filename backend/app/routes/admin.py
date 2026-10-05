@@ -616,7 +616,7 @@ def get_applications():
         return jsonify({'error': str(e)}), 500
 
 # ---------------------------------------------------------------------------
-# Approve application (with ledger entry)
+# Approve application
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/applications/<int:loan_id>/approve', methods=['POST'])
@@ -628,7 +628,7 @@ def approve_application(loan_id):
         funding_source = data.get('funding_source', 'company')
         investor_id    = data.get('investor_id')
 
-        # ---------- NEW: disbursement method + reference ----------
+        # ---------- disbursement method + reference ----------
         disbursement_method    = (data.get('disbursement_method') or 'bank').strip().lower()
         disbursement_reference = (data.get('disbursement_reference') or '').strip()
 
@@ -636,7 +636,33 @@ def approve_application(loan_id):
             return jsonify({'error': 'disbursement_method must be "bank" or "cash"'}), 400
         if disbursement_method == 'bank' and not disbursement_reference:
             return jsonify({'error': 'Reference code is required for bank transfers'}), 400
-        # ----------------------------------------------------------
+
+        # ---------- NEW: valuer's collateral figures ----------
+        current_market_value = data.get('current_market_value')
+        forced_value         = data.get('forced_value')
+
+        # Forced Value is mandatory and must be positive — it is the binding
+        # collateral figure used everywhere downstream.
+        try:
+            forced_value_dec = (
+                Decimal(str(forced_value))
+                if forced_value not in (None, '') else None
+            )
+        except Exception:
+            return jsonify({'error': 'forced_value must be a number'}), 400
+
+        if forced_value_dec is None or forced_value_dec <= 0:
+            return jsonify({'error': 'Forced Value is required and must be positive'}), 400
+
+        # Current Market Value is optional (for reference only)
+        try:
+            current_market_dec = (
+                Decimal(str(current_market_value))
+                if current_market_value not in (None, '') else None
+            )
+        except Exception:
+            return jsonify({'error': 'current_market_value must be a number'}), 400
+        # --------------------------------------------------------
 
         loan = db.session.get(Loan, loan_id)
         if not loan:
@@ -659,16 +685,14 @@ def approve_application(loan_id):
             if loan.principal_amount > available_balance:
                 return jsonify({'error': f'Insufficient funds. Available: {float(available_balance):.2f}'}), 400
 
-        now        = datetime.utcnow()
+        now         = datetime.utcnow()
         approver_id = int(get_jwt_identity())
 
         loan.status            = 'active'
         loan.disbursement_date = now
 
-        # ---------- NEW: stamp approver ----------
         loan.approved_by = approver_id
         loan.approved_at = now
-        # ----------------------------------------
 
         if loan.repayment_plan == 'daily':
             loan.interest_rate = Decimal('4.5')
@@ -692,28 +716,34 @@ def approve_application(loan_id):
         if funding_source == 'investor' and investor:
             loan.investor_id = investor.id
 
-        # ---------- UPDATED: transaction records method + reference ----------
+        # ---------- transaction record ----------
         txn = Transaction(
             loan_id=loan.id,
             transaction_type='disbursement',
             amount=loan.principal_amount,
-            payment_method=disbursement_method,                      # 'bank' | 'cash'
+            payment_method=disbursement_method,
             reference=(disbursement_reference
-                       if disbursement_method == 'bank' else None),  # bank ref code
+                       if disbursement_method == 'bank' else None),
             notes=f'Loan approved. Plan: {loan.repayment_plan}. '
                   f'Funding: {funding_source}. Method: {disbursement_method}',
             status='completed',
             created_at=now,
-            created_by=approver_id,                                  # who did it
+            created_by=approver_id,
         )
         db.session.add(txn)
 
+        # ---------- CHANGED: persist valuer's figures on the livestock row ----------
         if loan.livestock:
             if funding_source == 'investor' and investor:
                 loan.livestock.investor_id    = investor.id
                 loan.livestock.ownership_type = 'investor'
             else:
                 loan.livestock.ownership_type = 'company'
+
+            # NEW: the binding valuation — used everywhere from now on
+            loan.livestock.current_market_value = current_market_dec
+            loan.livestock.forced_value         = forced_value_dec
+        # ---------------------------------------------------------------------------
 
         db.session.commit()
 
@@ -722,7 +752,7 @@ def approve_application(loan_id):
         loan = recalculate_loan(loan)
         db.session.commit()
 
-        # ---------- UPDATED: ledger carries the real reference ----------
+        # ---------- ledger ----------
         record_ledger_entry(
             loan=loan,
             event_type='disbursement',
@@ -755,12 +785,15 @@ def approve_application(loan_id):
                 f"No officer assigned to weekday {weekday} for loan {loan.id}"
             )
 
+        # ---------- CHANGED: audit trail carries the two figures ----------
         log_audit('loan_approved', 'loan', loan.id, {
             'client': loan.client.full_name if loan.client else '?',
             'amount': float(loan.principal_amount),
             'plan': loan.repayment_plan,
             'disbursement_method': disbursement_method,
             'disbursement_reference': disbursement_reference or None,
+            'current_market_value': float(current_market_dec) if current_market_dec is not None else None,
+            'forced_value':         float(forced_value_dec),
         })
 
         return jsonify({
@@ -776,7 +809,7 @@ def approve_application(loan_id):
         db.session.rollback()
         import traceback; traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-        
+            
 # ---------------------------------------------------------------------------
 # Reject application (unchanged)
 # ---------------------------------------------------------------------------
@@ -1458,12 +1491,22 @@ def get_approved_loans():
             Client.full_name.label('client_name'),
             Client.phone_number, Client.id_number,
             Client.location.label('client_location'),
-            # ── NEW: Next of Kin columns ──
             Client.next_of_kin_name,
             Client.next_of_kin_id,
             Client.next_of_kin_relationship,
             Client.next_of_kin_phone,
-            Livestock.livestock_type, Livestock.count, Livestock.estimated_value,
+            Livestock.livestock_type, Livestock.count,
+            # ── CHANGED: pull all three value columns ──
+            Livestock.estimated_value,
+            Livestock.current_market_value,
+            Livestock.forced_value,
+            # Coalesced "collateral value" — forced value wins when present,
+            # otherwise falls back to estimated_value (legacy loans).
+            func.coalesce(
+                Livestock.forced_value,
+                Livestock.estimated_value
+            ).label('collateral_value'),
+            # ─────────────────────────────────────────────
             Livestock.photos, Livestock.location.label('livestock_location'),
             Livestock.production_classification,
             approver.username.label('approved_by_username'),
@@ -1493,7 +1536,15 @@ def get_approved_loans():
             'loanAmount': float(l.principal_amount),
             'livestockType': l.livestock_type or 'N/A',
             'livestockCount': l.count or 0,
-            'estimatedValue': float(l.estimated_value) if l.estimated_value else 0,
+
+            # ── CHANGED: three distinct values in the payload ──
+            'collateralValue':    float(l.collateral_value)    if l.collateral_value    is not None else 0,
+            'currentMarketValue': float(l.current_market_value) if l.current_market_value is not None else None,
+            'forcedValue':        float(l.forced_value)        if l.forced_value        is not None else None,
+            # Legacy key — kept so nothing downstream breaks
+            'estimatedValue':     float(l.estimated_value)     if l.estimated_value     is not None else 0,
+            # ────────────────────────────────────────────────────
+
             'location': l.client_location or l.livestock_location or 'N/A',
             'additionalInfo': l.notes or 'None provided',
             'photos': l.photos or [],
@@ -1503,7 +1554,6 @@ def get_approved_loans():
             'approvedBy': l.approved_by_username or legacy_map.get(l.id, 'N/A'),
             'approvedAt': (l.approved_at.isoformat() + 'Z') if l.approved_at else None,
 
-            # ── NEW: Next of Kin ──
             'nextOfKinName':         l.next_of_kin_name         or '',
             'nextOfKinIdNumber':     l.next_of_kin_id           or '',
             'nextOfKinRelationship': l.next_of_kin_relationship or '',
@@ -1512,7 +1562,7 @@ def get_approved_loans():
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'error': 'Failed to load approved loans'}), 500
-        
+            
 # ---------------------------------------------------------------------------
 # Investor routes (unchanged)
 # ---------------------------------------------------------------------------

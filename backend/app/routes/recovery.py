@@ -93,8 +93,6 @@ def _compute_collateral_status(loan, unpaid_interest, collateral_value):
 ])
 def get_recovery_data():
     # ── Opportunistic reversion: cheap, index-backed, runs on an empty set most calls.
-    #    Safety net for environments where the hourly scheduler may miss a tick
-    #    (process restarts, cold starts on Render, etc.).
     try:
         from app.services.waiver_reverter import run_waiver_reversion
         run_waiver_reversion()
@@ -138,7 +136,6 @@ def get_recovery_data():
         )
 
         # ── Prepaid / weekly prepayment bookkeeping ────────────────────────
-        # (Only meaningful for weekly plans, but harmless to compute for others.)
         current_period = _get_current_period_key(loan)
         raw_weekly_interest = (
             loan.current_principal * Decimal('0.30')
@@ -166,7 +163,6 @@ def get_recovery_data():
                 max(Decimal('0'), loan.accrued_interest - loan.interest_paid)
             )
         else:
-            # Waived (0%) — no interest accrues regardless of plan.
             periodic_interest = 0.0
             unpaid_interest = 0.0
 
@@ -187,10 +183,6 @@ def get_recovery_data():
         else:
             days_left = 0
 
-        # ── Waiver flag ────────────────────────────────────────────────────
-        # A waiver is defined SOLELY by 0% interest.
-        # The repayment_plan (weekly / daily) is preserved throughout the
-        # waiver window, so keying on `repayment_plan == 'daily'` was wrong.
         is_waiver = (loan.interest_rate == 0)
 
         original_principal = None
@@ -199,14 +191,18 @@ def get_recovery_data():
                 parent = db.session.get(Loan, loan.parent_loan_id)
                 if parent:
                     original_principal = float(parent.principal_amount)
-            # Legacy waived rows without a parent: fall back to own principal.
             if original_principal is None:
                 original_principal = float(loan.principal_amount)
 
-        # ── Collateral traffic-light ───────────────────────────────────────
+        # ── CHANGED: collateral value via the model property ───────────────
+        # For new loans this resolves to livestock.forced_value; for legacy
+        # loans it falls back to livestock.estimated_value. Same expression
+        # for both cases, so nothing else in this function changes.
         collateral_value = (
-            float(lv.estimated_value) if lv and lv.estimated_value else 0.0
+            float(lv.collateral_value) if lv and lv.collateral_value else 0.0
         )
+        # ───────────────────────────────────────────────────────────────────
+
         collateral_status, next_period_total = _compute_collateral_status(
             loan, unpaid_interest, collateral_value
         )
@@ -220,6 +216,18 @@ def get_recovery_data():
             'name': client.full_name if client else 'Unknown',
             'collateral': collateral,
             'collateral_value': collateral_value,
+
+            # ── NEW: optional secondary figures for tooltips ──
+            'current_market_value': (
+                float(lv.current_market_value)
+                if lv and lv.current_market_value is not None else None
+            ),
+            'forced_value': (
+                float(lv.forced_value)
+                if lv and lv.forced_value is not None else None
+            ),
+            # ──────────────────────────────────────────────────
+
             'collateral_status': collateral_status,
             'next_period_total': next_period_total,
             'location': client.location if client else '',
@@ -234,7 +242,6 @@ def get_recovery_data():
             'is_defaulter': is_defaulter,
             'repayment_plan': loan.repayment_plan,
             'interest_type': loan.interest_type,
-            # ── Gated: 0 during waiver, real value otherwise ──────────────
             'current_period_interest': (
                 float(raw_weekly_interest) if loan.interest_rate > 0 else 0.0
             ),
@@ -1202,7 +1209,7 @@ def resolve_flag(loan_id):
 @recovery_bp.route('/flagged-clients', methods=['GET'])
 @jwt_required()
 @role_or_username_required(
-    allowed_roles=['valuer', 'admin', 'director', 'hr_manager' , 'head_of_it'],
+    allowed_roles=['valuer', 'admin', 'director', 'hr_manager', 'head_of_it'],
     allowed_usernames=['Annie']
 )
 def get_flagged_clients():
@@ -1232,10 +1239,12 @@ def get_flagged_clients():
         else:
             unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
 
-        # Collateral value from livestock
-        collateral_value = float(livestock.estimated_value) if livestock else 0
+        # ── CHANGED: collateral value uses the model property ──────────────
+        # For new loans = forced_value; for legacy loans = estimated_value.
+        collateral_value = float(livestock.collateral_value) if livestock else 0
+        # ───────────────────────────────────────────────────────────────────
 
-        # ---- Per-user notes (current user's own note only) ----
+        # Per-user notes (current user's own note only)
         my_note = FlaggedLoanNote.query.filter_by(
             loan_id=loan.id,
             user_id=current_user_id
@@ -1251,10 +1260,28 @@ def get_flagged_clients():
             'current_principal': float(loan.current_principal),
             'unpaid_interest': unpaid_interest,
             'total_outstanding': float(loan.current_principal) + unpaid_interest,
+
+            # ── CHANGED: collateral_value is now the forced value for new loans
             'collateral_value': collateral_value,
+
+            # ── NEW: optional secondary figures for the valuer panel ──
+            'current_market_value': (
+                float(livestock.current_market_value)
+                if livestock and livestock.current_market_value is not None else None
+            ),
+            'forced_value': (
+                float(livestock.forced_value)
+                if livestock and livestock.forced_value is not None else None
+            ),
+            'estimated_value': (
+                float(livestock.estimated_value)
+                if livestock and livestock.estimated_value is not None else None
+            ),
+            # ────────────────────────────────────────────────────────────
+
             'flagged_at': f.flagged_at.isoformat() + 'Z',
             'flagged_by_username': f.flagger.username if f.flagger else None,
-            'valuer_notes': my_notes_text,     # <-- current user's notes only
+            'valuer_notes': my_notes_text,
             'repayment_plan': loan.repayment_plan,
             'interest_rate': float(loan.interest_rate),
             'location': client.location if client and client.location else '',
@@ -1262,7 +1289,6 @@ def get_flagged_clients():
             'due_date': loan.due_date.isoformat() if loan.due_date else None,
             'livestock_type': livestock.livestock_type if livestock else 'N/A',
             'livestock_count': livestock.count if livestock else 0,
-            'estimated_value': collateral_value,
             'photos': livestock.photos if livestock and livestock.photos else [],
             'client_id': client.id if client else None,
         })
@@ -1380,7 +1406,9 @@ def get_bad_debt_loans():
         loan = recalculate_loan(loan)
         client = loan.client
         livestock = loan.livestock
-        collateral = loan.collateral_text or (f"{livestock.count} {livestock.livestock_type}" if livestock else '')
+        collateral = loan.collateral_text or (
+            f"{livestock.count} {livestock.livestock_type}" if livestock else ''
+        )
 
         # Unpaid interest (same logic as recovery)
         if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
@@ -1398,8 +1426,13 @@ def get_bad_debt_loans():
         due = loan.due_date.date() if loan.due_date else None
         days_left = (due - datetime.utcnow().date()).days if due else 0
 
-        # ---------- NEW: collateral value + traffic-light status ----------
-        collateral_value = float(livestock.estimated_value) if livestock and livestock.estimated_value else 0.0
+        # ── CHANGED: collateral value via the model property ───────────────
+        collateral_value = (
+            float(livestock.collateral_value)
+            if livestock and livestock.collateral_value else 0.0
+        )
+        # ───────────────────────────────────────────────────────────────────
+
         collateral_status, next_period_total = _compute_collateral_status(
             loan, unpaid_interest, collateral_value
         )
@@ -1409,15 +1442,33 @@ def get_bad_debt_loans():
             'disbursement_date': loan.disbursement_date.isoformat() + 'Z' if loan.disbursement_date else None,
             'name': client.full_name if client else 'Unknown',
             'collateral': collateral,
-            'collateral_value': collateral_value,                 # NEW
-            'collateral_status': collateral_status,               # NEW
-            'next_period_total': next_period_total,               # NEW
+
+            # ── CHANGED: collateral_value now = forced value for new loans ──
+            'collateral_value': collateral_value,
+
+            # ── NEW: secondary figures ──
+            'current_market_value': (
+                float(livestock.current_market_value)
+                if livestock and livestock.current_market_value is not None else None
+            ),
+            'forced_value': (
+                float(livestock.forced_value)
+                if livestock and livestock.forced_value is not None else None
+            ),
+            'estimated_value': (
+                float(livestock.estimated_value)
+                if livestock and livestock.estimated_value is not None else None
+            ),
+            # ─────────────────────────────
+
+            'collateral_status': collateral_status,
+            'next_period_total': next_period_total,
             'location': client.location if client else '',
             'id_number': client.id_number if client else '',
             'contacts': client.phone_number if client else '',
             'principal_amount': float(loan.principal_amount),
             'current_principal': float(loan.current_principal),
-            'interest': 0.0,  # not used in table, we use accrual
+            'interest': 0.0,
             'accrued_interest': unpaid_interest,
             'week': week_number,
             'days_left': days_left,

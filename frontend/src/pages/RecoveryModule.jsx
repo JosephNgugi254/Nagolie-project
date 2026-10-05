@@ -2694,6 +2694,33 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                                 { header: "Phone", field: "phone" },
                                 { header: "ID Number", field: "idNumber" },
                                 { header: "Loan Amount", render: row => fmt(row.loanAmount) },
+                                {
+                                  header: "Collateral Value",
+                                  render: (row) => {
+                                    const forced   = row.forcedValue;
+                                    const market   = row.currentMarketValue;
+                                    const estimate = row.estimatedValue;
+                                    const display  = (forced ?? estimate) || 0;
+                                    return (
+                                      <div>
+                                        <div className="fw-bold text-primary">
+                                          {fmt(display)}
+                                          <span
+                                            className={`badge ms-1 ${forced != null ? 'bg-primary' : 'bg-secondary'}`}
+                                            style={{ fontSize: '0.6rem' }}
+                                          >
+                                            {forced != null ? 'FORCED' : 'ESTIMATE'}
+                                          </span>
+                                        </div>
+                                        {market != null && (
+                                          <div className="text-muted small">
+                                            Market: {fmt(market)}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  },
+                                },
                                 { header: "Payment Plan", render: row => row.repayment_plan === 'daily' ? 'Daily (4.5%)' : 'Weekly (30%)' },
                                 
                                 ...((userRole === 'director' || user?.username?.toLowerCase() === 'annie')
@@ -3631,7 +3658,33 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                           <p><strong>Payment Plan:</strong> {selectedApplication.repayment_plan === 'daily' ? 'Daily – 4.5% per day' : 'Weekly – 30% interest'}</p>
                           <p><strong>Livestock:</strong> {selectedApplication.livestockCount || 'N/A'} {selectedApplication.livestockType || 'N/A'}</p>
                           <p><strong>Production Classification:</strong> {selectedApplication.production_classification || 'Not specified'}</p>
-                          <p><strong>Estimated Value:</strong> {fmt(selectedApplication.estimatedValue)}</p>
+                          {/* ── CHANGED: full collateral breakdown ── */}
+                          {selectedApplication.status === 'active' ? (
+                            <>
+                              <p>
+                                <strong>Collateral — Forced Value:</strong>{" "}
+                                {selectedApplication.forcedValue != null
+                                  ? <span className="text-primary fw-bold">{fmt(selectedApplication.forcedValue)}</span>
+                                  : <span className="text-muted">Not set</span>}
+                              </p>
+                              {selectedApplication.currentMarketValue != null && (
+                                <p>
+                                  <strong>Collateral — Current Market Value:</strong>{" "}
+                                  {fmt(selectedApplication.currentMarketValue)}
+                                </p>
+                              )}
+                              <p className="text-muted small">
+                                <strong>Client-declared estimate (application):</strong>{" "}
+                                {fmt(selectedApplication.estimatedValue || 0)}
+                              </p>
+                            </>
+                          ) : (
+                            <p>
+                              <strong>Client-declared Estimated Value:</strong>{" "}
+                              {fmt(selectedApplication.estimatedValue || 0)}
+                            </p>
+                          )}
+                          {/* ─────────────────────────────────────── */}
                           <p><strong>Location:</strong> {selectedApplication.location || 'N/A'}</p>
                           <p><strong>Additional Info:</strong> {selectedApplication.additionalInfo || "None"}</p>
                           {selectedApplication.status === 'active' && <p><strong>Approval Date:</strong> {formatDate(selectedApplication.date)}</p>}

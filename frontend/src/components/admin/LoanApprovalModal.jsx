@@ -21,6 +21,9 @@ function LoanApprovalModal({
 
   const [disbursementMethod, setDisbursementMethod] = useState('bank'); // default = bank
   const [disbursementRef, setDisbursementRef]       = useState('');
+  // valuer's collateral figures, captured at approval time ──
+  const [currentMarketValue, setCurrentMarketValue] = useState('');
+  const [forcedValue, setForcedValue]               = useState('');
   
   // Add state for investor stats
   const [investorStats, setInvestorStats] = useState({})
@@ -75,17 +78,35 @@ function LoanApprovalModal({
       return;
     }
 
-    if (disbursementMethod === 'bank' && !disbursementRef.trim()) {
-    showToast.error('Reference code is required for bank transfers');
-    return;
-  }
+        if (disbursementMethod === 'bank' && !disbursementRef.trim()) {
+      showToast.error('Reference code is required for bank transfers');
+      return;
+    }
+
+    // ── NEW: Forced Value is mandatory — it becomes the binding collateral figure ──
+    const forcedNum = parseFloat(forcedValue);
+      if (!forcedValue || isNaN(forcedNum) || forcedNum <= 0) {
+      showToast.error('Forced Value is required (refer to the valuer report)');
+      return;
+    }
+
+    const marketNum = currentMarketValue === '' ? null : parseFloat(currentMarketValue);
+      if (marketNum !== null && (isNaN(marketNum) || marketNum < 0)) {
+        showToast.error('Current Market Value must be a non-negative number');
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────────────────────
 
     onApprove(application.id, {
       funding_source: fundingSource,
       investor_id: fundingSource === 'investor' ? selectedInvestor : null,
 
       disbursement_method:    disbursementMethod,                   // 'bank' | 'cash'
-      disbursement_reference: disbursementMethod === 'bank'? disbursementRef.trim().toUpperCase(): '',
+      disbursement_reference: disbursementMethod === 'bank' ? disbursementRef.trim().toUpperCase() : '',
+
+      // ── NEW ──
+      current_market_value:   marketNum,
+      forced_value:           forcedNum,
     });
   };
 
@@ -284,6 +305,70 @@ function LoanApprovalModal({
         </div>
       )}
 
+            {/* ---------- Collateral Valuation (NEW) ---------- */}
+      <div className="mb-3 border rounded p-3 bg-light">
+        <label className="form-label fw-bold mb-1">
+          <i className="fas fa-balance-scale me-1 text-primary"></i>
+          Collateral Valuation — from valuer report
+        </label>
+        <p className="small text-muted mb-2">
+          Capture the two figures from the valuer's signed report. The
+          <strong> Forced Value</strong> becomes the binding collateral value
+          used across the entire system.
+        </p>
+
+        <div className="row g-2">
+          <div className="col-md-6">
+            <label className="form-label small">Current Market Value (KES)</label>
+            <input
+              type="number"
+              className="form-control"
+              value={currentMarketValue}
+              onChange={(e) => setCurrentMarketValue(e.target.value)}
+              min="0"
+              step="100"
+              placeholder="e.g. 85000"
+              disabled={loading}
+            />
+            <small className="text-muted">For reference only — not binding.</small>
+          </div>
+
+          <div className="col-md-6">
+            <label className="form-label small">
+              Forced Value (KES) <span className="text-danger">*</span>
+            </label>
+            <input
+              type="number"
+              className="form-control"
+              value={forcedValue}
+              onChange={(e) => setForcedValue(e.target.value)}
+              min="0"
+              step="100"
+              placeholder="e.g. 70000"
+              required
+              disabled={loading}
+            />
+            <small className="text-muted">The binding collateral figure.</small>
+          </div>
+        </div>
+
+        {application?.estimatedValue > 0 && (
+          <div className="small text-muted mt-2">
+            Client-declared estimate (from application):&nbsp;
+            <strong>{formatCurrency(application.estimatedValue)}</strong>
+          </div>
+        )}
+
+        {forcedValue && application?.loanAmount &&
+         parseFloat(forcedValue) < parseFloat(application.loanAmount) && (
+          <div className="alert alert-warning mt-2 mb-0 small">
+            <i className="fas fa-exclamation-triangle me-1"></i>
+            Forced Value is <strong>below</strong> the loan amount. Recovery will treat
+            this loan as under-collateralised.
+          </div>
+        )}
+      </div>
+      {/* -------------------------------------------------- */}
       <div className="alert alert-warning">
         <i className="fas fa-exclamation-triangle me-2"></i>
         This action will approve the loan and move the client to active clients.

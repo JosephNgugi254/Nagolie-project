@@ -27,7 +27,7 @@ const AnnieReportsTabs = () => {
       </ul>
       {activeTab === 'daily'
         ? <ReportsPanel />
-        : <ValuerPanel editable={false} monitorMode={true} canResolve={true} />}
+        : <ValuerPanel editable={false} monitorMode={true} canResolve={false} />}
     </div>
   );
 };

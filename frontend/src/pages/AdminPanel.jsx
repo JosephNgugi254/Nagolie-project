@@ -2556,7 +2556,7 @@ Thank you for choosing us.`;
       setLivestockToDelete(null);
     }
   }; 
-  
+
   const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files)
     if (files.length === 0) return
@@ -3511,6 +3511,33 @@ Thank you for choosing us.`;
                                 { header: "Phone", field: "phone" },
                                 { header: "Amount", field: "loanAmount", render: (row) => formatCurrency(row.loanAmount) },
                                 { header: "Livestock", field: "livestock", render: (row) => `${row.livestockCount || ''} ${row.livestockType || ''}` },
+                                {
+                                  header: "Collateral Value",
+                                  render: (row) => {
+                                    const forced   = row.forcedValue;
+                                    const market   = row.currentMarketValue;
+                                    const estimate = row.estimatedValue;
+                                    const display  = (forced ?? estimate) || 0;
+                                    return (
+                                      <div>
+                                        <div className="fw-bold text-primary">
+                                          {formatCurrency(display)}
+                                          <span
+                                            className={`badge ms-1 ${forced != null ? 'bg-primary' : 'bg-secondary'}`}
+                                            style={{ fontSize: '0.6rem' }}
+                                          >
+                                            {forced != null ? 'FORCED' : 'ESTIMATE'}
+                                          </span>
+                                        </div>
+                                        {market != null && (
+                                          <div className="text-muted small">
+                                            Market: {formatCurrency(market)}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  },
+                                },
                                 { 
                                   header: "Status", 
                                   field: "status",
@@ -3642,6 +3669,33 @@ Thank you for choosing us.`;
                                     { header: "ID Number", field: "idNumber" },
                                     { header: "Loan Amount", field: "loanAmount", render: (row) => formatCurrency(row.loanAmount) },
                                     { header: "Livestock", field: "livestock", render: (row) => `${row.livestockCount || ''} ${row.livestockType || ''}` },
+                                    {
+                                      header: "Collateral Value",
+                                      render: (row) => {
+                                        const forced   = row.forcedValue;
+                                        const market   = row.currentMarketValue;
+                                        const estimate = row.estimatedValue;
+                                        const display  = (forced ?? estimate) || 0;
+                                        return (
+                                          <div>
+                                            <div className="fw-bold text-primary">
+                                              {formatCurrency(display)}
+                                              <span
+                                                className={`badge ms-1 ${forced != null ? 'bg-primary' : 'bg-secondary'}`}
+                                                style={{ fontSize: '0.6rem' }}
+                                              >
+                                                {forced != null ? 'FORCED' : 'ESTIMATE'}
+                                              </span>
+                                            </div>
+                                            {market != null && (
+                                              <div className="text-muted small">
+                                                Market: {formatCurrency(market)}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      },
+                                    },
                                     { header: "Location", field: "location" },
                                     { header: "Payment Plan", field: "repayment_plan", render: (row) => (
                                       row.repayment_plan === 'daily' 
@@ -4386,7 +4440,33 @@ Thank you for choosing us.`;
               <p><strong>Payment Plan:</strong> {selectedApplication.repayment_plan === 'daily'? 'Daily – 4.5% per day': 'Weekly – 30% interest'}</p>
               <p><strong>Livestock:</strong> {selectedApplication.livestockCount || 'N/A'} {selectedApplication.livestockType || 'N/A'}</p>
               <p><strong>Production Classification:</strong> {selectedApplication.production_classification || 'Not specified'}</p>
-              <p><strong>Estimated Value:</strong> {formatCurrency(selectedApplication.estimatedValue)}</p>
+                            {/* ── CHANGED: full collateral breakdown ── */}
+              {selectedApplication.status === 'active' ? (
+                <>
+                  <p>
+                    <strong>Collateral — Forced Value:</strong>{" "}
+                    {selectedApplication.forcedValue != null
+                      ? <span className="text-primary fw-bold">{formatCurrency(selectedApplication.forcedValue)}</span>
+                      : <span className="text-muted">Not set</span>}
+                  </p>
+                  {selectedApplication.currentMarketValue != null && (
+                    <p>
+                      <strong>Collateral — Current Market Value:</strong>{" "}
+                      {formatCurrency(selectedApplication.currentMarketValue)}
+                    </p>
+                  )}
+                  <p className="text-muted small">
+                    <strong>Client-declared estimate (application):</strong>{" "}
+                    {formatCurrency(selectedApplication.estimatedValue || 0)}
+                  </p>
+                </>
+              ) : (
+                <p>
+                  <strong>Client-declared Estimated Value:</strong>{" "}
+                  {formatCurrency(selectedApplication.estimatedValue || 0)}
+                </p>
+              )}
+              {/* ─────────────────────────────────────── */}
               <p><strong>Location:</strong> {selectedApplication.location || 'N/A'}</p>
               <p><strong>Additional Info:</strong> {selectedApplication.additionalInfo || "None"}</p>
               {selectedApplication.status === 'active' && (

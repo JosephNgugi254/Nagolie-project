@@ -39,8 +39,9 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
   // ── Access guard ────────────────────────────────────────────────────────
   const canView = CAN_VIEW_FLAGGED(user);
 
-  // Default canResolve to `editable` if not explicitly provided
-  const canResolveFinal = canResolve === null ? editable : canResolve;
+  const isValuer = (user?.role || '').toLowerCase() === 'valuer';
+  const canResolveFinal =
+    isValuer && (canResolve === null ? editable : canResolve);
 
   const [flaggedClients, setFlaggedClients] = useState([]);
   // Only start in "loading" if we're actually going to fetch
@@ -175,13 +176,19 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
 
   // ─────────────────────────────── Resolve ───────────────────────────────
   const handleResolveClick = (loanId) => {
-    if (!canResolveFinal) return;
+    if (!canResolveFinal || !isValuer) return;
     setResolveLoanId(loanId);
     setShowResolveModal(true);
   };
 
   const confirmResolve = async () => {
     if (!resolveLoanId) return;
+    if (!isValuer) {
+      showToast.error('Only valuers can resolve flagged clients');
+      setShowResolveModal(false);
+      setResolveLoanId(null);
+      return;
+    }
     try {
       await recoveryAPI.resolveFlag(resolveLoanId);
       showToast.success('Flag resolved, client returned to officer');
@@ -361,7 +368,29 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
                 <td>{client.current_principal.toLocaleString()}</td>
                 <td>{client.unpaid_interest.toLocaleString()}</td>
                 <td className="fw-bold text-danger">{client.total_outstanding.toLocaleString()}</td>
-                <td>{client.collateral_value.toLocaleString()}</td>
+                                <td>
+                  <div className="fw-bold text-primary">
+                    {client.collateral_value.toLocaleString()}
+                    {client.forced_value != null && (
+                      <span className="badge bg-primary ms-1" style={{ fontSize: '0.6rem' }}>
+                        FORCED
+                      </span>
+                    )}
+                  </div>
+                  {client.current_market_value != null &&
+                   client.current_market_value !== client.collateral_value && (
+                    <div className="text-muted small">
+                      Market: {client.current_market_value.toLocaleString()}
+                    </div>
+                  )}
+                  {client.estimated_value != null &&
+                   client.estimated_value !== client.collateral_value &&
+                   client.current_market_value == null && (
+                    <div className="text-muted small">
+                      Client est: {client.estimated_value.toLocaleString()}
+                    </div>
+                  )}
+                </td>
                 <td>{client.flagged_by_username}</td>
                 <td>{client.location || '—'}</td>
                 <td>

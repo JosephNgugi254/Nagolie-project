@@ -218,7 +218,7 @@ def build_display_meta(livestock, today=None):
             'client_name':    client_name,
         }
 
-    # Defensive fallback — should not be reached for an eligible row.
+    # Defensive fallback
     return {
         'is_claimed':     False,
         'is_admin_added': True,
@@ -238,13 +238,9 @@ def build_display_meta(livestock, today=None):
 def _public_description(meta):
     """
     Public-safe description. NEVER contains a client name.
-
-    Admin view uses the full 'Claimed from X' / 'Collateral for Y' text
-    (see serialize_admin); the public website must not leak borrower identity.
     """
     if meta['is_admin_added'] or meta['is_claimed']:
         return 'Livestock available for purchase'
-    # Active-loan collateral → generic. No client name.
     return 'Livestock for purchase'
 
 
@@ -263,23 +259,37 @@ def serialize_public(livestock, today=None):
         'title':         f"{livestock.livestock_type.capitalize()} - {livestock.count} head",
         'type':          livestock.livestock_type,
         'count':         livestock.count,
-        'price':         float(livestock.estimated_value) if livestock.estimated_value else 0,
-        'description':   _public_description(m),           # ← generic, no PII
+        # CHANGED: price now reflects the binding collateral value
+        # (forced_value for new loans; estimated_value for legacy).
+        'price':         livestock.collateral_value_float,
+        'description':   _public_description(m),
         'images':        livestock.photos or [],
         'availableInfo': m['available_info'],
         'daysRemaining': m['days_remaining'],
         'location':      _clean_loc(livestock.location),
     }
 
+
 def serialize_admin(livestock, today=None):
-    """Admin-safe fields — adds status flags and investor ownership."""
+    """Admin-safe fields — adds status flags, investor ownership, and the
+    three collateral-value keys so the admin can inspect them side-by-side."""
     m = build_display_meta(livestock, today)
     return {
         'id':             livestock.id,
         'title':          f"{livestock.livestock_type.capitalize()} - {livestock.count} head",
         'type':           livestock.livestock_type,
         'count':          livestock.count,
-        'price':          float(livestock.estimated_value) if livestock.estimated_value else 0,
+
+        # CHANGED: price = binding collateral value
+        'price':          livestock.collateral_value_float,
+
+        # NEW: full value breakdown
+        'collateral_value':    livestock.collateral_value_float,
+        'forced_value':        float(livestock.forced_value)         if livestock.forced_value         is not None else None,
+        'current_market_value': float(livestock.current_market_value) if livestock.current_market_value is not None else None,
+        'estimated_value':     float(livestock.estimated_value)       if livestock.estimated_value      is not None else 0,
+        # ────────────────────────
+
         'description':    m['description'],
         'images':         livestock.photos or [],
         'availableInfo':  m['available_info'],
@@ -294,7 +304,7 @@ def serialize_admin(livestock, today=None):
 
 
 # ---------------------------------------------------------------------------
-# Paginated payload builders (used by both endpoints)
+# Paginated payload builders
 # ---------------------------------------------------------------------------
 
 def _paginate(items, page, per_page):
@@ -308,7 +318,6 @@ def build_public_gallery(page=1, per_page=12):
     today = datetime.utcnow().date()
     rows  = gallery_visible_query().all()
 
-    # Preserve previous UX: "Available now" first, then shortest daysRemaining.
     decorated = [(lv, serialize_public(lv, today)) for lv in rows]
     decorated.sort(key=lambda pair: (
         0 if 'now' in pair[1]['availableInfo'].lower() else 1,
@@ -330,7 +339,7 @@ def build_admin_gallery(page=1, per_page=10):
     today = datetime.utcnow().date()
     rows  = (
         gallery_visible_query()
-        .order_by(Livestock.id.desc())   # newest first; safe regardless of created_at
+        .order_by(Livestock.id.desc())
         .all()
     )
     serialized = [serialize_admin(lv, today) for lv in rows]

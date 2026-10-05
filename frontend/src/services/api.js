@@ -128,6 +128,9 @@ export const adminAPI = {
     investor_id:            fundingData.investor_id            || null,
     disbursement_method:    fundingData.disbursement_method    || 'bank',
     disbursement_reference: fundingData.disbursement_reference || '',
+    // ── Collateral valuation from the valuer report ──
+    current_market_value:   fundingData.current_market_value   ?? null,
+    forced_value:           fundingData.forced_value           ?? null,
   }),
   rejectApplication: (id) => api.post(`/admin/applications/${id}/reject`),
   sendReminder: (data) => api.post("/admin/send-reminder", data),

@@ -146,29 +146,50 @@ class Client(db.Model):
     
 class Livestock(db.Model):
     __tablename__ = 'livestock'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
     investor_id = db.Column(db.Integer, db.ForeignKey('investors.id'), nullable=True)
     livestock_type = db.Column(db.String(50), nullable=False)
     count = db.Column(db.Integer, nullable=False)
-    estimated_value = db.Column(db.Numeric(15, 2), nullable=False)
-    valuation_value = db.Column(db.Numeric(15, 2))
-    # SEPARATE FIELDS for description and location
-    description = db.Column(db.Text, default='Available for purchase')
-    location = db.Column(db.Text, default='Isinya, Kajiado')
-    photos = db.Column(db.JSON)
-    status = db.Column(db.String(20), default='active')
-    ownership_type = db.Column(db.String(20), default='company')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # new field
+    # ── Client-declared figure from the application (NOT binding) ─────────
+    estimated_value = db.Column(db.Numeric(15, 2), nullable=False)
+
+    # ── NEW: figures from the valuer's report, captured at approval ───────
+    current_market_value = db.Column(db.Numeric(15, 2), nullable=True)
+    forced_value         = db.Column(db.Numeric(15, 2), nullable=True)
+
+    valuation_value = db.Column(db.Numeric(15, 2))
+    description = db.Column(db.Text, default='Available for purchase')
+    location    = db.Column(db.Text, default='Isinya, Kajiado')
+    photos      = db.Column(db.JSON)
+    status      = db.Column(db.String(20), default='active')
+    ownership_type = db.Column(db.String(20), default='company')
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
     production_classification = db.Column(db.String(100), nullable=True)
 
-    # Relationships
     investor = db.relationship('Investor', backref='livestock', lazy=True)
-    
-    
+
+    # ── THE single source of truth for collateral value everywhere ────────
+    @property
+    def collateral_value(self):
+        """
+        The binding collateral value used throughout the system.
+
+        • New loans approved after the two-value rollout: returns `forced_value`.
+        • Legacy loans (forced_value is NULL): falls back to `estimated_value`,
+          preserving the old behaviour unchanged.
+        """
+        if self.forced_value is not None:
+            return self.forced_value
+        return self.estimated_value
+
+    @property
+    def collateral_value_float(self):
+        v = self.collateral_value
+        return float(v) if v is not None else 0.0
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -176,17 +197,27 @@ class Livestock(db.Model):
             'investor_id': self.investor_id,
             'livestock_type': self.livestock_type,
             'count': self.count,
-            'estimated_value': float(self.estimated_value),
+
+            # Old field kept for backward-compat / client input
+            'estimated_value': float(self.estimated_value or 0),
+
+            # NEW fields
+            'current_market_value': float(self.current_market_value) if self.current_market_value is not None else None,
+            'forced_value':         float(self.forced_value)         if self.forced_value         is not None else None,
+
+            # Convenience — what the rest of the UI should display as "collateral value"
+            'collateral_value': self.collateral_value_float,
+
             'description': self.description,
-            'location': self.location,
-            'photos': self.photos,
-            'status': self.status,
+            'location':    self.location,
+            'photos':      self.photos,
+            'status':      self.status,
             'ownership_type': self.ownership_type,
             'investor_name': self.investor.name if self.investor else None,
             'created_at': self.created_at.isoformat(),
             'production_classification': self.production_classification,
         }
-
+    
 class Loan(db.Model):
     __tablename__ = 'loans'
     

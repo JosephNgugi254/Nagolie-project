@@ -1455,6 +1455,9 @@ export const generateLoanAgreementPDF = async (application) => {
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
+        // ── NEW: single-line binding statement ──────────────────────────────
+        "The Forced Value, and not the Current Market Value, shall be the binding collateral valuation for all purposes of this Agreement.",
+        // ────────────────────────────────────────────────────────────────────
         "In addition to standard valuation, each livestock asset shall be classified according to its economic production role within the agricultural value chain.",
         { classificationStatement: true },
         "",
@@ -1530,7 +1533,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFontSize(10);
     yPos = 20;
 
-    // STRUCTURED VALUATION REPORT (with multi-line fields)
+    // STRUCTURED VALUATION REPORT
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
@@ -1571,7 +1574,44 @@ export const generateLoanAgreementPDF = async (application) => {
       currentY += rowHeight;
     };
 
-    addFieldRow('Collateral Price (KES):', 60);
+    // ── NEW: two-value row on a single line ─────────────────────────────
+    const addTwoValueRow = () => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.textDark);
+
+      // Left: Current Market Value
+      doc.text('Current Market Value (KES):', startX, currentY + 3);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text('_'.repeat(18), startX + 52, currentY + 3);
+
+      // Right: Forced Value — same row, no new line
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.textDark);
+      doc.text('Forced Value (KES):', startX + 100, currentY + 3);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text('_'.repeat(18), startX + 138, currentY + 3);
+
+      currentY += rowHeight;
+    };
+
+    addTwoValueRow();
+
+    // ── NEW: single-line binding note under the two-value row ───────────
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text(
+      'Forced Value is the binding collateral valuation for all purposes of this Agreement.',
+      startX, currentY + 3
+    );
+    currentY += rowHeight;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    // ────────────────────────────────────────────────────────────────────
+
     addFieldRow('Product Quantity, Quality and Price:', 60);
     addMultiLineField('Supplement recommendation:', 2);
     addMultiLineField('Parasite Control recommendations:', 2);
@@ -1706,7 +1746,7 @@ export const generateLoanAgreementPDF = async (application) => {
 
     // ========== END OF ORIGINAL AGREEMENT ==========
 
-    // ===================== DDQ SECTION (UPDATED) =====================
+    // ===================== DDQ SECTION =====================
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'agreement');
 
@@ -1792,7 +1832,7 @@ export const generateLoanAgreementPDF = async (application) => {
     }
     yPos += 5;
 
-        // ===== ADDITIONAL FARMER INFORMATION ====
+    // ===== ADDITIONAL FARMER INFORMATION ====
     doc.setFont('helvetica', 'bold');
     doc.text('Other Income Source:', labelX, yPos);
     doc.setFont('helvetica', 'normal');
@@ -1803,7 +1843,7 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text('____________________', valueX + 76, yPos);
     yPos += rowH;
 
-    // ===== INTEREST BREAKDOWN SECTION (UPDATED) =====
+    // ===== INTEREST BREAKDOWN SECTION =====
     const breakdownPercentages = [
       { label: 'Operational Fee', pct: 0.15 },
       { label: 'Credit Risk', pct: 0.05 },
@@ -1913,7 +1953,6 @@ export const generateLoanAgreementPDF = async (application) => {
         doc.addPage();
         addWatermarkToCurrentPage(doc, 'agreement');
         yPos = 20;
-        // Re‑draw header
         doc.setFillColor(...COLORS.primaryBlue);
         doc.setTextColor(...COLORS.white);
         doc.rect(startXDDQ, yPos, 180, 8, 'F');
@@ -1967,7 +2006,6 @@ export const generateLoanAgreementPDF = async (application) => {
     const thumbBoxHeight = 35;
     const thumbBoxY2 = yPos - 4;
 
-    // Left column: Signature and Date
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
     doc.text('Signature:', sigX, yPos);
@@ -1980,13 +2018,11 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.setFont('helvetica', 'normal');
     doc.text('_________________________', sigX + 30, yPos);
 
-    // Right column: Thumbprint box
     drawThumbprintBox(thumbX, thumbBoxY2, thumbBoxWidth, thumbBoxHeight);
     const cbY2 = thumbBoxY2 + thumbBoxHeight + 4;
     const cbX2 = thumbX + (thumbBoxWidth / 2) - 17;
     drawRtLtCheckboxes(cbX2, cbY2);
 
-    // Advance yPos past the thumbprint box and its checkboxes
     yPos = cbY2 + 8;
 
     // ---- FOR NAGOLIE section (left) and Stamp box (right) ----
@@ -2008,7 +2044,6 @@ export const generateLoanAgreementPDF = async (application) => {
     doc.text('Date:      _________________________', leftColX + 5, yPos);
     yPos += 7;
 
-    // Stamp box (right side)
     const stampBoxWidth = 60;
     const stampBoxHeight = 35;
     const stampBoxX = rightColX;
@@ -2226,6 +2261,9 @@ export const generateManualLoanAgreementPDF = async () => {
         { text: "5. Livestock Valuation & Value Chain Classification", heading: true },
         "All livestock shall be valued by an authorized Livestock Valuer appointed by Nagolie Enterprises Ltd.",
         "The valuation shall be final and binding for determining the maximum loan amount.",
+        // ── NEW: single-line binding statement ──────────────────────────────
+        "The Forced Value, and not the Current Market Value, shall be the binding collateral valuation for all purposes of this Agreement.",
+        // ────────────────────────────────────────────────────────────────────
         "In addition to standard valuation, each livestock asset shall be classified according to its economic production role within the agricultural value chain.",
         "The collateral for this loan is categorized under the [ _________________ ] category.",
         "",
@@ -2377,7 +2415,7 @@ export const generateManualLoanAgreementPDF = async () => {
     doc.setFontSize(10);
     yPos = 20;
 
-    // STRUCTURED VALUATION REPORT (with multi-line fields)
+    // STRUCTURED VALUATION REPORT
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(13);
     doc.setFont('helvetica', 'bold');
@@ -2418,7 +2456,44 @@ export const generateManualLoanAgreementPDF = async () => {
       currentY += rowHeight;
     };
 
-    addFieldRow('Collateral Price (KES):', 60);
+    // ── NEW: two-value row on a single line ─────────────────────────────
+    const addTwoValueRow = () => {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.textDark);
+
+      // Left: Current Market Value
+      doc.text('Current Market Value (KES):', startX, currentY + 3);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text('_'.repeat(18), startX + 52, currentY + 3);
+
+      // Right: Forced Value — same row, no new line
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...COLORS.textDark);
+      doc.text('Forced Value (KES):', startX + 100, currentY + 3);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text('_'.repeat(18), startX + 138, currentY + 3);
+
+      currentY += rowHeight;
+    };
+
+    addTwoValueRow();
+
+    // ── NEW: single-line binding note under the two-value row ───────────
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.text(
+      'Forced Value is the binding collateral valuation for all purposes of this Agreement.',
+      startX, currentY + 3
+    );
+    currentY += rowHeight;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.textDark);
+    // ────────────────────────────────────────────────────────────────────
+
     addFieldRow('Product Quantity, Quality and Price:', 60);
     addMultiLineField('Supplement recommendation:', 2);
     addMultiLineField('Parasite Control recommendations:', 2);
@@ -2575,7 +2650,7 @@ export const generateManualLoanAgreementPDF = async () => {
 
     // ========== END OF ORIGINAL MANUAL AGREEMENT ==========
 
-    // ========== MANUAL DDQ SECTION (all blanks, with breakdown and thumbprint) ==========
+    // ========== MANUAL DDQ SECTION ==========
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'agreement');
 
@@ -2672,7 +2747,6 @@ export const generateManualLoanAgreementPDF = async () => {
       'Collateral/Animal Health Maintenance Fee: 4% = KES _______________',
       'Processing Fee: 4% = KES _______________',
       'Valuation Fee: 2% = KES _______________',
-      // Total line with blanks for manual filling – now includes plan label options
       'Total Interest: KES _______________ (_____% per week / 4.5% per day)'
     ];
     breakdownLines.forEach(line => {
