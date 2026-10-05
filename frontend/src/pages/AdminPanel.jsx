@@ -1280,6 +1280,7 @@ function AdminPanel() {
   const [showEditLivestockModal, setShowEditLivestockModal] = useState(false)
   const [editingLivestock, setEditingLivestock] = useState(null)
   const [selectedImages, setSelectedImages] = useState([])
+  const [updatingLivestock, setUpdatingLivestock] = useState(false)   // ← NEW
 
   // confirmation dialog state
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
@@ -1526,15 +1527,15 @@ useEffect(() => {
   const testApiConnection = async () => {
     try {
       if (!isAuthenticated()) return false;
-    
+
       // Accept the unified key first; keep admin_token for legacy sessions.
       const token =
         localStorage.getItem('token') ||
         localStorage.getItem('admin_token') ||
         sessionStorage.getItem('admin_token');
-    
+
       if (!token) return false;
-    
+
       await adminAPI.test();
       return true;
     } catch (error) {
@@ -2497,47 +2498,50 @@ Thank you for choosing us.`;
   };
 
   const handleUpdateLivestock = async (e) => {
-    e.preventDefault()
-    if (!editingLivestock) return
-    
+    e.preventDefault();
+    if (!editingLivestock || updatingLivestock) return;   // ← guard double-submit
+
+    setUpdatingLivestock(true);
     try {
-      const formData = new FormData(e.target)
+      const formData = new FormData(e.target);
       const updatedData = {
-        type: formData.get('editType'),
-        count: parseInt(formData.get('editCount')),
-        price: parseFloat(formData.get('editPrice')),
+        type:        formData.get('editType'),
+        count:       parseInt(formData.get('editCount')),
+        price:       parseFloat(formData.get('editPrice')),
         description: formData.get('editDescription'),
-        location: formData.get('editLocation'), // Make sure this is included
-        images: selectedImages
-      }
-    
-      console.log('Updating livestock with data:', updatedData)
-    
-      // Use adminAPI instead of direct fetch
-      const response = await adminAPI.updateLivestock(editingLivestock.id, updatedData)
-    
+        location:    formData.get('editLocation'),
+        images:      selectedImages,
+      };
+
+      console.log('Updating livestock with data:', updatedData);
+
+      const response = await adminAPI.updateLivestock(editingLivestock.id, updatedData);
+
       if (response.data.success) {
-        showToast.success('Livestock updated successfully!')
-        setShowEditLivestockModal(false)
-        setEditingLivestock(null)
-        setSelectedImages([])
-        fetchLivestock()
+        showToast.success('Livestock updated successfully!');
+        setShowEditLivestockModal(false);
+        setEditingLivestock(null);
+        setSelectedImages([]);
+        fetchLivestock();
       } else {
-        showToast.error(`Failed to update livestock: ${response.data.error}`)
+        showToast.error(`Failed to update livestock: ${response.data.error}`);
       }
     } catch (error) {
-      console.error('Error updating livestock:', error)
-      showToast.error(`Failed to update livestock: ${error.response?.data?.error || error.message}`)
+      console.error('Error updating livestock:', error);
+      const msg =
+        error.code === 'ECONNABORTED'
+          ? 'Upload timed out — try a smaller image or retry'
+          : (error.response?.data?.error || error.message);
+      showToast.error(`Failed to update livestock: ${msg}`);
+    } finally {
+      setUpdatingLivestock(false);
     }
-  }
+  };
 
   const handleDeleteLivestock = async () => {
-    if (!livestockToDelete) return
-
+    if (!livestockToDelete) return;
     try {
-      // Use adminAPI instead of direct fetch
-      const response = await adminAPI.deleteLivestock(livestockToDelete)
-
+      const response = await adminAPI.deleteLivestock(livestockToDelete);
       if (response.data.success) {
         showToast.success('Livestock deleted successfully!');
         fetchLivestock();
@@ -2548,11 +2552,11 @@ Thank you for choosing us.`;
       console.error('Error deleting livestock:', error);
       showToast.error(`Failed to delete livestock: ${error.response?.data?.error || error.message}`);
     } finally {
-      setShowDeleteConfirmation(false)
-      setLivestockToDelete(null)
+      setShowDeleteConfirmation(false);
+      setLivestockToDelete(null);
     }
-  };  
-
+  }; 
+  
   const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files)
     if (files.length === 0) return
@@ -4708,6 +4712,7 @@ Thank you for choosing us.`;
         <Modal
           isOpen={showEditLivestockModal}
           onClose={() => {
+            if (updatingLivestock) return;   
             setShowEditLivestockModal(false);
             setEditingLivestock(null);
             setSelectedImages([]);
@@ -4716,7 +4721,6 @@ Thank you for choosing us.`;
           size="lg"
         >
           <form onSubmit={handleUpdateLivestock}>
-            {/* Parse stored location field: "Description | Location" */}
             {(() => {
               const storedLocation = editingLivestock.location || '';
               let initialDescription = 'Available for purchase';
@@ -4726,16 +4730,14 @@ Thank you for choosing us.`;
                 const parts = storedLocation.split('|');
                 if (parts.length >= 2) {
                   initialDescription = parts[0].trim();
-                  initialLocation = parts.slice(1).join('|').trim(); // In case location has |
+                  initialLocation = parts.slice(1).join('|').trim();
                 } else {
                   initialLocation = storedLocation.trim();
                 }
               } else if (storedLocation.trim() && storedLocation.trim() !== 'Isinya, Kajiado') {
-                // Fallback: if no | separator, assume it's location only
                 initialLocation = storedLocation.trim();
               }
             
-              // For admin view, description might come separately — use it if available
               if (editingLivestock.description && editingLivestock.description !== 'Available for purchase') {
                 initialDescription = editingLivestock.description;
               }
@@ -4751,22 +4753,8 @@ Thank you for choosing us.`;
                         name="editType"
                         defaultValue={editingLivestock.type || ''}
                         required
-                        style={{
-                          width: '100%',
-                          fontSize: '16px',
-                          padding: '12px',
-                          borderRadius: '8px',
-                          backgroundColor: 'white',
-                          border: '1px solid #ddd',
-                          appearance: 'none',
-                          WebkitAppearance: 'none',
-                          MozAppearance: 'none',
-                          backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundPosition: 'right 12px center',
-                          backgroundSize: '16px',
-                          paddingRight: '40px'
-                        }}
+                        disabled={updatingLivestock}
+                        style={{ /* your existing style */ }}
                       >
                         <option value="cattle">Cattle</option>
                         <option value="goats">Goats</option>
@@ -4784,10 +4772,11 @@ Thank you for choosing us.`;
                         min="1"
                         defaultValue={editingLivestock.count}
                         required
+                        disabled={updatingLivestock}
                       />
                     </div>
                   </div>
-                      
+              
                   <div className="row">
                     <div className="col-md-6 mb-3">
                       <label htmlFor="editPrice" className="form-label">Price (KSh) *</label>
@@ -4799,10 +4788,11 @@ Thank you for choosing us.`;
                         min="1"
                         defaultValue={editingLivestock.price}
                         required
+                        disabled={updatingLivestock}
                       />
                     </div>
                   </div>
-                      
+              
                   <div className="row">
                     <div className="col-md-6 mb-3">
                       <label htmlFor="editDescription" className="form-label">Description</label>
@@ -4813,6 +4803,7 @@ Thank you for choosing us.`;
                         placeholder="e.g. Healthy bulls ready for sale"
                         rows="3"
                         defaultValue={initialDescription}
+                        disabled={updatingLivestock}
                       />
                     </div>
                     <div className="col-md-6 mb-3">
@@ -4824,6 +4815,7 @@ Thank you for choosing us.`;
                         name="editLocation"
                         placeholder="e.g. Isinya, Kajiado"
                         defaultValue={initialLocation}
+                        disabled={updatingLivestock}
                       />
                     </div>
                   </div>
@@ -4841,10 +4833,23 @@ Thank you for choosing us.`;
                 multiple
                 accept="image/*"
                 onChange={handleImageUpload}
+                disabled={imageUploading || updatingLivestock}
               />
-              <small className="text-muted">Select new images to replace or add</small>
-          
-              {/* Preview current + newly selected images */}
+              <small className="text-muted">
+                {imageUploading
+                  ? 'Compressing images…'
+                  : 'Select new images to replace or add'}
+              </small>
+                
+              {imageUploading && (
+                <div className="mt-2">
+                  <div className="progress" style={{ height: 6 }}>
+                    <div className="progress-bar progress-bar-striped progress-bar-animated"
+                         style={{ width: '100%' }} />
+                  </div>
+                </div>
+              )}
+
               {selectedImages.length > 0 && (
                 <div className="mt-3">
                   <label className="form-label">Current Images:</label>
@@ -4861,6 +4866,7 @@ Thank you for choosing us.`;
                           type="button"
                           className="btn btn-danger btn-sm position-absolute top-0 end-0"
                           onClick={() => removeImage(index)}
+                          disabled={updatingLivestock}
                           style={{ transform: 'translate(50%, -50%)', borderRadius: '50%' }}
                         >
                           ×
@@ -4877,15 +4883,33 @@ Thank you for choosing us.`;
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => {
+                  if (updatingLivestock) return;
                   setShowEditLivestockModal(false);
                   setEditingLivestock(null);
                   setSelectedImages([]);
                 }}
+                disabled={updatingLivestock || imageUploading}
               >
                 Cancel
               </button>
-              <button type="submit" className="btn btn-primary">
-                Update Livestock
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={updatingLivestock || imageUploading}
+              >
+                {updatingLivestock ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Saving…
+                  </>
+                ) : imageUploading ? (
+                  <>
+                    <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    Processing images…
+                  </>
+                ) : (
+                  'Update Livestock'
+                )}
               </button>
             </div>
           </form>
