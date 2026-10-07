@@ -9,10 +9,28 @@ from app.models import User, StaffSalarySetting, SalaryAdvanceRequest, SalaryTra
 from app.utils.decorators import role_required, role_or_username_required
 from app.utils.security import log_audit
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 salary_bp = Blueprint('salary', __name__, url_prefix='/api/salary')
+
+PRIMARY_DIRECTOR_USERNAMES = [u.strip() for u in os.environ.get('PRIMARY_DIRECTOR_USERNAMES', 'Director').split(',') if u.strip()]  
+
+def _get_primary_directors():
+    """Return only the top-level Director account(s).
+
+    Excludes deputy directors (e.g. Millicent) who share the 'director'
+    role but should not receive operational notifications.
+    """
+    lowered = [u.lower() for u in PRIMARY_DIRECTOR_USERNAMES]
+    return (
+        User.query
+        .filter(User.role == 'director')
+        .filter(db.func.lower(User.username).in_(lowered))
+        .all()
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -445,8 +463,8 @@ def create_advance_request():
         db.session.add(req)
         db.session.flush()
 
-        # Notify directors
-        directors = User.query.filter_by(role='director').all()
+        # Notify the primary Director 
+        directors = _get_primary_directors()                      
         for director in directors:
             msg = PrivateMessage(
                 sender_id=user_id,

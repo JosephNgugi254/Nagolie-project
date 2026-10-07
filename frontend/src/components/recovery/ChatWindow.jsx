@@ -608,7 +608,6 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const isUserAtBottom = useRef(true);
-  const initialScrollDone = useRef(false);
 
   const dragState = useRef({ dragging: false, startX: 0, startY: 0, origX: 0, origY: 0 });
   const windowRef = useRef(null);
@@ -635,19 +634,6 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     if (durStr) result += durStr;
     return result;
   };
-
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (!messages.length) return;
-    const timer = setTimeout(() => {
-      if (virtuosoRef.current && isUserAtBottom.current) {
-        virtuosoRef.current.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
-        setShowScrollButton(false);
-        setNewMessageCount(0);
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [messages]);
 
   // Resize handling
   useEffect(() => {
@@ -893,18 +879,17 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     } catch (err) { console.error(err); }
     finally {
       setLoading(false);
-      setTimeout(() => {
-        if (virtuosoRef.current && !initialScrollDone.current) {
-          virtuosoRef.current.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
-          initialScrollDone.current = true;
-        }
-      }, 80);
     }
   };
 
-  // Scroll to bottom
-  const scrollToBottom = () => {
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+  
+  // Scroll to bottom. `smooth` is opt-in (only for the "New messages" button).
+  const scrollToBottom = (smooth = false) => {
+    virtuosoRef.current?.scrollToIndex({
+      index: 'LAST',
+      align: 'end',
+      behavior: smooth ? 'smooth' : 'auto',
+    });
     setShowScrollButton(false);
     setNewMessageCount(0);
   };
@@ -1572,8 +1557,8 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
         </div>
       </div>
 
-      {/* Virtualized messages */}
-      <div className="chat-window-messages" style={{ flex: 1, overflow: 'auto' }}>
+      {/* Virtualized messages — Virtuoso is the ONE scroll container */}
+      <div className="chat-window-messages">
         {loading ? (
           <div className="text-center py-3"><span className="spinner-border spinner-border-sm me-2" />Loading…</div>
         ) : !groupedMessages.length ? (
@@ -1583,7 +1568,13 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
             ref={virtuosoRef}
             data={groupedMessages}
             itemContent={renderItem}
-            followOutput="smooth"
+            /* Definite height so Virtuoso owns vertical scrolling */
+            style={{ height: '100%' }}
+            /* First paint = anchored to last item */
+            initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
+            /* Only auto-follow when the user is genuinely near the bottom */
+            followOutput={(isAtBottom) => (isAtBottom ? 'auto' : false)}
+            atBottomThreshold={50}
             atBottomStateChange={atBottom => {
               isUserAtBottom.current = atBottom;
               if (atBottom) { setShowScrollButton(false); setNewMessageCount(0); }
@@ -1593,7 +1584,7 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
       </div>
 
       {showScrollButton && (
-        <button className="new-message-button" onClick={scrollToBottom}>
+        <button className="new-message-button" onClick={() => scrollToBottom(true)}>
           <i className="fas fa-arrow-down" />
           {newMessageCount > 0 && <span className="badge bg-white text-dark rounded-pill">{newMessageCount}</span>}
           New messages
