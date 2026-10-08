@@ -514,6 +514,52 @@ def freeze_day_snapshots(as_of_date: _date_cls):
         'pruned_rows':    pruned,
     }
 
+
+# =============================================================================
+# REPORT READER — the ONLY public way to get report rows
+# =============================================================================
+
+def _loan_resolution_date(loan):
+    """
+    UTC datetime at which a TERMINAL loan entered its terminal state,
+    or None if the loan is not terminal.
+
+    Used to distinguish 'resolved before this report date' from
+    'resolved after this report date' — critical because a completed
+    loan is a GHOST on the day it was resolved and every day after,
+    but a LEGITIMATE row on any earlier date.
+
+    Rules:
+      • completed   → created_at of the last completed payment txn
+      • claimed     → created_at of the claim txn
+      • bad_debt    → loan.updated_at
+    """
+    if loan is None:
+        return None
+    if loan.status not in ('completed', 'claimed', 'bad_debt'):
+        return None
+
+    if loan.status == 'claimed':
+        t = (Transaction.query
+             .filter_by(loan_id=loan.id, transaction_type='claim')
+             .order_by(Transaction.created_at.desc())
+             .first())
+        return t.created_at if t else loan.updated_at
+
+    if loan.status == 'bad_debt':
+        return loan.updated_at
+
+    # completed — the last completed payment is when it settled
+    t = (Transaction.query
+         .filter_by(loan_id=loan.id,
+                    transaction_type='payment',
+                    status='completed')
+         .order_by(Transaction.created_at.desc())
+         .first())
+    return t.created_at if t else loan.updated_at
+
+    
+
 # =============================================================================
 # REPORT READER — the ONLY public way to get report rows
 # =============================================================================
@@ -524,10 +570,10 @@ def get_assigned_clients_for_user(user_id, report_date=None):
 
     TODAY → live computation, persisted to ReportComment (unfinalized),
             then read back with comments/remarks merged in.
-    PAST  → frozen snapshot ONLY, deduplicated per loan chain so that a
-            mid-day renewal/waiver cannot show up twice, and fully
-            resolved loans (completed / claimed / bad_debt) cannot
-            appear as ghosts. Never recomputes.
+    PAST  → frozen snapshot ONLY, deduplicated per loan chain so a
+            mid-day renewal/waiver cannot show up twice, and with a
+            resolution-date guard so a loan is only hidden on dates it
+            was already resolved on/before (EAT). Never recomputes.
     """
     from app.utils.time import today_eat
 
@@ -569,7 +615,9 @@ def get_assigned_clients_for_user(user_id, report_date=None):
         return out
 
     # ------------------------------------------------------------------
-    # PAST — frozen rows only, deduplicated per loan chain
+    # PAST — frozen rows only, deduplicated per loan chain, with a
+    # resolution-date guard so a loan is only hidden on dates it was
+    # already resolved on/before (EAT).
     # ------------------------------------------------------------------
     if report_date < today:
         rows = (
@@ -579,10 +627,11 @@ def get_assigned_clients_for_user(user_id, report_date=None):
             .all()
         )
 
-        # Group rows by chain root. Within each chain, keep ONLY the row
-        # whose loan has the highest loan_id — i.e. the newest form of
-        # the loan that was captured for this date. This collapses the
-        # "old loan + new loan on the same day" duplicate (Stanley's bug).
+        # 1. Group rows by their loan's chain root. Within each chain
+        #    keep ONLY the row whose loan has the HIGHEST loan_id — i.e.
+        #    the newest form of the loan that was captured for this date.
+        #    This collapses the "old loan + new loan on the same day"
+        #    duplicate (Stanley's bug).
         by_root = {}   # root_loan_id -> (ReportComment, Loan)
         for rc in rows:
             if rc.current_principal is None:
@@ -595,14 +644,21 @@ def get_assigned_clients_for_user(user_id, report_date=None):
             if prev is None or rc.loan_id > prev[0].loan_id:
                 by_root[root] = (rc, loan)
 
+        # 2. Emit one row per surviving chain, applying the resolution
+        #    guard: a terminal loan is hidden ONLY on dates it was
+        #    already resolved on/before, expressed in EAT.
         out = []
         for rc, loan in by_root.values():
-            # Drop chains whose head loan is now fully resolved
-            # (Rebecca's bug). 'renewed' / 'waived' are NOT dropped —
-            # if no successor row exists for this date, the head was
-            # still the live loan at end-of-day, so we keep it.
             if loan.status in ('completed', 'claimed', 'bad_debt'):
-                continue
+                resolved_at = _loan_resolution_date(loan)
+                if resolved_at is not None:
+                    resolved_eat_date = (
+                        resolved_at + timedelta(hours=3)   # UTC → EAT
+                    ).date()
+                    if resolved_eat_date <= report_date:
+                        # Loan was already resolved by end of this report
+                        # day → correctly a ghost, drop it.
+                        continue
 
             out.append({
                 'loan_id':           rc.loan_id,
