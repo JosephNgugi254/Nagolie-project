@@ -19,7 +19,7 @@ os.environ.setdefault("EVENTLET_NO_GREENDNS", "yes")
 
 # ---- 2. Patch eventlet BEFORE importing the app ----------------------
 import eventlet
-eventlet.monkey_patch(socket=True, select=True, ssl=True, time=True)
+eventlet.monkey_patch(socket=True, select=True, time=True)
 
 # ---- 3. Now it is safe to import the app -----------------------------
 from app import create_app
