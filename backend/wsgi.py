@@ -2,14 +2,16 @@
 """
 WSGI entrypoint for Nagolie backend.
 
-IMPORTANT — order matters:
-  1. Set EVENTLET_NO_GREENDNS before anything imports eventlet, so
-     eventlet's greendns monkey-patch is disabled (it breaks DNS in
-     some containers: "Failed to resolve 'api.cloudinary.com' /
-     [Errno -3] Lookup timed out").
+Order matters:
+  1. Set EVENTLET_NO_GREENDNS BEFORE eventlet is imported, so eventlet's
+     greendns monkey-patch is disabled. This is the actual fix for:
+         Failed to resolve 'api.cloudinary.com' ([Errno -3] Lookup timed out)
   2. monkey_patch() BEFORE importing the Flask app, so Flask, Socket.IO,
-     requests, urllib3, ssl, threading etc. all pick up the green versions.
+     requests, urllib3, threading etc. all pick up the green versions.
   3. Only then import the app.
+
+Note: eventlet's monkey_patch does NOT accept ssl=True — ssl gets patched
+automatically when socket=True. Do not add ssl=True back.
 """
 
 import os
@@ -32,3 +34,4 @@ if __name__ == "__main__":
     # Local dev only. In production:
     #   gunicorn -k eventlet -w 1 wsgi:app
     socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    
