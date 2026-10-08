@@ -367,12 +367,13 @@ def _persist_snapshot_rows(officer_id: int, report_date: _date_cls, rows, finali
 
     Guarantees:
       • `comment` and `director_remark*` are NEVER touched.
-      • A row that is already `finalized=True` is NEVER overwritten.
-      • Rows are only created/updated for loans currently returned by
-        `_compute_live_rows_for_officer`. Dropped loans keep their last
-        stored figures.
+      • A row that is already `finalized=True` is NEVER overwritten or deleted.
+      • After upserting, any UNFINALISED row for this (officer, date) whose
+        loan is no longer in `rows` AND has no human content (comment or
+        director_remark) is PRUNED from the DB. This is what stops stale
+        rows from piling up and resurrecting during the end-of-day freeze.
     """
-    created = updated = skipped = 0
+    created = updated = skipped = pruned = 0
 
     existing = {
         r.loan_id: r
@@ -380,6 +381,8 @@ def _persist_snapshot_rows(officer_id: int, report_date: _date_cls, rows, finali
             officer_id=officer_id, report_date=report_date
         ).all()
     }
+
+    live_ids = {row['loan_id'] for row in rows}
 
     for row in rows:
         rc = existing.get(row['loan_id'])
@@ -411,8 +414,22 @@ def _persist_snapshot_rows(officer_id: int, report_date: _date_cls, rows, finali
 
         updated += 1
 
-    return created, updated, skipped
+    # ---- Prune stale unfinalised rows --------------------------------
+    # Any row for this (officer, date) whose loan has dropped out of the
+    # live set — and which has no human-supplied content — is removed.
+    # This is what stops completed / superseded loans from ghosting.
+    for loan_id, rc in existing.items():
+        if loan_id in live_ids:
+            continue
+        if rc.finalized:
+            continue                          # never touch a frozen row
+        if rc.comment or rc.director_remark:
+            continue                          # preserve human annotations
+        db.session.delete(rc)
+        pruned += 1
+    # ------------------------------------------------------------------
 
+    return created, updated, skipped
 
 def refresh_today_snapshots():
     """
@@ -447,7 +464,14 @@ def refresh_today_snapshots():
 
 def freeze_day_snapshots(as_of_date: _date_cls):
     """
-    Freeze every unfinalized row for a given date. NEVER recomputes.
+    Freeze every unfinalised row for a given date.
+
+    Before locking the day in, we PRUNE any row whose loan is now fully
+    resolved (status in {'completed', 'claimed', 'bad_debt'}) — that
+    client was no longer live at end-of-day, so it must not appear in
+    the frozen report. Rows with human content (comment / director
+    remark) are always preserved.
+
     Idempotent — running twice is a no-op on the second run.
     """
     from app.utils.time import today_eat
@@ -456,6 +480,26 @@ def freeze_day_snapshots(as_of_date: _date_cls):
         return {'error': 'Cannot freeze today or a future date',
                 'date': as_of_date.isoformat()}
 
+    # ---- 1. Prune stale unfinalised rows ----------------------------
+    stale = ReportComment.query.filter(
+        ReportComment.report_date == as_of_date,
+        ReportComment.finalized == False,               # noqa: E712
+    ).all()
+
+    pruned = 0
+    for rc in stale:
+        if rc.comment or rc.director_remark:
+            continue                                    # preserve human content
+        loan = db.session.get(Loan, rc.loan_id)
+        if loan is None:
+            continue
+        if loan.status in ('completed', 'claimed', 'bad_debt'):
+            db.session.delete(rc)
+            pruned += 1
+
+    db.session.flush()
+
+    # ---- 2. Freeze everything that remains --------------------------
     count = ReportComment.query.filter(
         ReportComment.report_date == as_of_date,
         ReportComment.finalized == False,               # noqa: E712
@@ -464,8 +508,11 @@ def freeze_day_snapshots(as_of_date: _date_cls):
         synchronize_session=False,
     )
     db.session.commit()
-    return {'date': as_of_date.isoformat(), 'finalized_rows': count}
-
+    return {
+        'date':           as_of_date.isoformat(),
+        'finalized_rows': count,
+        'pruned_rows':    pruned,
+    }
 
 # =============================================================================
 # REPORT READER — the ONLY public way to get report rows
@@ -477,8 +524,10 @@ def get_assigned_clients_for_user(user_id, report_date=None):
 
     TODAY → live computation, persisted to ReportComment (unfinalized),
             then read back with comments/remarks merged in.
-    PAST  → frozen snapshot ONLY. Never computes. Never falls back to replay.
-            If nothing was snapshotted, returns [].
+    PAST  → frozen snapshot ONLY, deduplicated per loan chain so that a
+            mid-day renewal/waiver cannot show up twice, and fully
+            resolved loans (completed / claimed / bad_debt) cannot
+            appear as ghosts. Never recomputes.
     """
     from app.utils.time import today_eat
 
@@ -487,6 +536,98 @@ def get_assigned_clients_for_user(user_id, report_date=None):
         report_date = today
     elif hasattr(report_date, 'date') and not isinstance(report_date, _date_cls):
         report_date = report_date.date()
+
+    # ------------------------------------------------------------------
+    # TODAY — compute, persist, read back
+    # ------------------------------------------------------------------
+    if report_date == today:
+        live_rows = _compute_live_rows_for_officer(user_id, report_date)
+        _persist_snapshot_rows(user_id, report_date, live_rows, finalize=False)
+        db.session.commit()
+
+        rc_index = {
+            r.loan_id: r
+            for r in ReportComment.query.filter_by(
+                officer_id=user_id, report_date=report_date
+            ).all()
+        }
+
+        out = []
+        for row in live_rows:
+            rc = rc_index.get(row['loan_id'])
+            out.append({
+                **row,
+                'comment':            rc.comment if rc else '',
+                'director_remark':    rc.director_remark if rc else '',
+                'director_remark_at': rc.director_remark_at.isoformat()
+                                        if rc and rc.director_remark_at else None,
+                'director_remark_by': rc.director_remarker.username
+                                        if rc and rc.director_remarker else None,
+                'is_waiver':          row['interest_rate'] == 0,
+                'report_date':        report_date.isoformat(),
+            })
+        return out
+
+    # ------------------------------------------------------------------
+    # PAST — frozen rows only, deduplicated per loan chain
+    # ------------------------------------------------------------------
+    if report_date < today:
+        rows = (
+            ReportComment.query
+            .filter_by(officer_id=user_id, report_date=report_date)
+            .order_by(ReportComment.id)
+            .all()
+        )
+
+        # Group rows by chain root. Within each chain, keep ONLY the row
+        # whose loan has the highest loan_id — i.e. the newest form of
+        # the loan that was captured for this date. This collapses the
+        # "old loan + new loan on the same day" duplicate (Stanley's bug).
+        by_root = {}   # root_loan_id -> (ReportComment, Loan)
+        for rc in rows:
+            if rc.current_principal is None:
+                continue                              # remark-only row
+            loan = db.session.get(Loan, rc.loan_id)
+            if not loan:
+                continue
+            root = loan.root_loan_id or loan.id
+            prev = by_root.get(root)
+            if prev is None or rc.loan_id > prev[0].loan_id:
+                by_root[root] = (rc, loan)
+
+        out = []
+        for rc, loan in by_root.values():
+            # Drop chains whose head loan is now fully resolved
+            # (Rebecca's bug). 'renewed' / 'waived' are NOT dropped —
+            # if no successor row exists for this date, the head was
+            # still the live loan at end-of-day, so we keep it.
+            if loan.status in ('completed', 'claimed', 'bad_debt'):
+                continue
+
+            out.append({
+                'loan_id':           rc.loan_id,
+                'client_name':       rc.client_name,
+                'phone':             rc.phone,
+                'current_principal': float(rc.current_principal or 0),
+                'unpaid_interest':   float(rc.unpaid_interest or 0),
+                'total_balance':     float(rc.total_balance
+                                            or (rc.current_principal or 0)
+                                            + (rc.unpaid_interest or 0)),
+                'interest_rate':     float(rc.interest_rate or 0),
+                'repayment_plan':    rc.repayment_plan or 'weekly',
+                'comment':           rc.comment or '',
+                'director_remark':   rc.director_remark or '',
+                'director_remark_at': rc.director_remark_at.isoformat()
+                                        if rc.director_remark_at else None,
+                'director_remark_by': rc.director_remarker.username
+                                        if rc.director_remarker else None,
+                'is_waiver':          float(rc.interest_rate or 0) == 0,
+                'report_date':        report_date.isoformat(),
+            })
+        return out
+
+    # Future date — nothing
+    return []
 
     # ------------------------------------------------------------------
     # TODAY — compute, persist, read back
