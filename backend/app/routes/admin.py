@@ -580,6 +580,10 @@ def get_assigned_clients_for_user(user_id, report_date=None):
     snapshot was ever written). Those rows have current_principal=NULL
     but a non-empty director_remark. We surface them so the officer
     can actually see the remark that triggered the notification.
+
+    NEW: Flagged loans (unresolved) are completely excluded from BOTH
+    the live and past branches. A flagged loan belongs to the Recovery
+    Department and must never appear in the Loan Reports module.
     """
     from app.utils.time import today_eat
 
@@ -588,6 +592,12 @@ def get_assigned_clients_for_user(user_id, report_date=None):
         report_date = today
     elif hasattr(report_date, 'date') and not isinstance(report_date, _date_cls):
         report_date = report_date.date()
+
+    # ── Flagged loans (unresolved) must never appear in loan reports ──
+    flagged_ids = {
+        fl.loan_id
+        for fl in FlaggedLoan.query.filter_by(resolved=False).all()
+    }
 
     # ------------------------------------------------------------------
     # TODAY — compute, persist, read back
@@ -627,6 +637,8 @@ def get_assigned_clients_for_user(user_id, report_date=None):
         # in the officer's live assignment set. We still want to surface it.
         for loan_id, rc in rc_index.items():
             if loan_id in live_ids:
+                continue
+            if loan_id in flagged_ids:          # ← flagged loans are excluded
                 continue
             if not (rc.director_remark or rc.comment):
                 continue
@@ -680,6 +692,10 @@ def get_assigned_clients_for_user(user_id, report_date=None):
         #         exists for that chain.
         by_root = {}   # root_loan_id -> (ReportComment, Loan)
         for rc in rows:
+            # Flagged loans must never appear, even in a frozen snapshot.
+            if rc.loan_id in flagged_ids:       # ← flagged loans are excluded
+                continue
+
             has_financials = rc.current_principal is not None
             has_content    = bool(rc.comment) or bool(rc.director_remark)
             if not has_financials and not has_content:
