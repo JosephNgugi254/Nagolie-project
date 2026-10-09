@@ -38,42 +38,110 @@ const ReportsPanel = () => {
     status: 'pending', general_remarks: '', approved_by: null, approved_at: null,
   });
   const [generalRemarks, setGeneralRemarks] = useState('');
+  const [highlightLoanId, setHighlightLoanId] = useState(null);
 
-  const fetchingRef = useRef(false);
+  // ── Guards ──
+  // fetchSeqRef: monotonically increasing id. Every fetchData() call claims the
+  //   next id. When a response returns, if the id is not the latest, we discard
+  //   it. This makes "last write wins" and prevents the stale-response race
+  //   that a boolean `fetchingRef` guard introduced.
+  const fetchSeqRef = useRef(0);
   const saveTimeouts = useRef({});
 
   const isPastReport = reportDate < todayEAT();
 
+  // ── Fetch ─────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     try {
       const res = await recoveryAPI.getReportAssignments(reportDate);
 
+      // A newer fetch has been started — drop this stale response.
+      if (seq !== fetchSeqRef.current) return;
+
       const daysMap = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
       setAssignedDaysString((res.data.assigned_days || []).map(d => daysMap[d]).join(', '));
 
-      // Clients now already include director_remark / director_remark_at / director_remark_by
+      // Clients already include director_remark / director_remark_at / director_remark_by
       setClients(res.data.clients || []);
 
-      // Approval info comes in the same payload
       setApproval(res.data.approval || {
         status: 'pending', general_remarks: '', approved_by: null, approved_at: null,
       });
       setGeneralRemarks(res.data.approval?.general_remarks || '');
     } catch (error) {
+      if (seq !== fetchSeqRef.current) return;
       console.error('Report fetch failed:', error);
       showToast.error('Failed to load assigned clients');
     } finally {
-      setLoading(false);
-      fetchingRef.current = false;
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   }, [reportDate]);
 
+  // Refetch whenever the date changes.
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Re-fetch when officer comments are edited
+  // ── A. Read pending jump on mount ─────────────────────────────────────
+  useEffect(() => {
+    const jumpDate   = sessionStorage.getItem('reportJumpToDate');
+    const jumpLoanId = sessionStorage.getItem('reportJumpToLoanId');
+
+    if (jumpDate) {
+      setReportDate(jumpDate);
+      sessionStorage.removeItem('reportJumpToDate');
+    }
+    if (jumpLoanId) {
+      setHighlightLoanId(parseInt(jumpLoanId, 10));
+      sessionStorage.removeItem('reportJumpToLoanId');
+    }
+  }, []);   // run once
+
+  // ── B. Listen for live jumps (panel already mounted) ─────────────────
+  // Two jobs:
+  //   1. Update the date / highlight.
+  //   2. FORCE a refetch even if the date did not change (e.g. clicking a
+  //      notification for a remark on today's report while already viewing
+  //      today's report — otherwise React state didn't change and no fetch
+  //      would fire).
+  useEffect(() => {
+    const handler = (e) => {
+      const { date, loanId } = e.detail || {};
+      if (date) setReportDate(date);
+      if (loanId != null) setHighlightLoanId(loanId);
+      fetchData();
+    };
+    window.addEventListener('reportJump', handler);
+    return () => window.removeEventListener('reportJump', handler);
+  }, [fetchData]);
+
+  // ── C. Scroll + flash once the fresh rows have arrived ───────────────
+  // We do NOT clear highlightLoanId on failure — if the row isn't here yet
+  // (because the fetch hasn't returned), Effect C will run again when
+  // `clients` updates, and then scroll to it.
+  useEffect(() => {
+    if (!highlightLoanId || !clients?.length) return;
+
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-loan-id="${highlightLoanId}"]`);
+      if (!el) return;                    // retry on next `clients` change
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('loan-row-highlight');
+      setTimeout(() => el.classList.remove('loan-row-highlight'), 3000);
+      setHighlightLoanId(null);           // consumed
+    }, 150);
+
+    return () => clearTimeout(t);
+  }, [highlightLoanId, clients]);
+
+  // ── D. Safety net: clear highlight if the row never appears ──────────
+  useEffect(() => {
+    if (!highlightLoanId) return;
+    const t = setTimeout(() => setHighlightLoanId(null), 5000);
+    return () => clearTimeout(t);
+  }, [highlightLoanId]);
+
+  // ── Comment save (officer's own notes) ────────────────────────────────
   const saveComment = async (loanId, comment) => {
     try {
       await recoveryAPI.saveReportComment(loanId, comment, reportDate);
@@ -233,7 +301,7 @@ const ReportsPanel = () => {
                   const planText = isWaiver ? null : c.repayment_plan === 'daily' ? 'Daily' : 'Weekly';
                   const total = rowTotal(c);
                   return (
-                    <tr key={c.loan_id}>
+                    <tr key={c.loan_id} data-loan-id={c.loan_id}>
                       <td>{idx + 1}</td>
                       <td>
                         <div className="fw-semibold">{c.client_name}</div>

@@ -574,6 +574,12 @@ def get_assigned_clients_for_user(user_id, report_date=None):
             mid-day renewal/waiver cannot show up twice, and with a
             resolution-date guard so a loan is only hidden on dates it
             was already resolved on/before (EAT). Never recomputes.
+
+    Also carries REMARK-ONLY rows: a director can leave a remark on a
+    date where the officer never opened their report (so no financial
+    snapshot was ever written). Those rows have current_principal=NULL
+    but a non-empty director_remark. We surface them so the officer
+    can actually see the remark that triggered the notification.
     """
     from app.utils.time import today_eat
 
@@ -599,7 +605,9 @@ def get_assigned_clients_for_user(user_id, report_date=None):
         }
 
         out = []
+        live_ids = set()
         for row in live_rows:
+            live_ids.add(row['loan_id'])
             rc = rc_index.get(row['loan_id'])
             out.append({
                 **row,
@@ -612,12 +620,48 @@ def get_assigned_clients_for_user(user_id, report_date=None):
                 'is_waiver':          row['interest_rate'] == 0,
                 'report_date':        report_date.isoformat(),
             })
+
+        # ── ALSO INCLUDE remark-only rows for TODAY that aren't in live_rows ──
+        # This is the case where the director left a remark on a client who
+        # (for whatever reason — flag, assignment change, etc.) is no longer
+        # in the officer's live assignment set. We still want to surface it.
+        for loan_id, rc in rc_index.items():
+            if loan_id in live_ids:
+                continue
+            if not (rc.director_remark or rc.comment):
+                continue
+            loan = db.session.get(Loan, loan_id)
+            if not loan:
+                continue
+            out.append({
+                'loan_id':           loan.id,
+                'client_name':       rc.client_name or (
+                    loan.client.full_name if loan.client else 'Unknown'),
+                'phone':             rc.phone or (
+                    loan.client.phone_number if loan.client else ''),
+                'current_principal': float(rc.current_principal or 0),
+                'unpaid_interest':   float(rc.unpaid_interest or 0),
+                'total_balance':     float(rc.total_balance
+                                            or (rc.current_principal or 0)
+                                            + (rc.unpaid_interest or 0)),
+                'interest_rate':     float(rc.interest_rate or 0),
+                'repayment_plan':    rc.repayment_plan or 'weekly',
+                'comment':           rc.comment or '',
+                'director_remark':   rc.director_remark or '',
+                'director_remark_at': rc.director_remark_at.isoformat()
+                                        if rc.director_remark_at else None,
+                'director_remark_by': rc.director_remarker.username
+                                        if rc.director_remarker else None,
+                'is_waiver':          float(rc.interest_rate or 0) == 0,
+                'report_date':        report_date.isoformat(),
+                'is_remark_only':     rc.current_principal is None,
+            })
         return out
 
     # ------------------------------------------------------------------
-    # PAST — frozen rows only, deduplicated per loan chain, with a
-    # resolution-date guard so a loan is only hidden on dates it was
-    # already resolved on/before (EAT).
+    # PAST — frozen rows + remark-only rows, deduplicated per loan chain,
+    # with a resolution-date guard so a loan is only hidden on dates it
+    # was already resolved on/before (EAT).
     # ------------------------------------------------------------------
     if report_date < today:
         rows = (
@@ -627,22 +671,41 @@ def get_assigned_clients_for_user(user_id, report_date=None):
             .all()
         )
 
-        # 1. Group rows by their loan's chain root. Within each chain
-        #    keep ONLY the row whose loan has the HIGHEST loan_id — i.e.
-        #    the newest form of the loan that was captured for this date.
-        #    This collapses the "old loan + new loan on the same day"
-        #    duplicate (Stanley's bug).
+        # 1. Group rows by their loan's chain root. Within each chain:
+        #       • Prefer a row WITH financials over a remark-only row.
+        #       • If two rows both have financials, keep the higher loan_id
+        #         (i.e. the newest form of the chain, collapsing "old loan
+        #         + new loan on the same day").
+        #       • A remark-only row survives only if no financial row
+        #         exists for that chain.
         by_root = {}   # root_loan_id -> (ReportComment, Loan)
         for rc in rows:
-            if rc.current_principal is None:
-                continue                              # remark-only row
+            has_financials = rc.current_principal is not None
+            has_content    = bool(rc.comment) or bool(rc.director_remark)
+            if not has_financials and not has_content:
+                continue                             # truly empty — skip
+
             loan = db.session.get(Loan, rc.loan_id)
             if not loan:
                 continue
             root = loan.root_loan_id or loan.id
             prev = by_root.get(root)
-            if prev is None or rc.loan_id > prev[0].loan_id:
+
+            if prev is None:
                 by_root[root] = (rc, loan)
+                continue
+
+            prev_rc, _ = prev
+            prev_has_financials = prev_rc.current_principal is not None
+
+            if has_financials and not prev_has_financials:
+                # Upgrade: financial row beats remark-only row.
+                by_root[root] = (rc, loan)
+            elif has_financials and prev_has_financials:
+                # Both financial — keep the newer loan id.
+                if rc.loan_id > prev_rc.loan_id:
+                    by_root[root] = (rc, loan)
+            # else: prev has financials, new is remark-only → keep prev.
 
         # 2. Emit one row per surviving chain, applying the resolution
         #    guard: a terminal loan is hidden ONLY on dates it was
@@ -660,16 +723,23 @@ def get_assigned_clients_for_user(user_id, report_date=None):
                         # day → correctly a ghost, drop it.
                         continue
 
+            current_principal = float(rc.current_principal) if rc.current_principal is not None else 0.0
+            unpaid_interest   = float(rc.unpaid_interest)   if rc.unpaid_interest   is not None else 0.0
+            total_balance     = (
+                float(rc.total_balance) if rc.total_balance is not None
+                else current_principal + unpaid_interest
+            )
+
             out.append({
                 'loan_id':           rc.loan_id,
-                'client_name':       rc.client_name,
-                'phone':             rc.phone,
-                'current_principal': float(rc.current_principal or 0),
-                'unpaid_interest':   float(rc.unpaid_interest or 0),
-                'total_balance':     float(rc.total_balance
-                                            or (rc.current_principal or 0)
-                                            + (rc.unpaid_interest or 0)),
-                'interest_rate':     float(rc.interest_rate or 0),
+                'client_name':       rc.client_name or (
+                    loan.client.full_name if loan.client else 'Unknown'),
+                'phone':             rc.phone or (
+                    loan.client.phone_number if loan.client else ''),
+                'current_principal': current_principal,
+                'unpaid_interest':   unpaid_interest,
+                'total_balance':     total_balance,
+                'interest_rate':     float(rc.interest_rate) if rc.interest_rate is not None else 0.0,
                 'repayment_plan':    rc.repayment_plan or 'weekly',
                 'comment':           rc.comment or '',
                 'director_remark':   rc.director_remark or '',
@@ -679,6 +749,7 @@ def get_assigned_clients_for_user(user_id, report_date=None):
                                         if rc.director_remarker else None,
                 'is_waiver':          float(rc.interest_rate or 0) == 0,
                 'report_date':        report_date.isoformat(),
+                'is_remark_only':     rc.current_principal is None,
             })
         return out
 
@@ -1245,7 +1316,7 @@ def get_all_transactions():
 
 @admin_bp.route('/livestock', methods=['POST'])
 @jwt_required()
-@role_required(['admin', 'director', 'valuer'])  # adjust roles to match your app
+@role_required(['admin', 'director', 'valuer'])  
 def add_livestock():
     data = request.get_json() or {}
 

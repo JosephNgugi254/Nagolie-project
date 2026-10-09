@@ -1,9 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ReportsPanel from './ReportsPanel';
 import ValuerPanel from './ValuerPanel';
 
 const AnnieReportsTabs = () => {
   const [activeTab, setActiveTab] = useState('daily');
+
+  // On mount — if there's a queued jump, force the Daily tab
+  useEffect(() => {
+    if (sessionStorage.getItem('reportJumpToDate')) setActiveTab('daily');
+  }, []);
+
+  // Live jump event while Annie is already on this screen
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.date) setActiveTab('daily');
+    };
+    window.addEventListener('reportJump', handler);
+    return () => window.removeEventListener('reportJump', handler);
+  }, []);
 
   return (
     <div>

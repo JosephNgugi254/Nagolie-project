@@ -14,6 +14,7 @@ class User(db.Model):
     role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=True)   
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     profile_picture = db.Column(db.Text, nullable=True)  # base64 encoded image data
+    payroll_excluded = db.Column( db.Boolean,nullable=False,default=False,server_default='0')
 
     # To enable fingerprint biometric
     fingerprint_enabled = db.Column(db.Boolean, default=False)

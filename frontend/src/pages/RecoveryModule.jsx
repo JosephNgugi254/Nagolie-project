@@ -362,7 +362,6 @@ function RecoveryModule() {
   const commentUnreadsInitializedRef = useRef(false);
   const messagesUnreadInitializedRef = useRef(false);
   const applicationsInitializedRef   = useRef(false);
-
   
   const fetchBadDebtLoans = async () => {
     try {
@@ -1568,16 +1567,26 @@ const handleNotificationClick = (n) => {
     setDirectorSection('applications');
     setApplicationsTab('pending');
   } else if (n.type === 'director_remark') {
-    // Navigate to the reports panel — the officer's own report
+    // 1. Make sure the reports section is the active section
     setDirectorSection('reports');
-    // Pass the report date so the ReportsPanel can auto-jump to it
+
+    // 2. Persist for the case where ReportsPanel mounts *after* this click
     sessionStorage.setItem('reportJumpToDate', n.actionData.report_date);
-    // If the officer needs to open a specific client, store that too
     if (n.actionData.loan_id) {
       sessionStorage.setItem('reportJumpToLoanId', String(n.actionData.loan_id));
+    } else {
+      sessionStorage.removeItem('reportJumpToLoanId');
     }
-  }
 
+    // 3. Fire a live event for the case where the panel is ALREADY mounted
+    //    (e.g. user was already on the reports tab and clicks a 2nd remark)
+    window.dispatchEvent(new CustomEvent('reportJump', {
+      detail: {
+        date:   n.actionData.report_date,
+        loanId: n.actionData.loan_id || null,
+      },
+    }));
+  }
 };
 
 const clearAllNotifications = () => {

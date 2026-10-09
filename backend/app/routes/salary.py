@@ -308,7 +308,7 @@ def get_staff_settings():
     """Staff with effective salary + full breakdown for a month + totals."""
     try:
         month = request.args.get('month', get_current_month())
-        staff_users = User.query.filter(User.role.in_(get_staff_roles())).all()
+        staff_users = User.query.filter(User.role.in_(get_staff_roles())).filter(User.payroll_excluded == False) .all()
 
         all_settings = StaffSalarySetting.query.all()
         all_txns = SalaryTransaction.query.all()
@@ -370,6 +370,12 @@ def set_staff_salary():
         if not user_id or salary_amount < 0:
             return jsonify({'error': 'Invalid data'}), 400
 
+        target = User.query.get(user_id)                   # ← ADD
+        if not target:
+            return jsonify({'error': 'User not found'}), 404
+        if target.payroll_excluded:                        # ← ADD
+            return jsonify({'error': f'{target.username} is not on the payroll'}), 409
+
         setting = StaffSalarySetting.query.filter_by(user_id=user_id, month=month).first()
         if setting:
             setting.salary_amount = salary_amount
@@ -410,9 +416,13 @@ def get_advance_requests():
 
         # Directors, HR managers, and acting-HR (Annie) see everything.
         if user.role in ['director', 'hr_manager'] or _is_acting_hr(user):
-            requests = SalaryAdvanceRequest.query.order_by(
-                SalaryAdvanceRequest.requested_at.desc()
-            ).all()
+            requests = (
+                SalaryAdvanceRequest.query
+                .join(User, SalaryAdvanceRequest.user_id == User.id)
+                .filter(User.payroll_excluded == False)   # ← ADD
+                .order_by(SalaryAdvanceRequest.requested_at.desc())
+                .all()
+            )
         else:
             requests = (
                 SalaryAdvanceRequest.query
@@ -436,6 +446,8 @@ def create_advance_request():
         user = User.query.get(user_id)
         if not user or not is_staff(user):
             return jsonify({'error': 'Only staff can request advances'}), 403
+        if user.payroll_excluded:                         # ← ADD
+            return jsonify({'error': 'You are not on the payroll'}), 403
 
         data = request.json
         amount = Decimal(str(data.get('amount', 0)))
@@ -501,6 +513,10 @@ def process_advance_request(request_id):
             return jsonify({'error': 'Request not found'}), 404
         if req.status != 'pending':
             return jsonify({'error': 'Request already processed'}), 400
+
+        target_user = User.query.get(req.user_id)          # ← ADD
+        if target_user and target_user.payroll_excluded:   # ← ADD
+            return jsonify({'error': 'Target user is not on the payroll'}), 409
 
         director_id = int(get_jwt_identity())
         director = User.query.get(director_id)
@@ -585,6 +601,10 @@ def pay_advance_request(request_id):
         if req.status != 'approved':
             return jsonify({'error': 'Request must be approved before payment'}), 400
 
+        target_user = User.query.get(req.user_id)          # ← ADD
+        if target_user and target_user.payroll_excluded:   # ← ADD
+            return jsonify({'error': 'Target user is not on the payroll'}), 409
+
         # Acting-HR (Annie) must not pay her own advance.
         if _is_acting_hr(me) and _is_self(req.user_id, current_user_id):
             return jsonify({'error': 'You cannot process payment for your own advance'}), 403
@@ -648,6 +668,10 @@ def record_salary_payment():
         if not user_id or amount <= 0:
             return jsonify({'error': 'Invalid data'}), 400
 
+        target_user = User.query.get(user_id)              # ← ADD
+        if target_user and target_user.payroll_excluded:   # ← ADD
+            return jsonify({'error': 'Target user is not on the payroll'}), 409
+
         # Acting-HR (Annie) must not pay herself.
         if _is_acting_hr(me) and _is_self(user_id, current_user_id):
             return jsonify({'error': 'You cannot record a salary payment for yourself'}), 403
@@ -692,6 +716,16 @@ def my_salary_stats():
         user = User.query.get(user_id)
         if not user or not is_staff(user):
             return jsonify({'error': 'Only staff can view their salary stats'}), 403
+        if user.payroll_excluded:                          # ← ADD
+            return jsonify({
+                'month': get_current_month(),
+                'total_salary': 0, 'total_advances': 0, 'total_paid': 0,
+                'balance': 0, 'previous_balance': 0, 'total_due': 0,
+                'total_paid_all_time': 0, 'total_owed_all_time': 0,
+                'monthly_breakdown': [], 'previous_months': [],
+                'current_month_row': None, 'pending_requests': [],
+                'transactions': [],
+            }), 200
 
         month = request.args.get('month', get_current_month())
         breakdown = compute_staff_breakdown(user_id, month)
@@ -751,6 +785,8 @@ def get_staff_report_data(user_id):
         user = User.query.get(user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
+        if user.payroll_excluded:                          # ← ADD
+            return jsonify({'error': 'User is not on the payroll'}), 409
 
         setting = resolve_salary_setting(user_id, month)
         total_salary = Decimal(setting.salary_amount) if setting else Decimal('0')
@@ -816,7 +852,11 @@ def get_salary_transactions():
         end_date = request.args.get('end_date')
         search = request.args.get('search', '').strip()
 
-        query = SalaryTransaction.query.join(User, SalaryTransaction.user_id == User.id)
+        query = (
+            SalaryTransaction.query
+            .join(User, SalaryTransaction.user_id == User.id)
+            .filter(User.payroll_excluded == False)        # ← ADD
+        )
 
         if user_id:
             query = query.filter(SalaryTransaction.user_id == user_id)

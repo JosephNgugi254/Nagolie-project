@@ -35,6 +35,16 @@ const UnifiedReportsTabs = () => {
     }
   }, [canSeeRecovery, activeTab]);
 
+  useEffect(() => {
+    if (sessionStorage.getItem('reportJumpToDate')) setActiveTab('officer');
+  }, []);
+  
+  useEffect(() => {
+    const handler = (e) => { if (e.detail?.date) setActiveTab('officer'); };
+    window.addEventListener('reportJump', handler);
+    return () => window.removeEventListener('reportJump', handler);
+  }, []);
+
   return (
     <div>
       <ul className="nav nav-tabs mb-4">

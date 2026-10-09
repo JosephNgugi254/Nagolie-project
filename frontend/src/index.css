@@ -4733,4 +4733,14 @@ section {
 #contactForm button[type="submit"]:disabled {
   cursor: not-allowed;
   opacity: 0.85;
+} 
+
+.loan-row-highlight {
+  animation: loanFlash 2.8s ease-out;
+}
+
+@keyframes loanFlash {
+  0%   { background-color: #fff3cd; }
+  40%  { background-color: #ffe9a8; }
+  100% { background-color: transparent; }
 }
