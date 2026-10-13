@@ -267,7 +267,7 @@ def get_recovery_data():
 
 @recovery_bp.route('/loan/<int:loan_id>/payment', methods=['POST'])
 @jwt_required()
-@role_required(['director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer', 'hr_manager'])
+@role_required(['director', 'secretary', 'head_of_it','deputy_director', 'client_relations_officer', 'hr_manager', 'valuer'])
 def process_recovery_payment(loan_id):
     """
     Process a payment from the recovery module.
@@ -1227,17 +1227,36 @@ def get_flagged_clients():
         client = loan.client
         livestock = loan.livestock
 
-        # Calculate unpaid interest correctly
-        if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
-            current_period = _get_current_period_key(loan)
-            period_interest = _get_current_period_interest(loan)
+        # ─────────────────────────────────────────────────────────────────
+        # Unpaid interest — MUST match admin.get_loan() and get_recovery_data()
+        # so the table figure agrees with the Payment Modal.
+        #
+        # Weekly:   raw_weekly_interest = current_principal × 0.30
+        #           unpaid = max(0, raw_weekly_interest − period_prepaid)
+        # Daily:    unpaid = max(0, accrued_interest − interest_paid)
+        # Waived:   unpaid = 0
+        # ─────────────────────────────────────────────────────────────────
+        current_period = _get_current_period_key(loan)
+
+        if loan.repayment_plan == 'weekly' and loan.interest_rate and loan.interest_rate > 0:
+            raw_weekly_interest = (
+                loan.current_principal * Decimal('0.30')
+            ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            period_prepaid = Decimal('0')
             if loan.interest_prepaid_period == current_period:
-                prepaid = loan.interest_prepaid_amount or Decimal('0')
-                unpaid_interest = float(max(Decimal('0'), period_interest - prepaid))
-            else:
-                unpaid_interest = float(period_interest)
+                period_prepaid = loan.interest_prepaid_amount or Decimal('0')
+
+            unpaid_interest = float(
+                max(Decimal('0'), raw_weekly_interest - period_prepaid)
+            )
         else:
-            unpaid_interest = float(max(Decimal('0'), loan.accrued_interest - loan.interest_paid))
+            unpaid_interest = float(
+                max(Decimal('0'),
+                    (loan.accrued_interest or Decimal('0'))
+                    - (loan.interest_paid or Decimal('0')))
+            )
+        # ─────────────────────────────────────────────────────────────────
 
         # ── CHANGED: collateral value uses the model property ──────────────
         # For new loans = forced_value; for legacy loans = estimated_value.

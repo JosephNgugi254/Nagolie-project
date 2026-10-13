@@ -1899,6 +1899,15 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
     return () => { clearInterval(i1); clearInterval(i2); };
   }, [authLoading, isAuthenticated, userRole, navigate, fetchCommentUnreads, logout]);
 
+  useEffect(() => {
+      if (directorSection !== 'recovery') return;
+      if (authLoading) return;
+      if (!isAuthenticated()) return;
+      if (!userRole) return;
+      fetchData();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directorSection]);
+  
    // Load dismissed-notification state for this user
   useEffect(() => {
     if (!user?.id) return;

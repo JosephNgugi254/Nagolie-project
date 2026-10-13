@@ -15,10 +15,11 @@ import PaymentModal from './PaymentModal';
  */
 const CAN_VIEW_FLAGGED = (user) => {
   if (!user) return false;
-  const role = (user.role || '').toLowerCase();
+  const role     = (user.role     || '').toLowerCase();
   const username = (user.username || '').toLowerCase();
   return (
-    ['valuer', 'admin', 'director', 'hr_manager'].includes(role) ||
+    ['valuer', 'admin', 'director', 'hr_manager',
+     'client_relations_officer'].includes(role) ||
     username === 'annie'
   );
 };
@@ -243,14 +244,33 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
   };
 
   const handleProcessPayment = async (client) => {
-    try {
-      const loanResponse = await adminAPI.getLoan(client.loan_id);
-      setSelectedLoanForPayment(loanResponse.data);
-      setShowPaymentModal(true);
-    } catch (err) {
-      showToast.error('Failed to load loan details for payment');
-    }
-  };
+  try {
+    const loanResponse = await adminAPI.getLoan(client.loan_id);
+    const fresh = loanResponse.data;
+
+    // admin.get_loan returns the RAW accrued_interest, which is always 0
+    // for weekly loans (interest compounds into principal, it never sits
+    // in accrued_interest). The PaymentModal — like the recovery module's
+    // own data source — expects accrued_interest to hold the *unpaid*
+    // interest for the current period. Alias it here.
+    const isWeekly = fresh.repayment_plan === 'weekly';
+    const currentPeriodInterest = Number(fresh.current_period_interest ?? 0);
+    const periodPrepaid         = Number(fresh.period_interest_prepaid ?? 0);
+    const periodFullyPaid       = fresh.period_interest_fully_paid === true;
+
+    const unpaidInterest = isWeekly
+      ? (periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid))
+      : Number(fresh.accrued_interest ?? 0);
+
+    setSelectedLoanForPayment({
+      ...fresh,
+      accrued_interest: unpaidInterest,   // ← what the modal reads
+    });
+    setShowPaymentModal(true);
+  } catch (err) {
+    showToast.error('Failed to load loan details for payment');
+  }
+};
 
   // ──────────────────────────── Branch filtering ─────────────────────────
   const filterByBranch = (clients) => {
@@ -266,15 +286,14 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
 
   const filteredClients = filterByBranch(flaggedClients);
 
-  // Only roles listed here can process a payment from this panel
-  const canProcessPayment = editable && (
-    userRole === 'director' ||
-    userRole === 'secretary' ||
-    userRole === 'client_relations_officer' ||
-    userRole === 'head_of_it' ||
-    userRole === 'deputy_director' ||
-    userRole === 'hr_manager'
-  );
+  const effectiveRole =
+    (userRole || user?.role || '').toString().toLowerCase();
+  const effectiveUsername =
+    (user?.username || '').toString().toLowerCase();
+
+  const canProcessPayment =
+    ['director', 'valuer'].includes(effectiveRole) ||
+    effectiveUsername === 'annie';
 
   // ────────────────────────── Access-restricted view ─────────────────────
   // If the current user is not allowed to see flagged clients, render a
