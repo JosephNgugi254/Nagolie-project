@@ -4745,19 +4745,23 @@ section {
   100% { background-color: transparent; }
 }
 
-/* ── Online / last-seen ────────────────────────────────────── */
+/* ── Username row: name + online chip + last-seen (far right) ───── */
 .chat-name-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
+  gap: 6px;
+  min-width: 0;              /* allow children to truncate */
 }
+
 .chat-name-text {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
 }
+
 .online-indicator {
   display: inline-flex;
   align-items: center;
@@ -4767,6 +4771,7 @@ section {
   color: #22a658;
   font-weight: 500;
 }
+
 .online-dot {
   width: 8px;
   height: 8px;
@@ -4775,8 +4780,24 @@ section {
   box-shadow: 0 0 0 2px rgba(34, 166, 88, 0.15);
   display: inline-block;
 }
+
 .online-text { letter-spacing: 0.2px; }
 
+/* Far-right compact "last seen" chip */
+.last-seen-far-right {
+  margin-left: auto;         /* push to the far right of the name row */
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: #6c757d;
+  font-style: italic;
+  white-space: nowrap;
+  padding-left: 6px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sub-line: role / typing (as before) */
 .chat-subline {
   font-size: 0.78rem;
   color: #6c757d;
@@ -4785,12 +4806,8 @@ section {
   white-space: nowrap;
   margin-top: 2px;
 }
-.last-seen {
-  color: #6c757d;
-  font-style: italic;
-}
 
-/* ── Typing ───────────────────────────────────────────────── */
+/* Typing indicator */
 .typing-status {
   color: #22a658;
   font-weight: 500;
@@ -4798,10 +4815,7 @@ section {
   align-items: center;
   gap: 6px;
 }
-.typing-dots {
-  display: inline-flex;
-  gap: 3px;
-}
+.typing-dots { display: inline-flex; gap: 3px; }
 .typing-dots span {
   width: 5px;
   height: 5px;
@@ -4812,7 +4826,6 @@ section {
 }
 .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
 .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
-
 @keyframes typingBounce {
   0%, 60%, 100% { transform: translateY(0);    opacity: 0.4; }
   30%           { transform: translateY(-3px); opacity: 1;   }

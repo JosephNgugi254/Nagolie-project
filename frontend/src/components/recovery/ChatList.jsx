@@ -5,7 +5,7 @@ import Modal from '../common/Modal';
 import CreateGroupModal from './CreateGroupModal';
 import { useSocket } from '../../context/SocketContext';
 
-// ── WhatsApp-style last-seen formatter ──────────────────────────────────
+// ── Full WhatsApp-style formatter (used for the hover tooltip) ─────────
 const formatLastSeen = (iso) => {
   if (!iso) return null;
   const then = new Date(iso);
@@ -13,7 +13,7 @@ const formatLastSeen = (iso) => {
 
   const now = new Date();
   const diffSec = Math.floor((now - then) / 1000);
-  if (diffSec < 0) return 'last seen just now';        // guard: future timestamps
+  if (diffSec < 0) return 'last seen just now';
   if (diffSec < 60) return 'last seen just now';
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `last seen ${diffMin} min ago`;
@@ -32,6 +32,48 @@ const formatLastSeen = (iso) => {
     return `last seen ${dayName} at ${timeStr}`;
   }
   return `last seen ${then.toLocaleDateString()} at ${timeStr}`;
+};
+
+// ── Compact formatter (used for the far-right chip in the username row) ─
+//   The full sentence doesn't fit beside the username + online badge,
+//   so we use short forms that match WhatsApp / Telegram list patterns.
+const formatLastSeenCompact = (iso) => {
+  if (!iso) return null;
+  const then = new Date(iso);
+  if (isNaN(then.getTime())) return null;
+
+  const now = new Date();
+  const diffSec = Math.floor((now - then) / 1000);
+
+  // Future / very recent — clamp to "just now"
+  if (diffSec < 0 || diffSec < 60) return 'last seen just now';
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `last seen ${diffMin}m ago`;
+
+  // From this point onward everything carries "last seen …"
+  const sameDay = now.toDateString() === then.toDateString();
+
+  // 10:40am / 2:05pm — lowercase, no spaces
+  const timeStr = then
+    .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    .replace(/\s/g, '')
+    .toLowerCase();
+
+  if (sameDay) return `last seen at ${timeStr}`;
+
+  const yest = new Date(now);
+  yest.setDate(yest.getDate() - 1);
+  if (yest.toDateString() === then.toDateString()) {
+    // Match your example — "yesterday" without the time
+    return 'last seen yesterday';
+  }
+
+  const diffDays = Math.floor(diffSec / (60 * 60 * 24));
+  if (diffDays < 7) {
+    return `last seen ${then.toLocaleDateString([], { weekday: 'long' })}`;
+  }
+  return `last seen ${then.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
 };
 
 function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set(), refreshKey }) {
@@ -78,13 +120,17 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set(), refr
   };
 
   const fetchUnreadCounts = async () => {
-    try { setUnreadCounts((await recoveryAPI.getUnreadCountByUser()).data); }
-    catch (err) { console.error(err); }
+    try {
+      const res = await recoveryAPI.getUnreadCountByUser();
+      setUnreadCounts(res?.data || {});
+    } catch (err) { console.error(err); }
   };
 
   const fetchGroupUnreads = async () => {
-    try { setGroupUnreads((await chatAPI.getGroupUnreadCounts()).data); }
-    catch (err) { console.error(err); }
+    try {
+      const res = await chatAPI.getGroupUnreadCounts();
+      setGroupUnreads(res?.data || {});
+    } catch (err) { console.error(err); }
   };
 
   const handleAvatarClick = (user, e) => {
@@ -95,15 +141,16 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set(), refr
 
   const handleGroupCreated = (newGroup) => setGroups(prev => [newGroup, ...prev]);
 
-  // ── Per-user status line ────────────────────────────────────────────
+  // ── Sub-line: typing when active, otherwise the role (as before) ──────
   const renderUserSubline = (user) => {
-    const isOnline = onlineUsers.has(user.id);
-    const typingBucket = typingUsers[`user_${user.id}`];   // typing in chat WITH this user
+    const typingBucket = typingUsers[`user_${user.id}`];
     const isTyping = typingBucket && Object.keys(typingBucket).length > 0;
 
     if (isTyping) {
       const typers = Object.values(typingBucket).map(t => t.username);
-      const label = typers.length === 1 ? `${typers[0]} is typing…` : `${typers.slice(0, 2).join(', ')} are typing…`;
+      const label = typers.length === 1
+        ? `${typers[0]} is typing…`
+        : `${typers.slice(0, 2).join(', ')} are typing…`;
       return (
         <span className="typing-status">
           <span className="typing-dots"><span /><span /><span /></span>
@@ -112,16 +159,11 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set(), refr
       );
     }
 
-    if (!isOnline) {
-      const ts = lastSeen[user.id] || user.last_seen;
-      const formatted = formatLastSeen(ts);
-      if (formatted) return <span className="last-seen">{formatted}</span>;
-    }
-
+    // Original role label
     return <span className="chat-role">{user.role}</span>;
   };
 
-  // ── Group subline ──────────────────────────────────────────────────
+  // ── Group subline (unchanged: typing or member count) ─────────────────
   const renderGroupSubline = (group) => {
     const bucket = typingUsers[`group_${group.id}`];
     if (bucket && Object.keys(bucket).length > 0) {
@@ -158,6 +200,10 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set(), refr
           <>
             {users.map(user => {
               const isOnline = onlineUsers.has(user.id);
+              const ts = lastSeen[user.id] || user.last_seen;
+              const lastSeenCompact = !isOnline ? formatLastSeenCompact(ts) : null;
+              const lastSeenFull    = !isOnline ? formatLastSeen(ts)        : null;
+
               return (
                 <div
                   key={user.id}
@@ -174,6 +220,14 @@ function ChatList({ isOpen, onClose, onSelectUser, onlineUsers = new Set(), refr
                         <span className="online-indicator" aria-label="Online">
                           <span className="online-dot" />
                           <span className="online-text">online</span>
+                        </span>
+                      )}
+                      {lastSeenCompact && (
+                        <span
+                          className="last-seen-far-right"
+                          title={lastSeenFull || lastSeenCompact}
+                        >
+                          {lastSeenCompact}
                         </span>
                       )}
                     </div>
