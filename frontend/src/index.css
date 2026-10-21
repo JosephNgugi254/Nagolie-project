@@ -3028,7 +3028,7 @@ section {
   position: fixed;
   top: 0;
   right: -370px;
-  width: 350px;
+  width: 360px;
   height: 100vh;
   background: white;
   box-shadow: -2px 0 15px rgba(0,0,0,0.15);
@@ -4783,18 +4783,15 @@ section {
 
 .online-text { letter-spacing: 0.2px; }
 
-/* Far-right compact "last seen" chip */
+/* Far-right compact "last seen" chip — sizes to content, never clips */
 .last-seen-far-right {
-  margin-left: auto;         /* push to the far right of the name row */
+  margin-left: auto;
   flex-shrink: 0;
   font-size: 0.68rem;
   color: #6c757d;
   font-style: italic;
   white-space: nowrap;
-  padding-left: 6px;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding-left: 8px;
 }
 
 /* Sub-line: role / typing (as before) */

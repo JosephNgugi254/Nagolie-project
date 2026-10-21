@@ -60,7 +60,7 @@ const formatLastSeenCompact = (iso) => {
     .replace(/\s/g, '')
     .toLowerCase();
 
-  if (sameDay) return `last seen at ${timeStr}`;
+  if (sameDay) return `last seen ${timeStr}`;
 
   const yest = new Date(now);
   yest.setDate(yest.getDate() - 1);
