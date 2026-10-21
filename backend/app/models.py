@@ -16,6 +16,8 @@ class User(db.Model):
     profile_picture = db.Column(db.Text, nullable=True)  # base64 encoded image data
     payroll_excluded = db.Column( db.Boolean,nullable=False,default=False,server_default='0')
 
+    last_seen = db.Column(db.DateTime, nullable=True) 
+
     # To enable fingerprint biometric
     fingerprint_enabled = db.Column(db.Boolean, default=False)
     fingerprint_credential = db.Column(db.Text)  # store credential ID

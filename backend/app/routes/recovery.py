@@ -487,7 +487,8 @@ def get_users_for_messaging():
         'id': u.id,
         'username': u.username,
         'role': u.role,
-        'profile_picture': u.profile_picture  
+        'profile_picture': u.profile_picture,
+        'last_seen': u.last_seen.isoformat() + 'Z' if u.last_seen else None,   # NEW
     } for u in users]), 200
 
 

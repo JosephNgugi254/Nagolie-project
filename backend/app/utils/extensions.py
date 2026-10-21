@@ -23,6 +23,10 @@ def get_group_room(group_id):
     return f"group_{group_id}"
 
 
+def get_chat_room(user1_id, user2_id):
+    return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
+
+
 def get_user_from_token():
     auth_header = request.headers.get('Authorization')
     if auth_header:
@@ -33,7 +37,7 @@ def get_user_from_token():
             if user_id:
                 from app.models import User   # local import
                 return User.query.get(int(user_id))
-        except:
+        except Exception:
             pass
     token = request.args.get('token')
     if token:
@@ -43,7 +47,7 @@ def get_user_from_token():
             if user_id:
                 from app.models import User
                 return User.query.get(int(user_id))
-        except:
+        except Exception:
             pass
     return None
 
@@ -78,11 +82,100 @@ def handle_disconnect():
     if user_connections[user_id] == 0:
         del user_connections[user_id]
         leave_room(f'user_{user_id}')
-        emit('user_offline', {'user_id': user_id}, broadcast=True)
+
+        # ── Persist last_seen and broadcast it with the offline event ──
+        last_seen_iso = None
+        try:
+            from app.models import User
+            user = User.query.get(user_id)
+            if user:
+                user.last_seen = datetime.utcnow()
+                db.session.commit()
+                last_seen_iso = user.last_seen.isoformat() + 'Z'
+        except Exception as e:
+            db.session.rollback()
+            print(f"[disconnect] failed to persist last_seen for {user_id}: {e}")
+
+        emit('user_offline', {
+            'user_id': user_id,
+            'last_seen': last_seen_iso,
+        }, broadcast=True)
 
 
-def get_chat_room(user1_id, user2_id):
-    return f"chat_{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
+# ─────────────────────────────────────────────────────────────────────────────
+# Typing indicators
+# ─────────────────────────────────────────────────────────────────────────────
+@socketio.on('typing_start')
+def handle_typing_start(data):
+    """
+    Client emits when a keystroke begins a typing burst.
+    data = { type: 'user'|'group',
+             other_user_id: <int>   (for 1:1),
+             group_id: <int>        (for group) }
+    Broadcasts to the recipient's personal room (NOT the shared chat room),
+    so the chat LIST can also show typing even when ChatWindow is closed.
+    """
+    user = get_user_from_token()
+    if not user:
+        return
+
+    if data.get('type') == 'group':
+        group_id = data.get('group_id')
+        if not group_id:
+            return
+        from app.models import GroupMember
+        member = GroupMember.query.filter_by(
+            group_id=group_id, user_id=user.id, is_active=True
+        ).first()
+        if not member:
+            return
+        members = GroupMember.query.filter_by(group_id=group_id, is_active=True).all()
+        for m in members:
+            if m.user_id != user.id:
+                socketio.emit('user_typing', {
+                    'user_id': user.id,
+                    'username': user.username,
+                    'type': 'group',
+                    'group_id': group_id,
+                }, room=f'user_{m.user_id}')
+    else:
+        other_user_id = data.get('other_user_id')
+        if not other_user_id:
+            return
+        socketio.emit('user_typing', {
+            'user_id': user.id,
+            'username': user.username,
+            'type': 'user',
+        }, room=f'user_{other_user_id}')
+
+
+@socketio.on('typing_stop')
+def handle_typing_stop(data):
+    user = get_user_from_token()
+    if not user:
+        return
+
+    if data.get('type') == 'group':
+        group_id = data.get('group_id')
+        if not group_id:
+            return
+        from app.models import GroupMember
+        members = GroupMember.query.filter_by(group_id=group_id, is_active=True).all()
+        for m in members:
+            if m.user_id != user.id:
+                socketio.emit('user_stop_typing', {
+                    'user_id': user.id,
+                    'type': 'group',
+                    'group_id': group_id,
+                }, room=f'user_{m.user_id}')
+    else:
+        other_user_id = data.get('other_user_id')
+        if not other_user_id:
+            return
+        socketio.emit('user_stop_typing', {
+            'user_id': user.id,
+            'type': 'user',
+        }, room=f'user_{other_user_id}')
 
 
 @socketio.on('join_chat')
@@ -185,7 +278,7 @@ def handle_call_offer(data):
         'call_id': data.get('call_id'),
         'is_group': data.get('is_group', False),
         'participants': data.get('participants', [user.id]),
-        'is_mesh': data.get('is_mesh', False), 
+        'is_mesh': data.get('is_mesh', False),
     }, room=room)
 
 
@@ -280,6 +373,7 @@ def handle_call_answer(data):
             'call_type': data.get('call_type', 'voice'),
         }, room=f'user_{pid}')
 
+
 @socketio.on('call_leave')
 def handle_call_leave(data):
     user = get_user_from_token()
@@ -292,6 +386,7 @@ def handle_call_leave(data):
         'call_id': data['call_id'],
         'user_id': user.id,
     }, room=f'user_{target}')
+
 
 # ---------- Group chat events ----------
 @socketio.on('join_group')
@@ -352,6 +447,7 @@ def handle_send_group_message(data):
         'message_id': msg.id,
         'temp_id': data.get('temp_id')
     })
+
 
 @socketio.on('call_log_created')
 def handle_call_log_created(data):

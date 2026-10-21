@@ -9,6 +9,7 @@ import Avatar from '../common/Avatar';
 import Modal from '../common/Modal';
 import ConfirmationDialog from '../common/ConfirmationDialog';
 import AddParticipantModal from '../call/AddParticipantModal';
+import { useSocket } from '../../context/SocketContext';
 
 // ------------------------------------------------------------
 // WaveformAudioPlayer
@@ -262,6 +263,7 @@ function ForwardModal({ isOpen, onClose, message, onForward }) {
   const [selected, setSelected] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+
 
   useEffect(() => { if (isOpen) load(); }, [isOpen]);
 
@@ -528,6 +530,7 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     }
     return null;
   };
+
   
   const isGroup = chat.type === 'group';
   const user = isGroup ? null : chat.data;
@@ -586,6 +589,51 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
   const fileInputRef = useRef(null);
   const socketRef = useRef(null);
   const [socketConnected, setSocketConnected] = useState(false);
+
+  // ── Typing / presence (real-time) ─────────────────────────────────────
+  // Declared AFTER `isGroup`, `user`, `group`, `socketRef`, `setNewMessage`
+  // so the useEffect dep array below can safely reference them.
+  const { lastSeen, typingUsers } = useSocket();
+  const isTypingRef = useRef(false);
+  const typingTimeoutRef = useRef(null);
+
+  const emitStopTyping = () => {
+    if (!isTypingRef.current || !socketRef.current) return;
+    isTypingRef.current = false;
+    clearTimeout(typingTimeoutRef.current);
+    socketRef.current.emit('typing_stop', {
+      type: isGroup ? 'group' : 'user',
+      group_id: isGroup ? group.id : undefined,
+      other_user_id: !isGroup ? user.id : undefined,
+    });
+  };
+
+  const handleTyping = (e) => {
+    const val = e.target.value;
+    setNewMessage(val);
+
+    if (!socketRef.current || !socketConnected) return;
+
+    if (!val.trim()) { emitStopTyping(); return; }
+
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      socketRef.current.emit('typing_start', {
+        type: isGroup ? 'group' : 'user',
+        group_id: isGroup ? group.id : undefined,
+        other_user_id: !isGroup ? user.id : undefined,
+      });
+    }
+
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(emitStopTyping, 2500);
+  };
+
+  // On unmount or when the active conversation changes, force-stop typing
+  useEffect(() => {
+    return () => { emitStopTyping(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, group?.id]);
 
   const pendingTempIds = useRef(new Map());
 
@@ -916,6 +964,8 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
     const content = newMessage, files = attachments;
     if (!content?.trim() && !files.length) return;
 
+    emitStopTyping(); 
+
     setSending(true);
     const tempId = Date.now();
     const cid = getCurrentUserId();
@@ -1091,6 +1141,7 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
   const toggleRecording = () => isRecording ? stopRecording() : startRecording();
 
   const confirmAndSendVoice = async () => {
+    emitStopTyping();
     if (!recordedBlob) return;
     setShowVoiceConfirm(false);
 
@@ -1490,9 +1541,29 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
                 <Avatar user={user} size={32} className="me-2" />
               </span>
               {user.username}
-              <span style={{ marginLeft: 8, fontSize: '0.75rem', fontWeight: 'normal', color: onlineUsers.has(user.id) ? '#4caf50' : '#9e9e9e' }}>
-                ({onlineUsers.has(user.id) ? 'online' : 'offline'})
-              </span>
+              {(() => {
+                const isOnline = onlineUsers.has(user.id);
+                const bucket = typingUsers[`user_${user.id}`];
+                const isTyping = bucket && Object.keys(bucket).length > 0;
+                const ts = lastSeen[user.id] || user.last_seen;
+
+                let label, color;
+                if (isTyping) { label = 'typing…'; color = '#25a55a'; }
+                else if (isOnline) { label = 'online'; color = '#4caf50'; }
+                else if (ts) {
+                  const diffSec = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+                  label = diffSec < 60 ? 'last seen just now'
+                        : diffSec < 3600 ? `last seen ${Math.floor(diffSec/60)}m ago`
+                        : 'last seen recently';
+                  color = '#9e9e9e';
+                } else { label = 'offline'; color = '#9e9e9e'; }
+              
+                return (
+                  <span style={{ marginLeft: 8, fontSize: '0.75rem', fontWeight: 'normal', color }}>
+                    ({label})
+                  </span>
+                );
+              })()}
             </>
           )}
         </span>
@@ -1613,7 +1684,8 @@ function ChatWindow({ chat, onClose, onNewMessage, onGroupLeft, style, globalSoc
           <i className="far fa-smile" />
         </button>
         <input type="text" className="form-control" placeholder="Type a message…"
-          value={newMessage} onChange={e => setNewMessage(e.target.value)}
+          value={newMessage}
+          onChange={handleTyping}   /* ← was: e => setNewMessage(e.target.value) */
           onKeyPress={e => e.key === 'Enter' && !isRecording && sendMessage()} />
         <input type="file" multiple ref={fileInputRef} style={{ display: 'none' }}
           onChange={e => setAttachments(Array.from(e.target.files))} />
