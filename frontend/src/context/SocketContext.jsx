@@ -146,6 +146,39 @@ export const SocketProvider = ({ children }) => {
     };
   }, [user?.id]);
 
+  // ── Heartbeat: keep last_seen accurate while the tab is open ─────────
+  // Emits every 60 s while the tab is visible, plus immediately on mount
+  // and whenever the tab regains focus. The server bumps last_seen on
+  // each heartbeat, so a user who is actively using the app is never
+  // reported as "last seen Tuesday".
+  useEffect(() => {
+    if (!socket || !user?.id) return;
+
+    const sendHeartbeat = () => {
+      if (socket.connected && typeof document !== 'undefined'
+          && document.visibilityState === 'visible') {
+        socket.emit('heartbeat');
+      }
+    };
+
+    // Immediate ping on mount
+    sendHeartbeat();
+
+    // Every 60 s
+    const interval = setInterval(sendHeartbeat, 60_000);
+
+    // Extra ping when the tab returns to the foreground
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [socket, user?.id]);
+
   return (
     <SocketContext.Provider value={{ socket, onlineUsers, lastSeen, typingUsers }}>
       {children}

@@ -6,6 +6,7 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from datetime import datetime, timedelta
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
@@ -126,8 +127,6 @@ def _start_schedulers(app):
         misfire_grace_time=3600,
     )
 
-        # ==================================================================
-    
     # ==================================================================
     # Job 4: HOURLY REFRESH OF TODAY'S SNAPSHOTS
     # ------------------------------------------------------------------
@@ -142,7 +141,7 @@ def _start_schedulers(app):
                 app.logger.info(f"[snapshot_refresh] {result}")
             except Exception as e:
                 app.logger.exception(f"[snapshot_refresh] failed: {e}")
-    
+
     scheduler.add_job(
         func=_hourly_refresh_job,
         trigger="cron",
@@ -153,7 +152,7 @@ def _start_schedulers(app):
         coalesce=True,
         misfire_grace_time=600,
     )
-    
+
     # ==================================================================
     # Job 5: MIDNIGHT EAT FREEZE  (21:00 UTC = 00:00 EAT)
     # ------------------------------------------------------------------
@@ -165,13 +164,13 @@ def _start_schedulers(app):
                 from datetime import timedelta
                 from app.routes.admin import freeze_day_snapshots
                 from app.utils.time import today_eat
-    
+
                 target = today_eat() - timedelta(days=1)
                 result = freeze_day_snapshots(target)
                 app.logger.info(f"[snapshot_freeze] {result}")
             except Exception as e:
                 app.logger.exception(f"[snapshot_freeze] failed: {e}")
-    
+
     scheduler.add_job(
         func=_midnight_freeze_job,
         trigger="cron",
@@ -184,6 +183,7 @@ def _start_schedulers(app):
         misfire_grace_time=3600,
     )
     scheduler.start()
+
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -222,6 +222,42 @@ def create_app(config_class=Config):
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept'
             response.headers['Access-Control-Allow-Methods'] = 'GET, PUT, POST, DELETE, OPTIONS'
         return response
+
+    # ---------- Accurate last_seen safety net ----------
+    @app.before_request
+    def touch_last_seen_on_api_activity():
+        """
+        Every authenticated API call refreshes last_seen, throttled to one
+        write per 5 minutes per user.
+
+        This is a safety net for the WebSocket layer: if a user has a flaky
+        socket, an ad-blocked socket URL, or simply sits on a page that makes
+        REST calls but no socket events, last_seen still moves forward.
+        """
+        if request.method == 'OPTIONS':
+            return
+        if not request.path.startswith('/api/'):
+            return
+        # Never touch last_seen on auth endpoints
+        if any(p in request.path for p in ('/login', '/register', '/refresh')):
+            return
+
+        try:
+            from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+            from app.models import User
+            verify_jwt_in_request(optional=True)
+            uid = get_jwt_identity()
+            if not uid:
+                return
+            user = db.session.get(User, int(uid))
+            if not user:
+                return
+            now = datetime.utcnow()
+            if not user.last_seen or (now - user.last_seen).total_seconds() > 300:
+                user.last_seen = now
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     limiter.init_app(app)
 

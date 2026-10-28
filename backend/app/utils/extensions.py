@@ -52,6 +52,28 @@ def get_user_from_token():
     return None
 
 
+def _bump_last_seen(user_id):
+    """
+    Single source of truth for updating last_seen.
+
+    IMPORTANT: uses `from app import db` (the real Flask-bound session),
+    NOT the module-level `db = SQLAlchemy()` at the top of this file —
+    that one is never registered with the Flask app, so committing to it
+    would silently no-op. This was the root cause of the "stuck on
+    last Tuesday" bug.
+    """
+    from app import db as app_db
+    from app.models import User
+    try:
+        user = app_db.session.get(User, user_id)
+        if user:
+            user.last_seen = datetime.utcnow()
+            app_db.session.commit()
+    except Exception as e:
+        app_db.session.rollback()
+        print(f"[last_seen] update failed for user {user_id}: {e}")
+
+
 # ---------- Socket events ----------
 @socketio.on('connect')
 def handle_connect():
@@ -63,12 +85,30 @@ def handle_connect():
     sid_to_user[sid] = user.id
     user_connections[user.id] = user_connections.get(user.id, 0) + 1
 
+    # NEW: mark activity on connect (fresh login or reconnect).
+    # Guarantees last_seen is stamped the moment the user logs in,
+    # not only when they eventually close the tab.
+    _bump_last_seen(user.id)
+
     if user_connections[user.id] == 1:
         join_room(f'user_{user.id}')
         emit('user_online', {'user_id': user.id}, broadcast=True)
 
     online_ids = [uid for uid in user_connections.keys() if uid != user.id]
     emit('online_users_list', {'user_ids': online_ids}, room=sid)
+
+
+@socketio.on('heartbeat')
+def handle_heartbeat():
+    """
+    Client-initiated heartbeat (emitted every 60 s while the tab is visible).
+    Keeps last_seen accurate during long idle sessions where the socket
+    never disconnects and no API calls are made.
+    """
+    user = get_user_from_token()
+    if not user:
+        return
+    _bump_last_seen(user.id)
 
 
 @socketio.on('disconnect')
@@ -83,18 +123,19 @@ def handle_disconnect():
         del user_connections[user_id]
         leave_room(f'user_{user_id}')
 
-        # ── Persist last_seen and broadcast it with the offline event ──
+        # Persist last_seen via the correct session
+        _bump_last_seen(user_id)
+
+        # Read back the just-written value for the offline broadcast
         last_seen_iso = None
         try:
+            from app import db as app_db
             from app.models import User
-            user = User.query.get(user_id)
-            if user:
-                user.last_seen = datetime.utcnow()
-                db.session.commit()
+            user = app_db.session.get(User, user_id)
+            if user and user.last_seen:
                 last_seen_iso = user.last_seen.isoformat() + 'Z'
         except Exception as e:
-            db.session.rollback()
-            print(f"[disconnect] failed to persist last_seen for {user_id}: {e}")
+            print(f"[disconnect] failed to read last_seen for {user_id}: {e}")
 
         emit('user_offline', {
             'user_id': user_id,

@@ -5,6 +5,18 @@ import Modal from '../common/Modal';
 import CreateGroupModal from './CreateGroupModal';
 import { useSocket } from '../../context/SocketContext';
 
+// ── Monday-anchored start-of-week (local time) ────────────────────────
+// Used to decide whether a timestamp belongs to the CURRENT calendar
+// week (→ show weekday name) or an earlier week (→ show explicit date).
+const startOfWeek = (date) => {
+  const d = new Date(date);
+  const dow = d.getDay();               // 0 = Sunday, 1 = Monday, ...
+  const daysFromMon = (dow + 6) % 7;    // Mon = 0, ..., Sun = 6
+  d.setDate(d.getDate() - daysFromMon);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
 // ── Full WhatsApp-style formatter (used for the hover tooltip) ─────────
 const formatLastSeen = (iso) => {
   if (!iso) return null;
@@ -13,30 +25,43 @@ const formatLastSeen = (iso) => {
 
   const now = new Date();
   const diffSec = Math.floor((now - then) / 1000);
-  if (diffSec < 0) return 'last seen just now';
-  if (diffSec < 60) return 'last seen just now';
+  if (diffSec < 0 || diffSec < 60) return 'last seen just now';
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `last seen ${diffMin} min ago`;
 
-  const sameDay = now.toDateString() === then.toDateString();
-  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
-  const isYesterday = yest.toDateString() === then.toDateString();
   const timeStr = then.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  if (sameDay) return `last seen today at ${timeStr}`;
-  if (isYesterday) return `last seen yesterday at ${timeStr}`;
-
-  const diffDays = Math.floor(diffSec / (60 * 60 * 24));
-  if (diffDays < 7) {
-    const dayName = then.toLocaleDateString([], { weekday: 'long' });
-    return `last seen ${dayName} at ${timeStr}`;
+  // Same calendar day
+  if (now.toDateString() === then.toDateString()) {
+    return `last seen today at ${timeStr}`;
   }
-  return `last seen ${then.toLocaleDateString()} at ${timeStr}`;
+
+  // Yesterday
+  const yest = new Date(now);
+  yest.setDate(yest.getDate() - 1);
+  if (yest.toDateString() === then.toDateString()) {
+    return `last seen yesterday at ${timeStr}`;
+  }
+
+  // Still within the CURRENT calendar week (Mon → today) — weekday name
+  if (then >= startOfWeek(now)) {
+    return `last seen ${then.toLocaleDateString([], { weekday: 'long' })} at ${timeStr}`;
+  }
+
+  // Previous week or older — explicit date, never just a day name
+  const dateStr = then.toLocaleDateString([], {
+    weekday: 'short', month: 'short', day: 'numeric',
+  });
+  return `last seen ${dateStr} at ${timeStr}`;
 };
 
 // ── Compact formatter (used for the far-right chip in the username row) ─
 //   The full sentence doesn't fit beside the username + online badge,
 //   so we use short forms that match WhatsApp / Telegram list patterns.
+//
+//   Key rule: the weekday NAME is only ever shown for timestamps inside
+//   the CURRENT calendar week. Anything from a previous week is shown as
+//   an explicit date like "Jan 7" — never as "Tuesday".
 const formatLastSeenCompact = (iso) => {
   if (!iso) return null;
   const then = new Date(iso);
@@ -51,28 +76,30 @@ const formatLastSeenCompact = (iso) => {
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `last seen ${diffMin}m ago`;
 
-  // From this point onward everything carries "last seen …"
-  const sameDay = now.toDateString() === then.toDateString();
-
   // 10:40am / 2:05pm — lowercase, no spaces
   const timeStr = then
     .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     .replace(/\s/g, '')
     .toLowerCase();
 
-  if (sameDay) return `last seen ${timeStr}`;
+  // Same calendar day
+  if (now.toDateString() === then.toDateString()) {
+    return `last seen ${timeStr}`;
+  }
 
+  // Yesterday
   const yest = new Date(now);
   yest.setDate(yest.getDate() - 1);
   if (yest.toDateString() === then.toDateString()) {
-    // Match your example — "yesterday" without the time
     return 'last seen yesterday';
   }
 
-  const diffDays = Math.floor(diffSec / (60 * 60 * 24));
-  if (diffDays < 7) {
+  // Still within the CURRENT calendar week — weekday name
+  if (then >= startOfWeek(now)) {
     return `last seen ${then.toLocaleDateString([], { weekday: 'long' })}`;
   }
+
+  // Previous week or older — explicit date, never a day name
   return `last seen ${then.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
 };
 
