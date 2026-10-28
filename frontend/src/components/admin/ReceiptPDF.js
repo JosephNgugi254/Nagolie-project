@@ -5550,18 +5550,7 @@ export const generateLetterPDF = async (data) => {
     }
   }
 
-  // Signature
-  yPos += 15;
-  doc.setFont('helvetica', 'bold');
-  doc.text('Yours faithfully,', 20, yPos);
-  yPos += 12;
-  doc.setFont('helvetica', 'normal');
-  const sign = getSignatureByUser(data.user);
-  doc.text(sign.name, 20, yPos);
-  yPos += 6;
-  doc.text(sign.title, 20, yPos);
-
-  addFooter(doc, yPos + 20);
+  addFooter(doc, yPos + 3);
 
   // Preview
   const pdfBlob = doc.output('blob');
@@ -5742,76 +5731,10 @@ export const downloadLetterPDF = async (data) => {
     }
   }
 
-  // Signature
-  yPos += 15;
-  doc.setFont('helvetica', 'bold');
-  doc.text('Yours faithfully,', 20, yPos);
-  yPos += 12;
-  doc.setFont('helvetica', 'normal');
-  const sign = getSignatureByUser(data.user);
-  doc.text(sign.name, 20, yPos);
-  yPos += 6;
-  doc.text(sign.title, 20, yPos);
-
-  addFooter(doc, yPos + 20);
+  addFooter(doc, yPos + 5);
 
   const fileName = `${data.title.replace(/\s+/g, '_')}_${data.date.replace(/\//g, '-')}.pdf`;
   doc.save(fileName);
-};
-
-const getSignatureByUser = (user) => {
-  if (!user) return { name: 'Shadrack Kesumet', title: 'Director' };
-
-  const role     = (user.role     || '').toLowerCase();
-  const username = (user.username || '').toLowerCase();
-
-  // Client Relations Officer
-  if (role === 'client_relations_officer') {
-    if (username === 'annie') return { name: 'Ann Ndura',      title: 'Client Relations Officer' };
-    if (username === 'lucie') return { name: 'Lucy Nyambura',  title: 'Client Relations Officer' };
-  }
-
-  // Director
-  if (role === 'director') {
-    if (username === 'director')  return { name: 'Shadrack Kesumet',   title: 'Director' };
-    if (username === 'millicent') return { name: 'Millicent Mantaine', title: 'Deputy Director' };
-    return { name: 'Shadrack Kesumet', title: 'Director' };
-  }
-
-  // Deputy Director
-  if (role === 'deputy_director') {
-    return { name: 'Millicent Mantaine', title: 'Deputy Director' };
-  }
-
-  // Secretary
-  if (role === 'secretary') {
-    return { name: 'Gladys Sakinoi', title: 'Secretary' };
-  }
-
-  // Accountant
-  if (role === 'accountant') {
-    return { name: 'Gideon Matunta', title: 'Head Accountant' };
-  }
-
-  // Head of IT
-  if (role === 'head_of_it') {
-    return { name: 'Joseph Ngugi', title: 'Head of I.T' };
-  }
-
-  // HR Manager
-  if (role === 'hr_manager') {
-    return { name: 'Terry Kintei', title: 'Human Resource Manager' };
-  }
-
-  // Valuer
-  if (role === 'valuer') {
-    if (username === 'robert') return { name: 'Robert Kalama', title: 'Valuer' };
-    if (username === 'george') return { name: 'George Marite', title: 'Senior Valuer' };
-    return { name: 'George Marite', title: 'Senior Valuer' };
-  }
-
-  // Default
-  return { name: 'Shadrack Kesumet', title: 'Director' };
 };
 
 const formatCurrency = (amount) => {

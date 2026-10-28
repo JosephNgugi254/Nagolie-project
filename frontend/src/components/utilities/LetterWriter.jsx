@@ -211,7 +211,11 @@ const LetterWriter = ({ userRole }) => {
             id="letterBody"
             className="form-control"
             rows="12"
-            placeholder="Type your letter content here."
+            placeholder={
+              "Type your letter content here.\n\n" +
+              "Remember to include your closing at the end, e.g.:\n\n" +
+              "Yours faithfully,\n\n[Your Name]\n[Your Title]"
+            }
             value={body}
             onChange={(e) => setBody(e.target.value)}
             disabled={isLoading}
