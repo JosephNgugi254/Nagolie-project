@@ -43,119 +43,144 @@ export const addOptimizedWatermark = (doc, type = 'agreement') => {
     leaveForm: 'LEAVE REQUEST',
     document: 'DOCUMENT',
     deliveryNote: 'DELIVERY NOTE',
-    invoice: 'INVOICE'
+    invoice: 'INVOICE',
+    report: 'REPORT',
+    proposal: 'PROPOSAL',
   };
   const docType = DOC_LABELS[type] || 'DOCUMENT';
-  
+
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    const pageWidth = doc.internal.pageSize.width;
-    const pageHeight = doc.internal.pageSize.height;
-    
-    const savedState = {
-      textColor: doc.getTextColor(),
-      drawColor: doc.getDrawColor(),
-      fillColor: doc.getFillColor(),
-      lineWidth: doc.internal.getLineWidth(),
-      font: doc.getFont(),
-      fontSize: doc.internal.getFontSize()
-    };
-    
-    try {
-      doc.setTextColor(238, 241, 245);
-      doc.setFont('helvetica', 'bold');
-      const angle = 45;
-      const watermarks = [
-        { x: pageWidth * 0.28, y: pageHeight * 0.38 },
-        { x: pageWidth * 0.72, y: pageHeight * 0.68 }
-      ];
-      
-      watermarks.forEach(pos => {
-        doc.setFontSize(28);
-        doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
-        doc.setFontSize(18);
-        doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
-      });
-    } finally {
-      doc.setTextColor(savedState.textColor);
-      doc.setDrawColor(savedState.drawColor);
-      doc.setFillColor(savedState.fillColor);
-      doc.setLineWidth(savedState.lineWidth);
-      if (savedState.font?.fontName) {
-        doc.setFont(savedState.font.fontName, savedState.font.fontStyle);
-      }
-      doc.setFontSize(savedState.fontSize);
-    }
+    _drawWatermarkOnPage(doc, docType);
   }
 };
 
-// ========== NEW: SINGLE PAGE WATERMARK FUNCTION FOR MULTI-PAGE DOCS ==========
+// ========== SINGLE PAGE WATERMARK (used when new pages are added mid-document) ==========
 const addWatermarkToCurrentPage = (doc, type = 'agreement') => {
   const DOC_LABELS = {
     receipt: 'RECEIPT',
     statement: 'STATEMENT',
     agreement: 'AGREEMENT',
     investor: 'INVESTMENT AGREEMENT',
-    report: 'REPORT'
+    report: 'REPORT',
+    proposal: 'PROPOSAL',
+    document: 'DOCUMENT',
+    invoice: 'INVOICE',
+    deliveryNote: 'DELIVERY NOTE',
+    letter: 'LETTER',
+    leaveForm: 'LEAVE REQUEST',
   };
   const docType = DOC_LABELS[type] || 'DOCUMENT';
-  
-  const pageWidth = doc.internal.pageSize.width;
+  _drawWatermarkOnPage(doc, docType);
+};
+
+// ========== SHARED LOW-LEVEL HELPER ==========
+function _drawWatermarkOnPage(doc, docType) {
+  const pageWidth  = doc.internal.pageSize.width;
   const pageHeight = doc.internal.pageSize.height;
-  
-  const savedState = {
-    textColor: doc.getTextColor(),
-    drawColor: doc.getDrawColor(),
-    fillColor: doc.getFillColor(),
-    lineWidth: doc.internal.getLineWidth(),
-    font: doc.getFont(),
-    fontSize: doc.internal.getFontSize()
-  };
-  
+
+  // --- 1. Save state robustly ------------------------------------------------
+  const prevTextColor = doc.getTextColor();
+  const prevDrawColor = doc.getDrawColor();
+  const prevFillColor = doc.getFillColor();
+  const prevLineWidth = doc.internal.getLineWidth?.();
+  const prevFontSize  = doc.internal.getFontSize?.();
+
+  let prevFontName  = 'helvetica';
+  let prevFontStyle = 'normal';
   try {
-    doc.setTextColor(238, 241, 245);
+    const f = doc.getFont?.();
+    if (f && f.fontName) {
+      prevFontName  = f.fontName;
+      prevFontStyle = f.fontStyle || 'normal';
+    }
+  } catch (_) { /* ignore */ }
+
+  // --- 2. Isolate graphics state --------------------------------------------
+  let hasGState = false;
+  try { doc.saveGraphicsState(); } catch (_) { /* ignore */ }
+
+  try {
+    // True transparency, so even if it *were* drawn on top it wouldn't obscure
+    try {
+      if (doc.GState) {
+        doc.setGState(new doc.GState({ opacity: 0.15 }));   // ← was 0.13
+        hasGState = true;
+      }
+    } catch (_) { /* ignore */ }
+
+    doc.setTextColor(180, 190, 215);                         // ← was (238, 241, 245)
     doc.setFont('helvetica', 'bold');
+
     const angle = 45;
-    const watermarks = [
+    const positions = [
       { x: pageWidth * 0.28, y: pageHeight * 0.38 },
-      { x: pageWidth * 0.72, y: pageHeight * 0.68 }
+      { x: pageWidth * 0.72, y: pageHeight * 0.68 },
     ];
-    
-    watermarks.forEach(pos => {
+
+    positions.forEach(pos => {
       doc.setFontSize(28);
       doc.text('NAGOLIE ENTERPRISES LTD', pos.x, pos.y, { align: 'center', angle });
       doc.setFontSize(18);
       doc.text(docType, pos.x, pos.y + 20, { align: 'center', angle });
     });
   } finally {
-    doc.setTextColor(savedState.textColor);
-    doc.setDrawColor(savedState.drawColor);
-    doc.setFillColor(savedState.fillColor);
-    doc.setLineWidth(savedState.lineWidth);
-    if (savedState.font?.fontName) {
-      doc.setFont(savedState.font.fontName, savedState.font.fontStyle);
+    // --- 3. Restore state in the correct order ------------------------------
+    if (hasGState) {
+      try { doc.setGState(new doc.GState({ opacity: 1 })); } catch (_) { /* ignore */ }
     }
-    doc.setFontSize(savedState.fontSize);
-  }
-};
+    try { doc.restoreGraphicsState(); } catch (_) { /* ignore */ }
 
-// Takes a raw base64 image (PNG with transparency) and returns a new base64 with a solid white background
+    // **The critical fix**: spread arrays so `setXxxColor` receives
+    // numeric arguments, not a single array value that silently fails.
+    const applyColor = (setter, color) => {
+      if (color === undefined || color === null) return;
+      try {
+        if (Array.isArray(color)) {
+          if (color.length >= 3) setter(color[0], color[1], color[2]);
+          else                   setter.apply(null, color);
+        } else {
+          setter(color);
+        }
+      } catch (_) { /* ignore */ }
+    };
+
+    applyColor((...a) => doc.setTextColor(...a), prevTextColor);
+    applyColor((...a) => doc.setDrawColor(...a), prevDrawColor);
+    applyColor((...a) => doc.setFillColor(...a), prevFillColor);
+
+    if (typeof prevLineWidth === 'number') doc.setLineWidth(prevLineWidth);
+    doc.setFont(prevFontName, prevFontStyle);
+    if (typeof prevFontSize === 'number') doc.setFontSize(prevFontSize);
+
+    // Belt-and-braces: force dark text so the next caller can't inherit
+    // the watermark colour even if some exotic jsPDF build failed above.
+    doc.setTextColor(0, 0, 0);
+  }
+}
+
 const processLogoWithWhiteBackground = (rawBase64) => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       try {
+        const w = img.naturalWidth  || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) { reject(new Error('Logo has zero dimensions')); return; }
+
         const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
+        canvas.width  = w;
+        canvas.height = h;
         const ctx = canvas.getContext('2d');
-        // Fill with white background
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        // Draw the logo on top
+        ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0);
-        // Export as PNG (with white background now baked in)
-        resolve(canvas.toDataURL('image/png'));
+
+        resolve({
+          data:   canvas.toDataURL('image/png'),
+          width:  w,
+          height: h,
+        });
       } catch (err) {
         reject(err);
       }
@@ -204,23 +229,22 @@ export const addHeader = async (doc, yStart = 20) => {
   const logoBase64 = cachedLogoBase64;
   let yPos = yStart;
 
-  // Header with logo and company info side by side
-  if (logoBase64) {
-    const imgX = 20;
-    const imgY = yPos - 4.5;
-    const imgW = 38;
-    const imgH = 38;
+  if (cachedLogoBase64 && cachedLogoBase64.data) {
+    const BOX = 38;
+    const boxX = 20;
+    const boxY = yPos - 4.5;
 
-    // white background 
+    // White backing (so transparent PNGs don't show page content through)
     doc.setFillColor(255, 255, 255);
-    doc.rect(imgX, imgY, imgW, imgH, 'F');
+    doc.rect(boxX, boxY, BOX, BOX, 'F');
 
-    // Add the processed logo (now has a white background)
-    doc.addImage(logoBase64, 'PNG', imgX, imgY, imgW, imgH);
+    // Aspect-ratio-preserving placement inside the 38×38 mm box
+    placeImage(doc, cachedLogoBase64.data, {
+      x: boxX, y: boxY, maxW: BOX, maxH: BOX, anchor: 'center',
+    });
   }
 
-  // ... rest of the header (company info) unchanged ...
-  const infoX = logoBase64 ? 55 : 20;
+  const infoX = (cachedLogoBase64 && cachedLogoBase64.data) ? 55 : 20;
   doc.setTextColor(...COLORS.primaryBlue);
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
@@ -688,7 +712,8 @@ async function drawStatementHeader(doc, loan, client) {
   if (logo) {
     doc.setFillColor(255,255,255);
     doc.rect(12, 10, 26, 26, 'F');
-    doc.addImage(logo, 'PNG', 12, 10, 26, 26);
+    await readImageDimsAsync(logo).catch(() => null);
+    placeImage(doc, logo, { x: 12, y: 10, maxW: 26, maxH: 26, anchor: 'center' });
   }
   const x = logo ? 44 : 12;
   doc.setFont('helvetica','bold'); doc.setFontSize(15);
@@ -9530,6 +9555,140 @@ export const generateSalaryReportPDF = async (data) => {
 
   const fileName = `salary_report_${data.user}_${data.month}.pdf`;
   doc.save(fileName);
+};
+// ============================================================
+// IMAGE PLACEMENT HELPERS — use these for EVERY addImage call
+// ============================================================
+
+// Synchronous dimension cache (data URL -> { w, h } in pixels)
+const _imgDims = new Map();
+
+export const readImageDimsAsync = (dataUrl) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => {
+      const d = { w: img.naturalWidth, h: img.naturalHeight };
+      _imgDims.set(dataUrl, d);
+      resolve(d);
+    };
+    img.onerror = () => reject(new Error('Failed to decode image'));
+    img.src = dataUrl;
+  });
+
+const getImageDims = (dataUrl) => {
+  if (_imgDims.has(dataUrl)) return _imgDims.get(dataUrl);
+  if (typeof document === 'undefined') return null;
+  const img = new Image();
+  img.src = dataUrl;
+  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+    const d = { w: img.naturalWidth, h: img.naturalHeight };
+    _imgDims.set(dataUrl, d);
+    return d;
+  }
+  // Kick off async load; next call will hit the cache
+  img.onload = () => {
+    _imgDims.set(dataUrl, { w: img.naturalWidth, h: img.naturalHeight });
+  };
+  return null;
+};
+
+/**
+ * Place an image inside a BOX on the page, preserving aspect ratio.
+ * Coordinates and box size are in MILLIMETRES.
+ *
+ * @param doc        jsPDF instance
+ * @param dataUrl    base64/data URL (string)
+ * @param opts.x     left edge of the box (mm)
+ * @param opts.y     top edge of the box (mm)
+ * @param opts.maxW  box width (mm)   ← REQUIRED
+ * @param opts.maxH  box height (mm)  ← REQUIRED
+ * @param opts.anchor  'top-left' (default) | 'center'
+ * @param opts.format  'PNG' (default) | 'JPEG'
+ * @param opts.opacity 0..1 (default 1)
+ * @returns {x, y, w, h} of the drawn rectangle, or null on failure
+ */
+export const placeImage = (doc, dataUrl, opts = {}) => {
+  if (!dataUrl) return null;
+  const {
+    x, y, maxW, maxH,
+    anchor  = 'top-left',
+    format  = 'PNG',
+    opacity = 1,
+  } = opts;
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) ||
+      !Number.isFinite(maxW) || !Number.isFinite(maxH) ||
+      maxW <= 0 || maxH <= 0) {
+    console.warn('placeImage: invalid box (all four of x, y, maxW, maxH are required in mm)', opts);
+    return null;
+  }
+
+  const dims = getImageDims(dataUrl);
+  if (!dims) {
+    // Image not yet decoded. Fall back to plain box so the user still sees something.
+    doc.addImage(dataUrl, format, x, y, maxW, maxH, `img_${Date.now()}`, 'FAST');
+    return { x, y, w: maxW, h: maxH };
+  }
+
+  const ratio = Math.min(maxW / dims.w, maxH / dims.h);
+  const w = dims.w * ratio;
+  const h = dims.h * ratio;
+
+  let drawX = x, drawY = y;
+  if (anchor === 'center') {
+    drawX = x + (maxW - w) / 2;
+    drawY = y + (maxH - h) / 2;
+  }
+
+  let usedGS = false;
+  if (opacity < 1 && doc.GState) {
+    try { doc.setGState(new doc.GState({ opacity })); usedGS = true; } catch (_) {}
+  }
+  doc.addImage(dataUrl, format, drawX, drawY, w, h, `img_${Date.now()}`, 'FAST');
+  if (usedGS) try { doc.setGState(new doc.GState({ opacity: 1 })); } catch (_) {}
+
+  return { x: drawX, y: drawY, w, h };
+};
+
+/**
+ * Place a SIGNATURE image so its bottom sits ON a signature line.
+ *
+ * @param opts.lineX       left end of the signature line (mm)
+ * @param opts.lineY       baseline Y of the line (mm)
+ * @param opts.lineWidth   how long the blank line is (mm)
+ * @param opts.maxHeight   max signature height (mm) — default 9
+ * @param opts.anchor      'left' | 'center' (default) | 'right'
+ * @returns {x, y, w, h} or null
+ */
+export const placeSignature = (doc, dataUrl, opts = {}) => {
+  if (!dataUrl) return null;
+  const {
+    lineX, lineY, lineWidth,
+    maxHeight = 9,
+    anchor    = 'center',
+    format    = 'PNG',
+  } = opts;
+
+  if (!Number.isFinite(lineX) || !Number.isFinite(lineY) || !Number.isFinite(lineWidth)) {
+    console.warn('placeSignature: lineX, lineY, lineWidth required (mm)');
+    return null;
+  }
+
+  const dims = getImageDims(dataUrl);
+  if (!dims) return null;
+
+  const ratio = Math.min(lineWidth / dims.w, maxHeight / dims.h);
+  const w = dims.w * ratio;
+  const h = dims.h * ratio;
+
+  let x = lineX;
+  if (anchor === 'center') x = lineX + (lineWidth - w) / 2;
+  if (anchor === 'right')  x = lineX + lineWidth - w;
+
+  const y = lineY - h;   // ← bottom of image on the line
+
+  doc.addImage(dataUrl, format, x, y, w, h, `sig_${Date.now()}`, 'FAST');
+  return { x, y, w, h };
 };
 
 export { formatCurrency };

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { showToast } from '../common/Toast';
 import jsPDF from 'jspdf';
 import {
-  addHeader, addDivider, addFooter, addOptimizedWatermark, COLORS,
+  addHeader, addDivider, addFooter, addOptimizedWatermark, COLORS,  placeImage, 
 } from '../admin/ReceiptPDF';
 
 /* ------------------------------------------------------------------ *
@@ -28,13 +28,6 @@ const EDITOR_LINE_HEIGHT_PX =
   DEFAULT_FONT_PT * CSS_PX_PER_PT * DEFAULT_LINE_HEIGHT;         // 18.4 px
 const PDF_LINE_HEIGHT_MM =
   PDF_FONT_PT * DEFAULT_LINE_HEIGHT * PT_TO_MM;                  // 4.87 mm
-
-// Times metrics for baseline offset
-const FONT_ASCENT_EM  = 0.683;
-const FONT_DESCENT_EM = 0.217;
-const FONT_CONTENT_EM = FONT_ASCENT_EM + FONT_DESCENT_EM;
-const HALF_LEADING_PT = (PDF_FONT_PT * DEFAULT_LINE_HEIGHT - FONT_CONTENT_EM * PDF_FONT_PT) / 2;
-const BASELINE_OFFSET_MM = (HALF_LEADING_PT + FONT_ASCENT_EM * PDF_FONT_PT) * PT_TO_MM;
 
 const MIN_IMG_SIZE      = 20;
 const MAX_IMG_SIZE      = 1200;
@@ -172,8 +165,11 @@ const extractLinesFromEditor = (editor, scale = 1) => {
 
     const tag = node.tagName;
     if (tag === 'BR') {
-      if (currentLine.length > 0) flushLine();
-      lines.push([]); // blank line placeholder
+      // A <br> represents one line break. Flushing the current line
+      // (even if empty) produces exactly one line for that break —
+      // matching the browser's visual behaviour. Consecutive <br>s
+      // therefore produce one empty line per pair, not two.
+      flushLine();
       return;
     }
 
@@ -669,14 +665,66 @@ const DocumentGenerator = ({ userRole }) => {
 
       const bodyStartY = yPos;
 
-      /* ---- Extract lines using the browser's own wrapping ---- */
+      // ─────────────────────────────────────────────────────────────
+      // A. Measure the editor's ACTUAL rendered metrics
+      // ─────────────────────────────────────────────────────────────
       const scale = renderScaleRef.current || 1;
+
+      // Real line height as the browser rendered it (falls back to theory)
+      const cs = window.getComputedStyle(editor);
+      const measuredLineHeightPx =
+        parseFloat(cs.lineHeight) || EDITOR_LINE_HEIGHT_PX;
+
+      // Real unscaled content width of the editor (px)
+      const measuredContentWidthPx =
+        (editor.getBoundingClientRect().width / scale) || editor.clientWidth || 1;
+
+      // px → mm scales. x and y are separate because line-height
+      // and font width are independent quantities.
+      const xScale = contentWidth / measuredContentWidthPx;
+      const yScale = PDF_LINE_HEIGHT_MM / measuredLineHeightPx;
+
+      // Page-1 top-of-first-line-box in PDF mm:
+      //   bodyStartY  = baseline of first line
+      //   ascent      = distance from baseline up to top of the *text*
+      //   half-leading = extra gap above the text inside the line box
+      // We compute ascent from actual font metrics (jsPDF uses Times' real
+      // metrics ≈ 0.891 em ascent), then add the half-leading.
+      const FONT_ASCENT_REAL_EM = 0.891;           // Times New Roman ascent
+      const FONT_DESCENT_REAL_EM = 0.216;          // Times New Roman descent
+      const contentEm =
+        (FONT_ASCENT_REAL_EM + FONT_DESCENT_REAL_EM) * PDF_FONT_PT;   // pt
+      const halfLeadingPt = (PDF_FONT_PT * DEFAULT_LINE_HEIGHT - contentEm) / 2;
+      const baselineOffsetMm =
+        (halfLeadingPt + FONT_ASCENT_REAL_EM * PDF_FONT_PT) * PT_TO_MM;
+
+      const page1TopMm = bodyStartY - baselineOffsetMm;
+
+      console.log('[DocExport] scales:', {
+        measuredLineHeightPx, measuredContentWidthPx,
+        xScale, yScale, page1TopMm, bodyStartY,
+      });
+
+      // ─────────────────────────────────────────────────────────────
+      // B. Extract lines using the browser's own wrapping
+      // ─────────────────────────────────────────────────────────────
       const lines = extractLinesFromEditor(editor, scale);
       console.log('[DocExport] lines:', lines.length);
 
-      /* ---- Render each line ---- */
+      // ─────────────────────────────────────────────────────────────
+      // C. Render text + record every page break
+      // ─────────────────────────────────────────────────────────────
       let cursorY = bodyStartY;
-      const maxY = pageHeight - 25;
+      const maxY  = pageHeight - 25;
+
+      // editorYpxCursor = editor-space Y of the NEXT line about to be drawn.
+      // Used to know which editor region corresponds to each PDF page.
+      let editorYpxCursor = 0;
+      let currentPage = 1;
+
+      // { editorYPx, pageAfter } — image belongs to `pageAfter` if
+      // its yPx is >= editorYPx of the LAST break it crossed.
+      const pageBreaks = [];
 
       for (const line of lines) {
         let maxSize = PDF_FONT_PT;
@@ -684,65 +732,113 @@ const DocumentGenerator = ({ userRole }) => {
         const lineH = maxSize * DEFAULT_LINE_HEIGHT * PT_TO_MM;
 
         if (cursorY + lineH > maxY) {
+          pageBreaks.push({ editorYPx: editorYpxCursor, pageAfter: currentPage + 1 });
           doc.addPage();
           addOptimizedWatermark(doc, 'document');
+          currentPage += 1;
           cursorY = A4_MARGIN_MM;
         }
 
-        // Empty line → just advance (preserves paragraph gaps)
-        if (line.length === 0) {
-          cursorY += lineH;
-          continue;
-        }
+        // Draw the line
+        if (line.length > 0) {
+          let x = A4_MARGIN_MM;
+          for (const seg of line) {
+            const style =
+              seg.bold && seg.italic ? 'bolditalic'
+              : seg.bold ? 'bold'
+              : seg.italic ? 'italic'
+              : 'normal';
+            doc.setFont('times', style);
+            doc.setFontSize(seg.size);
+            doc.setTextColor(seg.color[0], seg.color[1], seg.color[2]);
 
-        let x = A4_MARGIN_MM;
-        for (const seg of line) {
-          const style =
-            seg.bold && seg.italic ? 'bolditalic'
-            : seg.bold ? 'bold'
-            : seg.italic ? 'italic'
-            : 'normal';
-          doc.setFont('times', style);
-          doc.setFontSize(seg.size);
-          doc.setTextColor(seg.color[0], seg.color[1], seg.color[2]);
+            const w = doc.getTextWidth(seg.text);
+            doc.text(seg.text, x, cursorY);
 
-          const w = doc.getTextWidth(seg.text);
-          doc.text(seg.text, x, cursorY);
-
-          if (seg.underline) {
-            doc.setDrawColor(seg.color[0], seg.color[1], seg.color[2]);
-            doc.setLineWidth(0.2);
-            doc.line(
-              x,
-              cursorY + seg.size * 0.15 * PT_TO_MM,
-              x + w,
-              cursorY + seg.size * 0.15 * PT_TO_MM
-            );
+            if (seg.underline) {
+              doc.setDrawColor(seg.color[0], seg.color[1], seg.color[2]);
+              doc.setLineWidth(0.2);
+              doc.line(
+                x,
+                cursorY + seg.size * 0.15 * PT_TO_MM,
+                x + w,
+                cursorY + seg.size * 0.15 * PT_TO_MM
+              );
+            }
+            x += w;
           }
-          x += w;
         }
+
+        editorYpxCursor += measuredLineHeightPx;
         cursorY += lineH;
       }
 
-      /* ---- Images ---- */
-      const { images, contentWidthPx } = collectImages(editor);
-      const xScale = contentWidth / contentWidthPx;
-      const yScale = PDF_LINE_HEIGHT_MM / EDITOR_LINE_HEIGHT_PX;
-      console.log('[DocExport] images:', images.length, 'xScale:', xScale, 'yScale:', yScale);
+      console.log('[DocExport] page breaks:', pageBreaks);
 
-      const imageBaseY = bodyStartY - BASELINE_OFFSET_MM;
-
-      images.forEach((im) => {
-        const xMm = A4_MARGIN_MM + im.xPx * xScale;
-        const yMm = imageBaseY + im.yPx * yScale;
-        const wMm = im.wPx * xScale;
-        const hMm = im.hPx * xScale;
-        try { doc.addImage(im.src, 'PNG', xMm, yMm, wMm, hMm); }
-        catch (e) { console.warn('[DocExport] addImage failed', e); }
-      });
+      // ─────────────────────────────────────────────────────────────
+      // D. Place each image on the page it actually belongs to
+      // ─────────────────────────────────────────────────────────────
+      const { images } = collectImages(editor);
+      console.log('[DocExport] images:', images.length);
 
       const totalPages = doc.getNumberOfPages();
-      doc.setPage(totalPages);
+
+      images.forEach((im) => {
+        // 1. Which page does this editor yPx fall on?
+        let page = 1;
+        let localPageStartEditorYPx = 0;
+        let localPageTopMm = page1TopMm;
+
+        for (const br of pageBreaks) {
+          if (im.yPx >= br.editorYPx) {
+            page = br.pageAfter;
+            localPageStartEditorYPx = br.editorYPx;
+            localPageTopMm = A4_MARGIN_MM;
+          } else {
+            break;
+          }
+        }
+
+        if (page > totalPages) page = totalPages;   // safety
+        doc.setPage(page);
+
+        // 2. Convert position within that page
+        const localYPx = Math.max(0, im.yPx - localPageStartEditorYPx);
+        const targetX_mm = A4_MARGIN_MM + im.xPx * xScale;
+        const targetY_mm = localPageTopMm + localYPx * yScale;
+        const targetW_mm = im.wPx * xScale;
+        const targetH_mm = im.hPx * yScale;         // ← use yScale, not xScale
+
+        // 3. Skip anything that would overflow the current page
+        if (targetY_mm + targetH_mm > pageHeight - 5) {
+          console.warn('[DocExport] image overflows page, skipped:', {
+            page, targetY_mm, targetH_mm,
+          });
+          return;
+        }
+
+        // 4. Draw it with aspect-ratio preservation
+        try {
+          doc.addImage(
+            im.src, 'PNG',
+            targetX_mm, targetY_mm,
+            targetW_mm, targetH_mm,
+            `im_${Date.now()}`,
+            'FAST'
+          );
+        } catch (e) {
+          console.warn('[DocExport] addImage failed', e);
+        }
+
+        console.log('[DocExport] image placed:', {
+          page, targetX_mm, targetY_mm, targetW_mm, targetH_mm,
+        });
+      });
+
+      // ─────────────────────────────────────────────────────────────
+      // E. Footer on the last page only (unchanged)
+      // ─────────────────────────────────────────────────────────────
+      doc.setPage(doc.getNumberOfPages());
       addFooter(doc, pageHeight - 15);
 
       if (download) {
@@ -956,7 +1052,7 @@ const DocumentGenerator = ({ userRole }) => {
       </div>
 
       <style>{`
-        .rich-editor:focus { outline: none; }
+        .rich-editor:focus { outline: none; textRendering: 'geometricPrecision',textSizeAdjust: '100%', }
         .rich-editor strong, .rich-editor b { font-weight: bold; }
         .rich-editor em, .rich-editor i { font-style: italic; }
         .rich-editor u { text-decoration: underline; }
