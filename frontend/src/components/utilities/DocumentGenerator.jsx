@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { showToast } from '../common/Toast';
 import jsPDF from 'jspdf';
 import {
-  addHeader, addDivider, addFooter, addOptimizedWatermark, COLORS,  placeImage, 
+  addHeader, addDivider, addFooter, addOptimizedWatermark, COLORS,
 } from '../admin/ReceiptPDF';
 
 /* ------------------------------------------------------------------ *
@@ -34,6 +34,13 @@ const MAX_IMG_SIZE      = 1200;
 const DEFAULT_IMG_WIDTH = 180;
 const MAX_IMG_BYTES     = 4 * 1024 * 1024;
 
+// ── List layout (mm) ──────────────────────────────────────────────
+// Each nesting level adds 8 mm of indent to the item text.
+// The bullet marker sits ~6 mm left of that text so numbers like
+// "99. " fit inside the gutter without overlapping the text.
+const LIST_INDENT_MM_PER_LEVEL = 10;
+const LIST_MARKER_OFFSET_MM    = 6;
+
 /* ------------------------------------------------------------------ *
  * Helpers
  * ------------------------------------------------------------------ */
@@ -63,6 +70,12 @@ const colorsEqual = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
  *   which line the browser put it on.  Group consecutive characters
  *   with the same `top` into one PDF line.  This makes PDF line
  *   breaks identical to editor line breaks — no re-measuring.
+ *
+ *   List handling: <ul>/<ol>/<li> are handled by the dedicated
+ *   blocks below.  A list item produces one line whose first
+ *   segment is the marker (•  or 1. / 2. / …) and whose remaining
+ *   segments are the item's inline content.  Wrapped lines retain
+ *   the same indent, giving a proper hanging indent.
  * ------------------------------------------------------------------ */
 const extractLinesFromEditor = (editor, scale = 1) => {
   const lines = [];
@@ -86,16 +99,18 @@ const extractLinesFromEditor = (editor, scale = 1) => {
     if (currentLine.length > 0) {
       const last = currentLine[currentLine.length - 1];
       if (
+        !last.bullet &&
         last.bold === ctx.bold && last.italic === ctx.italic &&
         last.underline === ctx.underline && last.size === ctx.size &&
-        colorsEqual(last.color, ctx.color)
+        colorsEqual(last.color, ctx.color) &&
+        (last.indent || 0) === (ctx.listIndentMm || 0)
       ) {
         last.text += text;
         if (top !== null) currentTop = top;
         return;
       }
     }
-    currentLine.push({ text, ...ctx });
+    currentLine.push({ ...ctx, text, indent: ctx.listIndentMm || 0 });
     if (top !== null) currentTop = top;
   };
 
@@ -173,6 +188,62 @@ const extractLinesFromEditor = (editor, scale = 1) => {
       return;
     }
 
+    // ── Unordered / ordered list container ──────────────────────────
+    if (tag === 'UL' || tag === 'OL') {
+      if (currentLine.length > 0) flushLine();
+
+      const isOrdered = tag === 'OL';
+      const startAttr = parseInt(node.getAttribute('start'), 10);
+      let idx = Number.isFinite(startAttr) ? startAttr - 1 : 0;
+
+      for (const child of node.childNodes) {
+        if (child.nodeType === 1 && child.tagName === 'LI') {
+          idx += 1;
+          walk(child, {
+            ...ctx,
+            listType:  isOrdered ? 'ol' : 'ul',
+            listIndex: idx,
+          });
+        } else {
+          walk(child, ctx);
+        }
+      }
+
+      if (currentLine.length > 0) flushLine();
+      return;
+    }
+
+    // ── A single list item ──────────────────────────────────────────
+    if (tag === 'LI') {
+      if (currentLine.length > 0) flushLine();
+
+      const parentIndent = ctx.listIndentMm || 0;
+      const bulletIndent = parentIndent + LIST_INDENT_MM_PER_LEVEL;
+
+      const valueAttr = parseInt(node.getAttribute('value'), 10);
+      const bulletIdx = Number.isFinite(valueAttr)
+        ? valueAttr
+        : (ctx.listIndex || 1);
+
+      const marker = ctx.listType === 'ol' ? `${bulletIdx}. ` : '• ';
+
+      currentLine.push({
+        text: marker,
+        bold: false, italic: false, underline: false,
+        color: ctx.color || DEFAULT_COLOR,
+        size: ctx.size || PDF_FONT_PT,
+        bullet: true,
+        indent: bulletIndent - LIST_MARKER_OFFSET_MM,
+      });
+
+      const innerCtx = { ...ctx, listIndentMm: bulletIndent };
+      for (const child of node.childNodes) walk(child, innerCtx);
+
+      if (currentLine.length > 0) flushLine();
+      return;
+    }
+
+    // ── Regular inline / block content ──────────────────────────────
     const newCtx = { ...ctx };
     if (tag === 'B' || tag === 'STRONG') newCtx.bold = true;
     if (tag === 'I' || tag === 'EM')     newCtx.italic = true;
@@ -259,7 +330,10 @@ const DocumentGenerator = ({ userRole }) => {
   const [hasDraft, setHasDraft]         = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState(null);
-  const [formatState, setFormatState]   = useState({ bold: false, italic: false, underline: false });
+  const [formatState, setFormatState]   = useState({
+    bold: false, italic: false, underline: false,
+    bulletList: false, numberedList: false,
+  });
   const [renderScale, setRenderScale]   = useState(1);
 
   const editorRef          = useRef(null);
@@ -325,6 +399,8 @@ const DocumentGenerator = ({ userRole }) => {
           bold: document.queryCommandState('bold'),
           italic: document.queryCommandState('italic'),
           underline: document.queryCommandState('underline'),
+          bulletList: document.queryCommandState('insertUnorderedList'),
+          numberedList: document.queryCommandState('insertOrderedList'),
         });
       } catch {}
     };
@@ -345,6 +421,8 @@ const DocumentGenerator = ({ userRole }) => {
         bold: document.queryCommandState('bold'),
         italic: document.queryCommandState('italic'),
         underline: document.queryCommandState('underline'),
+        bulletList: document.queryCommandState('insertUnorderedList'),
+        numberedList: document.queryCommandState('insertOrderedList'),
       });
     } catch {}
   }, []);
@@ -742,6 +820,10 @@ const DocumentGenerator = ({ userRole }) => {
         // Draw the line
         if (line.length > 0) {
           let x = A4_MARGIN_MM;
+          // Track the indent of the PREVIOUS segment on this line.
+          // We only jump to a new indent when it changes — e.g. bullet → text.
+          // Subsequent segments of the same indent then flow from the running x.
+          let lastIndent = 0;
           for (const seg of line) {
             const style =
               seg.bold && seg.italic ? 'bolditalic'
@@ -752,20 +834,29 @@ const DocumentGenerator = ({ userRole }) => {
             doc.setFontSize(seg.size);
             doc.setTextColor(seg.color[0], seg.color[1], seg.color[2]);
 
+            const indentMm = seg.indent || 0;
+            // Anchor to the indent only when it CHANGES from the previous
+            // segment (bullet marker → first text run, or wrapped-line start
+            // → first run on the continuation). Otherwise keep flowing.
+            const segX = (indentMm > 0 && indentMm !== lastIndent)
+              ? A4_MARGIN_MM + indentMm
+              : x;
+
             const w = doc.getTextWidth(seg.text);
-            doc.text(seg.text, x, cursorY);
+            doc.text(seg.text, segX, cursorY);
 
             if (seg.underline) {
               doc.setDrawColor(seg.color[0], seg.color[1], seg.color[2]);
               doc.setLineWidth(0.2);
               doc.line(
-                x,
+                segX,
                 cursorY + seg.size * 0.15 * PT_TO_MM,
-                x + w,
+                segX + w,
                 cursorY + seg.size * 0.15 * PT_TO_MM
               );
             }
-            x += w;
+            x = segX + w;
+            lastIndent = indentMm;
           }
         }
 
@@ -906,6 +997,20 @@ const DocumentGenerator = ({ userRole }) => {
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => exec('underline')} disabled={isLoading} title="Underline (Ctrl+U)">
               <i className="fas fa-underline"></i>
+            </button>
+            <button type="button"
+              className={`btn btn-outline-secondary ${formatState.bulletList ? 'active bg-secondary text-white' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => exec('insertUnorderedList')} disabled={isLoading}
+              title="Bullet List">
+              <i className="fas fa-list-ul"></i>
+            </button>
+            <button type="button"
+              className={`btn btn-outline-secondary ${formatState.numberedList ? 'active bg-secondary text-white' : ''}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => exec('insertOrderedList')} disabled={isLoading}
+              title="Numbered List">
+              <i className="fas fa-list-ol"></i>
             </button>
             <div className="dropdown d-inline-block">
               <button className="btn btn-outline-secondary dropdown-toggle" type="button"
@@ -1052,18 +1157,33 @@ const DocumentGenerator = ({ userRole }) => {
       </div>
 
       <style>{`
-        .rich-editor:focus { outline: none; textRendering: 'geometricPrecision',textSizeAdjust: '100%', }
+        .rich-editor:focus { outline: none; }
         .rich-editor strong, .rich-editor b { font-weight: bold; }
         .rich-editor em, .rich-editor i { font-style: italic; }
         .rich-editor u { text-decoration: underline; }
         /* Kill default margins/padding on block children so browser
-           line breaks match PDF line breaks exactly */
+           line breaks match PDF line breaks exactly.
+           NOTE: <ul>/<ol>/<li> are handled separately below so their
+           markers (•, 1., 2., …) stay visible in the editor. */
         .rich-editor p,
         .rich-editor > div,
         .rich-editor h1, .rich-editor h2, .rich-editor h3,
         .rich-editor h4, .rich-editor h5, .rich-editor h6,
-        .rich-editor ul, .rich-editor ol, .rich-editor li,
         .rich-editor blockquote { margin: 0; padding: 0; }
+
+        /* Lists: keep the marker gutter visible but kill the vertical
+           margins browsers add by default so line-height stays tight. */
+        .rich-editor ul,
+        .rich-editor ol {
+          margin: 0;
+          padding-left: 36px;
+        }
+        .rich-editor ul { list-style-type: disc; }
+        .rich-editor ol { list-style-type: decimal; }
+        .rich-editor li {
+          margin: 0;
+          padding: 0;
+        }
 
         .rich-editor .doc-image-wrap {
           position: absolute;
