@@ -123,6 +123,13 @@ def get_recovery_data():
 
     for loan in loans:
         loan = recalculate_loan(loan)
+
+        # ── NEW: if recalc just closed this loan (weekly full repayment),
+        #         don't surface it in today's recovery list. The commit
+        #         further down will persist the 'completed' transition.
+        if loan.status != 'active':
+            continue
+
         overdue_days, overdue_weeks = compute_overdue(loan, today)
 
         due_day = (
@@ -194,10 +201,7 @@ def get_recovery_data():
             if original_principal is None:
                 original_principal = float(loan.principal_amount)
 
-        # ── CHANGED: collateral value via the model property ───────────────
-        # For new loans this resolves to livestock.forced_value; for legacy
-        # loans it falls back to livestock.estimated_value. Same expression
-        # for both cases, so nothing else in this function changes.
+        # ── Collateral value via the model property ────────────────────────
         collateral_value = (
             float(lv.collateral_value) if lv and lv.collateral_value else 0.0
         )
@@ -217,7 +221,6 @@ def get_recovery_data():
             'collateral': collateral,
             'collateral_value': collateral_value,
 
-            # ── NEW: optional secondary figures for tooltips ──
             'current_market_value': (
                 float(lv.current_market_value)
                 if lv and lv.current_market_value is not None else None
@@ -226,7 +229,6 @@ def get_recovery_data():
                 float(lv.forced_value)
                 if lv and lv.forced_value is not None else None
             ),
-            # ──────────────────────────────────────────────────
 
             'collateral_status': collateral_status,
             'next_period_total': next_period_total,
@@ -258,6 +260,26 @@ def get_recovery_data():
 
     for day in result:
         result[day].sort(key=lambda x: x['name'])
+
+    # ── NEW: persist the recalculated loan state so the DB matches the UI ──
+    # recalculate_loan() mutates current_principal, due_date, accrued_interest,
+    # last_interest_payment_date, last_compounding_date, and status in memory.
+    # Without this commit those mutations are discarded at end of request, and
+    # any page that reads straight from the DB (Payment Stats, Approved Loans,
+    # get_all_clients, receipts, PDFs) shows the stale value while Recovery /
+    # Financial Reports show the freshly-computed one.
+    #
+    # After this commit, the DB becomes the single source of truth every UI
+    # agrees on. Because recalculate_loan() is idempotent once a loan is up
+    # to date, subsequent calls hit an unchanged row and the commit is a no-op.
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(
+            f"Failed to persist recalculated loan state in get_recovery_data: {e}"
+        )
+        # Response data remains valid for this call; DB stays at previous state.
 
     return jsonify(result), 200
 

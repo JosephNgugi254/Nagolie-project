@@ -1,12 +1,12 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from datetime import datetime, timedelta, date
-from decimal import Decimal
+from datetime import datetime, timedelta, date, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from app import db
 from app.models import (
     User, Loan, Transaction, Livestock, Payment,
     PettyCashFunding, PettyCashExpense, Investor, InvestorReturn,
-    SalaryTransaction
+    SalaryTransaction, FlaggedLoan
 )
 from flask_cors import CORS
 from app.utils.decorators import role_required
@@ -19,7 +19,9 @@ from app.services.financial_aggregator import (
     daily_breakdown,
     transactions_in,
 )
-from app.routes.payments import loan_state_as_of
+from app.routes.payments import loan_state_as_of , recalculate_loan
+from app.utils.interest_helpers import _get_current_period_key
+
 
 allowed_origins = [
     'http://localhost:5173',
@@ -50,6 +52,30 @@ def _resolve_period_from_request():
         end_date_str=request.args.get("end_date"),
     )
 
+def _live_loan_state(loan):
+    """
+    Current live state for an active loan — identical to what the Recovery
+    module and get_admin_dashboard display.
+    """
+    loan = recalculate_loan(loan, save=False)
+    p = loan.current_principal or Decimal('0')
+
+    if loan.repayment_plan == 'weekly' and (loan.interest_rate or 0) > 0:
+        cp = _get_current_period_key(loan)
+        raw = (p * Decimal('0.30')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        prepaid = (
+            loan.interest_prepaid_amount
+            if loan.interest_prepaid_period == cp
+            else Decimal('0')
+        ) or Decimal('0')
+        i = max(Decimal('0'), raw - prepaid)
+    else:
+        i = max(
+            Decimal('0'),
+            (loan.accrued_interest or Decimal('0'))
+            - (loan.interest_paid or Decimal('0')),
+        )
+    return p, i
 
 # -------------------- Petty Cash Management --------------------
 
@@ -222,11 +248,18 @@ def get_loan_financial_report():
         Decimal('0'),
     )
 
-    # ---- Stock: reconstruct outstanding as of period end ------------------
-    # Every loan that existed on or before period_end counts, regardless of
-    # status, so that a day/week/month report reflects the true book at that
-    # moment in time.
-    as_of_dt = period.query_end_utc
+    # ---- Stock: outstanding as of period end, capped at now ---------------
+    now_utc           = datetime.now(timezone.utc)
+    as_of_dt          = min(period.query_end_utc, now_utc)
+    is_current_period = period.query_end_utc >= now_utc
+
+    # Flagged loans are overdue/non-performing loans the valuer is chasing.
+    # They remain part of the company's book of record (the principal is
+    # still legally owed). We include them in every outstanding figure but
+    # disclose the flagged subset separately.
+    flagged_ids = {
+        fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()
+    }
 
     loans_up_to_end = Loan.query.filter(
         Loan.disbursement_date < as_of_dt,
@@ -234,21 +267,65 @@ def get_loan_financial_report():
 
     outstanding_principal = Decimal('0')
     outstanding_interest  = Decimal('0')
+    flagged_principal     = Decimal('0')
+    flagged_interest      = Decimal('0')
+    flagged_loan_rows     = []
     bad_debt_principal    = Decimal('0')
     bad_debt_interest     = Decimal('0')
 
     for loan in loans_up_to_end:
-        p, i = loan_state_as_of(loan, as_of_dt)
+        # ── bad_debt ── frozen stored balance, never replayed
+        if loan.status == 'bad_debt':
+            p = loan.current_principal or Decimal('0')
+            if loan.repayment_plan == 'weekly' and (loan.interest_rate or 0) > 0:
+                cp  = _get_current_period_key(loan)
+                raw = (p * Decimal('0.30')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                prepaid = (
+                    loan.interest_prepaid_amount
+                    if loan.interest_prepaid_period == cp
+                    else Decimal('0')
+                ) or Decimal('0')
+                i = max(Decimal('0'), raw - prepaid)
+            else:
+                i = max(
+                    Decimal('0'),
+                    (loan.accrued_interest or Decimal('0'))
+                    - (loan.interest_paid or Decimal('0')),
+                )
+            bad_debt_principal    += p
+            bad_debt_interest     += i
+            outstanding_principal += p
+            outstanding_interest  += i
+            continue
 
-        if loan.status == 'active' or loan.status == 'completed':
-            outstanding_principal += p
-            outstanding_interest  += i
-        elif loan.status == 'bad_debt':
-            bad_debt_principal += p
-            bad_debt_interest  += i
-            # Bad debt also contributes to the "outstanding" headline figures.
-            outstanding_principal += p
-            outstanding_interest  += i
+        # ── Anything not 'active' contributes NOTHING to the live book ──
+        # 'completed' = fully paid (residual current_principal is stale data)
+        # 'renewed'   = superseded by a child loan that IS the live entry
+        # 'waived'    = superseded by a child loan
+        # 'claimed'   = appears in the claims section below, not the book
+        if loan.status != 'active':
+            continue
+
+        if is_current_period:
+            p, i = _live_loan_state(loan)
+        else:
+            p, i = loan_state_as_of(loan, as_of_dt)
+
+        outstanding_principal += p
+        outstanding_interest  += i
+
+        if loan.id in flagged_ids:
+            flagged_principal += p
+            flagged_interest  += i
+            flagged_loan_rows.append({
+                'loan_id':     loan.id,
+                'client_name': loan.client.full_name if loan.client else 'Unknown',
+                'principal':   float(p),
+                'interest':    float(i),
+                'total':       float(p + i),
+            })
 
     total_bad_debt = bad_debt_principal + bad_debt_interest
 
@@ -287,20 +364,31 @@ def get_loan_financial_report():
 
     return jsonify({
         'period': period.as_dict(),
-        'total_money_lent': float(total_lent),
-        'principal_collected': float(principal_collected),
-        'interest_collected': float(interest_collected),
-        'outstanding_principal': float(outstanding_principal),
-        'outstanding_interest': float(outstanding_interest),
-        'total_claimed_amount': float(total_claimed_amount),
-        'total_recovered_value': float(total_recovered_value),
-        'total_waived_amount': float(total_waived_amount),
-        'total_bad_debt': float(total_bad_debt),
-        'loan_revenue': float(revenue),
-        'loan_recovery_rate': float(recovery_rate),
-        'claims_profit_loss': float(total_recovered_value - total_claimed_amount),
-        'start_date': period.start_date.isoformat(),
-        'end_date': period.end_date.isoformat(),
+
+        # ── headline (book of record — INCLUDES flagged loans) ────────
+        'outstanding_principal':      float(outstanding_principal),
+        'outstanding_interest':       float(outstanding_interest),
+        'outstanding_total':          float(outstanding_principal + outstanding_interest),
+
+        # ── composition of the outstanding book ────────────────────────
+        'flagged_principal':          float(flagged_principal),
+        'flagged_interest':           float(flagged_interest),
+        'flagged_total':              float(flagged_principal + flagged_interest),
+        'flagged_loan_count':         len(flagged_loan_rows),
+        'flagged_clients':            flagged_loan_rows,
+
+        'total_money_lent':           float(total_lent),
+        'principal_collected':        float(principal_collected),
+        'interest_collected':         float(interest_collected),
+        'total_claimed_amount':       float(total_claimed_amount),
+        'total_recovered_value':      float(total_recovered_value),
+        'total_waived_amount':        float(total_waived_amount),
+        'total_bad_debt':             float(total_bad_debt),
+        'loan_revenue':               float(revenue),
+        'loan_recovery_rate':         float(recovery_rate),
+        'claims_profit_loss':         float(total_recovered_value - total_claimed_amount),
+        'start_date':                 period.start_date.isoformat(),
+        'end_date':                   period.end_date.isoformat(),
     }), 200
 
 # ------------------------------------------------------------------ Company report
@@ -316,7 +404,6 @@ def get_company_financial_report():
     data = agg_period(period)
     data['transactions'] = transactions_in(period)
     return jsonify(data), 200
-
 
 # ------------------------------------------------------------------ Revenue analysis
 @financial_bp.route('/revenue-analysis', methods=['GET'])
@@ -335,8 +422,6 @@ def get_revenue_analysis():
         'net_revenue': data['net_cash_flow'],
         'profit_loss': data['profit_loss'],
     }), 200
-
-
 
 @financial_bp.route('/claims-analysis', methods=['GET'])
 @jwt_required()
@@ -360,7 +445,6 @@ def get_claims_analysis():
         'total_claim_losses': float(max(Decimal('0'), -profit_loss)),
         'claim_recovery_rate': float(recovery_rate)
     }), 200
-
 
 @financial_bp.route('/waived-analysis', methods=['GET'])
 @jwt_required()
@@ -484,12 +568,18 @@ def get_monthly_report():
     return jsonify(data), 200
 
 
-# ------------------------------------------------------------------ Dashboard
 @financial_bp.route('/dashboard-summary', methods=['GET'])
 @jwt_required()
 @role_required(['director', 'head_of_it', 'admin'])
 def get_financial_dashboard_summary():
-    """Same numbers as Company Report for the current week — no divergence."""
+    """
+    Dashboard summary. Loan book numbers are reconciled with the Loan Report:
+      • Current/future period  → live state (matches Recovery module).
+      • Past period            → replay simulator (best effort).
+      • Bad debt               → frozen stored balance, never replayed.
+      • Completed              → contributes nothing to the outstanding book.
+      • Flagged active loans   → included in outstanding + disclosed separately.
+    """
     try:
         period = _resolve_period_from_request()
     except ValueError as exc:
@@ -497,66 +587,110 @@ def get_financial_dashboard_summary():
 
     data = agg_period(period)
 
-    as_of_dt = period.query_end_utc
+    # ---- Stock: outstanding as of period end, capped at now ---------------
+    now_utc           = datetime.now(timezone.utc)
+    as_of_dt          = min(period.query_end_utc, now_utc)
+    is_current_period = period.query_end_utc >= now_utc
 
-    # Every loan that existed by period end.
+    flagged_ids = {
+        fl.loan_id for fl in FlaggedLoan.query.filter_by(resolved=False).all()
+    }
+
     loans_up_to_end = Loan.query.filter(
         Loan.disbursement_date < as_of_dt,
     ).all()
 
-    total_lent = Decimal('0')
+    total_lent                = Decimal('0')
     total_principal_collected = Decimal('0')
-    total_interest_collected = Decimal('0')
-    outstanding_principal = Decimal('0')
-    outstanding_interest = Decimal('0')
-    bad_debt_principal = Decimal('0')
-    bad_debt_interest = Decimal('0')
+    total_interest_collected  = Decimal('0')
+    outstanding_principal     = Decimal('0')
+    outstanding_interest      = Decimal('0')
+    flagged_principal         = Decimal('0')
+    flagged_interest          = Decimal('0')
+    bad_debt_principal        = Decimal('0')
+    bad_debt_interest         = Decimal('0')
 
     for loan in loans_up_to_end:
-        # Lifetime totals only count loans that are / were real book loans.
+        # Lifetime totals include completed loans — they were real loans.
         if loan.status in ('active', 'completed'):
-            total_lent += loan.principal_amount
+            total_lent                += loan.principal_amount
             total_principal_collected += loan.principal_paid
-            total_interest_collected += loan.interest_paid
+            total_interest_collected  += loan.interest_paid
 
-        p, i = loan_state_as_of(loan, as_of_dt)
-
-        if loan.status in ('active', 'completed'):
-            outstanding_principal += p
-            outstanding_interest  += i
-        elif loan.status == 'bad_debt':
+        # ── bad_debt ── frozen stored balance, never replayed
+        if loan.status == 'bad_debt':
+            p = loan.current_principal or Decimal('0')
+            if loan.repayment_plan == 'weekly' and (loan.interest_rate or 0) > 0:
+                cp  = _get_current_period_key(loan)
+                raw = (p * Decimal('0.30')).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                prepaid = (
+                    loan.interest_prepaid_amount
+                    if loan.interest_prepaid_period == cp
+                    else Decimal('0')
+                ) or Decimal('0')
+                i = max(Decimal('0'), raw - prepaid)
+            else:
+                i = max(
+                    Decimal('0'),
+                    (loan.accrued_interest or Decimal('0'))
+                    - (loan.interest_paid or Decimal('0')),
+                )
             bad_debt_principal += p
             bad_debt_interest  += i
+            continue
+
+        # ── Only active loans contribute to the outstanding book ──
+        if loan.status != 'active':
+            continue
+
+        if is_current_period:
+            p, i = _live_loan_state(loan)
+        else:
+            p, i = loan_state_as_of(loan, as_of_dt)
+
+        outstanding_principal += p
+        outstanding_interest  += i
+
+        if loan.id in flagged_ids:
+            flagged_principal += p
+            flagged_interest  += i
 
     total_bad_debt = bad_debt_principal + bad_debt_interest
-    recovery_rate = (
+    recovery_rate  = (
         (total_principal_collected / total_lent * 100)
         if total_lent > 0 else Decimal('0')
     )
 
-    total_waived = db.session.query(func.sum(Loan.principal_amount)).filter(
-        Loan.status == 'waived'
-    ).scalar() or Decimal('0')
+    total_waived = db.session.query(
+        func.sum(Loan.principal_amount)
+    ).filter(Loan.status == 'waived').scalar() or Decimal('0')
 
     return jsonify({
         'period': period.as_dict(),
         'loan_metrics': {
-            'total_money_lent': float(total_lent),
+            'total_money_lent':          float(total_lent),
             'total_principal_collected': float(total_principal_collected),
-            'total_interest_collected': float(total_interest_collected),
-            'outstanding_principal': float(outstanding_principal),
-            'outstanding_interest': float(outstanding_interest),
-            'loan_recovery_rate': float(recovery_rate),
-            'total_bad_debt': float(total_bad_debt),
+            'total_interest_collected':  float(total_interest_collected),
+            'outstanding_principal':     float(outstanding_principal),
+            'outstanding_interest':      float(outstanding_interest),
+            'outstanding_total':         float(outstanding_principal + outstanding_interest),
+            'flagged_principal':         float(flagged_principal),
+            'flagged_interest':          float(flagged_interest),
+            'flagged_total':             float(flagged_principal + flagged_interest),
+            'flagged_loan_count':        len(flagged_ids),
+            'loan_recovery_rate':        float(recovery_rate),
+            'total_bad_debt':            float(total_bad_debt),
         },
         'company_metrics': {
-            'money_in_total': data['money_in']['total'],
-            'money_out_total': data['money_out']['total'],
-            'net_cash_flow': data['net_cash_flow'],
+            'money_in_total':            data['money_in']['total'],
+            'money_out_total':           data['money_out']['total'],
+            'net_cash_flow':             data['net_cash_flow'],
             'total_petty_cash_expenses': data['money_out']['petty_cash'],
-            'profit_loss': data['profit_loss'],
-            'claims_profit_loss': 0,
-            'total_waived_amount': float(total_waived),
+            'profit_loss':               data['profit_loss'],
+            'claims_profit_loss':        0,
+            'total_waived_amount':       float(total_waived),
         },
     }), 200
 
