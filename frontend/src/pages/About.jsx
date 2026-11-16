@@ -150,7 +150,7 @@ function About() {
     },
     {
       name: "Brian Ouko",
-      role: "Advocate of the High Court",
+      role: "Advocate",
       bio: "Provides legal representation and advocacy services for Nagolie Enterprises Ltd, while offering legal guidance on matters relating to the Company's operations, agreements, and recovery proceedings.",
       image: "/Brian.png",
       whatsapp: "https://wa.me/0716527642",
