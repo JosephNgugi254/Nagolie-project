@@ -124,12 +124,12 @@ function About() {
       email: "georgemarite@gmail.com"
     },
     {
-      name: "Gladys Sakinoi",
+      name: "Lucy Nyambura",
       role: "Secretary",
       bio: "Coordinates schedules and communications, manages administrative and clerical tasks, and ensures smooth day-to-day office operations while supporting the entire team at Nagolie Enterprises Ltd.",
-      image: "/Glado.png",
-      whatsapp: "https://wa.me/0727635515",
-      email: "sakinoigladys@gmail.com"
+      image: "/lucy-nyambura.png",
+      whatsapp: "https://wa.me/0706411713",
+      email: "lucienyambura19@gmail.com"
     },
     {
       name: "Ann Ndura",
@@ -138,14 +138,6 @@ function About() {
       image: "/ann-ndura.png",
       whatsapp: "https://wa.me/0727320067",
       email: "ndurah67@gmail.com"
-    },
-    {
-      name: "Lucy Nyambura",
-      role: "Client Relations Officer",
-      bio: "Oversees client engagement and portfolio monitoring, providing timely support, payment follow-ups, and accurate reporting to enhance operational efficiency and client satisfaction.",
-      image: "/lucy-nyambura.png",
-      whatsapp: "https://wa.me/0706411713",
-      email: "lucienyambura19@gmail.com"
     },
     {
       name: "Joseph Ngugi",
@@ -157,14 +149,6 @@ function About() {
       linkedin: "www.linkedin.com/in/joseph-ngugi-2a78991b7"
     },
     {
-      name: "Terry Kintei",
-      role: "Human Resource Manager",
-      bio: "Responsible for overseeing recruitment, staff welfare, and organizational development to ensure efficient and motivated workforce operations at Nagolie Enterprises Ltd.",
-      image: "./Terry.png",
-      whatsapp: "https://wa.me/24717167762",
-      email: "terrykintei02@gmail.com"
-    },
-    {
       name: "Brian Ouko",
       role: "Advocate of the High Court",
       bio: "Provides legal representation and advocacy services for Nagolie Enterprises Ltd, while offering legal guidance on matters relating to the Company's operations, agreements, and recovery proceedings.",
@@ -172,14 +156,6 @@ function About() {
       whatsapp: "https://wa.me/0716527642",
       email: "brianouko.m.m@gmail.com",
       linkedin: "https://www.linkedin.com/in/brian-ouko-942230176/"
-    },
-    {
-      name: "Tait Lesiamon",
-      role: "Legal Consultant",
-      bio: "Provides legal guidance, ensures compliance with all regulatory requirements, and protects the interests of Nagolie Enterprises Ltd and its clients in every transaction.",
-      image: "/Timothy.png",
-      whatsapp: "https://wa.me/0725700487",
-      email: ""
     },
     {
       name: "Joshua Partapipi",
