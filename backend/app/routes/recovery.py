@@ -20,6 +20,8 @@ from flask_cors import cross_origin
 
 recovery_bp = Blueprint('recovery', __name__)
 
+ALLOW_PAST_EDIT = True
+
 MAX_PROMISSORY_NOTES = 3  
 
 def get_week_number(disbursement_date):
@@ -1094,22 +1096,33 @@ def get_my_assigned_clients():
 
 @recovery_bp.route('/reports/comment', methods=['POST'])
 @jwt_required()
-@role_required(['secretary', 'client_relations_officer'])
+@role_or_username_required(
+    allowed_roles=['secretary', 'client_relations_officer'],
+    allowed_usernames=['Annie'],          # ← Annie can save even if her role differs
+)
 def save_report_comment():
     """
     Save the officer's follow-up note for (loan, officer, date).
 
-    Allowed ONLY for today's report and ONLY if the row is not finalized.
-    Past reports are read-only — 403.
+    Normal behaviour:
+      • Today's report → editable (unless finalized)
+      • Past reports   → 403 read-only
+
+    Temporary override (ALLOW_PAST_EDIT = True at top of file):
+      • Past reports   → editable
+      • Finalized rows → editable
+
+    Flip ALLOW_PAST_EDIT back to False to restore original read-only behaviour.
     """
     from app.utils.time import today_eat
 
-    officer_id = int(get_jwt_identity())
-    data       = request.json or {}
-    loan_id    = data.get('loan_id')
-    comment_text = data.get('comment', '')
+    officer_id      = int(get_jwt_identity())
+    data            = request.json or {}
+    loan_id         = data.get('loan_id')
+    comment_text    = data.get('comment', '')
     report_date_str = data.get('report_date')
 
+    # ---- Parse the report date ----
     if report_date_str:
         try:
             report_date = datetime.strptime(report_date_str, '%Y-%m-%d').date()
@@ -1121,8 +1134,9 @@ def save_report_comment():
     if not loan_id:
         return jsonify({'error': 'loan_id required'}), 400
 
-    # ---- Read-only lock on past reports ----
-    if report_date != today_eat():
+    # ── Guard #1: past-date lock ──────────────────────────────────────
+    # Skipped entirely when ALLOW_PAST_EDIT is True.
+    if not ALLOW_PAST_EDIT and report_date != today_eat():
         return jsonify({
             'error': 'Comments are read-only for past reports'
         }), 403
@@ -1146,7 +1160,9 @@ def save_report_comment():
         )
         db.session.add(row)
     else:
-        if row.finalized:
+        # ── Guard #2: finalized lock ──────────────────────────────────
+        # Skipped entirely when ALLOW_PAST_EDIT is True.
+        if not ALLOW_PAST_EDIT and row.finalized:
             return jsonify({'error': 'Report is finalized'}), 403
         row.comment = comment_text
 

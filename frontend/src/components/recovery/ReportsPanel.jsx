@@ -6,11 +6,9 @@ import { showToast } from '../common/Toast';
 import { generateOfficerReportPDF } from '../admin/ReceiptPDF';
 
 // ── EAT "today" — Africa/Nairobi is UTC+3, no DST ──
-// Returns a YYYY-MM-DD string in EAT wall-clock.
-// Avoids the UTC bug where toISOString() rolls the date over at 03:00 EAT.
 const todayEAT = () => {
   const nowMs = Date.now();
-  const eatMs = nowMs + 3 * 60 * 60 * 1000;      // shift into EAT wall-clock
+  const eatMs = nowMs + 3 * 60 * 60 * 1000;
   const d = new Date(eatMs);
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -41,14 +39,31 @@ const ReportsPanel = () => {
   const [highlightLoanId, setHighlightLoanId] = useState(null);
 
   // ── Guards ──
-  // fetchSeqRef: monotonically increasing id. Every fetchData() call claims the
-  //   next id. When a response returns, if the id is not the latest, we discard
-  //   it. This makes "last write wins" and prevents the stale-response race
-  //   that a boolean `fetchingRef` guard introduced.
   const fetchSeqRef = useRef(0);
   const saveTimeouts = useRef({});
 
-  const isPastReport = reportDate < todayEAT();
+  // ════════════════════════════════════════════════════════════════════
+  //  🔓 TEMPORARY OVERRIDE — flip this single flag.
+  //
+  //    ALLOW_PAST_EDIT = true   → officers & Annie can edit past reports
+  //    ALLOW_PAST_EDIT = false  → original behaviour (past = read-only)
+  //
+  //  Approved reports are always locked regardless of this flag — that's
+  //  intentional (director sign-off is a separate, stronger constraint).
+  //  If you also want to unlock approved reports, see the “isLocked”
+  //  line right below and change it to the commented alternative.
+  // ════════════════════════════════════════════════════════════════════
+  const ALLOW_PAST_EDIT = true;
+
+  const isPastDate   = reportDate < todayEAT();
+  const isPastReport = isPastDate && !ALLOW_PAST_EDIT;   // ← drives banner + lock
+  const isApproved   = approval.status === 'approved';
+
+  // Single source of truth for “can the officer type right now?”
+  // ── current:  approved always wins
+  // ── uncomment next line instead if you ALSO want to unlock approved:
+  // const isLocked = isPastReport;
+  const isLocked = isPastReport || isApproved;
 
   // ── Fetch ─────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -56,16 +71,11 @@ const ReportsPanel = () => {
     setLoading(true);
     try {
       const res = await recoveryAPI.getReportAssignments(reportDate);
-
-      // A newer fetch has been started — drop this stale response.
       if (seq !== fetchSeqRef.current) return;
 
       const daysMap = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
       setAssignedDaysString((res.data.assigned_days || []).map(d => daysMap[d]).join(', '));
-
-      // Clients already include director_remark / director_remark_at / director_remark_by
       setClients(res.data.clients || []);
-
       setApproval(res.data.approval || {
         status: 'pending', general_remarks: '', approved_by: null, approved_at: null,
       });
@@ -79,14 +89,12 @@ const ReportsPanel = () => {
     }
   }, [reportDate]);
 
-  // Refetch whenever the date changes.
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // ── A. Read pending jump on mount ─────────────────────────────────────
   useEffect(() => {
     const jumpDate   = sessionStorage.getItem('reportJumpToDate');
     const jumpLoanId = sessionStorage.getItem('reportJumpToLoanId');
-
     if (jumpDate) {
       setReportDate(jumpDate);
       sessionStorage.removeItem('reportJumpToDate');
@@ -95,15 +103,9 @@ const ReportsPanel = () => {
       setHighlightLoanId(parseInt(jumpLoanId, 10));
       sessionStorage.removeItem('reportJumpToLoanId');
     }
-  }, []);   // run once
+  }, []);
 
-  // ── B. Listen for live jumps (panel already mounted) ─────────────────
-  // Two jobs:
-  //   1. Update the date / highlight.
-  //   2. FORCE a refetch even if the date did not change (e.g. clicking a
-  //      notification for a remark on today's report while already viewing
-  //      today's report — otherwise React state didn't change and no fetch
-  //      would fire).
+  // ── B. Listen for live jumps ─────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
       const { date, loanId } = e.detail || {};
@@ -115,33 +117,28 @@ const ReportsPanel = () => {
     return () => window.removeEventListener('reportJump', handler);
   }, [fetchData]);
 
-  // ── C. Scroll + flash once the fresh rows have arrived ───────────────
-  // We do NOT clear highlightLoanId on failure — if the row isn't here yet
-  // (because the fetch hasn't returned), Effect C will run again when
-  // `clients` updates, and then scroll to it.
+  // ── C. Scroll + flash once fresh rows arrive ─────────────────────────
   useEffect(() => {
     if (!highlightLoanId || !clients?.length) return;
-
     const t = setTimeout(() => {
       const el = document.querySelector(`[data-loan-id="${highlightLoanId}"]`);
-      if (!el) return;                    // retry on next `clients` change
+      if (!el) return;
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.classList.add('loan-row-highlight');
       setTimeout(() => el.classList.remove('loan-row-highlight'), 3000);
-      setHighlightLoanId(null);           // consumed
+      setHighlightLoanId(null);
     }, 150);
-
     return () => clearTimeout(t);
   }, [highlightLoanId, clients]);
 
-  // ── D. Safety net: clear highlight if the row never appears ──────────
+  // ── D. Safety net ────────────────────────────────────────────────────
   useEffect(() => {
     if (!highlightLoanId) return;
     const t = setTimeout(() => setHighlightLoanId(null), 5000);
     return () => clearTimeout(t);
   }, [highlightLoanId]);
 
-  // ── Comment save (officer's own notes) ────────────────────────────────
+  // ── Comment save ─────────────────────────────────────────────────────
   const saveComment = async (loanId, comment) => {
     try {
       await recoveryAPI.saveReportComment(loanId, comment, reportDate);
@@ -194,8 +191,6 @@ const ReportsPanel = () => {
     return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : dateStr;
   };
 
-  const isApproved = approval.status === 'approved';
-
   const totals = clients.reduce(
     (acc, c) => ({
       principal: acc.principal + Number(c.current_principal || 0),
@@ -212,6 +207,11 @@ const ReportsPanel = () => {
           <h4 className="mb-0">
             📋 Daily Loan Reports
             <span className="ms-3 badge bg-light text-dark fs-6">{formatDisplayDate(reportDate)}</span>
+            {ALLOW_PAST_EDIT && isPastDate && (
+              <span className="ms-2 badge bg-warning text-dark">
+                <i className="fas fa-unlock me-1"></i> Past-edit ON
+              </span>
+            )}
           </h4>
           <input
             type="date"
@@ -319,12 +319,12 @@ const ReportsPanel = () => {
                       </td>
                       <td>
                         <textarea
-                          className={`form-control form-control-sm ${isPastReport || isApproved ? 'bg-light' : ''}`}
+                          className={`form-control form-control-sm ${isLocked ? 'bg-light' : ''}`}
                           rows="3"
                           value={c.comment || ''}
                           onChange={(e) => handleCommentChange(c.loan_id, e.target.value)}
                           placeholder="Enter follow-up notes..."
-                          disabled={isPastReport || isApproved}
+                          disabled={isLocked}
                         />
                       </td>
                       <td className="small" style={{ whiteSpace: 'pre-wrap', background: '#fffbe6' }}>
