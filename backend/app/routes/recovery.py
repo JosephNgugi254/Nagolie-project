@@ -20,7 +20,7 @@ from flask_cors import cross_origin
 
 recovery_bp = Blueprint('recovery', __name__)
 
-ALLOW_PAST_EDIT = True
+ALLOW_PAST_EDIT = False
 
 MAX_PROMISSORY_NOTES = 3  
 
@@ -1725,7 +1725,7 @@ def get_notification_data():
 
     # ---------- Pending applications (only for reviewer roles) ----------
     me = db.session.get(User, uid)
-    reviewer_roles = ['director', 'secretary', 'client_relations_officer', 'hr_manager']
+    reviewer_roles = ['director', 'secretary', 'client_relations_officer', 'hr_manager','valuer']
     apps_data = {'count': 0, 'latest_at': None}
     if me and me.role in reviewer_roles:
         pending_apps = Loan.query.filter_by(status='pending').all()

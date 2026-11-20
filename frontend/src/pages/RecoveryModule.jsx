@@ -2081,7 +2081,7 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
   }, [userRole]);
   
   useEffect(() => {
-    if (!['director', 'secretary', 'client_relations_officer','hr_manager'].includes(userRole)) return;
+    if (!['director', 'secretary', 'client_relations_officer','hr_manager','valuer'].includes(userRole)) return;
 
     // Poll for new applications every 30 seconds (regardless of active section)
     const fetchApps = () => {
@@ -2333,7 +2333,7 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
             </div>
 
             <div className="col-md-9 col-lg-10 main-content">
-              {['director', 'secretary', 'client_relations_officer', 'hr_manager'].includes(userRole) ? (
+              {['director', 'secretary', 'client_relations_officer', 'hr_manager', 'valuer'].includes(userRole) ? (
                 // ---------- DIRECTOR / SECRETARY / CLIENT RELATIONS PANEL ----------
                 <>
                   {/* OVERVIEW SECTION */}

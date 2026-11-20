@@ -53,7 +53,7 @@ const ReportsPanel = () => {
   //  If you also want to unlock approved reports, see the “isLocked”
   //  line right below and change it to the commented alternative.
   // ════════════════════════════════════════════════════════════════════
-  const ALLOW_PAST_EDIT = true;
+  const ALLOW_PAST_EDIT = false;
 
   const isPastDate   = reportDate < todayEAT();
   const isPastReport = isPastDate && !ALLOW_PAST_EDIT;   // ← drives banner + lock

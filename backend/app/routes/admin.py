@@ -793,7 +793,7 @@ def test_endpoint():
 
 @admin_bp.route('/applications', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director','secretary', 'client_relations_officer', 'hr_manager'])
+@role_required(['admin', 'director','secretary', 'client_relations_officer', 'hr_manager','valuer'])
 def get_applications():
     try:
         apps = Loan.query.filter_by(status='pending').order_by(Loan.created_at.desc()).all()
@@ -1694,7 +1694,7 @@ def process_topup(loan_id):
                 
 @admin_bp.route('/approved-loans', methods=['GET'])
 @jwt_required()
-@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager'])
+@role_required(['admin', 'director', 'secretary', 'client_relations_officer', 'hr_manager','valuer'])
 def get_approved_loans():
     try:
         approver = db.aliased(User)
