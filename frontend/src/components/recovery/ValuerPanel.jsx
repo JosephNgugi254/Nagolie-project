@@ -31,8 +31,9 @@ const CAN_VIEW_FLAGGED = (user) => {
  *  - canResolve (default null)  → show the Resolve button. If null, falls back to `editable`.
  *
  * Typical usage:
- *   <ValuerPanel />                                          // valuer: writes own notes, can resolve
- *   <ValuerPanel editable={false} monitorMode canResolve />  // Annie: reads all notes, can resolve
+ *   <ValuerPanel editable={isValuer} monitorMode={!isValuer} />
+ *     valuer:   writes own notes, can resolve
+ *     director: reads all valuers' notes, writes the director's remark
  */
 const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }) => {
   const { user, userRole } = useAuth();
@@ -52,6 +53,10 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
   const [reportComments, setReportComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [branchFilter, setBranchFilter] = useState('all');
+
+  // Director's remark on the valuer's notes — one remark per flagged loan
+  const [savingRemark, setSavingRemark] = useState(false);
+  const remarkDebounceRef = useRef(null);
 
   // Monitor-mode data: { "<loan_id>": [ { user_id, username, notes, updated_at }, ... ] }
   const [allValuerNotes, setAllValuerNotes] = useState({});
@@ -143,7 +148,7 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
     }
   }, [user]);
 
-  // Fetch report comments for a loan
+  // Fetch the officer's daily report comments for a loan (read-only context)
   const fetchReportComments = async (loanId) => {
     setLoadingComments(true);
     try {
@@ -173,6 +178,44 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
         console.error('Auto-save failed', err);
       }
     }, 600);
+  };
+
+  // Director's remark on the valuer's notes — debounced auto-save.
+  // An empty value clears the remark on the server.
+  const handleDirectorRemarkChange = (value) => {
+    const loanId = selectedClient.loan_id;
+
+    // Optimistic update: the modal copy AND the table list copy,
+    // so the PDF report sees the latest text too.
+    setSelectedClient(prev => ({ ...prev, director_remark: value }));
+    setFlaggedClients(prev =>
+      prev.map(c => (c.loan_id === loanId ? { ...c, director_remark: value } : c))
+    );
+
+    if (remarkDebounceRef.current) clearTimeout(remarkDebounceRef.current);
+    setSavingRemark(true);
+
+    remarkDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await recoveryAPI.setFlagDirectorRemark(loanId, value);
+        const meta = {
+          director_remark_at: res.data.director_remark_at,
+          director_remark_by: res.data.director_remark_by,
+        };
+        setSelectedClient(prev =>
+          prev?.loan_id === loanId ? { ...prev, ...meta } : prev
+        );
+        setFlaggedClients(prev =>
+          prev.map(c => (c.loan_id === loanId ? { ...c, ...meta } : c))
+        );
+      } catch (err) {
+        showToast.error(
+          err.response?.data?.error || 'Failed to save director remark'
+        );
+      } finally {
+        setSavingRemark(false);
+      }
+    }, 700);
   };
 
   // ─────────────────────────────── Resolve ───────────────────────────────
@@ -206,7 +249,8 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
   const generateReport = async (download = true) => {
     const reportDate = new Date().toLocaleDateString('en-GB');
 
-    // In monitor mode, merge every valuer's notes into one string per client
+    // In monitor mode, merge every valuer's notes into one string per client.
+    // `director_remark` already travels with each client object.
     const clientsForReport = monitorMode
       ? filteredClients.map(c => {
           const entries = (allValuerNotes[c.loan_id] || [])
@@ -244,33 +288,33 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
   };
 
   const handleProcessPayment = async (client) => {
-  try {
-    const loanResponse = await adminAPI.getLoan(client.loan_id);
-    const fresh = loanResponse.data;
+    try {
+      const loanResponse = await adminAPI.getLoan(client.loan_id);
+      const fresh = loanResponse.data;
 
-    // admin.get_loan returns the RAW accrued_interest, which is always 0
-    // for weekly loans (interest compounds into principal, it never sits
-    // in accrued_interest). The PaymentModal — like the recovery module's
-    // own data source — expects accrued_interest to hold the *unpaid*
-    // interest for the current period. Alias it here.
-    const isWeekly = fresh.repayment_plan === 'weekly';
-    const currentPeriodInterest = Number(fresh.current_period_interest ?? 0);
-    const periodPrepaid         = Number(fresh.period_interest_prepaid ?? 0);
-    const periodFullyPaid       = fresh.period_interest_fully_paid === true;
+      // admin.get_loan returns the RAW accrued_interest, which is always 0
+      // for weekly loans (interest compounds into principal, it never sits
+      // in accrued_interest). The PaymentModal — like the recovery module's
+      // own data source — expects accrued_interest to hold the *unpaid*
+      // interest for the current period. Alias it here.
+      const isWeekly = fresh.repayment_plan === 'weekly';
+      const currentPeriodInterest = Number(fresh.current_period_interest ?? 0);
+      const periodPrepaid         = Number(fresh.period_interest_prepaid ?? 0);
+      const periodFullyPaid       = fresh.period_interest_fully_paid === true;
 
-    const unpaidInterest = isWeekly
-      ? (periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid))
-      : Number(fresh.accrued_interest ?? 0);
+      const unpaidInterest = isWeekly
+        ? (periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid))
+        : Number(fresh.accrued_interest ?? 0);
 
-    setSelectedLoanForPayment({
-      ...fresh,
-      accrued_interest: unpaidInterest,   // ← what the modal reads
-    });
-    setShowPaymentModal(true);
-  } catch (err) {
-    showToast.error('Failed to load loan details for payment');
-  }
-};
+      setSelectedLoanForPayment({
+        ...fresh,
+        accrued_interest: unpaidInterest,   // ← what the modal reads
+      });
+      setShowPaymentModal(true);
+    } catch (err) {
+      showToast.error('Failed to load loan details for payment');
+    }
+  };
 
   // ──────────────────────────── Branch filtering ─────────────────────────
   const filterByBranch = (clients) => {
@@ -295,9 +339,13 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
     ['director', 'valuer'].includes(effectiveRole) ||
     effectiveUsername === 'annie';
 
+  // Who can write the director's remark on the valuer's notes?
+  // Matches the backend decorator on PUT /recovery/loan/<id>/director-remark
+  const canEditRemark =
+    ['director', 'admin', 'hr_manager'].includes(effectiveRole) ||
+    effectiveUsername === 'annie';
+
   // ────────────────────────── Access-restricted view ─────────────────────
-  // If the current user is not allowed to see flagged clients, render a
-  // graceful placeholder instead of trying (and failing) to fetch.
   if (!canView) {
     return (
       <div className="card shadow-sm">
@@ -387,7 +435,7 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
                 <td>{client.current_principal.toLocaleString()}</td>
                 <td>{client.unpaid_interest.toLocaleString()}</td>
                 <td className="fw-bold text-danger">{client.total_outstanding.toLocaleString()}</td>
-                                <td>
+                <td>
                   <div className="fw-bold text-primary">
                     {client.collateral_value.toLocaleString()}
                     {client.forced_value != null && (
@@ -494,7 +542,7 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
 
             {/* ---------- Notes section ---------- */}
             {monitorMode ? (
-              // Annie / admin / director: read-only stacked view of every valuer's notes
+              // Director / Annie / admin: read-only stacked view of every valuer's notes
               <div className="mb-3">
                 <label className="form-label fw-bold">
                   Valuers' Notes (all authors, read-only)
@@ -577,6 +625,57 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
               </>
             )}
 
+            {/* ---------- Director's remark on the VALUER'S notes ---------- */}
+            {canEditRemark ? (
+              <div className="mb-3">
+                <label className="form-label fw-bold" style={{ color: '#1e40af' }}>
+                  <i className="fas fa-user-tie me-1"></i>
+                  Director's Remark on Valuer Notes (auto-saved)
+                  {savingRemark && (
+                    <span className="spinner-border spinner-border-sm ms-2" />
+                  )}
+                </label>
+                <textarea
+                  className="form-control"
+                  rows="2"
+                  placeholder="Your remark on the valuer's recovery notes above..."
+                  value={selectedClient.director_remark || ''}
+                  onChange={(e) => handleDirectorRemarkChange(e.target.value)}
+                />
+                {selectedClient.director_remark_at && (
+                  <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
+                    <i className="fas fa-clock me-1"></i>
+                    Last updated:{' '}
+                    {new Date(selectedClient.director_remark_at).toLocaleString('en-GB')}
+                  </div>
+                )}
+              </div>
+            ) : selectedClient.director_remark ? (
+              <div
+                className="alert alert-warning py-2 px-3 mb-3 small"
+                style={{ borderLeft: '4px solid #f0ad4e' }}
+              >
+                <strong>
+                  <i className="fas fa-user-tie me-1"></i>
+                  Director's Remark
+                  {selectedClient.director_remark_by && (
+                    <span className="fw-normal ms-1">
+                      — {selectedClient.director_remark_by}
+                    </span>
+                  )}
+                </strong>
+                <div className="mt-1" style={{ whiteSpace: 'pre-wrap' }}>
+                  {selectedClient.director_remark}
+                </div>
+                {selectedClient.director_remark_at && (
+                  <div className="text-muted mt-1" style={{ fontSize: '0.75rem' }}>
+                    <i className="fas fa-clock me-1"></i>
+                    {new Date(selectedClient.director_remark_at).toLocaleString('en-GB')}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             <hr />
             <h5>Officer's Daily Report Comments</h5>
             {loadingComments ? (
@@ -591,23 +690,37 @@ const ValuerPanel = ({ editable = true, monitorMode = false, canResolve = null }
               <div className="list-group">
                 {reportComments.map(comment => (
                   <div key={comment.id} className="list-group-item">
+                    {/* ── Header: officer name + when the report was made ── */}
                     <div className="d-flex justify-content-between">
                       <strong>{comment.officer_name}</strong>
                       <small className="text-muted">
-                        {new Date(comment.created_at).toLocaleString('en-GB', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                        {comment.report_date && (
+                          <>
+                            <i className="fas fa-calendar me-1"></i>
+                            {comment.report_date}
+                            {' • '}
+                          </>
+                        )}
+                        {comment.created_at &&
+                          new Date(comment.created_at).toLocaleString('en-GB', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
                       </small>
                     </div>
-                    <p className="mt-1 mb-0">{comment.comment}</p>
+
+                    {/* ── The officer's comment (read-only context) ── */}
+                    <p className="mt-1 mb-0" style={{ whiteSpace: 'pre-wrap' }}>
+                      {comment.comment}
+                    </p>
                   </div>
                 ))}
               </div>
             )}
+
             <div className="mt-3 d-flex justify-content-end">
               <button
                 className="btn btn-secondary"

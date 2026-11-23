@@ -940,10 +940,16 @@ class FlaggedLoan(db.Model):
     valuer_notes = db.Column(db.Text, nullable=True)
     flag_reason = db.Column(db.String(255), nullable=True)
 
+    # ── Director's remark on the valuer's recovery notes ──
+    director_remark    = db.Column(db.Text, nullable=True)
+    director_remark_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    director_remark_at = db.Column(db.DateTime, nullable=True)
+
     loan = db.relationship('Loan', backref='flag_entry')
     flagger = db.relationship('User', foreign_keys=[flagged_by])
     resolver = db.relationship('User', foreign_keys=[resolved_by])
     previous_officer = db.relationship('User', foreign_keys=[previous_officer_id])
+    director_remarker = db.relationship('User', foreign_keys=[director_remark_by])
 
 # ================== Dynamic Roles & Permissions ==================
 

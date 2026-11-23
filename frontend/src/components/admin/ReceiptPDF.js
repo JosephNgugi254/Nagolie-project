@@ -8695,166 +8695,191 @@ const resolveReportPreparedByName = (userOrName) => {
 export const generateValuerReportFromData = async (
   flaggedClients,
   reportDate,
-  userOrName,     // <-- accept full user object OR username string
+  userOrName,     // full user object OR username string
   download = true
 ) => {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   addOptimizedWatermark(doc, 'document');
-
+ 
   const margin = { left: 7, right: 7, top: 10 };
   const pageWidth = doc.internal.pageSize.width;
   const tableWidth = pageWidth - margin.left - margin.right;
-
-  // Resolve display identity
-  const officerName  = typeof userOrName === 'string'
+ 
+  const officerName = typeof userOrName === 'string'
     ? userOrName
     : (userOrName?.username || 'Valuer');
   const preparedName = resolveReportPreparedByName(userOrName);
-
-  // Column widths: # (4%), Name (22%), Date (8%), Principal (16%), Interest (18%), Notes (32%)
-  const colPercent = [4, 22, 8, 16, 18, 32];
-  let colWidths = colPercent.map(p => (tableWidth * p) / 100);
-  if (colWidths[0] < 8) colWidths[0] = 8;
-  if (colWidths[1] < 38) colWidths[1] = 38;
-  if (colWidths[2] < 10) colWidths[2] = 10;
-  const used = colWidths.reduce((a, b) => a + b, 0);
-  if (used < tableWidth) colWidths[5] += (tableWidth - used);
-
+ 
+  // # | Name | Date | Principal | Interest | Valuer Notes | Director's Remarks
+  const colPercent = [4, 16, 8, 14, 18, 20, 20];
+  const colWidths = colPercent.map(p => (tableWidth * p) / 100);
+  const colX = [];
+  let acc = margin.left;
+  colWidths.forEach(w => { colX.push(acc); acc += w; });
+ 
+  const num = (v) =>
+    Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
+ 
   let yPos = await addHeader(doc, margin.top);
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
   doc.text('RECOVERY REPORT', pageWidth / 2, yPos, { align: 'center' });
   yPos += 10;
-
+ 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.textDark);
   doc.text(`Officer: ${officerName}`, margin.left, yPos);
   doc.text(`Report Date: ${reportDate}`, pageWidth - margin.right - 50, yPos);
   yPos += 8;
-
-  const headers = ['#', 'Client Name', 'Date', 'Principal (KES)', 'Interest (KES)', 'Valuer Notes'];
-  let startX = margin.left;
-  doc.setFillColor(...COLORS.primaryBlue);
-  doc.setTextColor(...COLORS.white);
-  doc.setFont('helvetica', 'bold');
-  doc.rect(startX, yPos, tableWidth, 8, 'F');
-  let x = startX;
-  headers.forEach((h, i) => {
-    doc.text(h, x + 4, yPos + 5.5);
-    x += colWidths[i];
-  });
-  yPos += 8;
-  doc.setTextColor(...COLORS.textDark);
-  doc.setFont('helvetica', 'normal');
-
-  const formatCurrency = (amount) => {
-    return `KES ${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+ 
+  const headers = [
+    '#', 'Client Name', 'Date', 'Principal (KES)',
+    'Interest (KES)', 'Valuer Notes', "Director's Remarks",
+  ];
+ 
+  const drawHeader = (y) => {
+    doc.setFillColor(...COLORS.primaryBlue);
+    doc.rect(margin.left, y, tableWidth, 8, 'F');
+    doc.setTextColor(...COLORS.white);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    headers.forEach((h, i) => doc.text(h, colX[i] + 2, y + 5.5));
+    doc.setTextColor(...COLORS.textDark);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
   };
-
+ 
+  drawHeader(yPos);
+  yPos += 8;
+ 
   const MIN_ROW_HEIGHT = 28;
   const TOP_PADDING = 5;
   const BOTTOM_PADDING = 5;
-  const LINE_HEIGHT = 5;
-
+  const LINE_HEIGHT = 4.5;
+  const TEXT_SIZE = 9;
+ 
   for (let i = 0; i < flaggedClients.length; i++) {
     const client = flaggedClients[i];
-    const notesText = client.valuer_notes || '';
-    const notesLines = doc.splitTextToSize(notesText, colWidths[5] - 4);
-    const lineCount = notesLines.length;
-    const neededHeight = TOP_PADDING + (lineCount * LINE_HEIGHT) + BOTTOM_PADDING;
+ 
+    // splitTextToSize depends on the current font size, so set it first
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(TEXT_SIZE);
+    const nameLines   = doc.splitTextToSize(client.client_name || '', colWidths[1] - 4);
+    const notesLines  = doc.splitTextToSize(client.valuer_notes || '', colWidths[5] - 4);
+    const remarkLines = doc.splitTextToSize(client.director_remark || '', colWidths[6] - 4);
+ 
+    const longest = Math.max(notesLines.length, remarkLines.length, nameLines.length + 1);
+    const neededHeight = TOP_PADDING + longest * LINE_HEIGHT + BOTTOM_PADDING;
     const rowHeight = Math.max(MIN_ROW_HEIGHT, neededHeight);
-
+ 
     if (yPos + rowHeight > 275) {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'document');
       yPos = margin.top;
-      doc.setFillColor(...COLORS.primaryBlue);
-      doc.setTextColor(...COLORS.white);
-      doc.rect(startX, yPos, tableWidth, 8, 'F');
-      x = startX;
-      headers.forEach((h, idx) => {
-        doc.text(h, x + 2, yPos + 5.5);
-        x += colWidths[idx];
-      });
+      drawHeader(yPos);
       yPos += 8;
-      doc.setTextColor(...COLORS.textDark);
-      doc.setFont('helvetica', 'normal');
     }
-
+ 
+    // zebra stripe + cell borders
     if (i % 2 === 0) {
       doc.setFillColor(...COLORS.border);
-      doc.rect(startX, yPos, tableWidth, rowHeight, 'F');
+      doc.rect(margin.left, yPos, tableWidth, rowHeight, 'F');
     }
-
-    let cx = startX;
-    for (let j = 0; j < colWidths.length; j++) {
-      doc.rect(cx, yPos, colWidths[j], rowHeight);
-      cx += colWidths[j];
-    }
-
-    doc.text((i + 1).toString(), startX + 3, yPos + 15);
-
-    const nameX = startX + colWidths[0] + 3;
-    doc.text(client.client_name, nameX, yPos + 15);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    colWidths.forEach((w, j) => doc.rect(colX[j], yPos, w, rowHeight));
+ 
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(TEXT_SIZE);
+    doc.setTextColor(...COLORS.textDark);
+ 
+    // 0: #
+    doc.text(String(i + 1), colX[0] + 2, yPos + 10);
+ 
+    // 1: name + plan
+    let nameY = yPos + 10;
+    nameLines.forEach(line => {
+      doc.text(line, colX[1] + 2, nameY);
+      nameY += LINE_HEIGHT;
+    });
     if (client.repayment_plan) {
-      const planText = client.repayment_plan === 'daily' ? 'Daily' : 'Weekly';
       doc.setTextColor(...COLORS.primaryBlue);
       doc.setFontSize(8);
-      doc.text(planText, nameX, yPos + 21);
+      doc.text(client.repayment_plan === 'daily' ? 'Daily' : 'Weekly', colX[1] + 2, nameY);
       doc.setTextColor(...COLORS.textDark);
-      doc.setFontSize(10);
+      doc.setFontSize(TEXT_SIZE);
     }
-
-    const flaggedDate = new Date(client.flagged_at).toLocaleDateString('en-GB');
-    const dateX = startX + colWidths[0] + colWidths[1] + (colWidths[2] / 2) + 3;
-    const dateY = yPos + 20;
-    doc.setTextColor(...COLORS.textDark);
-    doc.setFontSize(9);
-    doc.text(flaggedDate, dateX, dateY, { align: 'center', angle: 45 });
-
-    doc.text(formatCurrency(client.current_principal),
-      startX + colWidths[0] + colWidths[1] + colWidths[2] + 3, yPos + 15);
-
-    const interestX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 3;
-    const interest = client.unpaid_interest || 0;
-    doc.text(formatCurrency(interest), interestX, yPos + 15);
-    const total = (client.current_principal || 0) + interest;
-    doc.setTextColor(...COLORS.primaryBlue);
+ 
+    // 2: flagged date (rotated)
+    const flaggedDate = client.flagged_at
+      ? new Date(client.flagged_at).toLocaleDateString('en-GB')
+      : '—';
     doc.setFontSize(8);
-    doc.text(`Total: ${formatCurrency(total)}`, interestX, yPos + 21);
+    doc.text(flaggedDate, colX[2] + colWidths[2] / 2 + 3, yPos + 20,
+      { align: 'center', angle: 45 });
+    doc.setFontSize(TEXT_SIZE);
+ 
+    // 3: principal
+    doc.setFontSize(8);
+    doc.text(num(client.current_principal), colX[3] + 2, yPos + 10);
+ 
+    // 4: interest + total
+    const interest = client.unpaid_interest || 0;
+    doc.text(num(interest), colX[4] + 2, yPos + 10);
+    doc.setTextColor(...COLORS.primaryBlue);
+    doc.setFontSize(7.5);
+    doc.text(`Total: ${num((client.current_principal || 0) + interest)}`,
+      colX[4] + 2, yPos + 16);
     doc.setTextColor(...COLORS.textDark);
-    doc.setFontSize(10);
-
-    const notesStartX = startX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 3;
+    doc.setFontSize(TEXT_SIZE);
+ 
+    // 5: valuer notes
     let noteY = yPos + TOP_PADDING;
     notesLines.forEach(line => {
-      doc.text(line, notesStartX, noteY);
+      doc.text(line, colX[5] + 2, noteY);
       noteY += LINE_HEIGHT;
     });
-
+ 
+    // 6: director's remarks
+    let remarkY = yPos + TOP_PADDING;
+    if (remarkLines.length === 0) {
+      doc.setTextColor(150, 150, 150);
+      doc.setFont('helvetica', 'italic');
+      doc.text('—', colX[6] + 2, remarkY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...COLORS.textDark);
+    } else {
+      remarkLines.forEach(line => {
+        doc.text(line, colX[6] + 2, remarkY);
+        remarkY += LINE_HEIGHT;
+      });
+    }
+ 
     yPos += rowHeight;
   }
-
+ 
   // ---------- Signatures & Stamp ----------
   yPos += 10;
-  if (yPos > 270) {
+  if (yPos > 255) {
     doc.addPage();
     addWatermarkToCurrentPage(doc, 'document');
     yPos = margin.top;
   }
-
+ 
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...COLORS.textDark);
   doc.text(`Prepared by: ${preparedName}`, margin.left, yPos);
   doc.text('Signature: ___________________', margin.left + 120, yPos);
   yPos += 12;
-
+ 
   doc.text('Approved by Director:  Shadrack Kesumet', margin.left, yPos);
   doc.text('Signature: ___________________', margin.left + 80, yPos);
   doc.text('Date: ___________________', margin.left + 140, yPos);
   yPos += 10;
-
+ 
   const stampW = 50, stampH = 30;
   const stampX = (pageWidth - stampW) / 2;
   doc.setDrawColor(200, 200, 200);
@@ -8863,10 +8888,10 @@ export const generateValuerReportFromData = async (
   doc.setFontSize(9);
   doc.setFont('helvetica', 'italic');
   doc.text('STAMP', stampX + stampW / 2, yPos + stampH / 2, { align: 'center' });
-
+ 
   addFooter(doc, yPos + stampH + 10);
   addPageNumbers(doc, 'page %d');
-
+ 
   const fileName = `Valuer_Report_${reportDate.replace(/\//g, '-')}.pdf`;
   if (download) {
     doc.save(fileName);
@@ -8877,7 +8902,7 @@ export const generateValuerReportFromData = async (
     URL.revokeObjectURL(url);
   }
 };
-
+ 
 // ========== OATH OF SECRECY (MANUAL) – WITH FULL LETTERHEAD ==========
 export const generateManualOathOfSecrecyPDF = async () => {
   try {

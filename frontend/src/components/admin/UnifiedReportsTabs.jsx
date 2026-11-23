@@ -74,7 +74,7 @@ const UnifiedReportsTabs = () => {
       ) : (
         // Double-guard: even if state somehow flipped, we never render
         // ValuerPanel for a role that isn't allowed to see it.
-        canSeeRecovery && <ValuerPanel editable={isValuer} />
+        canSeeRecovery && <ValuerPanel editable={isValuer} monitorMode={!isValuer} />
       )}
     </div>
   );

@@ -1245,6 +1245,7 @@ def resolve_flag(loan_id):
     return jsonify({'success': True, 'message': 'Flag resolved, loan reassigned to original officer'}), 200
 
 
+
 @recovery_bp.route('/flagged-clients', methods=['GET'])
 @jwt_required()
 @role_or_username_required(
@@ -1252,104 +1253,207 @@ def resolve_flag(loan_id):
     allowed_usernames=['Annie']
 )
 def get_flagged_clients():
-    """Return all currently flagged loans with client details, balances, and livestock value.
-    The 'valuer_notes' field reflects ONLY the current user's own notes."""
+    """
+    Return all currently flagged loans with client details, balances,
+    livestock value, the current user's own valuer notes, and the
+    Director's remark on those recovery notes.
+    """
     current_user_id = int(get_jwt_identity())
 
     flagged = FlaggedLoan.query.filter_by(resolved=False).all()
     result = []
+
     for f in flagged:
         loan = f.loan
+
         if not loan or loan.status != 'active':
             continue
+
         loan = recalculate_loan(loan)
+
         client = loan.client
         livestock = loan.livestock
 
-        # ─────────────────────────────────────────────────────────────────
-        # Unpaid interest — MUST match admin.get_loan() and get_recovery_data()
-        # so the table figure agrees with the Payment Modal.
+        # ─────────────────────────────────────────────────────────────
+        # Unpaid interest — MUST match admin.get_loan() and
+        # get_recovery_data() so the table figure agrees with the
+        # Payment Modal.
         #
-        # Weekly:   raw_weekly_interest = current_principal × 0.30
-        #           unpaid = max(0, raw_weekly_interest − period_prepaid)
-        # Daily:    unpaid = max(0, accrued_interest − interest_paid)
-        # Waived:   unpaid = 0
-        # ─────────────────────────────────────────────────────────────────
+        # Weekly: unpaid = max(0, raw_weekly_interest - period_prepaid)
+        # Daily:  unpaid = max(0, accrued_interest - interest_paid)
+        # Waived: unpaid = 0
+        # ─────────────────────────────────────────────────────────────
         current_period = _get_current_period_key(loan)
 
-        if loan.repayment_plan == 'weekly' and loan.interest_rate and loan.interest_rate > 0:
+        if (
+            loan.repayment_plan == 'weekly'
+            and loan.interest_rate
+            and loan.interest_rate > 0
+        ):
             raw_weekly_interest = (
                 loan.current_principal * Decimal('0.30')
-            ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            ).quantize(
+                Decimal('0.01'),
+                rounding=ROUND_HALF_UP
+            )
 
             period_prepaid = Decimal('0')
+
             if loan.interest_prepaid_period == current_period:
-                period_prepaid = loan.interest_prepaid_amount or Decimal('0')
+                period_prepaid = (
+                    loan.interest_prepaid_amount or Decimal('0')
+                )
 
             unpaid_interest = float(
-                max(Decimal('0'), raw_weekly_interest - period_prepaid)
+                max(
+                    Decimal('0'),
+                    raw_weekly_interest - period_prepaid
+                )
             )
+
         else:
             unpaid_interest = float(
-                max(Decimal('0'),
+                max(
+                    Decimal('0'),
                     (loan.accrued_interest or Decimal('0'))
-                    - (loan.interest_paid or Decimal('0')))
+                    - (loan.interest_paid or Decimal('0'))
+                )
             )
-        # ─────────────────────────────────────────────────────────────────
 
-        # ── CHANGED: collateral value uses the model property ──────────────
+        # ─────────────────────────────────────────────────────────────
+        # Collateral value uses the model property.
         # For new loans = forced_value; for legacy loans = estimated_value.
-        collateral_value = float(livestock.collateral_value) if livestock else 0
-        # ───────────────────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────
+        collateral_value = (
+            float(livestock.collateral_value) if livestock else 0
+        )
 
-        # Per-user notes (current user's own note only)
+        # ─────────────────────────────────────────────────────────────
+        # Current user's own Valuer notes.
+        # Each user has a separate FlaggedLoanNote record.
+        # ─────────────────────────────────────────────────────────────
         my_note = FlaggedLoanNote.query.filter_by(
             loan_id=loan.id,
             user_id=current_user_id
         ).first()
+
         my_notes_text = my_note.notes if my_note else ''
 
+        # ─────────────────────────────────────────────────────────────
+        # Director's remark on the Valuer's recovery notes.
+        # This is stored on FlaggedLoan, NOT ReportComment.
+        # ─────────────────────────────────────────────────────────────
+        director_remark = f.director_remark or ''
+
+        director_remark_at = (
+            f.director_remark_at.isoformat() + 'Z'
+            if f.director_remark_at else None
+        )
+
+        director_remark_by = (
+            f.director_remarker.username
+            if f.director_remarker else None
+        )
+
+        # ─────────────────────────────────────────────────────────────
+        # Response data
+        # ─────────────────────────────────────────────────────────────
         result.append({
             'flag_id': f.id,
             'loan_id': loan.id,
-            'client_name': client.full_name if client else 'Unknown',
-            'phone': client.phone_number if client else '',
-            'id_number': client.id_number if client else '',
+
+            'client_name': (
+                client.full_name if client else 'Unknown'
+            ),
+            'phone': (
+                client.phone_number if client else ''
+            ),
+            'id_number': (
+                client.id_number if client else ''
+            ),
+
             'current_principal': float(loan.current_principal),
             'unpaid_interest': unpaid_interest,
-            'total_outstanding': float(loan.current_principal) + unpaid_interest,
+            'total_outstanding': (
+                float(loan.current_principal) + unpaid_interest
+            ),
 
-            # ── CHANGED: collateral_value is now the forced value for new loans
+            # Collateral value
             'collateral_value': collateral_value,
 
-            # ── NEW: optional secondary figures for the valuer panel ──
             'current_market_value': (
                 float(livestock.current_market_value)
-                if livestock and livestock.current_market_value is not None else None
+                if livestock
+                and livestock.current_market_value is not None
+                else None
             ),
+
             'forced_value': (
                 float(livestock.forced_value)
-                if livestock and livestock.forced_value is not None else None
+                if livestock
+                and livestock.forced_value is not None
+                else None
             ),
+
             'estimated_value': (
                 float(livestock.estimated_value)
-                if livestock and livestock.estimated_value is not None else None
+                if livestock
+                and livestock.estimated_value is not None
+                else None
             ),
-            # ────────────────────────────────────────────────────────────
 
-            'flagged_at': f.flagged_at.isoformat() + 'Z',
-            'flagged_by_username': f.flagger.username if f.flagger else None,
+            # Flag information
+            'flagged_at': (
+                f.flagged_at.isoformat() + 'Z'
+            ),
+            'flagged_by_username': (
+                f.flagger.username if f.flagger else None
+            ),
+
+            # Valuer's own notes
             'valuer_notes': my_notes_text,
+
+            # Director's remark on the Valuer's notes
+            'director_remark': director_remark,
+            'director_remark_at': director_remark_at,
+            'director_remark_by': director_remark_by,
+
+            # Loan information
             'repayment_plan': loan.repayment_plan,
             'interest_rate': float(loan.interest_rate),
-            'location': client.location if client and client.location else '',
-            'disbursement_date': loan.disbursement_date.isoformat() if loan.disbursement_date else None,
-            'due_date': loan.due_date.isoformat() if loan.due_date else None,
-            'livestock_type': livestock.livestock_type if livestock else 'N/A',
-            'livestock_count': livestock.count if livestock else 0,
-            'photos': livestock.photos if livestock and livestock.photos else [],
-            'client_id': client.id if client else None,
+
+            'location': (
+                client.location
+                if client and client.location else ''
+            ),
+
+            'disbursement_date': (
+                loan.disbursement_date.isoformat()
+                if loan.disbursement_date else None
+            ),
+
+            'due_date': (
+                loan.due_date.isoformat()
+                if loan.due_date else None
+            ),
+
+            # Livestock information
+            'livestock_type': (
+                livestock.livestock_type if livestock else 'N/A'
+            ),
+            'livestock_count': (
+                livestock.count if livestock else 0
+            ),
+            'photos': (
+                livestock.photos
+                if livestock and livestock.photos else []
+            ),
+
+            'client_id': (
+                client.id if client else None
+            ),
         })
+
     return jsonify(result), 200
 
 @recovery_bp.route('/flagged-clients/<int:loan_id>/notes', methods=['PUT'])
@@ -1396,26 +1500,25 @@ def update_valuer_notes(loan_id):
     allowed_usernames=['Annie']
 )
 def get_loan_report_comments(loan_id):
-    """Return only report comments that actually have visible content.
+    """Return only report comments that actually have visible officer text.
 
     Snapshot placeholders created by the daily report engine
-    (`_persist_snapshot_rows` in admin.py) can end up with `comment`
-    being an empty string, a pure-whitespace string (`"\\n"`, `"\\t"`,
-    `"  "`), or NULL. SQL `TRIM()` only strips ASCII spaces, so the
-    filter is done in Python with `str.strip()`, which removes every
-    kind of whitespace including newlines and tabs.
+    (`_persist_snapshot_rows` in admin.py) can have `comment` as an empty
+    string, whitespace-only (`"\\n"`, `"\\t"`, `"  "`), or NULL. SQL `TRIM()`
+    only strips ASCII spaces, so the filter is done in Python with
+    `str.strip()`.
 
-    The result is ordered by `report_date` (newest day first), then by
-    `created_at` (newest row first) inside each day, so the modal shows
-    a clean reverse-chronological timeline.
+    Ordered by `report_date` (newest day first), then `created_at`
+    (newest row first).
+
+    NOTE: the director's remark is NO LONGER returned here. It now lives on
+    the flagged loan (see get_flagged_clients / set_flag_director_remark) and
+    refers to the valuer's recovery notes, not to these officer comments.
     """
     loan = db.session.get(Loan, loan_id)
     if not loan:
         return jsonify({'error': 'Loan not found'}), 404
 
-    # Load every row once, then filter in Python. A loan has at most a
-    # few dozen comments, so in-memory filtering is trivially cheap and
-    # completely robust across SQLite / Postgres / MySQL.
     all_comments = (
         ReportComment.query
         .filter_by(loan_id=loan_id)
@@ -1426,16 +1529,12 @@ def get_loan_report_comments(loan_id):
         .all()
     )
 
-    # `.strip()` catches space, \t, \n, \r, \f, \v and unicode whitespace.
-    # `c.comment and ...` short-circuits when the column is NULL.
-    comments = [
-        c for c in all_comments
-        if c.comment and c.comment.strip()
-    ]
+    # Keep only rows with a real officer comment.
+    comments = [c for c in all_comments if c.comment and c.comment.strip()]
 
     return jsonify([{
         'id':           c.id,
-        'comment':      c.comment,          # returned as-is (preserves formatting)
+        'comment':      c.comment or '',
         'report_date':  c.report_date.isoformat() if c.report_date else None,
         'officer_name': c.officer.username if c.officer else 'Unknown',
         'created_at':   c.created_at.isoformat() if c.created_at else None,
@@ -1681,22 +1780,30 @@ def get_notification_data():
     Consolidated notification source.
     Returns unread items grouped intelligently so the frontend doesn't
     need to build grouping logic from raw counts.
-
+ 
     Shape:
-      messages:       [{ sender_id, sender_username, sender_profile_picture, count, latest_at }]
-      group_messages: [{ group_id, group_name, group_profile_picture, count, latest_at }]
-      comments:       [{ loan_id, client_name, user_id, username, count, latest_at }]
-      applications:   { count, latest_at }
+      messages:         [{ sender_id, sender_username, sender_profile_picture, count, latest_at }]
+      group_messages:   [{ group_id, group_name, group_profile_picture, count, latest_at }]
+      comments:         [{ loan_id, client_name, user_id, username, count, latest_at }]
+      applications:     { count, latest_at }
+      director_remarks: [{ loan_id, report_date, client_name, remark, latest_at }]
+ 
+    Director-remark routing:
+      • valuer                               → the director's remark on the
+        valuer's recovery notes for any currently-flagged loan (stored on
+        FlaggedLoan).
+      • secretary / client_relations_officer → remarks on THEIR OWN daily
+        report comments (plus report-level general remarks). Unchanged.
     """
     uid = int(get_jwt_identity())
-
+ 
     # ---------- Private messages grouped by sender ----------
     unread_msgs = PrivateMessage.query.filter(
         PrivateMessage.recipient_id == uid,
-        PrivateMessage.read == False,
+        PrivateMessage.read == False,                        # noqa: E712
         PrivateMessage.group_id.is_(None),
     ).order_by(PrivateMessage.created_at.desc()).all()
-
+ 
     msg_groups = {}
     for m in unread_msgs:
         key = m.sender_id
@@ -1709,7 +1816,7 @@ def get_notification_data():
                 'latest_at': m.created_at.isoformat() + 'Z' if m.created_at else None,
             }
         msg_groups[key]['count'] += 1
-
+ 
     # ---------- Group messages grouped by group ----------
     memberships = GroupMember.query.filter_by(user_id=uid, is_active=True).all()
     group_msgs_list = []
@@ -1731,13 +1838,13 @@ def get_notification_data():
                 'count': len(unread_group_msgs),
                 'latest_at': latest.created_at.isoformat() + 'Z' if latest.created_at else None,
             })
-
+ 
     # ---------- Comments grouped by (loan, commenter) ----------
     loans = Loan.query.filter(Loan.status == 'active').all()
     comment_groups = {}
     for loan in loans:
         rec = UserLoanCommentRead.query.filter_by(user_id=uid, loan_id=loan.id).first()
-        lr = rec.last_read_at if rec else datetime.min
+        lr  = rec.last_read_at if rec else datetime.min
         unread_comments = Comment.query.filter(
             Comment.loan_id == loan.id,
             Comment.user_id != uid,
@@ -1755,10 +1862,11 @@ def get_notification_data():
                     'latest_at': c.created_at.isoformat() + 'Z' if c.created_at else None,
                 }
             comment_groups[key]['count'] += 1
-
+ 
     # ---------- Pending applications (only for reviewer roles) ----------
     me = db.session.get(User, uid)
-    reviewer_roles = ['director', 'secretary', 'client_relations_officer', 'hr_manager','valuer']
+    reviewer_roles = ['director', 'secretary', 'client_relations_officer',
+                      'hr_manager', 'valuer']
     apps_data = {'count': 0, 'latest_at': None}
     if me and me.role in reviewer_roles:
         pending_apps = Loan.query.filter_by(status='pending').all()
@@ -1766,13 +1874,49 @@ def get_notification_data():
             latest = max(pending_apps, key=lambda a: a.created_at or datetime.min)
             apps_data = {
                 'count': len(pending_apps),
-                'latest_at': latest.created_at.isoformat() + 'Z' if latest.created_at else None,
+                'latest_at': latest.created_at.isoformat() + 'Z'
+                             if latest.created_at else None,
             }
-
+ 
+    # ---------- Director remarks ----------
     director_remarks = []
-    me = db.session.get(User, uid)
-    if me and me.role in ('secretary', 'client_relations_officer'):
-        # Per-client remarks directed at this officer
+ 
+    if me and me.role == 'valuer':
+        # ── VALUER: the director's remark on the valuer's recovery notes,
+        #    stored on each currently-flagged loan.
+        flags = (
+            FlaggedLoan.query
+            .filter(
+                FlaggedLoan.resolved == False,                # noqa: E712
+                FlaggedLoan.director_remark.isnot(None),
+                FlaggedLoan.director_remark != '',
+            )
+            .order_by(FlaggedLoan.director_remark_at.desc())
+            .all()
+        )
+ 
+        for f in flags:
+            if not f.director_remark_at:
+                continue
+            loan        = f.loan
+            client_name = loan.client.full_name if loan and loan.client else 'Client'
+            director_remarks.append({
+                'loan_id':     f.loan_id,
+                # A flag has no report date — use the day the remark was written.
+                'report_date': f.director_remark_at.date().isoformat(),
+                'client_name': client_name,
+                'remark':      f.director_remark,
+                'latest_at':   f.director_remark_at.isoformat() + 'Z',
+            })
+ 
+        current_app.logger.info(
+            f"[notif-data] uid={uid} role=valuer "
+            f"remarks_returned={len(director_remarks)}"
+        )
+ 
+    elif me and me.role in ('secretary', 'client_relations_officer'):
+        # ── OFFICER: remarks directed at THIS officer's own daily report
+        #    comments (unchanged).
         rows = (
             ReportComment.query
             .filter(
@@ -1786,17 +1930,17 @@ def get_notification_data():
         for r in rows:
             if not r.director_remark_at:
                 continue
-            loan = r.loan
+            loan        = r.loan
             client_name = loan.client.full_name if loan and loan.client else 'Client'
             director_remarks.append({
-                'loan_id':        r.loan_id,
-                'report_date':    r.report_date.isoformat(),
-                'client_name':    client_name,
-                'remark':         r.director_remark,
-                'latest_at':      r.director_remark_at.isoformat() + 'Z',
+                'loan_id':     r.loan_id,
+                'report_date': r.report_date.isoformat() if r.report_date else None,
+                'client_name': client_name,
+                'remark':      r.director_remark,
+                'latest_at':   r.director_remark_at.isoformat() + 'Z',
             })
-
-        # General remarks per report
+ 
+        # General remarks per report (unchanged)
         approvals = (
             ReportApproval.query
             .filter(
@@ -1810,24 +1954,25 @@ def get_notification_data():
             if not a.updated_at:
                 continue
             director_remarks.append({
-                'loan_id':        None,
-                'report_date':    a.report_date.isoformat(),
-                'client_name':    '(General)',
-                'remark':         a.general_remarks,
-                'latest_at':      a.updated_at.isoformat() + 'Z',
+                'loan_id':     None,
+                'report_date': a.report_date.isoformat(),
+                'client_name': '(General)',
+                'remark':      a.general_remarks,
+                'latest_at':   a.updated_at.isoformat() + 'Z',
             })
-            current_app.logger.info(
-                f"[notif-data] uid={uid} role={me.role if me else '?'} "
-                f"remarks_returned={len(director_remarks)} "
-                f"signatures={[r['loan_id'] for r in director_remarks]}"
-            )
-
+ 
+        current_app.logger.info(
+            f"[notif-data] uid={uid} role={me.role} "
+            f"remarks_returned={len(director_remarks)} "
+            f"signatures={[r['loan_id'] for r in director_remarks]}"
+        )
+ 
     return jsonify({
-        'messages': list(msg_groups.values()),
-        'group_messages': group_msgs_list,
-        'comments': list(comment_groups.values()),
-        'applications': apps_data,
-        'director_remarks': director_remarks, 
+        'messages':         list(msg_groups.values()),
+        'group_messages':   group_msgs_list,
+        'comments':         list(comment_groups.values()),
+        'applications':     apps_data,
+        'director_remarks': director_remarks,
     }), 200
 
 @recovery_bp.route('/loan/<int:loan_id>/promissory-notes', methods=['GET'])
@@ -1911,3 +2056,47 @@ def create_promissory_note(loan_id):
         'remaining': max(0, MAX_PROMISSORY_NOTES - count),
         'can_issue': count < MAX_PROMISSORY_NOTES,
     }), 201
+
+
+@recovery_bp.route('/loan/<int:loan_id>/director-remark', methods=['PUT'])
+@jwt_required()
+@role_or_username_required(
+    allowed_roles=['director', 'admin', 'hr_manager'],
+    allowed_usernames=['Annie']
+)
+def set_flag_director_remark(loan_id):
+    """
+    Director's remark on the valuer's recovery notes for a flagged loan.
+
+    • One remark per flag (stored on FlaggedLoan).
+    • An empty string clears the remark.
+    • Returns the saved remark + who wrote it + when.
+    """
+    uid    = int(get_jwt_identity())
+    data   = request.get_json() or {}
+    remark = (data.get('remark') or '').strip()
+
+    flagged = FlaggedLoan.query.filter_by(loan_id=loan_id, resolved=False).first()
+    if not flagged:
+        return jsonify({'error': 'No unresolved flag for this loan'}), 404
+
+    if remark:
+        flagged.director_remark    = remark
+        flagged.director_remark_at = datetime.utcnow()
+        flagged.director_remark_by = uid
+    else:
+        flagged.director_remark    = None
+        flagged.director_remark_at = None
+        flagged.director_remark_by = None
+
+    db.session.commit()
+
+    return jsonify({
+        'success':            True,
+        'loan_id':            loan_id,
+        'director_remark':    flagged.director_remark or '',
+        'director_remark_at': (flagged.director_remark_at.isoformat() + 'Z'
+                               if flagged.director_remark_at else None),
+        'director_remark_by': (flagged.director_remarker.username
+                               if flagged.director_remarker else None),
+    }), 200

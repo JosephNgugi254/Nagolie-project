@@ -370,6 +370,7 @@ export const recoveryAPI = {
   updateValuerNotes: (loanId, notes) => api.put(`/recovery/flagged-clients/${loanId}/notes`, { notes }),
 
   getLoanReportComments: (loanId) => api.get(`/recovery/loan/${loanId}/report-comments`),
+  addDirectorRemark: (loanId, commentId, remark) => api.post(`/recovery/loan/${loanId}/report-comment/${commentId}/director-remark`, { remark }),
   saveCallLog: (data) => api.post('/recovery/calls', data),
   getAllValuerNotes: () => api.get('/recovery/flagged-clients/all-notes'),
   getTotalUnreadCount: () => api.get('/recovery/total-unread-count'),
@@ -382,6 +383,7 @@ export const recoveryAPI = {
 
   // Notification data
   getNotificationData: () => api.get('/recovery/notification-data'),
+  setFlagDirectorRemark: (loanId, remark) => api.put(`/recovery/loan/${loanId}/director-remark`, { remark }),
 
   //promissory notes
 
