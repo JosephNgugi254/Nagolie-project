@@ -3659,9 +3659,11 @@ const totalNotifCount = notifications.reduce((sum, n) => sum + (n.count || 1), 0
                 
                   {/* REPORTS */}
                   {directorSection === 'reports' && (
-                    user?.username?.toLowerCase() === 'annie'
-                      ? <AnnieReportsTabs />
-                      : <ReportsPanel />
+                    userRole === 'valuer'
+                      ? <ValuerPanel />
+                      : user?.username?.toLowerCase() === 'annie'
+                        ? <AnnieReportsTabs />
+                        : <ReportsPanel />
                   )}
                 
                   {/* MODALS (identical to AdminPanel)*/}
