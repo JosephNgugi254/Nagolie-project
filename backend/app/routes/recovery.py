@@ -1396,34 +1396,29 @@ def update_valuer_notes(loan_id):
     allowed_usernames=['Annie']
 )
 def get_loan_report_comments(loan_id):
-    """Return only report comments that actually have content.
+    """Return only report comments that actually have visible content.
 
-    Rows with an empty or whitespace-only `comment` are daily-snapshot
-    placeholders created by `_persist_snapshot_rows()` (in admin.py).
-    They carry no information — the officer never wrote anything on
-    that day — and are filtered out here so valuers only see real
-    officer notes.
+    Snapshot placeholders created by the daily report engine
+    (`_persist_snapshot_rows` in admin.py) can end up with `comment`
+    being an empty string, a pure-whitespace string (`"\\n"`, `"\\t"`,
+    `"  "`), or NULL. SQL `TRIM()` only strips ASCII spaces, so the
+    filter is done in Python with `str.strip()`, which removes every
+    kind of whitespace including newlines and tabs.
 
-    Also sorts by `report_date` first, then `created_at`, so the modal
-    shows a clean reverse-chronological list by day instead of by row
-    `created_at` (which can interleave snapshot rows with real notes
-    on the same day).
+    The result is ordered by `report_date` (newest day first), then by
+    `created_at` (newest row first) inside each day, so the modal shows
+    a clean reverse-chronological timeline.
     """
-    from sqlalchemy import func as _f
-
-    # Confirm the loan exists so the caller gets a clean 404 instead
-    # of an empty list for a typo'd loan_id.
     loan = db.session.get(Loan, loan_id)
     if not loan:
         return jsonify({'error': 'Loan not found'}), 404
 
-    comments = (
+    # Load every row once, then filter in Python. A loan has at most a
+    # few dozen comments, so in-memory filtering is trivially cheap and
+    # completely robust across SQLite / Postgres / MySQL.
+    all_comments = (
         ReportComment.query
-        .filter(
-            ReportComment.loan_id == loan_id,
-            ReportComment.comment.isnot(None),
-            _f.trim(ReportComment.comment) != '',
-        )
+        .filter_by(loan_id=loan_id)
         .order_by(
             ReportComment.report_date.desc(),
             ReportComment.created_at.desc(),
@@ -1431,15 +1426,20 @@ def get_loan_report_comments(loan_id):
         .all()
     )
 
+    # `.strip()` catches space, \t, \n, \r, \f, \v and unicode whitespace.
+    # `c.comment and ...` short-circuits when the column is NULL.
+    comments = [
+        c for c in all_comments
+        if c.comment and c.comment.strip()
+    ]
+
     return jsonify([{
         'id':           c.id,
-        'comment':      c.comment,
+        'comment':      c.comment,          # returned as-is (preserves formatting)
         'report_date':  c.report_date.isoformat() if c.report_date else None,
         'officer_name': c.officer.username if c.officer else 'Unknown',
         'created_at':   c.created_at.isoformat() if c.created_at else None,
     } for c in comments]), 200
-
-# routes/call_logs.py (or add to recovery_bp)
 
 @recovery_bp.route('/calls/<int:other_user_id>', methods=['GET'])
 @jwt_required()
