@@ -1396,14 +1396,47 @@ def update_valuer_notes(loan_id):
     allowed_usernames=['Annie']
 )
 def get_loan_report_comments(loan_id):
-    """Return all report comments (daily loan report notes) for a given loan."""
-    comments = ReportComment.query.filter_by(loan_id=loan_id).order_by(ReportComment.created_at.desc()).all()
+    """Return only report comments that actually have content.
+
+    Rows with an empty or whitespace-only `comment` are daily-snapshot
+    placeholders created by `_persist_snapshot_rows()` (in admin.py).
+    They carry no information — the officer never wrote anything on
+    that day — and are filtered out here so valuers only see real
+    officer notes.
+
+    Also sorts by `report_date` first, then `created_at`, so the modal
+    shows a clean reverse-chronological list by day instead of by row
+    `created_at` (which can interleave snapshot rows with real notes
+    on the same day).
+    """
+    from sqlalchemy import func as _f
+
+    # Confirm the loan exists so the caller gets a clean 404 instead
+    # of an empty list for a typo'd loan_id.
+    loan = db.session.get(Loan, loan_id)
+    if not loan:
+        return jsonify({'error': 'Loan not found'}), 404
+
+    comments = (
+        ReportComment.query
+        .filter(
+            ReportComment.loan_id == loan_id,
+            ReportComment.comment.isnot(None),
+            _f.trim(ReportComment.comment) != '',
+        )
+        .order_by(
+            ReportComment.report_date.desc(),
+            ReportComment.created_at.desc(),
+        )
+        .all()
+    )
+
     return jsonify([{
-        'id': c.id,
-        'comment': c.comment,
-        'report_date': c.report_date.isoformat(),
-        'officer_name': c.officer.username,
-        'created_at': c.created_at.isoformat()
+        'id':           c.id,
+        'comment':      c.comment,
+        'report_date':  c.report_date.isoformat() if c.report_date else None,
+        'officer_name': c.officer.username if c.officer else 'Unknown',
+        'created_at':   c.created_at.isoformat() if c.created_at else None,
     } for c in comments]), 200
 
 # routes/call_logs.py (or add to recovery_bp)
