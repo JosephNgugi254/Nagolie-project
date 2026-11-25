@@ -9,7 +9,7 @@ import { autoTable } from 'jspdf-autotable';
 const COMPANY_INFO = {
   name: 'NAGOLIE ENTERPRISES LTD',
   tagline: 'Investing in Living Assets',
-  address: 'Target - Isinya, Kajiado County, Kenya',
+  address: 'Nawuasa Trade Center - Isinya, Kajiado County, Kenya',
   phone1: '+254 721 451 707',
   phone2: '+254 763 003 182',
   email: 'nagolieenterprisesltd@gmail.com',
