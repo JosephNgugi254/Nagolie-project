@@ -1328,7 +1328,7 @@ function RecoveryModule() {
   };
 
   const handleOpenUtilities = () => {
-    if (['director', 'secretary', 'client_relations_officer','hr_manager'].includes(userRole)) {
+    if (['director', 'secretary', 'client_relations_officer','hr_manager', 'valuer'].includes(userRole)) {
       setDirectorSection('utilities');
     } else {
       setShowUtilities(true);
