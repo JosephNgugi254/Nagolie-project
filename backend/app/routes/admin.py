@@ -3267,9 +3267,15 @@ def get_loan(loan_id):
     loan = recalculate_loan(loan, save=False)
 
     current_period = _get_current_period_key(loan)
-    raw_weekly_interest = (loan.current_principal * Decimal('0.30')).quantize(
-        Decimal('0.01'), rounding=ROUND_HALF_UP
-    )
+    if loan.repayment_plan == 'weekly' and loan.interest_rate > 0:
+        raw_weekly_interest = (
+            loan.current_principal * Decimal('0.30')
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+    else:
+        raw_weekly_interest = Decimal('0')
     period_prepaid = Decimal('0')
     period_fully_paid = False
     if loan.interest_prepaid_period == current_period:

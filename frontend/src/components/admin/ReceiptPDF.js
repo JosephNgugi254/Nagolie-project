@@ -5766,38 +5766,84 @@ const formatCurrency = (amount) => {
   return `KES ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 };
 
+
 // generate loan invoice pdf
 export const generateLoanInvoicePDF = async (loan, transactions = []) => {
-  const initialPrincipal = loan.principal_amount || 0;
-  const currentPrincipal = loan.current_principal || 0;
-  const currentPeriodInterest = Number(loan.current_period_interest) || 0;
-  const periodPrepaid = Number(loan.period_interest_prepaid) || 0;
-  const periodFullyPaid = loan.period_interest_fully_paid === true;
+  // ========== LOAN FINANCIAL CALCULATIONS ==========
+  const initialPrincipal = Number(loan.principal_amount) || 0;
+  const currentPrincipal = Number(loan.current_principal) || 0;
+
+  const interestRate = Number(loan.interest_rate) || 0;
+  const hasInterest = interestRate > 0;
   const isWeekly = loan.repayment_plan === 'weekly';
 
-  // Total outstanding interest (same logic as before)
-  let totalOutstandingInterest;
-  if (isWeekly) {
-    const owedInterest = periodFullyPaid ? 0 : Math.max(0, currentPeriodInterest - periodPrepaid);
-    totalOutstandingInterest = owedInterest;
-  } else {
-    // ✅ For daily loans: outstanding = accrued - paid
-    const unpaid = (Number(loan.accrued_interest) || 0) - (Number(loan.interest_paid) || 0);
-    totalOutstandingInterest = Math.max(0, unpaid);
+  const currentPeriodInterest = hasInterest
+    ? Number(loan.current_period_interest) || 0
+    : 0;
+
+  const periodPrepaid = Number(loan.period_interest_prepaid) || 0;
+  const periodFullyPaid = loan.period_interest_fully_paid === true;
+
+  // Calculate outstanding interest
+  let totalOutstandingInterest = 0;
+
+  if (hasInterest) {
+    if (isWeekly) {
+      const owedInterest = periodFullyPaid
+        ? 0
+        : Math.max(0, currentPeriodInterest - periodPrepaid);
+
+      totalOutstandingInterest = owedInterest;
+    } else {
+      const unpaid =
+        (Number(loan.accrued_interest) || 0) -
+        (Number(loan.interest_paid) || 0);
+
+      totalOutstandingInterest = Math.max(0, unpaid);
+    }
+  }
+
+  // Waived loans must never carry outstanding interest
+  if (!hasInterest) {
+    totalOutstandingInterest = 0;
   }
 
   const totalBalance = currentPrincipal + totalOutstandingInterest;
-  const loanPeriod = getLoanPeriod(loan.disbursement_date, loan.repayment_plan);
 
-  const formatMoney = (amount) => `KES ${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
-  const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : 'N/A';
+  const loanPeriod = getLoanPeriod(
+    loan.disbursement_date,
+    loan.repayment_plan
+  );
+
+  const paymentPlanLabel = !hasInterest
+    ? 'Waived (0% Interest)'
+    : isWeekly
+      ? 'Weekly (30% per week)'
+      : 'Daily (4.5% per day)';
+
+  const interestDescription = !hasInterest
+    ? 'Interest (Waived)'
+    : isWeekly
+      ? 'Current Period Interest (Outstanding)'
+      : 'Accrued Interest';
+
+  const formatMoney = (amount) =>
+    `KES ${Number(amount).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+
+  const formatDate = (dateStr) =>
+    dateStr
+      ? new Date(dateStr).toLocaleDateString('en-GB')
+      : 'N/A';
 
   const doc = new jsPDF();
   addOptimizedWatermark(doc, 'invoice');
 
   let yPos = await addHeader(doc, 15);
 
-  // Title
+  // ========== TITLE ==========
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
@@ -5805,168 +5851,220 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   yPos += 8;
   yPos = addDivider(doc, yPos);
 
-  // Invoice basic info
+  // ========== INVOICE BASIC INFO ==========
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...COLORS.textDark);
+
   const invoiceNumber = `INV-LOAN-${loan.id}-${Date.now()}`;
+
   doc.text(`Invoice Number: ${invoiceNumber}`, 20, yPos);
   doc.text(`Date: ${new Date().toLocaleDateString('en-GB')}`, 150, yPos);
   yPos += 8;
+
   doc.text(`Client: ${loan.name}`, 20, yPos);
   yPos += 6;
+
   doc.text(`Phone: ${loan.contacts || 'N/A'}`, 20, yPos);
   yPos += 6;
+
   doc.text(`ID Number: ${loan.id_number || 'N/A'}`, 20, yPos);
   yPos += 6;
-  doc.text(`Loan Disbursement Date: ${formatDate(loan.disbursement_date)}`, 20, yPos);
+
+  doc.text(
+    `Loan Disbursement Date: ${formatDate(loan.disbursement_date)}`,
+    20,
+    yPos
+  );
   yPos += 6;
-  doc.text(`Payment Plan: ${loan.repayment_plan === 'daily' ? 'Daily (4.5% per day)' : 'Weekly (30% per week)'}`, 20, yPos);
+
+  doc.text(`Payment Plan: ${paymentPlanLabel}`, 20, yPos);
   yPos += 6;
+
   doc.text(`Loan Period: ${loanPeriod}`, 20, yPos);
   yPos += 12;
 
   // ========== PAYMENT HISTORY ==========
   const startX = 20;
   const tableWidth = 170;
-  
+
   // ---- Column definitions (widths total 170mm) ----
   const historyCols = [
-    { key: 'date',      label: 'Date',        x: 0,    w: 24 },
-    { key: 'type',      label: 'Type',        x: 24,   w: 32 },
-    { key: 'method',    label: 'Method',      x: 56,   w: 26 },
-    { key: 'reference', label: 'Reference',   x: 82,   w: 48 },
-    { key: 'amount',    label: 'Amount (KES)',x: 130,  w: 40, align: 'right' },
+    { key: 'date', label: 'Date', x: 0, w: 24 },
+    { key: 'type', label: 'Type', x: 24, w: 32 },
+    { key: 'method', label: 'Method', x: 56, w: 26 },
+    { key: 'reference', label: 'Reference', x: 82, w: 48 },
+    { key: 'amount', label: 'Amount (KES)', x: 130, w: 40, align: 'right' },
   ];
-  
+
   const drawHistoryHeader = (y) => {
     doc.setFillColor(...COLORS.primaryBlue);
     doc.setTextColor(...COLORS.white);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
+
     doc.rect(startX, y, tableWidth, 8, 'F');
+
     historyCols.forEach(col => {
       const tx = col.align === 'right'
         ? startX + col.x + col.w - 2
         : startX + col.x + 2;
-      doc.text(col.label, tx, y + 5.5,
-        col.align === 'right' ? { align: 'right' } : {});
+
+      doc.text(
+        col.label,
+        tx,
+        y + 5.5,
+        col.align === 'right' ? { align: 'right' } : {}
+      );
     });
+
     return y + 8;
   };
-  
+
   // ---- Helper: clip a string to a maximum mm width ----
   const clip = (text, maxWidth) => {
     let t = String(text ?? '');
+
     if (doc.getTextWidth(t) <= maxWidth) return t;
+
     while (t.length > 0 && doc.getTextWidth(t + '…') > maxWidth) {
       t = t.slice(0, -1);
     }
+
     return t + '…';
   };
-  
-  // ---- Helper: clean type label (no more "Principal Payment Payment") ----
+
+  // ---- Helper: clean type label ----
   const buildTypeLabel = (txn) => {
     const txType = (txn.transaction_type || txn.type || '').toLowerCase();
-    const payType = (txn.payment_type || '').toLowerCase().replace(/\s*payment$/i, '').trim();
-  
+
+    const payType = (txn.payment_type || '')
+      .toLowerCase()
+      .replace(/\s*payment$/i, '')
+      .trim();
+
     if (txType === 'payment') {
       if (payType === 'principal') return 'Principal';
-      if (payType === 'interest')  return 'Interest';
-      if (payType) return payType.charAt(0).toUpperCase() + payType.slice(1);
+      if (payType === 'interest') return 'Interest';
+
+      if (payType) {
+        return payType.charAt(0).toUpperCase() + payType.slice(1);
+      }
+
       return 'Payment';
     }
+
     const map = {
       disbursement: 'Disbursement',
-      topup:        'Top-up',
-      adjustment:   'Adjustment',
-      claim:        'Claim',
-      renewal:      'Renewal',
-      waiver:       'Waiver',
+      topup: 'Top-up',
+      adjustment: 'Adjustment',
+      claim: 'Claim',
+      renewal: 'Renewal',
+      waiver: 'Waiver',
     };
+
     if (map[txType]) return map[txType];
-    if (txType) return txType.charAt(0).toUpperCase() + txType.slice(1);
+
+    if (txType) {
+      return txType.charAt(0).toUpperCase() + txType.slice(1);
+    }
+
     return '—';
   };
-  
+
   // ---- Helper: clean method label ----
   const buildMethodLabel = (txn) => {
     const txType = (txn.transaction_type || txn.type || '').toLowerCase();
+
     const method = (txn.payment_method || txn.method || 'cash').toLowerCase();
+
     if (txType === 'disbursement') {
       return method === 'cash' ? 'CASH' : 'BANK';
     }
+
     return method.toUpperCase();
   };
-  
+
   // ---- Helper: clean reference ----
   const buildReferenceLabel = (txn) => {
-    const txType  = (txn.transaction_type || txn.type || '').toLowerCase();
-    const method  = (txn.payment_method || txn.method || '').toLowerCase();
+    const txType = (txn.transaction_type || txn.type || '').toLowerCase();
+    const method = (txn.payment_method || txn.method || '').toLowerCase();
+
     const bankRef = (txn.reference || txn.bank_reference || '').trim();
-  
+
     if (txType === 'disbursement') {
       return method === 'cash' ? 'CASH' : (bankRef || 'BANK');
     }
+
     if (method === 'mpesa') return txn.mpesa_receipt || 'M-PESA';
-    if (method === 'cash')  return 'CASH';
+    if (method === 'cash') return 'CASH';
     if (bankRef) return bankRef;
+
     return '—';
   };
-  
+
   if (transactions && transactions.length > 0) {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...COLORS.primaryBlue);
     doc.setFontSize(11);
     doc.text('PAYMENT HISTORY', 20, yPos);
     yPos += 8;
-  
+
     const sortedTxns = [...transactions]
       .filter(txn => {
         const t = (txn.transaction_type || txn.type || '').toLowerCase();
         return t !== 'adjustment';
       })
       .sort((a, b) =>
-        new Date(a.date || a.created_at) - new Date(b.date || b.created_at)
+        new Date(a.date || a.created_at) -
+        new Date(b.date || b.created_at)
       );
-    
+
     yPos = drawHistoryHeader(yPos);
+
     doc.setTextColor(...COLORS.textDark);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    
+
     sortedTxns.forEach((txn, idx) => {
       // ---- Page break with header re-draw ----
       if (yPos > 250) {
         doc.addPage();
         addWatermarkToCurrentPage(doc, 'invoice');
+
         yPos = 20;
         yPos = drawHistoryHeader(yPos);
+
         doc.setTextColor(...COLORS.textDark);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
       }
-    
+
       // ---- Zebra stripe ----
       if (idx % 2 === 0) {
         doc.setFillColor(...COLORS.border);
         doc.rect(startX, yPos, tableWidth, 7, 'F');
       }
-    
+
       // ---- Build values ----
       const cellValues = {
-        date:      formatDate(txn.date || txn.created_at),
-        type:      buildTypeLabel(txn),
-        method:    buildMethodLabel(txn),
+        date: formatDate(txn.date || txn.created_at),
+        type: buildTypeLabel(txn),
+        method: buildMethodLabel(txn),
         reference: buildReferenceLabel(txn),
-        amount:    formatMoney(txn.amount || 0),
+        amount: formatMoney(txn.amount || 0),
       };
-    
+
       const rowY = yPos + 4.5;
 
-      // Detect M-Pesa for this row (affects Method + Reference colour only)
-      const txnMethod = (txn.payment_method || txn.method || '').toLowerCase();
-      const isMpesa   = txnMethod === 'mpesa';
+      // Detect M-Pesa for this row
+      const txnMethod = (
+        txn.payment_method ||
+        txn.method ||
+        ''
+      ).toLowerCase();
+
+      const isMpesa = txnMethod === 'mpesa';
 
       historyCols.forEach(col => {
         const maxW = col.w - 4;
@@ -5978,19 +6076,24 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
         // Green for Method + Reference when the row is M-Pesa
         if (isMpesa && (col.key === 'method' || col.key === 'reference')) {
           doc.setTextColor(...COLORS.green);
-          doc.setFont('helvetica', 'bold');   // small pop for readability
+          doc.setFont('helvetica', 'bold');
         } else {
           doc.setFont('helvetica', 'normal');
         }
 
         if (col.align === 'right') {
-          doc.text(display, startX + col.x + col.w - 2, rowY, { align: 'right' });
+          doc.text(
+            display,
+            startX + col.x + col.w - 2,
+            rowY,
+            { align: 'right' }
+          );
         } else {
           doc.text(display, startX + col.x + 2, rowY);
         }
       });
 
-      // Reset to normal after the row so the next row starts clean
+      // Reset to normal after the row
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...COLORS.textDark);
 
@@ -5999,85 +6102,130 @@ export const generateLoanInvoicePDF = async (loan, transactions = []) => {
   } else {
     doc.setFont('helvetica', 'italic');
     doc.setTextColor(...COLORS.textLight);
-    doc.text('No payment history available for this loan.', 20, yPos);
+
+    doc.text(
+      'No payment history available for this loan.',
+      20,
+      yPos
+    );
+
     yPos += 8;
   }
 
   // ========== LOAN BREAKDOWN ==========
   yPos += 8;
+
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
   doc.text('LOAN BREAKDOWN', 20, yPos);
   yPos += 8;
 
   const colWidths = [90, 80];
+
   doc.setFillColor(...COLORS.primaryBlue);
   doc.setTextColor(...COLORS.white);
   doc.setFont('helvetica', 'bold');
+
   doc.rect(startX, yPos, 170, 8, 'F');
   doc.text('Description', startX + 2, yPos + 5.5);
   doc.text('Amount (KES)', startX + colWidths[0] + 2, yPos + 5.5);
+
   yPos += 8;
 
   doc.setTextColor(...COLORS.textDark);
   doc.setFont('helvetica', 'normal');
 
   const breakdown = [
-    { label: 'Initial Principal Borrowed', amount: initialPrincipal },
-    { label: 'Current Principal Owed', amount: currentPrincipal },
-    { label: (isWeekly ? 'Current Period Interest (Outstanding)' : 'Accrued Interest'), amount: totalOutstandingInterest },
-    { label: 'Total Balance Due', amount: totalBalance, bold: true },
+    {
+      label: 'Initial Principal Borrowed',
+      amount: initialPrincipal
+    },
+    {
+      label: 'Current Principal Owed',
+      amount: currentPrincipal
+    },
+    {
+      label: interestDescription,
+      amount: totalOutstandingInterest
+    },
+    {
+      label: 'Total Balance Due',
+      amount: totalBalance,
+      bold: true
+    },
   ];
 
   breakdown.forEach((item, idx) => {
     if (yPos > 250) {
       doc.addPage();
       addWatermarkToCurrentPage(doc, 'invoice');
+
       yPos = 20;
+
       doc.setFillColor(...COLORS.primaryBlue);
       doc.setTextColor(...COLORS.white);
       doc.setFont('helvetica', 'bold');
+
       doc.rect(startX, yPos, 170, 8, 'F');
       doc.text('Description', startX + 2, yPos + 5.5);
       doc.text('Amount (KES)', startX + colWidths[0] + 2, yPos + 5.5);
+
       yPos += 8;
+
       doc.setTextColor(...COLORS.textDark);
       doc.setFont('helvetica', 'normal');
     }
+
     if (idx % 2 === 0) {
       doc.setFillColor(...COLORS.border);
       doc.rect(startX, yPos, 170, 7, 'F');
     }
+
     if (item.bold) {
       doc.setFont('helvetica', 'bold');
     } else {
       doc.setFont('helvetica', 'normal');
     }
+
     doc.text(item.label, startX + 2, yPos + 4.5);
-    doc.text(formatMoney(item.amount), startX + colWidths[0] + 2, yPos + 4.5);
+    doc.text(
+      formatMoney(item.amount),
+      startX + colWidths[0] + 2,
+      yPos + 4.5
+    );
+
     yPos += 7;
   });
 
   // ========== PAYMENT INSTRUCTIONS ==========
   yPos += 8;
+
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.primaryBlue);
   doc.text('PAYMENT METHOD', 20, yPos);
   yPos += 6;
+
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...COLORS.textDark);
+
   doc.text('Paybill No: 247247', 22, yPos);
   yPos += 5;
+
   doc.text('Account No: 262636', 22, yPos);
   yPos += 5;
+
   doc.text('Account Name: NAGOLIE ENTERPRISES LTD', 22, yPos);
 
   addFooter(doc, yPos + 15);
   addPageNumbers(doc, 'page %d');
 
-  const fileName = `Loan_Invoice_${loan.name?.replace(/\s+/g, '_') || 'Client'}_${new Date().toISOString().split('T')[0]}.pdf`;
+  const fileName = `Loan_Invoice_${
+    loan.name?.replace(/\s+/g, '_') || 'Client'
+  }_${new Date().toISOString().split('T')[0]}.pdf`;
+
   doc.save(fileName);
 };
+
 
 // generate loan waiver agreement pdf
 export const generateLoanWaiverAgreementAutoPDF = async (loanData, newPrincipal, durationDays) => {
