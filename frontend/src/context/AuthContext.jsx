@@ -1,219 +1,350 @@
-import { createContext, useContext, useState, useEffect, useMemo } from "react"
-import { authAPI } from "../services/api"
 
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
 
-const AuthContext = createContext(null)
+import { authAPI, userAPI } from "../services/api";
+
+const AuthContext = createContext(null);
 
 export const useAuth = () => {
-  const context = useContext(AuthContext)
+  const context = useContext(AuthContext);
+
   if (!context) {
-    throw new Error("useAuth must be used within AuthProvider")
+    throw new Error("useAuth must be used within AuthProvider");
   }
-  return context
-}
+
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null) // Single user state
-  const [loading, setLoading] = useState(true)
-  const [userRole, setUserRole] = useState(null) // Track role separately
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState(null);
 
-  useEffect(() => {
-    console.log("AuthProvider: Loading user data from localStorage...")
-    
-    // Try to load user from localStorage
-    const token = localStorage.getItem("token");
-    const savedUser = localStorage.getItem("user");
-    const savedRole = localStorage.getItem("user_role");
-    
-    console.log("Token exists:", !!token);
-    console.log("User exists:", !!savedUser);
-    console.log("Role exists:", !!savedRole);
-    
-    if (token && savedUser) {
-      try {
-        const parsedUser = JSON.parse(savedUser);
-        const role = savedRole || parsedUser.role || 'admin';
-        
-        console.log("Setting user:", parsedUser);
-        console.log("Role:", role);
-        
-        setUser(parsedUser);
-        setUserRole(role);
-      } catch (error) {
-        console.error("Error parsing user:", error);
-        clearLocalStorage();
-      }
+  // Clear all authentication-related local storage
+  const clearLocalStorage = useCallback(() => {
+    const keys = [
+      "token",
+      "user",
+      "user_role",
+      "admin_token",
+      "admin_user",
+      "investor_token",
+      "investor_user",
+    ];
+
+    keys.forEach((key) => localStorage.removeItem(key));
+  }, []);
+
+  // Store an authenticated session
+  const storeSession = useCallback((token, userData, role) => {
+    if (!token || !userData || !role) {
+      throw new Error("Invalid authentication session");
     }
-    
-    setLoading(false);
-    console.log("AuthProvider: Loading complete")
-  }, [])
 
-  const clearLocalStorage = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    localStorage.removeItem("user_role");
+    // Remove previous role-specific sessions
     localStorage.removeItem("admin_token");
     localStorage.removeItem("admin_user");
     localStorage.removeItem("investor_token");
     localStorage.removeItem("investor_user");
-  }
 
+    // Store unified session
+    localStorage.setItem("token", token);
+    localStorage.setItem("user", JSON.stringify(userData));
+    localStorage.setItem("user_role", role);
+
+    // Maintain backward compatibility
+    if (role === "admin") {
+      localStorage.setItem("admin_token", token);
+      localStorage.setItem("admin_user", JSON.stringify(userData));
+    } else if (role === "investor") {
+      localStorage.setItem("investor_token", token);
+      localStorage.setItem("investor_user", JSON.stringify(userData));
+    }
+
+    setUser(userData);
+    setUserRole(role);
+  }, []);
+
+  // Load saved session when application starts
+  useEffect(() => {
+    try {
+      const token = localStorage.getItem("token");
+      const savedUser = localStorage.getItem("user");
+      const savedRole = localStorage.getItem("user_role");
+
+      if (!token || !savedUser) {
+        clearLocalStorage();
+        return;
+      }
+
+      const parsedUser = JSON.parse(savedUser);
+      const role = savedRole || parsedUser?.role;
+
+      if (
+        !parsedUser ||
+        typeof parsedUser !== "object" ||
+        !role
+      ) {
+        clearLocalStorage();
+        return;
+      }
+
+      setUser(parsedUser);
+      setUserRole(role);
+
+    } catch {
+      clearLocalStorage();
+      setUser(null);
+      setUserRole(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [clearLocalStorage]);
+
+  // Login
   const login = async (credentials) => {
     try {
-      console.log("Attempting login with:", credentials);
-      const response = await authAPI.login(credentials);
-      const { access_token, user: userData, redirect_to } = response.data;
-
-      console.log("Login successful, user:", userData);
-      console.log("User role:", userData.role);
-      
-      // Store user data with unified storage
-      localStorage.setItem("token", access_token);
-      localStorage.setItem("user", JSON.stringify(userData));
-      localStorage.setItem("user_role", userData.role);
-      
-      // Also store in role-specific storage for backward compatibility
-      if (userData.role === 'admin') {
-        localStorage.setItem("admin_token", access_token);
-        localStorage.setItem("admin_user", JSON.stringify(userData));
-      } else if (userData.role === 'investor') {
-        localStorage.setItem("investor_token", access_token);
-        localStorage.setItem("investor_user", JSON.stringify(userData));
+      if (!credentials?.username || !credentials?.password) {
+        return {
+          success: false,
+          error: "Username and password are required",
+        };
       }
-      
-      setUser(userData);
-      setUserRole(userData.role);
-      
-      // Return user data for role-based redirection
-      return { 
-        success: true, 
+
+      // Never log passwords or complete credentials
+      console.log("Login attempt initiated");
+
+      const response = await authAPI.login(credentials);
+
+      const {
+        access_token,
         user: userData,
-        redirect_to: redirect_to || (userData.role === 'investor' ? '/investor' : '/admin')
+        redirect_to,
+      } = response.data || {};
+
+      if (!access_token || !userData || !userData.role) {
+        return {
+          success: false,
+          error: "Invalid login response. Please try again.",
+        };
+      }
+
+      storeSession(access_token, userData, userData.role);
+
+      console.log("Login successful");
+      console.log("Authenticated role:", userData.role);
+
+      return {
+        success: true,
+        user: userData,
+        redirect_to:
+          redirect_to ||
+          (userData.role === "investor" ? "/investor" : "/admin"),
       };
+
     } catch (error) {
-      console.error("Login error:", error);
-      const errorMessage = error.response?.data?.error || 
-                          error.response?.data?.message || 
-                          "Login failed";
+      // Avoid logging the complete Axios error or request configuration
+      const errorMessage =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Login failed";
+
+      console.error("Authentication failed:", errorMessage);
+
       return {
         success: false,
         error: errorMessage,
       };
     }
-  }
-
-  const updateProfilePicture = async (imageData) => {
-      try {
-          const response = await userAPI.updateProfilePicture(imageData);
-          if (response.data.success) {
-              const updatedUser = { ...user, profile_picture: response.data.profile_picture };
-              localStorage.setItem('user', JSON.stringify(updatedUser));
-              setUser(updatedUser);
-              return true;
-          }
-          return false;
-      } catch (error) {
-          console.error('Failed to update profile picture:', error);
-          return false;
-      }
   };
 
-  // ADD THIS FUNCTION: setInvestorSession for investor registration
+  // Update profile picture
+  const updateProfilePicture = async (imageData) => {
+    try {
+      if (!user) {
+        return false;
+      }
+
+      const response = await userAPI.updateProfilePicture(imageData);
+
+      if (response.data?.success) {
+        const updatedUser = {
+          ...user,
+          profile_picture: response.data.profile_picture,
+        };
+
+        localStorage.setItem("user", JSON.stringify(updatedUser));
+
+        if (userRole === "admin") {
+          localStorage.setItem("admin_user", JSON.stringify(updatedUser));
+        } else if (userRole === "investor") {
+          localStorage.setItem("investor_user", JSON.stringify(updatedUser));
+        }
+
+        setUser(updatedUser);
+
+        return true;
+      }
+
+      return false;
+
+    } catch (error) {
+      console.error(
+        "Profile picture update failed:",
+        error.response?.data?.error || "Unable to update profile picture"
+      );
+
+      return false;
+    }
+  };
+
+  // Set investor session after registration
   const setInvestorSession = (investorData) => {
     try {
-      console.log("Setting investor session:", investorData);
-      
-      // Store in unified storage
-      localStorage.setItem("token", investorData.token || investorData.access_token);
-      localStorage.setItem("user", JSON.stringify(investorData));
-      localStorage.setItem("user_role", "investor");
-      
-      // Also store in investor-specific storage
-      localStorage.setItem("investor_token", investorData.token || investorData.access_token);
-      localStorage.setItem("investor_user", JSON.stringify(investorData));
-      
-      setUser(investorData);
-      setUserRole("investor");
-      
-      console.log("Investor session set successfully");
-      return { success: true };
-    } catch (error) {
-      console.error("Error setting investor session:", error);
-      return { success: false, error: "Failed to set investor session" };
-    }
-  }
+      const token =
+        investorData?.access_token ||
+        investorData?.token;
 
+      const investorUser =
+        investorData?.user || investorData;
+
+      if (!token || !investorUser) {
+        return {
+          success: false,
+          error: "Invalid investor session data",
+        };
+      }
+
+      const userData = {
+        ...investorUser,
+        role: "investor",
+      };
+
+      storeSession(token, userData, "investor");
+
+      console.log("Investor session established");
+
+      return { success: true };
+
+    } catch {
+      console.error("Unable to establish investor session");
+
+      return {
+        success: false,
+        error: "Failed to set investor session",
+      };
+    }
+  };
+
+  // Logout
   const logout = async () => {
     try {
-      console.log("Logging out...");
-      // Clear all localStorage first
       clearLocalStorage();
-      // Update state synchronously (no network call needed)
+
       setUser(null);
       setUserRole(null);
+
       console.log("Logout successful");
+
       return { success: true };
-    } catch (error) {
-      console.error("Logout error:", error);
-      return { success: false, error: "Logout failed" };
+
+    } catch {
+      console.error("Logout failed");
+
+      return {
+        success: false,
+        error: "Logout failed",
+      };
     }
   };
-  
-  // Check if user is authenticated
+
+  // Check authentication status
   const isAuthenticated = () => {
-    const token = localStorage.getItem('token');
-    const userObj = localStorage.getItem('user');
+    const token = localStorage.getItem("token");
+    const userObj = localStorage.getItem("user");
+
     return !!(token && userObj);
   };
-  
-  // Check if user has specific role
+
+  // Check user role
   const hasRole = (role) => {
     return userRole === role;
   };
 
+  // Update user data
   const updateUserData = (newUserData) => {
     try {
-      console.log("Updating user data:", newUserData);
-      
-      // Update local state
-      setUser(newUserData);
-      
-      // Update localStorage
-      localStorage.setItem("user", JSON.stringify(newUserData));
-      
-      // Also update role-specific storage if needed
-      if (newUserData.role === 'admin') {
-        localStorage.setItem("admin_user", JSON.stringify(newUserData));
-      } else if (newUserData.role === 'investor') {
-        localStorage.setItem("investor_user", JSON.stringify(newUserData));
+      if (!newUserData || typeof newUserData !== "object") {
+        return {
+          success: false,
+          error: "Invalid user data",
+        };
       }
-      
+
+      const updatedUser = {
+        ...user,
+        ...newUserData,
+      };
+
+      const updatedRole = updatedUser.role || userRole;
+
+      if (!updatedRole) {
+        return {
+          success: false,
+          error: "User role is missing",
+        };
+      }
+
+      localStorage.setItem("user", JSON.stringify(updatedUser));
+      localStorage.setItem("user_role", updatedRole);
+
+      if (updatedRole === "admin") {
+        localStorage.setItem("admin_user", JSON.stringify(updatedUser));
+      } else if (updatedRole === "investor") {
+        localStorage.setItem("investor_user", JSON.stringify(updatedUser));
+      }
+
+      setUser(updatedUser);
+      setUserRole(updatedRole);
+
       return { success: true };
-    } catch (error) {
-      console.error("Error updating user data:", error);
-      return { success: false, error: "Failed to update user data" };
+
+    } catch {
+      console.error("Unable to update user data");
+
+      return {
+        success: false,
+        error: "Failed to update user data",
+      };
     }
   };
 
-  const value = useMemo(() => ({
-    user,
-    userRole,
-    login,
-    logout,
-    isAuthenticated,
-    hasRole,
-    loading,
-    setInvestorSession,
-    updateUserData,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [user, userRole, loading]);
+  const value = useMemo(
+    () => ({
+      user,
+      userRole,
+      login,
+      logout,
+      isAuthenticated,
+      hasRole,
+      loading,
+      setInvestorSession,
+      updateUserData,
+      updateProfilePicture,
+    }),
+    [user, userRole, loading]
+  );
 
-  console.log("AuthContext value:", { 
-    user: !!user, 
-    userRole,
-    loading 
-  })
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
