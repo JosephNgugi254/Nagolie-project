@@ -5,6 +5,7 @@ from app import db
 from app.models import Client, Livestock
 from app.schemas.loan_schema import ClientSchema, LivestockSchema
 from app.utils.security import log_audit
+from flask import current_app
 
 clients_bp = Blueprint('clients', __name__)
 
@@ -53,27 +54,105 @@ def create_client():
     
     return jsonify(client.to_dict()), 201
 
+
 @clients_bp.route('/<int:client_id>', methods=['PUT'])
 @jwt_required()
 def update_client(client_id):
-    """Update client information"""
+    """Safely update client information without allowing identity reassignment."""
+
     client = db.session.get(Client, client_id)
-    
+
     if not client:
         return jsonify({'error': 'Client not found'}), 404
-    
+
+    # Safely read submitted JSON
+    payload = request.get_json(silent=True)
+
+    if not isinstance(payload, dict) or not payload:
+        return jsonify({
+            'success': False,
+            'error': 'Please provide valid client information.'
+        }), 400
+
     schema = ClientSchema()
-    
+
     try:
-        data = schema.load(request.json, partial=True)
+        data = schema.load(payload, partial=True)
+
     except ValidationError as err:
-        return jsonify({'errors': err.messages}), 400
-    
-    for key, value in data.items():
-        setattr(client, key, value)
-    
-    db.session.commit()
-    
-    log_audit('client_updated', 'client', client.id, {'name': client.full_name})
-    
-    return jsonify(client.to_dict()), 200
+        return jsonify({
+            'success': False,
+            'errors': err.messages
+        }), 400
+
+    # Prevent changes to a client's registered identity.
+    if 'id_number' in data:
+        submitted_id = str(data['id_number'] or '').strip()
+        existing_id = str(client.id_number or '').strip()
+
+        if submitted_id != existing_id:
+            return jsonify({
+                'success': False,
+                'error': 'A client ID number cannot be changed through this endpoint. Contact an authorized administrator for identity verification.',
+                'code': 'CLIENT_ID_CHANGE_RESTRICTED'
+            }), 409
+
+        # Do not unnecessarily rewrite the identity field.
+        data.pop('id_number')
+
+    if 'full_name' in data:
+        submitted_name = ' '.join(
+            str(data['full_name'] or '').split()
+        ).casefold()
+
+        existing_name = ' '.join(
+            str(client.full_name or '').split()
+        ).casefold()
+
+        if submitted_name != existing_name:
+            return jsonify({
+                'success': False,
+                'error': "A client's registered name cannot be changed through this endpoint. Contact an authorized administrator for identity verification.",
+                'code': 'CLIENT_NAME_CHANGE_RESTRICTED'
+            }), 409
+
+        # Do not unnecessarily rewrite the identity field.
+        data.pop('full_name')
+
+    if not data:
+        return jsonify({
+            'success': False,
+            'error': 'No editable client information was provided.'
+        }), 400
+
+    try:
+        # Update permitted client profile information.
+        for key, value in data.items():
+            setattr(client, key, value)
+
+        db.session.commit()
+
+        log_audit(
+            'client_updated',
+            'client',
+            client.id,
+            {
+                'name': client.full_name,
+                'updated_fields': list(data.keys())
+            }
+        )
+
+        return jsonify(client.to_dict()), 200
+
+    except Exception:
+        db.session.rollback()
+
+        current_app.logger.exception(
+            "Failed to update client ID %s",
+            client_id
+        )
+
+        return jsonify({
+            'success': False,
+            'error': 'An error occurred while updating the client. No changes were saved.'
+        }), 500

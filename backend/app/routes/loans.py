@@ -217,129 +217,326 @@ def update_loan_status(loan_id):
     
     return jsonify(loan.to_dict()), 200
 
+
+
 @loans_bp.route('/apply', methods=['POST'])
 def apply_for_loan():
-    """Public endpoint for loan applications"""
-    data = request.json
-    print("Received loan application data:", data)
+    """Public endpoint for loan applications with ID and phone verification."""
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({
+            'success': False,
+            'error': 'Invalid application data.'
+        }), 400
 
     # Validate required fields
-    required_fields = ['full_name', 'phone_number', 'id_number', 'loan_amount', 'livestock_type']
-    for field in required_fields:
-        if not data.get(field):
-            return jsonify({'error': f'Missing required field: {field}'}), 400
+    required_fields = [
+        'full_name',
+        'phone_number',
+        'id_number',
+        'loan_amount',
+        'livestock_type'
+    ]
 
-    # ── NEW: Next of Kin — all four are mandatory ─────────────────────
+    for field in required_fields:
+        if data.get(field) is None or str(data[field]).strip() == '':
+            return jsonify({
+                'success': False,
+                'error': f'Missing required field: {field}'
+            }), 400
+
+    # Normalize submitted identity details
+    submitted_full_name = ' '.join(str(data['full_name']).split())
+    submitted_id_number = str(data['id_number']).strip()
+    submitted_phone = str(data['phone_number']).strip()
+
+    if not submitted_full_name or not submitted_id_number:
+        return jsonify({
+            'success': False,
+            'error': 'Full name and ID number are required.'
+        }), 400
+
+    # Normalize Kenyan phone numbers for comparison.
+    # 0712345678, 254712345678 and +254712345678
+    # will all produce the same normalized number.
+    def normalize_phone(phone):
+        digits = ''.join(
+            character for character in str(phone or '')
+            if character.isdigit()
+        )
+
+        if digits.startswith('00'):
+            digits = digits[2:]
+
+        if len(digits) == 10 and digits.startswith('0'):
+            digits = '254' + digits[1:]
+
+        elif len(digits) == 9 and digits[0] in ('7', '1'):
+            digits = '254' + digits
+
+        return digits
+
+    normalized_submitted_phone = normalize_phone(submitted_phone)
+
+    if not normalized_submitted_phone:
+        return jsonify({
+            'success': False,
+            'error': 'Please provide a valid phone number.'
+        }), 400
+
+    # Validate Next of Kin details
     nok = data.get('nextOfKin') or {}
-    nok_name         = (nok.get('fullName')     or '').strip()
-    nok_id           = (nok.get('idNumber')     or '').strip()
+
+    if not isinstance(nok, dict):
+        return jsonify({
+            'success': False,
+            'error': 'Invalid Next of Kin details.'
+        }), 400
+
+    nok_name = (nok.get('fullName') or '').strip()
+    nok_id = (nok.get('idNumber') or '').strip()
     nok_relationship = (nok.get('relationship') or '').strip()
-    nok_phone        = (nok.get('phoneNumber')  or '').strip()
+    nok_phone = (nok.get('phoneNumber') or '').strip()
 
     if not all([nok_name, nok_id, nok_relationship, nok_phone]):
         return jsonify({
-            'error': 'Next of Kin details (Full Name, ID Number, Relationship, Phone Number) are all required'
+            'success': False,
+            'error': (
+                'Next of Kin details (Full Name, ID Number, '
+                'Relationship, Phone Number) are all required.'
+            )
         }), 400
-    # ──────────────────────────────────────────────────────────────────
 
     try:
-        # Upload photos to Cloudinary if provided
+        # ---------------------------------------------------------
+        # CLIENT IDENTITY VERIFICATION
+        # ---------------------------------------------------------
+
+        client = Client.query.filter_by(
+            id_number=submitted_id_number
+        ).first()
+
+        returning_client = False
+
+        if client:
+            # ID exists. Now verify that the phone also matches.
+            registered_phone = normalize_phone(client.phone_number)
+
+            if registered_phone != normalized_submitted_phone:
+
+                current_app.logger.warning(
+                    "[IDENTITY VERIFICATION] ID matched but phone "
+                    "did not match. Client ID: %s",
+                    client.id
+                )
+
+                return jsonify({
+                    'success': False,
+                    'error': (
+                        'This ID number is already registered, but '
+                        'the submitted phone number does not match '
+                        'the registered client record. Please contact '
+                        'the office for verification.'
+                    ),
+                    'code': 'CLIENT_PHONE_MISMATCH'
+                }), 409
+
+            # Both ID and phone match.
+            # The submitted name may be different, reversed,
+            # shortened or missing a middle name.
+            returning_client = True
+
+            current_app.logger.info(
+                "Returning client recognised. Client ID: %s",
+                client.id
+            )
+
+        else:
+            # ID was not found. Check whether this phone number
+            # already belongs to another registered client.
+            #
+            # This prevents creating a duplicate client using
+            # an existing client's phone number with another ID.
+
+            existing_phone_client = None
+
+            for existing_client in Client.query.all():
+                if normalize_phone(
+                    existing_client.phone_number
+                ) == normalized_submitted_phone:
+
+                    existing_phone_client = existing_client
+                    break
+
+            if existing_phone_client:
+                current_app.logger.warning(
+                    "[IDENTITY VERIFICATION] Phone matched an "
+                    "existing client but ID differed. Client ID: %s",
+                    existing_phone_client.id
+                )
+
+                return jsonify({
+                    'success': False,
+                    'error': (
+                        'This phone number is already registered '
+                        'under a different ID number. Please contact '
+                        'the office for verification.'
+                    ),
+                    'code': 'CLIENT_ID_MISMATCH'
+                }), 409
+
+        # ---------------------------------------------------------
+        # GET APPLICATION LOCATION
+        # ---------------------------------------------------------
+
+        location = (
+            data.get('location') or 'Isinya, Kajiado'
+        ).strip()
+
+        # ---------------------------------------------------------
+        # UPLOAD PHOTOS TO CLOUDINARY
+        # ---------------------------------------------------------
+
         photo_urls = []
+
         if data.get('photos'):
+            if not isinstance(data['photos'], list):
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid photos format.'
+                }), 400
+
             from app.utils.cloudinary_upload import upload_base64_image
 
             for idx, img in enumerate(data['photos']):
                 if not img:
                     continue
+
                 try:
-                    url = upload_base64_image(img, folder='loan_applications')
+                    url = upload_base64_image(
+                        img,
+                        folder='loan_applications'
+                    )
+
                     if not url:
                         return jsonify({
                             'success': False,
-                            'error': f'Photo #{idx+1} upload returned no URL — application not created'
+                            'error': (
+                                f'Photo #{idx + 1} upload returned no URL '
+                                '— application not created.'
+                            )
                         }), 502
+
                     photo_urls.append(url)
-                except Exception as e:
+
+                except Exception:
                     current_app.logger.exception(
-                        f"[apply_for_loan] photo #{idx+1} upload failed"
+                        "[apply_for_loan] Photo #%s upload failed",
+                        idx + 1
                     )
+
                     return jsonify({
                         'success': False,
-                        'error': f'Photo #{idx+1} could not be uploaded. Please retry.',
-                        'details': str(e),
+                        'error': (
+                            f'Photo #{idx + 1} could not be uploaded. '
+                            'Please retry.'
+                        )
                     }), 502
 
-        # Check if client already exists
-        client = Client.query.filter_by(id_number=data['id_number']).first()
-
-        # Get location from data or use default
-        location = data.get('location', 'Isinya, Kajiado')
+        # ---------------------------------------------------------
+        # CREATE CLIENT ONLY IF THEY ARE NEW
+        # ---------------------------------------------------------
 
         if not client:
             client = Client(
-                full_name=data['full_name'],
-                phone_number=data['phone_number'],
-                id_number=data['id_number'],
+                full_name=submitted_full_name,
+                phone_number=submitted_phone,
+                id_number=submitted_id_number,
                 email=data.get('email', ''),
                 location=location,
-                # NEW: Next of Kin
                 next_of_kin_name=nok_name,
                 next_of_kin_id=nok_id,
                 next_of_kin_relationship=nok_relationship,
-                next_of_kin_phone=nok_phone,
+                next_of_kin_phone=nok_phone
             )
-            db.session.add(client)
-            db.session.flush()
-        else:
-            client.full_name    = data['full_name']
-            client.phone_number = data['phone_number']
-            client.email        = data.get('email', client.email)
-            client.location     = location
-            # NEW: refresh NOK on every new application
-            client.next_of_kin_name         = nok_name
-            client.next_of_kin_id           = nok_id
-            client.next_of_kin_relationship = nok_relationship
-            client.next_of_kin_phone        = nok_phone
+
             db.session.add(client)
             db.session.flush()
 
-        # Create livestock record
+        # IMPORTANT:
+        # Returning clients retain their original registered
+        # name, phone number, ID, location and Next of Kin details.
+        #
+        # Each new application still creates its own livestock
+        # record and its own loan record.
+
+        # ---------------------------------------------------------
+        # CREATE LIVESTOCK RECORD
+        # ---------------------------------------------------------
+
         livestock = Livestock(
             client_id=client.id,
             livestock_type=data['livestock_type'],
             count=data.get('count', 1),
-            estimated_value=Decimal(str(data.get('estimated_value', 0))),
+            estimated_value=Decimal(
+                str(data.get('estimated_value', 0))
+            ),
             location=location,
             photos=photo_urls,
-            production_classification = data.get('productionClassification') or data.get('production_classification', '')
+            production_classification=(
+                data.get('productionClassification')
+                or data.get('production_classification', '')
+            )
         )
+
         db.session.add(livestock)
         db.session.flush()
 
-        # ===== CRITICAL: define principal_amount FIRST =====
+        # ---------------------------------------------------------
+        # DEFINE PRINCIPAL AMOUNT
+        # ---------------------------------------------------------
+
         principal_amount = Decimal(str(data['loan_amount']))
 
-        # ===== Handle repayment plan =====
+        # ---------------------------------------------------------
+        # HANDLE REPAYMENT PLAN
+        # ---------------------------------------------------------
+
         repayment_plan = data.get('repaymentPlan', 'weekly')
-        print(f"RAW repayment_plan from request: {repayment_plan}")
+
         if repayment_plan not in ['weekly', 'daily']:
             repayment_plan = 'weekly'
 
-        # Calculate due date and interest based on plan
         if repayment_plan == 'daily':
             due_date = datetime.now() + timedelta(days=14)
             interest_rate = Decimal('4.5')
-            total_amount = principal_amount                     # No upfront interest for daily plan
-            total_interest = Decimal('0')                       # Interest will accrue daily
-        else:  # weekly
+            total_amount = principal_amount
+            total_interest = Decimal('0')
+
+        else:
+            # Weekly repayment plan
             due_date = datetime.now() + timedelta(days=7)
             interest_rate = Decimal('30.0')
-            total_interest = principal_amount * (interest_rate / 100)
+
+            total_interest = principal_amount * (
+                interest_rate / 100
+            )
+
             total_amount = principal_amount + total_interest
 
-        print(f"After validation: {repayment_plan} | Total Amount: {total_amount}")
+        current_app.logger.info(
+            "Loan application calculation completed. "
+            "Plan: %s | Total amount: %s",
+            repayment_plan,
+            total_amount
+        )
 
-        # Create loan application
+        # ---------------------------------------------------------
+        # CREATE INDEPENDENT LOAN APPLICATION
+        # ---------------------------------------------------------
+
         loan = Loan(
             client_id=client.id,
             livestock_id=livestock.id,
@@ -357,14 +554,27 @@ def apply_for_loan():
             last_interest_payment_date=None,
             repayment_plan=repayment_plan
         )
+
         db.session.add(loan)
         db.session.commit()
 
-        print(f"Loan application created: ID {loan.id} | Plan: {repayment_plan} | Due: {due_date}")
+        current_app.logger.info(
+            "Loan application created successfully. "
+            "Loan ID: %s | Client ID: %s | Returning client: %s",
+            loan.id,
+            client.id,
+            returning_client
+        )
 
         return jsonify({
             'success': True,
-            'message': 'Loan application submitted successfully',
+            'message': (
+                'Returning client recognised. New loan application '
+                'submitted successfully.'
+                if returning_client
+                else 'Loan application submitted successfully'
+            ),
+            'returning_client': returning_client,
             'application_id': loan.id,
             'total_amount': float(total_amount),
             'interest_rate': float(interest_rate),
@@ -374,14 +584,16 @@ def apply_for_loan():
             'photos_uploaded': len(photo_urls)
         }), 201
 
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        print(f"Error creating loan application: {str(e)}")
-        import traceback
-        traceback.print_exc()
+
+        current_app.logger.exception(
+            "[apply_for_loan] Failed to create loan application"
+        )
+
         return jsonify({
             'success': False,
-            'error': f'Failed to create loan application: {str(e)}'
+            'error': 'Failed to create loan application. Please try again.'
         }), 500
                 
 @loans_bp.route('/<int:loan_id>/reject', methods=['POST'])
